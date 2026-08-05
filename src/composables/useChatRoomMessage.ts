@@ -4,7 +4,7 @@ import localforage from 'localforage'
 import { chatSettings } from '../store'
 import { useChatAuth } from './useChatAuth'
 import { generateMomentImage } from './useMomentImageGen'
-import { canViewMoment } from '../services/moments'
+import { canViewMoment, canPerformMomentAction, recordMomentAction, addMomentNotification, getMomentBehavior } from '../services/moments'
 
 // 初始化 discover_moments
 const discoverStore = localforage.createInstance({
@@ -166,14 +166,18 @@ export function useChatRoomMessage(
 }
 
 // 供 useChatRoomAPI 调用的特殊标签处理器
-export async function processMomentTags(content: string, selectedChat: any): Promise<{ newContent: string, shouldTriggerAI: boolean, aiContext?: string }> {
+export async function processMomentTags(content: string, selectedChat: any): Promise<{ newContent: string, shouldTriggerAI: boolean, aiContext?: string, handledMomentAction?: boolean }> {
   let newContent = content
   let shouldTriggerAI = false
   let aiContext = ''
+  let handledMomentAction = false
 
   // 如果开关关闭，直接返回
   if (!chatSettings.enableCharMoments) {
-    return { newContent, shouldTriggerAI, aiContext }
+    return { newContent, shouldTriggerAI, aiContext, handledMomentAction }
+  }
+  if (!selectedChat.__forceMomentAction && !getMomentBehavior(selectedChat).enabled) {
+    return { newContent, shouldTriggerAI, aiContext, handledMomentAction }
   }
 
   // 处理 <read_moments />
@@ -184,12 +188,14 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
       const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
       // 简单筛选出前 5 条用户公开或当前角色可见的朋友圈
       const visibleMoments = moments
-        .filter(m => canViewMoment(m, { id: selectedChat.id, name: selectedChat.name || '对方', groupIds: selectedChat.groupIds }))
+        .filter(m => canViewMoment(m, { id: selectedChat.id, name: selectedChat.name || '对方', groups: selectedChat.groups, groupIds: selectedChat.groupIds }))
         .filter(m => String(m.authorId ?? '') !== String(selectedChat.id) && m.author !== (selectedChat.name || '对方'))
+        .sort((a, b) => Number((b.mentions || []).some((person: any) => String(person.id) === String(selectedChat.id))) - Number((a.mentions || []).some((person: any) => String(person.id) === String(selectedChat.id))) || Number(b.time) - Number(a.time))
         .slice(0, 5)
 
       if (visibleMoments.length > 0) {
-        aiContext = `【系统旁白：你打开了朋友圈，看到了以下最新动态：\n`
+        const behavior = getMomentBehavior(selectedChat)
+        aiContext = `【系统旁白：你打开了朋友圈。你的朋友圈表达风格是“${behavior.style}”。你可以选择只点赞、只评论、两者都做或不互动。看到了以下最新动态：\n`
         visibleMoments.forEach(m => {
           aiContext += `[动态ID：${m.id}] ${m.author}：${m.content}\n`
           if (m.images && m.images.length) aiContext += `(附带了${m.images.length}张图片)\n`
@@ -211,12 +217,14 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
   const postRegex = /<post_moment([^>]*)>([\s\S]*?)<\/post_moment>/g
   let postMatch
   while ((postMatch = postRegex.exec(newContent)) !== null) {
+    handledMomentAction = true
     const attrs = postMatch[1] || ''
     const attrValue = (name: string) => attrs.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1] || ''
     const imgDesc = attrValue('image')
-    const visibility = attrValue('visibility') || '公开'
+    const visibility = attrValue('visibility')
     const visibilityGroups = attrValue('groups').split(',').map(v => v.trim()).filter(Boolean)
     const textContent = postMatch[2].trim()
+    if (!selectedChat.__forceMomentAction && !canPerformMomentAction(selectedChat, 'post')) continue
     try {
       const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
       const newMoment = {
@@ -227,8 +235,8 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         content: textContent,
         images: [], // 文字图或占位
         time: Date.now(),
-        visibility: ['公开', '私密', '部分可见', '不给谁看'].includes(visibility) ? visibility : '公开',
-        visibilityGroups,
+        visibility: ['公开', '私密', '部分可见', '不给谁看'].includes(visibility) ? visibility : getMomentBehavior(selectedChat).audience,
+        visibilityGroups: visibilityGroups.length ? visibilityGroups : getMomentBehavior(selectedChat).audienceGroupIds,
         isOwn: false,
         likes: [],
         comments: [],
@@ -236,8 +244,11 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         isGeneratingImage: Boolean(imgDesc)
       }
       moments.unshift(newMoment)
+      recordMomentAction(selectedChat, 'post')
       await discoverStore.setItem(getMomentStorageKey(), moments)
-      if (imgDesc && chatSettings.enableCharMomentImages) {
+      window.dispatchEvent(new CustomEvent('clingy:moments-updated'))
+      const behavior = getMomentBehavior(selectedChat)
+      if (imgDesc && chatSettings.enableCharMomentImages && Math.random() * 100 < behavior.imageProbability) {
         generateMomentImage(imgDesc, selectedChat)
           .then(async image => {
             const latest = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
@@ -246,6 +257,7 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
               posted.images = [image]
               posted.isGeneratingImage = false
               await discoverStore.setItem(getMomentStorageKey(), latest)
+              window.dispatchEvent(new CustomEvent('clingy:moments-updated'))
             }
           })
           .catch(async error => {
@@ -255,11 +267,13 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
               posted.isGeneratingImage = false
               posted.imageError = error?.message || '图片生成失败'
               await discoverStore.setItem(getMomentStorageKey(), latest)
+              window.dispatchEvent(new CustomEvent('clingy:moments-updated'))
             }
           })
       } else {
         newMoment.isGeneratingImage = false
         await discoverStore.setItem(getMomentStorageKey(), moments)
+        window.dispatchEvent(new CustomEvent('clingy:moments-updated'))
       }
     } catch(e) {}
   }
@@ -270,6 +284,7 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
   const interactRegex = /<interact_moment\s+action="([^"]+)"\s+id="([^"]+)"(?:\s+comment_id="([^"]*)")?(?:\s+content="([^"]*)")?\s*\/>/g
   let interactMatch
   while ((interactMatch = interactRegex.exec(newContent)) !== null) {
+    handledMomentAction = true
     const action = interactMatch[1]
     const mId = interactMatch[2]
     const commentId = interactMatch[3]
@@ -280,9 +295,12 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
       if (target) {
         target.likes ||= []
         target.comments ||= []
-        if (action === 'like' && !target.likes.includes(selectedChat.name || '对方')) {
+        const forced = Boolean(selectedChat.__forceMomentAction)
+        if (action === 'like' && (forced || canPerformMomentAction(selectedChat, 'like')) && !target.likes.includes(selectedChat.name || '对方')) {
           target.likes.push(selectedChat.name || '对方')
-        } else if (action === 'comment' && commentContent) {
+          recordMomentAction(selectedChat, 'like')
+          if (target.isOwn) addMomentNotification(target, { id: selectedChat.id, name: selectedChat.name || '对方' }, 'like')
+        } else if (action === 'comment' && commentContent && !target.comments.some((c: any) => c.authorId === selectedChat.id && c.content === commentContent) && (forced || canPerformMomentAction(selectedChat, 'comment'))) {
           target.comments.push({
             id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             author: selectedChat.name || '对方',
@@ -291,14 +309,20 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
             likes: [],
             createdAt: Date.now()
           })
-        } else if (action === 'like_comment' && commentId) {
+          recordMomentAction(selectedChat, 'comment')
+          if (target.isOwn) addMomentNotification(target, { id: selectedChat.id, name: selectedChat.name || '对方' }, 'comment', commentContent)
+        } else if (action === 'like_comment' && commentId && (forced || canPerformMomentAction(selectedChat, 'like'))) {
           const comment = target.comments.find((c: any) => c.id === commentId)
           if (comment) {
             comment.likes ||= []
             if (!comment.likes.includes(selectedChat.name || '对方')) comment.likes.push(selectedChat.name || '对方')
+            recordMomentAction(selectedChat, 'like')
+            if (target.isOwn) addMomentNotification(target, { id: selectedChat.id, name: selectedChat.name || '对方' }, 'like_comment', comment.content)
           }
-        } else if (action === 'reply_comment' && commentId && commentContent) {
+        } else if (action === 'reply_comment' && commentId && commentContent && (forced || canPerformMomentAction(selectedChat, 'comment'))) {
           const parent = target.comments.find((c: any) => c.id === commentId)
+          const alreadyReplied = target.comments.some((c: any) => c.authorId === selectedChat.id && c.replyTo === commentId && c.content === commentContent)
+          if (!parent || alreadyReplied) continue
           target.comments.push({
             id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             author: selectedChat.name || '对方',
@@ -309,12 +333,15 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
             likes: [],
             createdAt: Date.now()
           })
+          recordMomentAction(selectedChat, 'comment')
+          if (target.isOwn) addMomentNotification(target, { id: selectedChat.id, name: selectedChat.name || '对方' }, 'reply', commentContent)
         }
         await discoverStore.setItem(getMomentStorageKey(), moments)
+        window.dispatchEvent(new CustomEvent('clingy:moments-updated'))
       }
     } catch(e) {}
   }
   newContent = newContent.replace(interactRegex, '')
 
-  return { newContent: newContent.trim(), shouldTriggerAI, aiContext }
+  return { newContent: newContent.trim(), shouldTriggerAI, aiContext, handledMomentAction }
 }

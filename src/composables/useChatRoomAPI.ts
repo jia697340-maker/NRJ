@@ -185,6 +185,7 @@ export function useChatRoomAPI(
       // 第二轮再次出现读取标签时只移除标签，不继续递归请求，避免模型形成循环。
       const shouldTriggerAI = apiPurpose !== 'moment-followup' && processMomentRes.shouldTriggerAI
       const aiContext = processMomentRes.aiContext
+      const handledMomentAction = Boolean(processMomentRes.handledMomentAction)
 
       // 提取被包裹在文本中的 thinking 内容（针对部分未原生分离 thinking 字段的模型）
       const embeddedThinkingRegex = /<thinking>([\s\S]*?)<\/thinking>/i
@@ -253,7 +254,7 @@ export function useChatRoomAPI(
       
       // 如果没有解析出任何动作（比如模型只输出了 <read_moments /> 没有输出 msg），也需要保证后续的流程（比如追问）能继续
       // 降级处理
-      if (extractedActions.length === 0 && !shouldTriggerAI) {
+      if (extractedActions.length === 0 && !shouldTriggerAI && !handledMomentAction) {
         let fallbackText = replyText.replace(/<inner_thought>[\s\S]*?<\/inner_thought>/gi, '')
         fallbackText = fallbackText.replace(/<\/?(msg|recall)>/g, '').trim()
         if (fallbackText) {
@@ -263,7 +264,7 @@ export function useChatRoomAPI(
         }
       }
       
-      if (extractedActions.length > 0 || shouldTriggerAI) {
+      if (extractedActions.length > 0 || shouldTriggerAI || handledMomentAction) {
         // 模拟真人连发：通过递归/异步延迟逐条处理动作队列
         const processNextAction = async (index: number) => {
           const chatToUpdate = mockChats.value.find((c: any) => c.id === currentChatId)

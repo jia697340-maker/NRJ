@@ -1,13 +1,17 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useChatListGroups } from '../composables/useChatListGroups'
 import { useChatState } from '../composables/useChatState'
+import { useChatAuth } from '../composables/useChatAuth'
 
 const emit = defineEmits(['close', 'publish'])
 
-const { groups } = useChatListGroups()
 const { mockChats } = useChatState()
+const { currentChatUserId } = useChatAuth()
+const groups = computed(() => {
+  const key = currentChatUserId.value ? `clingy_chat_groups_${currentChatUserId.value}` : 'clingy_chat_groups'
+  return (JSON.parse(localStorage.getItem(key) || '[]') as string[]).map(name => ({ id: name, name }))
+})
 
 const text = ref('')
 const images = ref<{ id: string, dataUrl: string }[]>([])
@@ -226,15 +230,6 @@ const removeImage = (index: number) => {
           <svg viewBox="0 0 24 24" width="18" height="18" stroke="#ccc" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
         </div>
 
-        <!-- 同步到QQ空间 (仅展示) -->
-        <div class="option-item">
-          <div class="option-icon">
-            <svg viewBox="0 0 24 24" width="24" height="24" stroke="#333" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-          </div>
-          <div class="option-content">
-            <div class="option-title border-none">同步到QQ空间</div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -297,7 +292,7 @@ const removeImage = (index: number) => {
             class="menu-item" 
             v-for="opt in visibilityOptions" 
             :key="opt"
-            @click="currentVisibility = opt; if(opt !== '部分可见') showVisibilityMenu = false"
+            @click="currentVisibility = opt; if(!['部分可见', '不给谁看'].includes(opt)) showVisibilityMenu = false"
           >
             <div style="display:flex; flex-direction:column; align-items:flex-start;">
               <div class="menu-item-text" :class="{ 'is-active': currentVisibility === opt }">{{ opt }}</div>
@@ -317,7 +312,7 @@ const removeImage = (index: number) => {
               </div>
 
             </div>
-            <svg v-if="currentVisibility === opt && opt !== '部分可见'" viewBox="0 0 24 24" width="20" height="20" stroke="#07C160" stroke-width="2" fill="none" style="position:absolute; right:20px; top:18px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <svg v-if="currentVisibility === opt && !['部分可见', '不给谁看'].includes(opt)" viewBox="0 0 24 24" width="20" height="20" stroke="#07C160" stroke-width="2" fill="none" style="position:absolute; right:20px; top:18px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
           </div>
         </div>
         <div class="menu-gap"></div>

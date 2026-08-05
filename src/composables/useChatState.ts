@@ -4,6 +4,7 @@ import localforage from 'localforage'
 import { worldBooks, globalPromptSettings, chatSettings } from '../store'
 import { buildOfflineMeetPrompt } from './useOfflineMeetPrompt'
 import { useChatAuth } from './useChatAuth'
+import { getMomentBehavior } from '../services/moments'
 
 // 全局共享状态（单例外置）
 const mockChats = ref<any[]>([])
@@ -697,7 +698,11 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
     }
 
     // 组装系统提示词并推送
-    const sysPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode) + callTempSummaryContext + callModePrompt
+    const momentBehavior = getMomentBehavior(chat)
+    const momentBehaviorPrompt = chatSettings.enableCharMoments && momentBehavior.enabled
+      ? `\n\n【你的朋友圈习惯】活跃时段：${momentBehavior.activeStart}:00-${momentBehavior.activeEnd}:00；文风：${momentBehavior.style}；默认受众：${momentBehavior.audience}。可以只点赞、只评论、两者都做或只看不互动；系统会执行冷却与概率控制。`
+      : '\n\n【你的朋友圈习惯】当前不使用朋友圈，不要输出任何朋友圈标签。'
+    const sysPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode) + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
     
     if (chat.enableRoleEmojiVision && roleEmojiImages.length > 0) {
       const contentArr: any[] = [{ type: 'text', text: sysPrompt }]
