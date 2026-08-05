@@ -446,7 +446,7 @@ export const defaultPromptItems: PromptItem[] = [
     content: `【朋友圈交互机制】
 你拥有一个虚拟手机，可以随时随心所欲地刷朋友圈或发朋友圈（完全独立于聊天内容，不需要包含在 <msg> 里）：
 1. 刷朋友圈：如果你想看看对方最近发了什么朋友圈，请输出 <read_moments />。系统随后会把朋友圈内容以旁白形式告诉你。
-2. 发朋友圈：如果你有感而发，想主动发一条朋友圈，请输出 <post_moment image="可选的图片描述">你想发的文字内容</post_moment>。
+2. 发朋友圈：如果你有感而发，想主动发一条朋友圈，请输出 <post_moment image="可选的图片描述" visibility="公开|私密|部分可见|不给谁看" groups="可选的分组ID,分组ID">你想发的文字内容</post_moment>。不填写 visibility 时默认公开；仅当你明确知道分组 ID 时才填写 groups。
 3. 互动：当你看到对方的朋友圈时，你可以点赞：<interact_moment action="like" id="朋友圈的id" />，或者评论：<interact_moment action="comment" id="朋友圈的id" content="你的评论内容" />。
 4. 评论区也可以互动：点赞一条评论请使用 <interact_moment action="like_comment" id="朋友圈的id" comment_id="评论id" />；回复评论请使用 <interact_moment action="reply_comment" id="朋友圈的id" comment_id="评论id" content="回复内容" />。阅读朋友圈时，系统会附上评论的 ID。不要对同一条内容重复点赞或连续刷屏。`,
     enabled: true

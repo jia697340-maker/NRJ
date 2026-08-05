@@ -334,7 +334,7 @@ const handleDeleteMoment = async (id: string) => {
   }
 }
 
-const handlePublish = async (data: { text: string, images: string[], visibility: string, groupIds?: string[] }) => {
+const handlePublish = async (data: { text: string, images: string[], visibility: string, groupIds?: string[], location?: string, mentions?: { id: string | number, name: string }[] }) => {
   // 如果当前有人设，则使用当前人设的名字和头像
   const currentName = activePersona.value?.name || '我'
   const currentAvatar = activePersona.value?.avatar || ''
@@ -348,6 +348,8 @@ const handlePublish = async (data: { text: string, images: string[], visibility:
     time: Date.now(), // 存入真实时间戳
     visibility: data.visibility,
     visibilityGroups: data.groupIds || [],
+    location: data.location || '',
+    mentions: data.mentions || [],
     isOwn: true, // 标记是自己发布的动态
     likes: [] as string[],
     comments: [] as { author: string, content: string }[]
@@ -486,12 +488,32 @@ const handleSignSave = (text: string) => {
           <div class="moment-content-wrap">
             <div class="moment-author">{{ moment.author }}</div>
             <div class="moment-content">{{ moment.content }}</div>
+            <div v-if="moment.location" class="moment-meta">⌖ {{ moment.location }}</div>
+            <div v-if="moment.mentions?.length" class="moment-meta">@{{ moment.mentions.map((person: any) => person.name).join(' @') }}</div>
             <div class="moment-images" v-if="moment.images && moment.images.length">
               <img v-for="(img, idx) in moment.images" :key="idx" :src="img" class="moment-img" />
             </div>
             <div v-if="moment.isGeneratingImage" class="moment-image-status">正在生成配图…</div>
             <div v-else-if="moment.imageError" class="moment-image-status is-error">配图生成失败，已发布文字动态</div>
             
+            <div class="moment-footer">
+              <div class="moment-time-wrap">
+                <span class="moment-time">{{ formatTime(moment.time) }}</span>
+                <!-- 仅当非公开时显示人群小图标 -->
+                <svg v-if="moment.visibility && moment.visibility !== '公开'" viewBox="0 0 24 24" width="14" height="14" stroke="#888" stroke-width="2" fill="none" class="visibility-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                <!-- 删除按钮 -->
+                <div v-if="moment.isOwn && !isSelectionMode" class="delete-moment-btn" @click.stop="handleDeleteMoment(moment.id)">删除</div>
+              </div>
+              <div class="moment-actions" v-if="!isSelectionMode">
+                <button class="moment-action-btn" :class="{ active: isLikedByMe(moment) }" :title="isLikedByMe(moment) ? '取消点赞' : '点赞'" @click.stop="toggleMomentLike(moment)">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" :fill="isLikedByMe(moment) ? 'currentColor' : 'none'"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                </button>
+                <button class="moment-action-btn" title="评论" aria-label="评论" @click.stop="openCommentBox(moment)">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                </button>
+              </div>
+            </div>
+
             <!-- 点赞和评论展示区 -->
             <div class="moment-interactions" v-if="(moment.likes && moment.likes.length) || (moment.comments && moment.comments.length)">
               <div class="moment-likes" v-if="moment.likes && moment.likes.length">
@@ -515,24 +537,6 @@ const handleSignSave = (text: string) => {
                     </button>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            <div class="moment-footer">
-              <div class="moment-time-wrap">
-                <span class="moment-time">{{ formatTime(moment.time) }}</span>
-                <!-- 仅当非公开时显示人群小图标 -->
-                <svg v-if="moment.visibility && moment.visibility !== '公开'" viewBox="0 0 24 24" width="14" height="14" stroke="#888" stroke-width="2" fill="none" class="visibility-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                <!-- 删除按钮 -->
-                <div v-if="moment.isOwn && !isSelectionMode" class="delete-moment-btn" @click.stop="handleDeleteMoment(moment.id)">删除</div>
-              </div>
-              <div class="moment-actions" v-if="!isSelectionMode">
-                <button class="moment-action-btn" :class="{ active: isLikedByMe(moment) }" :title="isLikedByMe(moment) ? '取消点赞' : '点赞'" @click.stop="toggleMomentLike(moment)">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" :fill="isLikedByMe(moment) ? 'currentColor' : 'none'"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-                </button>
-                <button class="moment-action-btn" title="评论" aria-label="评论" @click.stop="openCommentBox(moment)">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-                </button>
               </div>
             </div>
             <div v-if="activeActionMomentId === moment.id" class="comment-composer" @click.stop>
@@ -839,6 +843,7 @@ const handleSignSave = (text: string) => {
   color: var(--text-secondary);
   line-height: 1.5;
 }
+.moment-meta { color: #576b95; font-size: 12px; line-height: 1.4; }
 
 .moment-images {
   display: flex;

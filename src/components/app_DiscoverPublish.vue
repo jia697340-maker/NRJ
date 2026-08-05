@@ -1,11 +1,13 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useChatListGroups } from '../composables/useChatListGroups'
+import { useChatState } from '../composables/useChatState'
 
 const emit = defineEmits(['close', 'publish'])
 
 const { groups } = useChatListGroups()
+const { mockChats } = useChatState()
 
 const text = ref('')
 const images = ref<{ id: string, dataUrl: string }[]>([])
@@ -19,6 +21,12 @@ const showVisibilityMenu = ref(false)
 const showImageSourceMenu = ref(false)
 const showTextToImageModal = ref(false)
 const textToImageContent = ref('')
+const location = ref('')
+const locationDraft = ref('')
+const showLocationModal = ref(false)
+const showMentionModal = ref(false)
+const mentionedIds = ref<Array<string | number>>([])
+const mentionableChats = computed(() => mockChats.value.filter((chat: any) => chat.id !== 1 && !chat.isCreate))
 
 const handleBack = () => {
   emit('close')
@@ -32,8 +40,15 @@ const handlePublish = () => {
     text: text.value,
     images: images.value.map(img => img.dataUrl),
     visibility: currentVisibility.value,
-    groupIds: ['部分可见', '不给谁看'].includes(currentVisibility.value) ? selectedGroupIds.value : []
+    groupIds: ['部分可见', '不给谁看'].includes(currentVisibility.value) ? selectedGroupIds.value : [],
+    location: location.value.trim(),
+    mentions: mentionableChats.value.filter((chat: any) => mentionedIds.value.includes(chat.id)).map((chat: any) => ({ id: chat.id, name: chat.name }))
   })
+}
+
+const saveLocation = () => {
+  location.value = locationDraft.value.trim()
+  showLocationModal.value = false
 }
 
 const triggerFileInput = () => {
@@ -171,23 +186,25 @@ const removeImage = (index: number) => {
       
       <div class="options-list">
         <!-- 所在位置 -->
-        <div class="option-item">
+        <div class="option-item" @click="locationDraft = location; showLocationModal = true">
           <div class="option-icon">
             <svg viewBox="0 0 24 24" width="24" height="24" stroke="#333" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
           </div>
           <div class="option-content">
             <div class="option-title">所在位置</div>
+            <div v-if="location" class="option-value">{{ location }}</div>
           </div>
           <svg viewBox="0 0 24 24" width="18" height="18" stroke="#ccc" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
         </div>
 
         <!-- 提醒谁看 -->
-        <div class="option-item">
+        <div class="option-item" @click="showMentionModal = true">
           <div class="option-icon">
             <svg viewBox="0 0 24 24" width="24" height="24" stroke="#333" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"></path></svg>
           </div>
           <div class="option-content">
             <div class="option-title">提醒谁看</div>
+            <div v-if="mentionedIds.length" class="option-value">已选 {{ mentionedIds.length }} 人</div>
           </div>
           <svg viewBox="0 0 24 24" width="18" height="18" stroke="#ccc" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
         </div>
@@ -235,6 +252,25 @@ const removeImage = (index: number) => {
         </div>
         <div class="menu-gap"></div>
         <div class="menu-cancel" @click="showImageSourceMenu = false">取消</div>
+      </div>
+    </div>
+
+    <div v-if="showLocationModal" class="text-to-image-overlay" @click.self="showLocationModal = false">
+      <div class="text-to-image-modal">
+        <div class="tti-header">所在位置</div>
+        <div class="tti-body"><input v-model="locationDraft" class="tti-textarea" maxlength="50" placeholder="如：上海·外滩" /></div>
+        <div class="tti-footer"><button class="tti-btn cancel" @click="showLocationModal = false">取消</button><button class="tti-btn confirm" @click="saveLocation">确定</button></div>
+      </div>
+    </div>
+
+    <div v-if="showMentionModal" class="visibility-menu-overlay" @click.self="showMentionModal = false">
+      <div class="visibility-menu">
+        <div class="menu-desc">提醒谁看</div>
+        <div class="menu-list">
+          <label v-for="chat in mentionableChats" :key="chat.id" class="mention-item"><span>{{ chat.name }}</span><input v-model="mentionedIds" type="checkbox" :value="chat.id" /></label>
+          <div v-if="!mentionableChats.length" class="menu-desc">暂无可提醒的角色</div>
+        </div>
+        <div class="menu-cancel" @click="showMentionModal = false">确定</div>
       </div>
     </div>
 
@@ -527,6 +563,8 @@ const removeImage = (index: number) => {
 .menu-cancel:active {
   background: #f2f2f2;
 }
+.mention-item { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:.5px solid #ebebeb; color:#333; font-size:16px; }
+.mention-item input { width:18px; height:18px; accent-color:#07c160; }
 
 @keyframes slideUp {
   from { transform: translateY(100%); }

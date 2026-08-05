@@ -4,6 +4,7 @@ import localforage from 'localforage'
 import { chatSettings } from '../store'
 import { useChatAuth } from './useChatAuth'
 import { generateMomentImage } from './useMomentImageGen'
+import { canViewMoment } from '../services/moments'
 
 // 初始化 discover_moments
 const discoverStore = localforage.createInstance({
@@ -182,19 +183,10 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
     try {
       const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
       // 简单筛选出前 5 条用户公开或当前角色可见的朋友圈
-      const visibleMoments = moments.filter(m => {
-        if (m.author === (selectedChat.name || '对方')) return false // 不看自己的
-        if (m.visibility === '公开') return true
-        if (m.visibility === '部分可见' && m.visibilityGroups && selectedChat.groupIds) {
-          // 检查交集
-          return m.visibilityGroups.some((gId: string) => selectedChat.groupIds.includes(gId))
-        }
-        // “不给谁看”也使用同一组联系人选择器，命中分组时不可见。
-        if (m.visibility === '不给谁看' && m.visibilityGroups && selectedChat.groupIds) {
-          return !m.visibilityGroups.some((gId: string) => selectedChat.groupIds.includes(gId))
-        }
-        return false
-      }).slice(0, 5)
+      const visibleMoments = moments
+        .filter(m => canViewMoment(m, { id: selectedChat.id, name: selectedChat.name || '对方', groupIds: selectedChat.groupIds }))
+        .filter(m => String(m.authorId ?? '') !== String(selectedChat.id) && m.author !== (selectedChat.name || '对方'))
+        .slice(0, 5)
 
       if (visibleMoments.length > 0) {
         aiContext = `【系统旁白：你打开了朋友圈，看到了以下最新动态：\n`
@@ -216,10 +208,14 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
   }
 
   // 处理 <post_moment>...</post_moment>
-  const postRegex = /<post_moment(?:\s+image="([^"]*)")?>([\s\S]*?)<\/post_moment>/g
+  const postRegex = /<post_moment([^>]*)>([\s\S]*?)<\/post_moment>/g
   let postMatch
   while ((postMatch = postRegex.exec(newContent)) !== null) {
-    const imgDesc = postMatch[1]
+    const attrs = postMatch[1] || ''
+    const attrValue = (name: string) => attrs.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1] || ''
+    const imgDesc = attrValue('image')
+    const visibility = attrValue('visibility') || '公开'
+    const visibilityGroups = attrValue('groups').split(',').map(v => v.trim()).filter(Boolean)
     const textContent = postMatch[2].trim()
     try {
       const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
@@ -231,8 +227,8 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         content: textContent,
         images: [], // 文字图或占位
         time: Date.now(),
-        visibility: '公开',
-        visibilityGroups: [],
+        visibility: ['公开', '私密', '部分可见', '不给谁看'].includes(visibility) ? visibility : '公开',
+        visibilityGroups,
         isOwn: false,
         likes: [],
         comments: [],
