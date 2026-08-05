@@ -2,12 +2,19 @@
 import { ref, computed } from 'vue'
 import localforage from 'localforage'
 import { chatSettings } from '../store'
+import { useChatAuth } from './useChatAuth'
+import { generateMomentImage } from './useMomentImageGen'
 
 // 初始化 discover_moments
 const discoverStore = localforage.createInstance({
   name: 'nrt-app',
   storeName: 'discover_moments'
 })
+
+const getMomentStorageKey = () => {
+  const { currentChatUserId } = useChatAuth()
+  return currentChatUserId.value ? `moments_list_${currentChatUserId.value}` : 'moments_list'
+}
 
 export function useChatRoomMessage(
   selectedChat: any,
@@ -173,7 +180,7 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
   if (readRegex.test(newContent)) {
     newContent = newContent.replace(readRegex, '')
     try {
-      const moments = await discoverStore.getItem<any[]>('moments_list') || []
+      const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
       // 简单筛选出前 5 条用户公开或当前角色可见的朋友圈
       const visibleMoments = moments.filter(m => {
         if (m.author === (selectedChat.name || '对方')) return false // 不看自己的
@@ -181,6 +188,10 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         if (m.visibility === '部分可见' && m.visibilityGroups && selectedChat.groupIds) {
           // 检查交集
           return m.visibilityGroups.some((gId: string) => selectedChat.groupIds.includes(gId))
+        }
+        // “不给谁看”也使用同一组联系人选择器，命中分组时不可见。
+        if (m.visibility === '不给谁看' && m.visibilityGroups && selectedChat.groupIds) {
+          return !m.visibilityGroups.some((gId: string) => selectedChat.groupIds.includes(gId))
         }
         return false
       }).slice(0, 5)
@@ -190,8 +201,13 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         visibleMoments.forEach(m => {
           aiContext += `[动态ID：${m.id}] ${m.author}：${m.content}\n`
           if (m.images && m.images.length) aiContext += `(附带了${m.images.length}张图片)\n`
+          if (m.comments?.length) {
+            m.comments.forEach((c: any) => {
+              aiContext += `[评论ID：${c.id || 'legacy'}] ${c.author}：${c.content}\n`
+            })
+          }
         })
-        aiContext += `你可以使用 <interact_moment action="like|comment" id="动态ID" content="评论内容" /> 来进行点赞或评论，或者直接在聊天中讨论此事。】`
+        aiContext += `你可以使用 <interact_moment action="like|comment" id="动态ID" content="评论内容" /> 来进行点赞或评论；也可对评论用 like_comment 或 reply_comment 标签互动，或者直接在聊天中讨论此事。】`
       } else {
         aiContext = `【系统旁白：你打开了朋友圈，但最近没有任何新动态。】`
       }
@@ -206,10 +222,11 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
     const imgDesc = postMatch[1]
     const textContent = postMatch[2].trim()
     try {
-      const moments = await discoverStore.getItem<any[]>('moments_list') || []
-      moments.unshift({
+      const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
+      const newMoment = {
         id: Date.now().toString(),
         author: selectedChat.name || '对方',
+        authorId: selectedChat.id,
         avatar: selectedChat.avatarUrl || selectedChat.avatar || '',
         content: textContent,
         images: [], // 文字图或占位
@@ -218,33 +235,86 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         visibilityGroups: [],
         isOwn: false,
         likes: [],
-        comments: []
-      })
-      await discoverStore.setItem('moments_list', moments)
+        comments: [],
+        imagePrompt: imgDesc || '',
+        isGeneratingImage: Boolean(imgDesc)
+      }
+      moments.unshift(newMoment)
+      await discoverStore.setItem(getMomentStorageKey(), moments)
+      if (imgDesc && chatSettings.enableCharMomentImages) {
+        generateMomentImage(imgDesc, selectedChat)
+          .then(async image => {
+            const latest = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
+            const posted = latest.find(m => m.id === newMoment.id)
+            if (posted) {
+              posted.images = [image]
+              posted.isGeneratingImage = false
+              await discoverStore.setItem(getMomentStorageKey(), latest)
+            }
+          })
+          .catch(async error => {
+            const latest = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
+            const posted = latest.find(m => m.id === newMoment.id)
+            if (posted) {
+              posted.isGeneratingImage = false
+              posted.imageError = error?.message || '图片生成失败'
+              await discoverStore.setItem(getMomentStorageKey(), latest)
+            }
+          })
+      } else {
+        newMoment.isGeneratingImage = false
+        await discoverStore.setItem(getMomentStorageKey(), moments)
+      }
     } catch(e) {}
   }
   newContent = newContent.replace(postRegex, '')
 
-  // 处理 <interact_moment action="..." id="..." content="..." />
-  const interactRegex = /<interact_moment\s+action="([^"]+)"\s+id="([^"]+)"(?:\s+content="([^"]*)")?\s*\/>/g
+  // 处理点赞动态、评论、点赞评论和回复评论。
+  // comment_id 固定放在 content 前，避免内容包含空格时的脆弱解析。
+  const interactRegex = /<interact_moment\s+action="([^"]+)"\s+id="([^"]+)"(?:\s+comment_id="([^"]*)")?(?:\s+content="([^"]*)")?\s*\/>/g
   let interactMatch
   while ((interactMatch = interactRegex.exec(newContent)) !== null) {
     const action = interactMatch[1]
     const mId = interactMatch[2]
-    const commentContent = interactMatch[3]
+    const commentId = interactMatch[3]
+    const commentContent = interactMatch[4]
     try {
-      const moments = await discoverStore.getItem<any[]>('moments_list') || []
+      const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
       const target = moments.find(m => m.id === mId)
       if (target) {
+        target.likes ||= []
+        target.comments ||= []
         if (action === 'like' && !target.likes.includes(selectedChat.name || '对方')) {
           target.likes.push(selectedChat.name || '对方')
         } else if (action === 'comment' && commentContent) {
           target.comments.push({
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             author: selectedChat.name || '对方',
-            content: commentContent
+            authorId: selectedChat.id,
+            content: commentContent,
+            likes: [],
+            createdAt: Date.now()
+          })
+        } else if (action === 'like_comment' && commentId) {
+          const comment = target.comments.find((c: any) => c.id === commentId)
+          if (comment) {
+            comment.likes ||= []
+            if (!comment.likes.includes(selectedChat.name || '对方')) comment.likes.push(selectedChat.name || '对方')
+          }
+        } else if (action === 'reply_comment' && commentId && commentContent) {
+          const parent = target.comments.find((c: any) => c.id === commentId)
+          target.comments.push({
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            author: selectedChat.name || '对方',
+            authorId: selectedChat.id,
+            content: commentContent,
+            replyTo: commentId,
+            replyToAuthor: parent?.author || '',
+            likes: [],
+            createdAt: Date.now()
           })
         }
-        await discoverStore.setItem('moments_list', moments)
+        await discoverStore.setItem(getMomentStorageKey(), moments)
       }
     } catch(e) {}
   }

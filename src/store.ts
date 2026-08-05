@@ -235,6 +235,39 @@ watch(summaryApiSettings, (newVal) => {
   localStorage.setItem(SUMMARY_API_STORAGE_KEY, JSON.stringify(newVal))
 }, { deep: true })
 
+const MOMENT_API_STORAGE_KEY = 'clingy_moment_api_settings'
+const savedMomentApiSettings = JSON.parse(localStorage.getItem(MOMENT_API_STORAGE_KEY) || '{}')
+
+// 朋友圈专用节点只接管角色读取朋友圈后的第二轮回应。
+// 未启用或配置不完整时，调用层会自动继续使用全局节点。
+export const momentApiSettings = reactive({
+  enabled: savedMomentApiSettings.enabled ?? false,
+  provider: savedMomentApiSettings.provider || 'deepseek',
+  url: savedMomentApiSettings.url ?? 'https://api.deepseek.com',
+  key: savedMomentApiSettings.key ?? '',
+  model: savedMomentApiSettings.model ?? '',
+  availableModels: savedMomentApiSettings.availableModels || [],
+  customUrl: savedMomentApiSettings.customUrl ?? '',
+  customKey: savedMomentApiSettings.customKey ?? '',
+  enableTemperature: savedMomentApiSettings.enableTemperature ?? false,
+  temperature: savedMomentApiSettings.temperature ?? 0.7,
+  enableMaxTokens: savedMomentApiSettings.enableMaxTokens ?? true,
+  maxTokens: savedMomentApiSettings.maxTokens ?? 500,
+  enableTopP: savedMomentApiSettings.enableTopP ?? false,
+  topP: savedMomentApiSettings.topP ?? 1.0,
+  enableFrequencyPenalty: savedMomentApiSettings.enableFrequencyPenalty ?? false,
+  frequencyPenalty: savedMomentApiSettings.frequencyPenalty ?? 0,
+  enablePresencePenalty: savedMomentApiSettings.enablePresencePenalty ?? false,
+  presencePenalty: savedMomentApiSettings.presencePenalty ?? 0,
+  enableStream: savedMomentApiSettings.enableStream ?? false,
+  presets: (savedMomentApiSettings.presets || []) as ApiPreset[],
+  currentPresetId: savedMomentApiSettings.currentPresetId ?? ''
+})
+
+watch(momentApiSettings, (newVal) => {
+  localStorage.setItem(MOMENT_API_STORAGE_KEY, JSON.stringify(newVal))
+}, { deep: true })
+
 const CHAT_STORAGE_KEY = 'clingy_chat_settings'
 const savedChatSettings = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || '{}')
 
@@ -266,7 +299,8 @@ export const chatSettings = reactive({
   disableThoughtInCall: savedChatSettings.disableThoughtInCall ?? true, // 通话时禁用心声机制
   disableSpecialTagsInOffline: savedChatSettings.disableSpecialTagsInOffline ?? true, // 线下模式禁用媒体与互动功能
   disableThoughtInOffline: savedChatSettings.disableThoughtInOffline ?? true, // 线下模式禁用心声机制
-  enableCharMoments: savedChatSettings.enableCharMoments ?? true // 允许角色主动发朋友圈与互动
+  enableCharMoments: savedChatSettings.enableCharMoments ?? true, // 允许角色主动发朋友圈与互动
+  enableCharMomentImages: savedChatSettings.enableCharMomentImages ?? false // 允许角色朋友圈消耗图像额度
 })
 
 watch(chatSettings, (newVal) => {
@@ -413,7 +447,8 @@ export const defaultPromptItems: PromptItem[] = [
 你拥有一个虚拟手机，可以随时随心所欲地刷朋友圈或发朋友圈（完全独立于聊天内容，不需要包含在 <msg> 里）：
 1. 刷朋友圈：如果你想看看对方最近发了什么朋友圈，请输出 <read_moments />。系统随后会把朋友圈内容以旁白形式告诉你。
 2. 发朋友圈：如果你有感而发，想主动发一条朋友圈，请输出 <post_moment image="可选的图片描述">你想发的文字内容</post_moment>。
-3. 互动：当你看到对方的朋友圈时，你可以点赞：<interact_moment action="like" id="朋友圈的id" />，或者评论：<interact_moment action="comment" id="朋友圈的id" content="你的评论内容" />。`,
+3. 互动：当你看到对方的朋友圈时，你可以点赞：<interact_moment action="like" id="朋友圈的id" />，或者评论：<interact_moment action="comment" id="朋友圈的id" content="你的评论内容" />。
+4. 评论区也可以互动：点赞一条评论请使用 <interact_moment action="like_comment" id="朋友圈的id" comment_id="评论id" />；回复评论请使用 <interact_moment action="reply_comment" id="朋友圈的id" comment_id="评论id" content="回复内容" />。阅读朋友圈时，系统会附上评论的 ID。不要对同一条内容重复点赞或连续刷屏。`,
     enabled: true
   },
   {

@@ -1,14 +1,15 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, cotSettings, type CotItem } from '../store'
+import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, cotSettings, type CotItem } from '../store'
 import SearchableSelect from './SearchableSelect.vue'
 
-const currentTab = ref<'global' | 'summary' | 'vision'>('global')
+const currentTab = ref<'global' | 'summary' | 'vision' | 'moment'>('global')
 
 const activeSettings = computed(() => {
   if (currentTab.value === 'summary') return summaryApiSettings
   if (currentTab.value === 'vision') return visionApiSettings
+  if (currentTab.value === 'moment') return momentApiSettings
   return apiSettings
 })
 
@@ -100,6 +101,18 @@ watch(() => visionApiSettings.url, (newUrl) => {
 watch(() => visionApiSettings.key, (newKey) => {
   if (visionApiSettings.provider === 'custom') {
     visionApiSettings.customKey = newKey
+  }
+})
+
+watch(() => momentApiSettings.url, (newUrl) => {
+  if (momentApiSettings.provider === 'custom') {
+    momentApiSettings.customUrl = newUrl
+  }
+})
+
+watch(() => momentApiSettings.key, (newKey) => {
+  if (momentApiSettings.provider === 'custom') {
+    momentApiSettings.customKey = newKey
   }
 })
 
@@ -299,6 +312,10 @@ const confirmTest = async () => {
           <span>识图节点</span>
           <div class="tab-line"></div>
         </div>
+        <div class="tab-item" :class="{ active: currentTab === 'moment' }" @click="currentTab = 'moment'">
+          <span>朋友圈节点</span>
+          <div class="tab-line"></div>
+        </div>
       </div>
 
       <!-- 线程主容器，用于绘制贯穿红线 -->
@@ -343,7 +360,29 @@ const confirmTest = async () => {
           </div>
         </div>
 
-        <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled)">
+        <!-- 朋友圈节点专属开关 -->
+        <div class="settings-section" v-if="currentTab === 'moment'">
+          <div class="red-dot"></div>
+          <div class="form-grid">
+            <div class="form-row">
+              <div class="form-label space-between">
+                <span class="cn-text">启用独立的朋友圈节点</span>
+                <label class="editorial-switch">
+                  <input type="checkbox" v-model="momentApiSettings.enabled">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="section-desc" v-if="!momentApiSettings.enabled">
+            当前角色看完朋友圈后的回应使用全局节点。开启后可为第二轮回应单独配置更便宜的模型。
+          </div>
+          <div class="section-desc" v-else>
+            仅接管角色读取朋友圈后的第二轮回应；首次聊天与是否查看朋友圈的判断仍使用全局节点。配置不完整时会自动使用全局节点。
+          </div>
+        </div>
+
+        <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled) || (currentTab === 'moment' && momentApiSettings.enabled)">
           
           <div class="settings-section" v-show="isMatch('服务商 接口地址 api密钥 测试 重置')">
             <div class="red-dot"></div>

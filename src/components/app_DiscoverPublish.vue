@@ -32,7 +32,7 @@ const handlePublish = () => {
     text: text.value,
     images: images.value.map(img => img.dataUrl),
     visibility: currentVisibility.value,
-    groupIds: currentVisibility.value === '部分可见' ? selectedGroupIds.value : []
+    groupIds: ['部分可见', '不给谁看'].includes(currentVisibility.value) ? selectedGroupIds.value : []
   })
 }
 
@@ -201,7 +201,7 @@ const removeImage = (index: number) => {
             <div class="option-title">谁可以看</div>
             <div class="option-value">
               {{ currentVisibility }}
-              <span v-if="currentVisibility === '部分可见' && selectedGroupIds.length > 0" style="font-size:12px; margin-left:4px; color:#576b95">
+              <span v-if="['部分可见', '不给谁看'].includes(currentVisibility) && selectedGroupIds.length > 0" style="font-size:12px; margin-left:4px; color:#576b95">
                 (已选{{selectedGroupIds.length}}个分组)
               </span>
             </div>
@@ -266,8 +266,8 @@ const removeImage = (index: number) => {
             <div style="display:flex; flex-direction:column; align-items:flex-start;">
               <div class="menu-item-text" :class="{ 'is-active': currentVisibility === opt }">{{ opt }}</div>
               
-              <!-- 如果选择了部分可见，展示所有分组供多选 -->
-              <div v-if="opt === '部分可见' && currentVisibility === '部分可见'" style="width:100%; margin-top:12px; display:flex; flex-direction:column; gap:8px;" @click.stop>
+              <!-- 部分可见与不给谁看均按联系人分组多选 -->
+              <div v-if="(opt === '部分可见' || opt === '不给谁看') && currentVisibility === opt" style="width:100%; margin-top:12px; display:flex; flex-direction:column; gap:8px;" @click.stop>
                 <div v-if="groups.length === 0" style="font-size:13px; color:#999;">暂无分组数据，请先去联系人列表创建分组</div>
                 <div v-for="g in groups" :key="g.id" style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-top:1px solid #f2f2f2; width:100%;">
                   <span style="font-size:14px; color:#333;">{{ g.name }}</span>

@@ -28,6 +28,9 @@ const showPlayerControls = ref(true)
 const activeSignature = ref('写点什么吧...')
 const showActionMenu = ref(false)
 const showSignModal = ref(false)
+const activeActionMomentId = ref<string | null>(null)
+const commentDraft = ref('')
+const replyTarget = ref<{ id: string, author: string } | null>(null)
 
 const resolvedAvatars = ref<Record<string, string>>({})
 
@@ -77,7 +80,7 @@ const confirmBatchDelete = async () => {
   mockMoments.value = mockMoments.value.filter(m => !selectedIds.value.includes(m.id))
   try {
     const plainMoments = JSON.parse(JSON.stringify(mockMoments.value))
-    await discoverStore.setItem('moments_list', plainMoments)
+    await discoverStore.setItem(getKey('moments_list'), plainMoments)
   } catch(e) {
     console.error('Failed to save after batch delete', e)
   }
@@ -131,6 +134,11 @@ watch(activePersonaIndex, () => {
   loadSignature()
 })
 
+watch(currentChatUserId, () => {
+  resolvedAvatars.value = {}
+  loadMoments()
+})
+
 const loadActiveIndex = () => {
   const savedIndex = localStorage.getItem(getKey('app_chat_active_persona_index'))
   if (savedIndex !== null) {
@@ -175,9 +183,27 @@ onMounted(() => {
 
 const loadMoments = async () => {
   try {
-    const saved = await discoverStore.getItem<any[]>('moments_list')
+    // 朋友圈与登录身份隔离；保留旧 key 迁移，避免已有动态丢失。
+    const userKey = getKey('moments_list')
+    let saved = await discoverStore.getItem<any[]>(userKey)
+    if (!saved && currentChatUserId.value) {
+      const legacy = await discoverStore.getItem<any[]>('moments_list')
+      if (legacy?.length) {
+        saved = legacy
+        await discoverStore.setItem(userKey, legacy)
+      }
+    }
     if (saved && Array.isArray(saved)) {
-      mockMoments.value = saved
+      mockMoments.value = saved.map(m => ({
+        ...m,
+        likes: Array.isArray(m.likes) ? m.likes : [],
+        comments: Array.isArray(m.comments) ? m.comments.map((c: any) => ({
+          id: c.id || `${m.id}_${c.author}_${c.content}`,
+          likes: Array.isArray(c.likes) ? c.likes : [],
+          createdAt: c.createdAt || m.time,
+          ...c
+        })) : []
+      }))
 
       // 解析 localforage 头像
       for (const m of saved) {
@@ -187,13 +213,78 @@ const loadMoments = async () => {
             if (realAvatar) {
               resolvedAvatars.value[m.id] = realAvatar
             }
-          }).catch(e => {})
+          }).catch(() => {})
         }
       }
     }
   } catch(e) {
     console.error('Failed to load moments', e)
   }
+}
+
+const saveMoments = async () => {
+  await discoverStore.setItem(getKey('moments_list'), JSON.parse(JSON.stringify(mockMoments.value)))
+}
+
+const currentActor = computed(() => ({
+  id: activePersona.value?.id || 'me',
+  name: activePersona.value?.name || '我'
+}))
+
+const isLikedByMe = (moment: any) => moment.likes?.includes(currentActor.value.name)
+const toggleMomentLike = async (moment: any) => {
+  moment.likes ||= []
+  const index = moment.likes.indexOf(currentActor.value.name)
+  if (index >= 0) moment.likes.splice(index, 1)
+  else moment.likes.push(currentActor.value.name)
+  await saveMoments()
+}
+
+const toggleCommentLike = async (comment: any) => {
+  comment.likes ||= []
+  const index = comment.likes.indexOf(currentActor.value.name)
+  if (index >= 0) comment.likes.splice(index, 1)
+  else comment.likes.push(currentActor.value.name)
+  await saveMoments()
+}
+
+const openCommentBox = (moment: any, target: any = null) => {
+  activeActionMomentId.value = moment.id
+  replyTarget.value = target ? { id: target.id, author: target.author } : null
+  commentDraft.value = ''
+}
+
+const submitComment = async () => {
+  const moment = mockMoments.value.find(m => m.id === activeActionMomentId.value)
+  const content = commentDraft.value.trim()
+  if (!moment || !content) return
+  moment.comments ||= []
+  moment.comments.push({
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    author: currentActor.value.name,
+    authorId: currentActor.value.id,
+    content,
+    replyTo: replyTarget.value?.id || '',
+    replyToAuthor: replyTarget.value?.author || '',
+    likes: [],
+    createdAt: Date.now()
+  })
+  await saveMoments()
+  commentDraft.value = ''
+  replyTarget.value = null
+  activeActionMomentId.value = null
+}
+
+const deleteComment = async (moment: any, comment: any) => {
+  if (comment.authorId !== currentActor.value.id && comment.author !== currentActor.value.name) return
+  moment.comments = moment.comments.filter((c: any) => c.id !== comment.id)
+  await saveMoments()
+}
+
+const closeCommentBox = () => {
+  activeActionMomentId.value = null
+  replyTarget.value = null
+  commentDraft.value = ''
 }
 
 // 供模板使用的头像提取方法
@@ -237,7 +328,7 @@ const handleDeleteMoment = async (id: string) => {
   mockMoments.value = mockMoments.value.filter(m => m.id !== id)
   try {
     const plainMoments = JSON.parse(JSON.stringify(mockMoments.value))
-    await discoverStore.setItem('moments_list', plainMoments)
+    await discoverStore.setItem(getKey('moments_list'), plainMoments)
   } catch(e) {
     console.error('Failed to save after delete', e)
   }
@@ -268,7 +359,7 @@ const handlePublish = async (data: { text: string, images: string[], visibility:
   try {
     // 将 Vue 的 Proxy 响应式对象深拷贝解构为普通数组，避免 localforage 的 DataCloneError
     const plainMoments = JSON.parse(JSON.stringify(mockMoments.value))
-    await discoverStore.setItem('moments_list', plainMoments)
+    await discoverStore.setItem(getKey('moments_list'), plainMoments)
   } catch(e) {
     console.error('Failed to save moments', e)
   }
@@ -398,6 +489,8 @@ const handleSignSave = (text: string) => {
             <div class="moment-images" v-if="moment.images && moment.images.length">
               <img v-for="(img, idx) in moment.images" :key="idx" :src="img" class="moment-img" />
             </div>
+            <div v-if="moment.isGeneratingImage" class="moment-image-status">正在生成配图…</div>
+            <div v-else-if="moment.imageError" class="moment-image-status is-error">配图生成失败，已发布文字动态</div>
             
             <!-- 点赞和评论展示区 -->
             <div class="moment-interactions" v-if="(moment.likes && moment.likes.length) || (moment.comments && moment.comments.length)">
@@ -406,8 +499,21 @@ const handleSignSave = (text: string) => {
                 <span class="like-names">{{ moment.likes.join(', ') }}</span>
               </div>
               <div class="moment-comments" v-if="moment.comments && moment.comments.length">
-                <div v-for="(comment, cIdx) in moment.comments" :key="cIdx" class="comment-item">
-                  <span class="comment-author">{{ comment.author }}</span>: <span class="comment-text">{{ comment.content }}</span>
+                <div v-for="(comment, cIdx) in moment.comments" :key="comment.id || cIdx" class="comment-item">
+                  <div class="comment-main" @click.stop="openCommentBox(moment, comment)">
+                    <span class="comment-author">{{ comment.author }}</span>
+                    <span v-if="comment.replyToAuthor" class="comment-reply">回复 {{ comment.replyToAuthor }}</span>:
+                    <span class="comment-text">{{ comment.content }}</span>
+                  </div>
+                  <div class="comment-tools">
+                    <button title="赞这条评论" aria-label="赞这条评论" @click.stop="toggleCommentLike(comment)" :class="{ active: comment.likes?.includes(currentActor.name) }">
+                      <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                      <span v-if="comment.likes?.length">{{ comment.likes.length }}</span>
+                    </button>
+                    <button v-if="comment.authorId === currentActor.id || comment.author === currentActor.name" title="删除评论" aria-label="删除评论" @click.stop="deleteComment(moment, comment)">
+                      <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14H6L5 6m3 0V4h8v2"></path></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -420,10 +526,20 @@ const handleSignSave = (text: string) => {
                 <!-- 删除按钮 -->
                 <div v-if="moment.isOwn && !isSelectionMode" class="delete-moment-btn" @click.stop="handleDeleteMoment(moment.id)">删除</div>
               </div>
-              <div class="moment-actions">
-                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+              <div class="moment-actions" v-if="!isSelectionMode">
+                <button class="moment-action-btn" :class="{ active: isLikedByMe(moment) }" :title="isLikedByMe(moment) ? '取消点赞' : '点赞'" @click.stop="toggleMomentLike(moment)">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" :fill="isLikedByMe(moment) ? 'currentColor' : 'none'"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                </button>
+                <button class="moment-action-btn" title="评论" aria-label="评论" @click.stop="openCommentBox(moment)">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                </button>
               </div>
+            </div>
+            <div v-if="activeActionMomentId === moment.id" class="comment-composer" @click.stop>
+              <span v-if="replyTarget" class="reply-hint">回复 {{ replyTarget.author }}</span>
+              <input v-model="commentDraft" maxlength="200" :placeholder="replyTarget ? `回复 ${replyTarget.author}…` : '说点什么…'" @keyup.enter="submitComment" />
+              <button :disabled="!commentDraft.trim()" @click="submitComment">发送</button>
+              <button class="cancel-comment" @click="closeCommentBox">取消</button>
             </div>
           </div>
         </div>
@@ -781,7 +897,24 @@ const handleSignSave = (text: string) => {
 }
 .comment-item {
   line-height: 1.4;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
 }
+.moment-image-status { margin-top: 8px; padding: 8px 10px; border-radius: 5px; color: #888; font-size: 12px; background: var(--sys-bg-secondary, #f5f5f5); }
+.moment-image-status.is-error { color: #b07d55; }
+.comment-main { cursor: pointer; min-width: 0; }
+.comment-reply { color: #576b95; margin-left: 3px; }
+.comment-tools { flex-shrink: 0; display: flex; gap: 5px; opacity: .72; }
+.comment-tools button, .moment-action-btn { border: 0; background: transparent; color: #8994a7; padding: 0; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
+.comment-tools button.active, .moment-action-btn.active { color: #576b95; }
+.comment-composer { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding: 8px; background: var(--sys-bg-secondary, #f5f5f5); border-radius: 6px; flex-wrap: wrap; }
+.comment-composer input { flex: 1; min-width: 130px; border: 0; outline: 0; background: transparent; font-size: 13px; color: var(--text-primary, #333); }
+.comment-composer button { border: 0; border-radius: 4px; padding: 4px 8px; color: #fff; background: #576b95; font-size: 12px; cursor: pointer; }
+.comment-composer button:disabled { opacity: .45; cursor: default; }
+.comment-composer .cancel-comment { background: transparent; color: #888; }
+.reply-hint { width: 100%; color: #576b95; font-size: 12px; }
 .comment-author {
   color: #576b95;
   font-weight: 500;
@@ -817,6 +950,7 @@ const handleSignSave = (text: string) => {
   gap: 16px;
   color: var(--text-tertiary);
 }
+.moment-action-btn { width: 18px; height: 18px; justify-content: center; }
 
 /* Dropdown */
 .dropdown-overlay {

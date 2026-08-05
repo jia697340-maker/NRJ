@@ -260,6 +260,19 @@ const onOfflineToggle = () => {
         </div>
       </div>
 
+      <div class="glass-list-item" v-show="matchSearch('允许角色朋友圈真实生图', '朋友圈', '生图')">
+        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
+          <span>允许角色朋友圈真实生图</span>
+          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">角色发帖带图片描述时调用其图像引擎；关闭后仅发布文字动态</span>
+        </div>
+        <div class="item-value">
+          <label class="switch" @click.stop>
+            <input type="checkbox" v-model="chatSettings.enableCharMomentImages" @change="handleSave">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
       <div class="glass-list-item" v-show="matchSearch('允许角色主动拨打语音', '来电', '语音')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px;">
         <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
           <span>允许角色主动拨打语音</span>

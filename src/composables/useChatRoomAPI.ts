@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
-import { sendChatMessage } from '../services/api'
+import { sendChatMessage, isMomentApiReady, type ChatApiPurpose } from '../services/api'
 import { chatSettings } from '../store'
 import localforage from 'localforage'
 import { useNovelAI } from './useNovelAI'
@@ -105,7 +105,10 @@ export function useChatRoomAPI(
     }
   }
 
-  const triggerAPI = async (callMode: false | 'voice' | 'video' = false) => {
+  const triggerAPI = async (
+    callMode: false | 'voice' | 'video' = false,
+    apiPurpose: ChatApiPurpose = 'default'
+  ) => {
     if (!selectedChat.value || selectedChat.value.id === 1) return
     if (isGenerating.value) return
     
@@ -154,7 +157,16 @@ export function useChatRoomAPI(
     
     try {
       const startTime = Date.now()
-      const result = await sendChatMessage(apiMessages, abortController.signal)
+      let result
+      try {
+        result = await sendChatMessage(apiMessages, abortController.signal, false, false, apiPurpose)
+      } catch (specializedError: any) {
+        const shouldFallbackToGlobal = apiPurpose === 'moment-followup' && isMomentApiReady() && specializedError?.name !== 'AbortError'
+        if (!shouldFallbackToGlobal) throw specializedError
+
+        console.warn('[朋友圈] 专用节点调用失败，已自动回退全局节点', specializedError)
+        result = await sendChatMessage(apiMessages, abortController.signal)
+      }
       const costSeconds = ((Date.now() - startTime) / 1000).toFixed(1)
       
       let replyText = ''
@@ -170,7 +182,8 @@ export function useChatRoomAPI(
       // 优先拦截并处理朋友圈相关的特殊标签
       const processMomentRes = await processMomentTags(replyText, targetChat)
       replyText = processMomentRes.newContent
-      const shouldTriggerAI = processMomentRes.shouldTriggerAI
+      // 第二轮再次出现读取标签时只移除标签，不继续递归请求，避免模型形成循环。
+      const shouldTriggerAI = apiPurpose !== 'moment-followup' && processMomentRes.shouldTriggerAI
       const aiContext = processMomentRes.aiContext
 
       // 提取被包裹在文本中的 thinking 内容（针对部分未原生分离 thinking 字段的模型）
@@ -267,7 +280,7 @@ export function useChatRoomAPI(
               })
               saveCustomContacts()
               console.log(`[朋友圈] 已向上下文中注入系统旁白，准备发起追问`)
-              return triggerAPI(callMode)
+              return triggerAPI(callMode, 'moment-followup')
             }
             
             if (isRoomActive.value && selectedChat.value && selectedChat.value.id === currentChatId) {

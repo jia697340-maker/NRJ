@@ -1,11 +1,21 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { apiSettings, summaryApiSettings, visionApiSettings, cotSettings, appStats, type ApiPreset } from '../store'
+import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, cotSettings, appStats, type ApiPreset } from '../store'
+
+export type ChatApiPurpose = 'default' | 'moment-followup'
+
+export const isMomentApiReady = () => {
+  if (!momentApiSettings.enabled) return false
+  const url = momentApiSettings.provider === 'custom' ? momentApiSettings.customUrl : momentApiSettings.url
+  const key = momentApiSettings.provider === 'custom' ? momentApiSettings.customKey : momentApiSettings.key
+  return Boolean(url && key && momentApiSettings.model)
+}
 
 export async function sendChatMessage(
   messages: { role: string; content: string | any[] }[], 
   signal?: AbortSignal,
   isSummary: boolean = false,
-  isVision: boolean = false
+  isVision: boolean = false,
+  purpose: ChatApiPurpose = 'default'
 ) {
   // 定义一个包含所有可能属性的接口，包括各个设置独有的属性
   interface MergedApiSettings {
@@ -38,6 +48,8 @@ export async function sendChatMessage(
     activeSettings = summaryApiSettings
   } else if (isVision && visionApiSettings.enabled) {
     activeSettings = visionApiSettings
+  } else if (purpose === 'moment-followup' && isMomentApiReady()) {
+    activeSettings = momentApiSettings
   }
 
   const url = activeSettings.provider === 'custom' ? activeSettings.customUrl : activeSettings.url
