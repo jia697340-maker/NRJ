@@ -1,0 +1,269 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+/* ==================== Base & Colors (Day Mode) ==================== */
+.readingo-app {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #f7f9f8; /* 极浅的淡青纸张色 */
+  background-image: linear-gradient(180deg, rgba(235, 242, 240, 0.5) 0%, rgba(247, 249, 248, 0) 100%);
+  color: var(--text-secondary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  z-index: 100;
+}
+
+/* ==================== App Header ==================== */
+.app-header {
+  height: 44px; /* 极窄顶栏 */
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0 12px;
+  position: absolute; top: 0; left: 0; right: 0;
+  z-index: 50;
+  background: transparent;
+  transition: 0.3s;
+}
+.app-header.transparent-header {
+  background: transparent;
+}
+.h-left, .h-right { display: flex; align-items: center; }
+.app-title { font-family: "Georgia", serif; font-size: 16px; font-weight: 600; color: var(--text-primary); margin-left: 4px; letter-spacing: 0.5px; }
+.entry-title-header { font-size: 14px; margin-left: 8px; font-weight: 500; color: var(--text-secondary); }
+.clickable-title { cursor: pointer; transition: opacity 0.2s; }
+.clickable-title:hover { opacity: 0.7; }
+.btn-icon {
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  color: var(--text-tertiary); cursor: pointer; border-radius: 50%; transition: 0.2s;
+}
+.btn-icon:hover { background: rgba(0, 0, 0, 0.03); color: var(--text-primary); }
+.btn-text {
+  font-size: 14px; font-weight: 600; color: #fff; background: #111827;
+  padding: 6px 16px; border-radius: 20px; cursor: pointer; transition: 0.2s;
+}
+.btn-text:hover { background: #374151; }
+
+/* ==================== Fancy Modals (飞鸟集纯白文学风格) ==================== */
+.fancy-mask {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(20, 24, 22, 0.5); /* 替换为稍微偏暖的遮罩，呼应纯白文学风 */
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.fancy-box {
+  width: 280px; 
+  background-color: #FFFFFF;
+  background-image: 
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="rgba(0,0,0,0.02)"><path d="M21.9 8.9c-.3-.2-1.1-.3-2.1-.2-1.1.1-2.4.4-3.6 1.1-1.3-.7-2.6-1.1-3.7-1.3-1.1-.2-1.9-.1-2.2.1-.2.2-.1.9.2 1.8.4 1 1 2.2 1.9 3.5.9-1.3 1.5-2.5 1.9-3.5.3-.9.4-1.6.2-1.8zM4.1 14.9c-.2.2-.1 1.1.3 2.1.4 1 1 2.3 2 3.7 1-1.4 1.6-2.7 2-3.7.4-1 .5-1.9.3-2.1-.2-.2-1.1-.3-2.1-.2-1-.1-2.2.3-3.3.9-1-.5-2.1-.9-3-.1z"/></svg>');
+  background-size: 160px;
+  background-position: right -20px bottom -30px;
+  background-repeat: no-repeat;
+  border-radius: 16px; 
+  box-shadow: 0 16px 40px rgba(40, 30, 20, 0.12), inset 0 1px 0 rgba(255,255,255,0.8);
+  padding: 24px; text-align: center;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.fancy-msg {
+  font-size: 16px; color: #3b312b; font-weight: 500;
+  font-family: "Georgia", "Times New Roman", "Songti SC", serif;
+  margin-bottom: 24px; line-height: 1.5;
+}
+.fancy-btns {
+  display: flex; gap: 12px;
+}
+.f-btn {
+  flex: 1; padding: 10px 0; border-radius: 8px; font-size: 15px; font-weight: 500;
+  font-family: "Georgia", "Times New Roman", "Songti SC", serif;
+  cursor: pointer; transition: all 0.2s ease;
+  letter-spacing: 1px;
+}
+.f-cancel {
+  background: transparent; 
+  border: 1px solid rgba(0, 0, 0, 0.1); 
+  color: #5c5249;
+}
+.f-cancel:hover { background: rgba(0, 0, 0, 0.03); color: #1a1614; }
+.f-confirm {
+  background: #b94a48; color: #fff; border: 1px solid #b94a48;
+}
+.f-confirm:hover { background: #8a302f; border-color: #8a302f; }
+.f-primary {
+  background: #3b312b; color: #fff; border: 1px solid #3b312b;
+  box-shadow: 0 4px 12px rgba(59, 49, 43, 0.15);
+}
+.f-primary:hover { background: #1a1614; border-color: #1a1614; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(59, 49, 43, 0.2); }
+
+.edit-box { width: 320px; padding: 28px 24px; }
+.edit-header { 
+  font-family: "Georgia", "Times New Roman", "Songti SC", serif;
+  font-size: 18px; font-weight: 600; color: #3b312b; 
+  margin-bottom: 24px; 
+  position: relative;
+  padding-bottom: 12px;
+}
+.edit-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 15%; right: 15%;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(0,0,0,0.15), transparent);
+}
+
+.edit-body { margin-bottom: 28px; }
+.fancy-input {
+  width: 100%; padding: 8px 12px; border-radius: 0;
+  background: transparent; 
+  border: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  font-family: "Georgia", "Times New Roman", "Songti SC", serif;
+  font-size: 16px; outline: none; transition: all 0.3s; color: #3b312b;
+  box-sizing: border-box; text-align: center;
+}
+.fancy-input::placeholder { color: #a8a096; font-style: italic; }
+.fancy-input:focus {
+  border-bottom-color: #3b312b;
+}
+.rating-hint {
+  font-family: "Georgia", "Times New Roman", "Songti SC", serif;
+  font-size: 12px; color: #a8a096; margin-top: 8px; font-style: italic;
+}
+
+/* ==================== Container & Common ==================== */
+.app-body { flex: 1; position: relative; overflow: hidden; }
+.btn-settings {
+  display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-tertiary);
+  background: rgba(0,0,0,0.04); padding: 6px 12px; border-radius: 16px; cursor: pointer; transition: 0.2s;
+}
+.btn-settings:hover { background: rgba(0,0,0,0.08); color: var(--text-primary); }
+.view {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  overflow-y: auto; padding-top: 24px; box-sizing: border-box;
+}
+.view::-webkit-scrollbar { width: 0px; background: transparent; }
+.clean-input {
+  background: transparent; border: none; outline: none;
+  font-family: inherit; color: var(--text-primary);
+}
+.clean-input::placeholder { color: var(--text-tertiary); }
+
+.small-input { width: 100%; font-size: 14px; color: var(--text-primary); }
+.small-input::placeholder { color: var(--text-tertiary); }
+
+/* Transitions */
+.pop-enter-active, .pop-leave-active { transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.9); }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+.slide-up-enter-active, .slide-up-leave-active { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); }
+
+/* ==================== 飞鸟集专属复古长按弹窗 ==================== */
+.pure-mask {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(20, 24, 22, 0.5); /* 稍微偏暖黑色的遮罩 */
+  backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+}
+
+.pure-context-menu {
+  width: 240px;
+  /* 羊皮纸/复古信笺的背景色 */
+  background-color: #F9F6F0;
+  background-image: 
+    /* 飞鸟水印 (SVG Base64) */
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="rgba(0,0,0,0.03)"><path d="M21.9 8.9c-.3-.2-1.1-.3-2.1-.2-1.1.1-2.4.4-3.6 1.1-1.3-.7-2.6-1.1-3.7-1.3-1.1-.2-1.9-.1-2.2.1-.2.2-.1.9.2 1.8.4 1 1 2.2 1.9 3.5.9-1.3 1.5-2.5 1.9-3.5.3-.9.4-1.6.2-1.8zM4.1 14.9c-.2.2-.1 1.1.3 2.1.4 1 1 2.3 2 3.7 1-1.4 1.6-2.7 2-3.7.4-1 .5-1.9.3-2.1-.2-.2-1.1-.3-2.1-.2-1-.1-2.2.3-3.3.9-1-.5-2.1-.9-3-.1z"/></svg>'),
+    /* 细腻的纸张颗粒感渐变 */
+    linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(240,235,225,0.1) 100%);
+  background-size: 180px, cover;
+  background-position: right -20px bottom -30px, center;
+  background-repeat: no-repeat;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  /* 柔和且深邃的复古书籍阴影 */
+  box-shadow: 
+    0 4px 12px rgba(0,0,0,0.05),
+    0 12px 32px rgba(40,30,20,0.15),
+    inset 0 1px 0 rgba(255,255,255,0.8);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.pure-context-title {
+  padding: 16px 12px;
+  text-align: center;
+  font-family: "Georgia", "Times New Roman", "Songti SC", serif; /* 飞鸟集标志性衬线体 */
+  font-size: 15px;
+  font-style: italic;
+  font-weight: 600;
+  color: #3b312b; /* 偏褐色的深灰，更有墨水感 */
+  position: relative;
+  margin-bottom: 8px;
+  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 优雅的复古分割线 */
+.pure-context-title::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 20%; right: 20%;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(0,0,0,0.15), transparent);
+}
+
+.pure-context-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pure-context-item {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* 按钮内容居中更显庄重 */
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #5c5249;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.pure-context-item span {
+  font-family: "Georgia", "Times New Roman", "Songti SC", serif;
+  font-size: 14px;
+  letter-spacing: 1px;
+  font-weight: 500;
+}
+
+/* 悬停时的墨水印染效果 */
+.pure-context-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #1a1614;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.02);
+}
+
+.pure-context-item.danger {
+  color: #b94a48; /* 更复古低沉的朱红色 */
+}
+
+.pure-context-item.danger:hover {
+  background: rgba(185, 74, 72, 0.08);
+  color: #8a302f;
+}
+
+/* 全新弹出动画: 居中缩放且淡入淡出 */
+.fade-scale-enter-active, .fade-scale-leave-active {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fade-scale-enter-from, .fade-scale-leave-to {
+  opacity: 0;
+}
+.fade-scale-enter-from .pure-context-menu, .fade-scale-leave-to .pure-context-menu {
+  transform: scale(0.9);
+}

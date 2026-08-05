@@ -1,0 +1,481 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+.soft-appearance-container {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  z-index: 100;
+  overflow: hidden;
+  background-color: #FFFFFF; /* 纯白底色为主 */
+  font-family: "Georgia", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  color: #1A1D20; /* 极深灰/炭黑，极简风 */
+}
+
+/* ================== 装饰层 ================== */
+.deco-layer {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; /* 必须穿透，不影响交互 */
+  z-index: 1;
+}
+
+.deco-bg {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: #FFFFFF;
+}
+
+/* 白灰弥散渐变背景 */
+.gradient-overlay {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: 
+    radial-gradient(circle at 100% 0%, rgba(241, 245, 249, 0.8) 0%, rgba(255,255,255,0) 50%), /* 右上角极浅银灰 */
+    radial-gradient(circle at 0% 60%, rgba(226, 232, 240, 0.6) 0%, rgba(255,255,255,0) 60%); /* 左侧中下浅冷灰 */
+  opacity: 1;
+}
+
+/* 装饰性大英文背景 */
+.deco-bg-text {
+  position: absolute;
+  top: 60px;
+  right: -20px;
+  font-family: "Georgia", serif;
+  font-size: 80px;
+  font-style: italic;
+  font-weight: bold;
+  color: #E2E8F0; /* 浅冷灰色，纯净的底纹 */
+  opacity: 0.3;
+  transform: rotate(-10deg);
+  letter-spacing: 5px;
+  white-space: nowrap;
+}
+
+/* 装饰性返回视觉 */
+.deco-back-visual {
+  position: absolute;
+  top: 15px; left: 15px;
+  margin-top: env(safe-area-inset-top, 20px);
+  display: flex; align-items: center; gap: 6px;
+  color: #64748B; /* 中度冷灰 */
+  opacity: 0.8;
+}
+.back-text {
+  font-family: "Times New Roman", serif;
+  font-size: 11px;
+  letter-spacing: 2px;
+  font-weight: 500;
+}
+
+/* ================== 交互与内容层 ================== */
+.interactive-layer {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 真实的不可见触控区，覆盖在 deco-back-visual 的位置 */
+.back-touch-zone {
+  position: absolute;
+  top: 0; left: 0;
+  width: 80px; height: 80px;
+  z-index: 20;
+  cursor: pointer;
+  /* border: 1px solid red; 测试用，可删 */
+}
+
+.fixed-header-container {
+  padding: 0 20px;
+  padding-top: calc(env(safe-area-inset-top, 20px) + 60px);
+  flex-shrink: 0;
+}
+
+.scroll-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 20px;
+  scrollbar-width: none;
+}
+.scroll-container::-webkit-scrollbar { display: none; }
+
+.page-title-area {
+  margin-top: 10px;
+  margin-bottom: 24px;
+  padding-left: 5px;
+  position: relative;
+  text-align: center;
+}
+.title-deco-line {
+  width: 30px;
+  height: 1px;
+  background: #94A3B8; /* 中度灰细线 */
+  margin: 0 auto 12px auto;
+}
+.page-title {
+  font-family: "Georgia", -apple-system, "PingFang SC", serif;
+  font-size: 26px;
+  font-weight: 500;
+  color: #1A1D20;
+  margin: 0 0 4px 0;
+  letter-spacing: 3px;
+}
+.page-subtitle {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 12px;
+  color: #64748B;
+  margin: 0;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ================== 书签导航 Tab ================== */
+.sticky-tab-container {
+  z-index: 50;
+  padding: 10px 0 20px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.book-tabs {
+  display: flex;
+  gap: 15px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.3); /* 灰底线 */
+  padding-bottom: 8px;
+}
+
+.book-tab-item {
+  font-size: 13px;
+  color: #64748B; /* 未选中灰色 */
+  cursor: pointer;
+  position: relative;
+  transition: all 0.3s ease;
+  padding: 0 4px;
+  letter-spacing: 1px;
+}
+
+.book-tab-item.active {
+  color: #1A1D20;
+  font-weight: 600;
+}
+
+.book-tab-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: -9px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #475569; /* 选中状态的深灰书签线 */
+}
+
+/* 留白与悬浮卡片 -> 纸张段落排版 */
+.settings-card.book-style {
+  margin-bottom: 30px;
+  background: transparent; /* 去除卡片厚重背景 */
+  border: none;
+  box-shadow: none;
+}
+
+.card-header {
+  padding: 10px 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.card-title-text {
+  font-family: "Georgia", "PingFang SC", serif;
+  font-size: 14px;
+  font-weight: bold;
+  color: #1A1D20;
+  letter-spacing: 2px;
+}
+.card-title-line {
+  flex: 1;
+  height: 1px;
+  background: repeating-linear-gradient(to right, #CBD5E1 0, #CBD5E1 2px, transparent 2px, transparent 6px); /* 浅灰虚线 */
+  opacity: 0.8;
+}
+
+.settings-list {
+  padding: 0;
+}
+.setting-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  cursor: pointer;
+  position: relative;
+}
+.setting-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: rgba(26, 29, 32, 0.06); /* 极细分隔线 */
+}
+
+.item-label {
+  font-size: 15px;
+  color: #1A1D20;
+  font-weight: 400;
+  letter-spacing: 1px;
+}
+
+.item-control {
+  display: flex; align-items: center;
+}
+
+/* 文艺风的 Toggle */
+.soft-toggle {
+  width: 42px; height: 22px;
+  border-radius: 11px;
+  background: rgba(26, 29, 32, 0.1);
+  position: relative;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(26, 29, 32, 0.05);
+}
+.soft-toggle.is-active {
+  background: #334155; /* 深灰近黑的激活态 */
+  border-color: #334155;
+}
+.soft-toggle-knob {
+  position: absolute;
+  top: 1px; left: 1px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+  transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.soft-toggle.is-active .soft-toggle-knob {
+  transform: translateX(20px);
+}
+
+/* 柔和的文字值 */
+.soft-value {
+  font-family: "Georgia", "PingFang SC", serif;
+  font-size: 13px;
+  color: #64748B;
+  letter-spacing: 1px;
+}
+
+/* 颜色预览 */
+.soft-color-preview {
+  display: flex; align-items: center;
+}
+.color-dot {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(26, 29, 32, 0.15);
+}
+
+.bottom-spacer {
+  height: 60px;
+}
+
+/* ID 卡片 */
+.widget-id-card {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px 24px 5px; /* 左侧改为 5px，严格与标题区域(padding-left: 5px)对齐 */
+  cursor: pointer;
+}
+.id-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--card-bg-solid); /* 纯白背景动态适配 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-right: 16px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
+}
+.id-info {
+  flex: 1;
+}
+.id-name {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  letter-spacing: 1px;
+}
+.id-desc {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.5px;
+}
+.id-arrow {
+  margin-left: 10px;
+  color: var(--text-tertiary);
+}
+
+/* ================== 毛玻璃弹窗 ================== */
+.soft-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  z-index: 1000;
+  display: flex; justify-content: center; align-items: center;
+  background: var(--modal-overlay-bg); /* 弹窗蒙层由全局控制 */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.soft-modal-panel {
+  width: 280px;
+  background: var(--card-bg); /* 更白一些 */
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border-radius: 20px;
+  border: 1px solid var(--border-color); /* 极浅冷灰边框 */
+  box-shadow: 0 10px 40px var(--shadow-color);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+.soft-modal-header {
+  padding: 20px 20px 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+.soft-modal-header .title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: 1px;
+}
+.soft-modal-header .close-btn {
+  position: absolute;
+  right: 15px;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+}
+.soft-modal-header .close-btn:hover {
+  color: var(--text-primary);
+}
+
+/* 颜色选择网格 */
+.soft-color-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+  padding: 15px 25px 25px;
+}
+.soft-color-item {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  margin: 0 auto;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+}
+.soft-color-item.active {
+  border-color: var(--card-bg-solid);
+  box-shadow: 0 0 0 1px var(--text-tertiary);
+}
+
+/* 列表弹窗 */
+.soft-list {
+  padding: 10px 20px 20px;
+}
+.soft-list-item {
+  padding: 14px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  font-size: 15px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+}
+.soft-list-item:last-child {
+  border-bottom: none;
+}
+.soft-list-item span.is-selected {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.check-icon {
+  position: absolute;
+  right: 10px;
+  color: var(--text-primary);
+}
+
+/* 图标网格 */
+.soft-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+  padding: 15px 20px 25px;
+}
+.soft-icon-item {
+  font-size: 20px;
+  text-align: center;
+  padding: 10px 0;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+.soft-icon-item.active {
+  background: var(--border-color);
+  color: var(--text-primary);
+}
+
+/* 输入框弹窗 */
+.soft-input-wrap {
+  padding: 10px 20px 20px;
+  position: relative;
+}
+.soft-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--sys-bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+  color: var(--text-primary);
+  text-align: center;
+  outline: none;
+}
+.soft-input::placeholder { color: var(--text-tertiary); }
+.soft-error {
+  position: absolute;
+  bottom: 0; left: 0; width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.soft-modal-actions {
+  display: flex;
+  border-top: 1px solid var(--border-color);
+}
+.soft-modal-actions button {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 16px 0;
+  font-size: 15px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.soft-btn-cancel { border-right: 1px solid var(--border-color) !important; }
+.soft-btn-confirm { font-weight: 500; color: var(--text-primary) !important; }
+
+/* 动画 */
+.soft-fade-enter-active, .soft-fade-leave-active { transition: opacity 0.3s ease; }
+.soft-fade-enter-from, .soft-fade-leave-to { opacity: 0; }

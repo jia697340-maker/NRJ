@@ -1,0 +1,519 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+/* ==================== 现代iOS风格 (Modern iOS) 吸顶部分 ==================== */
+.modern_ios .sticky-header { background: rgba(242, 242, 247, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.modern_ios.is-dark .sticky-header { background: rgba(0, 0, 0, 0.95); }
+.modern_ios .search-box { background: #e3e3e8; }
+.modern_ios.is-dark .search-box { background: #1c1c1e; }
+.modern_ios .search-icon { color: var(--text-tertiary); }
+.modern_ios .search-input { color: var(--text-primary); }
+.modern_ios.is-dark .search-input { color: #fff; }
+.modern_ios .tab-item { background: transparent; color: var(--text-tertiary); }
+.modern_ios .tab-item.active { background: #007aff; color: #fff; }
+.modern_ios.is-dark .tab-item.active { background: #0a84ff; }
+
+/* ==================== INS风格 吸顶部分 ==================== */
+.ins .sticky-header { background: var(--sys-bg-primary); border-bottom: 1px solid #dbdbdb; }
+.ins.is-dark .sticky-header { background: #121212; border-color: #363636; }
+.ins .search-box { background: #efefef; border-radius: 8px; }
+.ins.is-dark .search-box { background: #262626; }
+.ins .search-icon { color: var(--text-tertiary); }
+.ins .search-input { color: #262626; }
+.ins.is-dark .search-input { color: #fff; }
+.ins .tab-item { background: transparent; color: var(--text-tertiary); border-radius: 8px; border: 1px solid transparent; }
+.ins .tab-item.active { background: var(--sys-bg-secondary); color: #262626; border-color: #dbdbdb; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.ins.is-dark .tab-item.active { background: #262626; color: #fff; border-color: #363636; }
+
+/* ==================== 古早iOS风格 吸顶部分 ==================== */
+.classic_ios .sticky-header {
+  background: linear-gradient(180deg, #c5ccd4 0%, #aab4c3 100%);
+  border-bottom: 1px solid #8e9db0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.classic_ios.theme-pink .sticky-header {
+  background: linear-gradient(180deg, #eedfe3 0%, #d8c3c9 100%);
+  border-bottom-color: #bfa7ae;
+}
+.classic_ios.theme-gray .sticky-header {
+  background: linear-gradient(180deg, #e4e5e8 0%, #c9ccd2 100%);
+  border-bottom-color: #a8acb3;
+}
+.classic_ios.theme-light .sticky-header {
+  background: linear-gradient(180deg, #ecece4 0%, #dcdcd1 100%);
+  border-bottom-color: #c0c0b1;
+}
+.classic_ios.theme-green .sticky-header {
+  background: linear-gradient(180deg, #e3ede3 0%, #cbd8cb 100%);
+  border-bottom-color: #aebfab;
+}
+.classic_ios.is-dark .sticky-header {
+  background: linear-gradient(180deg, #2c3e50 0%, #1f2c38 100%);
+  border-bottom-color: #162029;
+}
+
+.classic_ios .search-box {
+  background: var(--sys-bg-secondary); border-radius: 16px; border: 1px solid #8e9db0; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+}
+.classic_ios.is-dark .search-box { background: #22313f; border-color: #162029; }
+.classic_ios .search-input { color: var(--text-primary); }
+.classic_ios.is-dark .search-input { color: #fff; }
+.classic_ios .search-icon { color: var(--text-secondary); }
+.classic_ios.is-dark .search-icon { color: var(--text-tertiary); }
+
+.classic_ios .tabs-scroll { gap: 0; border: 1px solid #587498; border-radius: 6px; overflow: hidden; background: #8ba1bd; box-shadow: 0 1px 1px rgba(255,255,255,0.6); }
+.classic_ios.is-dark .tabs-scroll { border-color: #1a252f; background: #2c3e50; box-shadow: 0 1px 1px rgba(255,255,255,0.1); }
+.classic_ios .tab-item { 
+  border-radius: 0; padding: 6px 12px; color: #fff; 
+  background: linear-gradient(180deg, #a1b4cc 0%, #8ba1bd 100%);
+  border-right: 1px solid #587498; text-shadow: 0 -1px 0 rgba(0,0,0,0.3);
+}
+.classic_ios.is-dark .tab-item {
+  background: linear-gradient(180deg, #34495e 0%, #2c3e50 100%); border-right-color: #1a252f;
+}
+.classic_ios .tab-item:last-child { border-right: none; }
+.classic_ios .tab-item.active { 
+  background: linear-gradient(180deg, #587498 0%, #466082 100%); 
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+}
+.classic_ios.is-dark .tab-item.active {
+  background: linear-gradient(180deg, #22313f 0%, #1a252f 100%);
+}
+
+/* ==================== 极简风 吸顶部分 ==================== */
+.minimalist .sticky-header { background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.minimalist.is-dark .sticky-header { background: rgba(0,0,0,0.95); }
+.minimalist .search-box { border-bottom: 2px solid var(--border-color); border-radius: 0; padding: 10px 0; gap: 12px; }
+.minimalist.is-dark .search-box { border-color: var(--text-primary); }
+.minimalist .search-box:focus-within { border-color: var(--text-primary); }
+.minimalist.is-dark .search-box:focus-within { border-color: #fff; }
+.minimalist .search-icon { color: var(--text-primary); }
+.minimalist.is-dark .search-icon { color: #fff; }
+.minimalist .search-input { color: var(--text-primary); font-size: 18px; }
+.minimalist.is-dark .search-input { color: #fff; }
+.minimalist .tab-item { border-radius: 0; padding: 10px 4px; color: var(--text-tertiary); border-bottom: 2px solid transparent; }
+.minimalist .tab-item.active { color: var(--text-primary); font-weight: 700; border-bottom: 2px solid #000000; }
+.minimalist.is-dark .tab-item.active { color: #ffffff; border-bottom-color: #ffffff; }
+
+/* ========== INS风格 (Instagram) ========== */
+.appearance-modal.ins {
+  background-color: var(--sys-bg-primary);
+  color: #262626;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/* 深色模式适配：INS风 */
+.appearance-modal.ins.is-dark {
+  background-color: #121212;
+  color: #fff;
+}
+.ins.is-dark .nav-bar {
+  background-color: #121212;
+  border-bottom-color: #363636;
+}
+.ins.is-dark .back-btn { color: #fff; }
+.ins.is-dark .style-text-btn {
+  background: #262626;
+  color: #fff;
+}
+.ins.is-dark .settings-group {
+  background: #000;
+  border-color: #363636;
+}
+.ins.is-dark .setting-item {
+  border-color: #363636;
+}
+.ins.is-dark .item-icon { color: #fff; }
+.ins.is-dark .custom-toggle { background: #363636; }
+.ins.is-dark .custom-toggle.active { background: #0095f6; }
+
+
+.ins .nav-bar {
+  border-bottom: 1px solid #dbdbdb;
+  background: var(--sys-bg-secondary);
+}
+.ins .back-btn { color: #262626; }
+.ins .title { font-weight: 700; font-size: 16px; }
+.ins .settings-list { padding-top: 15px; }
+.ins .group-title {
+  padding: 15px 0 5px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.ins .settings-group {
+  background: var(--sys-bg-secondary);
+  border: 1px solid #dbdbdb;
+  border-radius: 12px;
+  padding: 0 15px;
+}
+.ins .setting-item {
+  border-bottom: 1px solid #efefef;
+}
+.ins .setting-item:last-child {
+  border-bottom: none;
+}
+.ins .item-icon {
+  background: transparent;
+  color: #262626;
+}
+.ins .custom-toggle.active { background: var(--accent-color, #0095f6); }
+
+
+/* ========== 古早iOS风格 (拟物化) ========== */
+.appearance-modal.classic_ios {
+  background-color: #c5ccd4;
+  background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.2) 2px, rgba(255,255,255,0.2) 4px);
+  color: var(--text-primary);
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+/* 古早iOS 多套配色适配 */
+/* 1. 淡粉色 (pink) */
+.appearance-modal.classic_ios.theme-pink {
+  background-color: #eedfe3;
+  background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.4) 2px, rgba(255,255,255,0.4) 4px);
+}
+.classic_ios.theme-pink .nav-bar {
+  background: linear-gradient(180deg, #e2d3d8 0%, #d3c2c8 50%, #cbb7be 51%, #bb9fa8 100%);
+  border-bottom-color: #9a7c86;
+}
+.classic_ios.theme-pink .title, .classic_ios.theme-pink .back-btn {
+  color: #5c474e;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+}
+.classic_ios.theme-pink .group-title { color: #846771; }
+.classic_ios.theme-pink .item-icon {
+  background: linear-gradient(180deg, #cbb7be 0%, #9a7c86 100%);
+}
+
+/* 2. 浅灰色 (gray) */
+.appearance-modal.classic_ios.theme-gray {
+  background-color: #e4e5e8;
+  background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.5) 2px, rgba(255,255,255,0.5) 4px);
+}
+.classic_ios.theme-gray .nav-bar {
+  background: linear-gradient(180deg, #f0f1f4 0%, #e4e6ea 50%, #d8dadd 51%, #c1c4c9 100%);
+  border-bottom-color: #9aa0a6;
+}
+.classic_ios.theme-gray .title, .classic_ios.theme-gray .back-btn {
+  color: #4a4e54;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.8);
+}
+.classic_ios.theme-gray .group-title { color: #6f757d; }
+.classic_ios.theme-gray .item-icon {
+  background: linear-gradient(180deg, #c1c4c9 0%, #7d848c 100%);
+}
+
+/* 3. 日间明亮 (light) */
+.appearance-modal.classic_ios.theme-light {
+  background-color: #ecece4;
+  background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.6) 2px, rgba(255,255,255,0.6) 4px);
+}
+.classic_ios.theme-light .nav-bar {
+  background: linear-gradient(180deg, #f5f5ee 0%, #ebebe0 50%, #e1e1d4 51%, #d2d2c1 100%);
+  border-bottom-color: #adad9c;
+}
+.classic_ios.theme-light .title, .classic_ios.theme-light .back-btn {
+  color: #5a5a4d;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.8);
+}
+.classic_ios.theme-light .group-title { color: #787865; }
+.classic_ios.theme-light .item-icon {
+  background: linear-gradient(180deg, #e1e1d4 0%, #969683 100%);
+}
+
+/* 4. 复古绿色 (green) */
+.appearance-modal.classic_ios.theme-green {
+  background-color: #d1ddd1;
+  background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.5) 2px, rgba(255,255,255,0.5) 4px);
+}
+.classic_ios.theme-green .nav-bar {
+  background: linear-gradient(180deg, #e3ede3 0%, #cbd8cb 50%, #bcd0bc 51%, #abc0ab 100%);
+  border-bottom-color: #8da48d;
+}
+.classic_ios.theme-green .title, .classic_ios.theme-green .back-btn {
+  color: #3b4e3b;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.7);
+}
+.classic_ios.theme-green .group-title { color: #556b55; }
+.classic_ios.theme-green .item-icon {
+  background: linear-gradient(180deg, #cbd8cb 0%, #8da48d 100%);
+}
+
+/* 深色模式适配：古早iOS */
+.appearance-modal.classic_ios.is-dark {
+  background-color: #2c3e50;
+  background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px);
+}
+.classic_ios.is-dark .nav-bar {
+  background: linear-gradient(180deg, #4b6b8f 0%, #34495e 50%, #2c3e50 51%, #22313f 100%);
+  border-bottom-color: #1a252f;
+}
+.classic_ios.is-dark .settings-group {
+  background: #cbd3dc;
+  border-color: #1a252f;
+}
+
+
+.classic_ios .nav-bar {
+  background: linear-gradient(180deg, #b0bccd 0%, #889bb3 50%, #8195af 51%, #6d84a2 100%);
+  border-bottom: 1px solid #2d3f57;
+  box-shadow: 0 1px 1px rgba(255,255,255,0.5) inset;
+}
+.classic_ios .back-btn { 
+  color: #fff; 
+  text-shadow: 0 -1px 0 rgba(0,0,0,0.4);
+}
+.classic_ios .title { 
+  color: #fff; 
+  text-shadow: 0 -1px 0 rgba(0,0,0,0.4); 
+  font-weight: bold;
+}
+.classic_ios .style-text-btn { 
+  background: linear-gradient(180deg, #fbfbfb 0%, #d8dde4 100%);
+  border: 1px solid #7c8da5;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 1px rgba(0,0,0,0.2);
+  color: #3e5066;
+  border-radius: 6px;
+}
+.classic_ios .btn-text-main {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+.classic_ios .settings-list { padding-top: 15px; }
+.classic_ios .group-title {
+  margin: 15px 0 5px 15px;
+  color: #4c566c;
+  font-weight: bold;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.7);
+  font-size: 15px;
+}
+.classic_ios .settings-group {
+  background: var(--sys-bg-secondary);
+  border: 1px solid #abafb6;
+  border-radius: 8px;
+  margin: 0 10px 20px;
+  padding: 0;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.classic_ios .setting-item {
+  padding: 12px 15px;
+  border-bottom: 1px solid #abafb6;
+}
+.classic_ios .setting-item:last-child {
+  border-bottom: none;
+}
+.classic_ios .item-icon {
+  background: linear-gradient(180deg, #8ba1bd 0%, #587498 100%);
+  color: white;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3) inset, 0 1px 0 rgba(255,255,255,0.8);
+}
+.classic_ios .item-left span { font-weight: bold; font-size: 16px; }
+.classic_ios .custom-toggle {
+  background: linear-gradient(180deg, #e6e6e6 0%, #fafafa 100%);
+  border: 1px solid #a6a6a6;
+  box-shadow: 0 2px 3px rgba(0,0,0,0.1) inset;
+  border-radius: 15px;
+  width: 76px;
+  height: 28px;
+  overflow: hidden;
+}
+.classic_ios .custom-toggle::before {
+  content: 'ON';
+  position: absolute;
+  left: 12px;
+  top: 6px;
+  color: white;
+  font-weight: bold;
+  font-size: 12px;
+  text-shadow: 0 -1px 0 rgba(0,0,0,0.2);
+  opacity: 0;
+}
+.classic_ios .custom-toggle::after {
+  content: 'OFF';
+  position: absolute;
+  right: 10px;
+  top: 6px;
+  color: #7f7f7f;
+  font-weight: bold;
+  font-size: 12px;
+  opacity: 1;
+}
+.classic_ios .custom-toggle.active {
+  background: var(--accent-color, linear-gradient(180deg, #3786de 0%, #68abf4 100%));
+  border-color: #174b88;
+}
+.classic_ios .custom-toggle.active::before { opacity: 1; }
+.classic_ios .custom-toggle.active::after { opacity: 0; }
+.classic_ios .toggle-knob {
+  width: 26px;
+  height: 26px;
+  top: 0px;
+  left: 0px;
+  background: linear-gradient(180deg, #f5f5f5 0%, #e0e0e0 100%);
+  border: 1px solid #8e8e8e;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2), 0 1px 0 rgba(255,255,255,0.8) inset;
+  z-index: 2;
+}
+.classic_ios .custom-toggle.active .toggle-knob {
+  left: 48px;
+}
+.classic_ios .value-text { color: #385487; font-weight: bold; }
+
+
+/* ========== 极简风 (Minimalist) ========== */
+.appearance-modal.minimalist {
+  background-color: var(--sys-bg-secondary);
+  color: var(--text-primary);
+  font-family: "SF Pro Display", -apple-system, sans-serif;
+}
+/* 深色模式适配：极简风 */
+.appearance-modal.minimalist.is-dark {
+  background-color: var(--text-primary);
+  color: #fff;
+}
+.minimalist.is-dark .back-btn,
+.minimalist.is-dark .style-text-btn,
+.minimalist.is-dark .group-title,
+.minimalist.is-dark .title {
+  color: #fff;
+}
+.minimalist.is-dark .style-text-btn {
+  border-color: #fff;
+}
+.minimalist.is-dark .setting-item {
+  border-color: #222;
+}
+.minimalist.is-dark .custom-toggle {
+  background: #333;
+}
+.minimalist.is-dark .custom-toggle.active {
+  background: var(--sys-bg-secondary);
+}
+.minimalist.is-dark .custom-toggle.active .toggle-knob {
+  background: #000;
+}
+
+
+.minimalist .nav-bar {
+  padding: 20px 20px 0;
+  height: auto;
+}
+.minimalist .back-btn { 
+  color: var(--text-primary); 
+  padding: 0;
+}
+.minimalist .title { 
+  font-size: 24px; 
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+}
+.minimalist .style-text-btn { 
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid #000000;
+  border-radius: 0;
+  font-weight: 500;
+}
+.minimalist .settings-list { padding: 20px; }
+.minimalist .group-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.minimalist .settings-group { margin-bottom: 40px; }
+.minimalist .setting-item {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border-color)eee;
+}
+.minimalist .item-left { gap: 0; }
+.minimalist .item-left span { font-size: 16px; letter-spacing: -0.3px; }
+.minimalist .custom-toggle {
+  background: var(--sys-bg-primary);
+  width: 44px;
+  height: 24px;
+}
+.minimalist .custom-toggle.active { background: var(--accent-color, #111); }
+.minimalist .toggle-knob {
+  width: 20px;
+  height: 20px;
+  box-shadow: none;
+}
+.minimalist .custom-toggle.active .toggle-knob { left: 22px; }
+.minimalist .chevron { color: #ccc; }
+
+
+/* ========== 现代iOS风格 (Modern iOS) ========== */
+.appearance-modal.modern_ios {
+  background-color: #f2f2f7;
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/* 深色模式适配：现代iOS */
+.appearance-modal.modern_ios.is-dark {
+  background-color: var(--text-primary);
+  color: #fff;
+}
+.modern_ios.is-dark .nav-bar {
+  background: rgba(28,28,30,0.8);
+}
+.modern_ios.is-dark .title { color: #fff; }
+.modern_ios.is-dark .settings-group {
+  background: #1c1c1e;
+}
+.modern_ios.is-dark .setting-item {
+  border-color: #38383a;
+}
+.modern_ios.is-dark .custom-toggle {
+  background: #39393d;
+}
+.modern_ios.is-dark .custom-toggle.active {
+  background: #32d74b;
+}
+
+
+.modern_ios .nav-bar {
+  background: rgba(242, 242, 247, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: none;
+}
+.modern_ios .back-btn { color: #007aff; }
+.modern_ios .title { font-weight: 600; font-size: 17px; }
+.modern_ios .style-text-btn { 
+  background: rgba(0,122,255,0.1);
+  color: #007aff; 
+}
+.modern_ios .btn-text-main {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.modern_ios .settings-list { padding: 15px 15px 30px; }
+.modern_ios .settings-group {
+  background: var(--sys-bg-secondary);
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+.modern_ios .group-title {
+  margin: 0 0 5px 15px;
+  color: #6d6d72;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+.modern_ios .setting-item {
+  padding: 12px 15px 12px 0;
+  border-bottom: 0.5px solid #c6c6c8;
+  margin-left: 15px;
+}
+.modern_ios .setting-item:last-child {
+  border-bottom: none;
+}
+.modern_ios .item-icon {
+  background: #8e8e93;
+  color: #fff;
+}
+.modern_ios .custom-toggle.active { background: var(--accent-color, #34c759); }
+.modern_ios .value-text { color: var(--text-tertiary); font-size: 17px; }
+.modern_ios .chevron { color: #c7c7cc; }

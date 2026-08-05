@@ -1,0 +1,82 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+/* Reset CSS and Global Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden; /* 防止页面滚动 */
+  background-color: #000; /* 背景黑色，如果手机外框是黑色则可以融为一体，或者这里作为主屏幕背光前的底色 */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+:root {
+  /* ========================================= */
+  /* 全局浅色模式变量 (默认)                     */
+  /* ========================================= */
+  /* 背景色 */
+  --sys-bg-primary: #f5f5f7;
+  --sys-bg-secondary: #ffffff;
+  --sys-bg-tertiary: #f0f0f0;
+
+  /* 文字颜色 */
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --text-tertiary: #999999;
+  
+  /* 卡片和图标背景（带透明度适配壁纸） */
+  --card-bg: rgba(255, 255, 255, 0.85);
+  --card-bg-solid: #ffffff;
+  --dock-bg: rgba(255, 255, 255, 0.4);
+  --modal-overlay-bg: rgba(255, 255, 255, 0.6);
+  
+  /* 阴影和小细节 */
+  --shadow-color: rgba(0, 0, 0, 0.1);
+  --border-color: rgba(0, 0, 0, 0.05);
+  
+  /* 桌面图标特定发光阴影，确保在亮色壁纸能看清文字 */
+  --icon-text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+/* 夜间模式（深色模式）变量覆盖 */
+.dark-theme {
+  /* 背景色 */
+  --sys-bg-primary: #000000;
+  --sys-bg-secondary: #1c1c1e;
+  --sys-bg-tertiary: #2c2c2e;
+
+  /* 文字颜色反转 */
+  --text-primary: #ffffff;
+  --text-secondary: #ebebf5;
+  --text-tertiary: #ebebf599;
+  
+  /* 深色半透明卡片和 Dock */
+  --card-bg: rgba(30, 30, 30, 0.7);
+  --card-bg-solid: #1e1e1e;
+  --dock-bg: rgba(0, 0, 0, 0.5);
+  --modal-overlay-bg: rgba(0, 0, 0, 0.6);
+  
+  /* 阴影和小细节 */
+  --shadow-color: rgba(0, 0, 0, 0.4);
+  --border-color: rgba(255, 255, 255, 0.1);
+  
+  /* 夜间模式下的增强文字描边 */
+  --icon-text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8), 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  background: var(--sys-bg-primary); 
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+}
