@@ -3,4 +3,11 @@ import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
 
+document.title = 'Clingy OS'
 createApp(App).mount('#app')
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => console.warn('PWA service worker registration failed:', error))
+  })
+}

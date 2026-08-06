@@ -6,6 +6,7 @@ import { useNovelAIVibe } from '../composables/useNovelAIVibe'
 import { useNovelAIHistory } from '../composables/useNovelAIHistory'
 import ImageVibeManageModal from './ImageVibeManageModal.vue'
 import ImageHistoryModal from './ImageHistoryModal.vue'
+import ImageParseModal from './ImageParseModal.vue'
 
 const emit = defineEmits(['close'])
 
@@ -14,8 +15,33 @@ const showApiKey = ref(false)
 const showPreviewModal = ref(false)
 const showVibeManageModal = ref(false)
 const showHistoryModal = ref(false)
+const showImageParseModal = ref(false)
+const baseImage = ref('')
+const imageStrength = ref(0.55)
+const imageNoise = ref(0)
+const preciseReferenceImage = ref('')
+const preciseReferenceStrength = ref(0.65)
+const preciseReferenceFidelity = ref(0.5)
 
 const currentView = ref<'platforms' | 'novelai'>('platforms')
+
+const activeIndex = ref(0)
+const platforms = [
+  { id: 'novelai', name: 'NovelAI', desc: '二次元及丰富画风的\n图像生成引擎', action: '进入配置', disabled: false },
+  { id: 'more', name: '更多平台', desc: '敬请期待更多\n优秀生图引擎接入', action: '即将开放', disabled: true }
+]
+
+const handlePrev = () => {
+  if (activeIndex.value > 0) activeIndex.value--
+}
+const handleNext = () => {
+  if (activeIndex.value < platforms.length - 1) activeIndex.value++
+}
+const handleSelect = (id: string, disabled: boolean) => {
+  if (!disabled && id === 'novelai') {
+    currentView.value = 'novelai'
+  }
+}
 
 const {
   isGenerating,
@@ -283,6 +309,16 @@ const handleGenerate = () => {
       finalParams.skip_cfg_above_sigma = 19
     }
   }
+  if (baseImage.value) {
+    finalParams.image = baseImage.value
+    finalParams.strength = imageStrength.value
+    finalParams.noise = imageNoise.value
+  }
+  if (preciseReferenceImage.value) {
+    finalParams.reference_image = preciseReferenceImage.value
+    finalParams.reference_strength = preciseReferenceStrength.value
+    finalParams.reference_fidelity = preciseReferenceFidelity.value
+  }
 
   if (vibe_group_ids && vibe_group_ids.length > 0) {
     const refImages: string[] = []
@@ -313,6 +349,28 @@ const handleGenerate = () => {
   generateImage(config.value, finalParams)
 }
 
+const applyParsedImage = (incoming: any, image: string) => {
+  const allowed = ['input', 'negative_prompt', 'model', 'width', 'height', 'scale', 'sampler', 'steps', 'seed', 'n_samples', 'noise_schedule']
+  for (const key of allowed) if (incoming[key] !== undefined && incoming[key] !== null && incoming[key] !== '') (params.value as any)[key] = incoming[key]
+  baseImage.value = image
+  showImageParseModal.value = false
+}
+
+const onBaseImage = (event: Event) => {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => baseImage.value = String(reader.result)
+  reader.readAsDataURL(file)
+}
+const onPreciseReference = (event: Event) => {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => preciseReferenceImage.value = String(reader.result)
+  reader.readAsDataURL(file)
+}
+
 const closePreviewModal = () => {
   if (isGenerating.value) {
     abortGeneration()
@@ -340,74 +398,74 @@ const resetPrompts = () => {
 
 <template>
   <div class="ia-wrapper">
-    <!-- Platform Selection View -->
-    <div v-if="currentView === 'platforms'" class="ia-page">
-      <div class="ia-header">
-        <div class="ia-header-left"></div>
-        <h2 class="ia-title">图像引擎</h2>
-        <div class="ia-header-right">
-          <button class="nav-icon-btn" @click="$emit('close')" title="关闭">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2ZM12 16L7 11H10V8H14V11H17L12 16Z" fill="currentColor"/>
-            </svg>
-          </button>
-        </div>
+    <!-- 极简无界顶栏 -->
+    <div class="header-minimal">
+      <div class="header-titles">
+        <h1 class="main-title">{{ currentView === 'platforms' ? '图像引擎' : 'NovelAI 接入' }}</h1>
+        <p class="sub-title" v-if="currentView === 'platforms'">选择要接入的图像生成服务</p>
       </div>
-      
-      <div class="ia-scroll-body" style="padding-top: 20px;">
-        <p class="ia-subtitle">选择要接入的图像生成服务</p>
-        
-        <div class="platform-list">
-          <div class="platform-card active" @click="currentView = 'novelai'">
-            <div class="platform-icon nai-icon">
-              <span style="font-weight: 800; font-style: italic; font-size: 16px;">NAI</span>
-            </div>
-            <div class="platform-info">
-              <h3>NovelAI</h3>
-              <p>二次元及丰富画风的图像生成引擎</p>
-            </div>
-            <div class="platform-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-            </div>
-          </div>
+      <button class="close-btn" @click="$emit('close')">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+      </button>
+      <button class="back-btn" v-if="currentView === 'novelai'" @click="currentView = 'platforms'">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+      </button>
+      <button class="history-btn" v-if="currentView === 'novelai'" @click="showHistoryModal = true" title="历史记录">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 4V1L8 5L12 9V6C15.31 6 18 8.69 18 12C18 15.31 15.31 18 12 18C8.69 18 6 15.31 6 12H4C4 16.42 7.58 20 12 20C16.42 20 20 16.42 20 12C20 7.58 16.42 4 12 4Z" fill="currentColor"/>
+          <path d="M11 8V13L15.28 15.54L16.5 14L13 11.8V8H11Z" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 纯白胶囊悬浮轮播（平台选择） -->
+    <div v-if="currentView === 'platforms'" class="carousel-container">
+      <button class="nav-btn prev-btn" :class="{ hidden: activeIndex === 0 }" @click="handlePrev">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+
+      <div class="capsule-track">
+        <div class="capsule-wrapper" :style="{ transform: `translateX(calc(-${activeIndex * 100}% - ${activeIndex * 40}px))` }">
           
-          <div class="platform-card disabled">
-            <div class="platform-icon default-icon">
-              <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          <div v-for="(item, index) in platforms" :key="item.id" 
+               class="capsule-item" 
+               :class="{ active: index === activeIndex, disabled: item.disabled }"
+               @click="handleSelect(item.id, item.disabled)">
+            
+            <div class="capsule-shape">
+              <!-- 动态呼吸涟漪 (利用 transform 硬件加速) -->
+              <div class="ripple-bg" v-if="index === activeIndex && !item.disabled">
+                <div class="ripple r1"></div>
+                <div class="ripple r2"></div>
+              </div>
+              
+              <div class="capsule-icon" :style="item.id === 'novelai' ? 'background: #111; color: #fff;' : ''">
+                <span v-if="item.id === 'novelai'" style="font-weight: 800; font-style: italic; font-size: 16px;">NAI</span>
+                <svg v-else viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+              </div>
+
+              <div class="capsule-text">
+                <h3>{{ item.name }}</h3>
+                <p v-html="item.desc.replace('\n', '<br>')"></p>
+              </div>
+
+              <div class="capsule-action">
+                <span>{{ item.action }}</span>
+              </div>
             </div>
-            <div class="platform-info">
-              <h3>更多平台</h3>
-              <p>敬请期待更多优秀生图引擎接入</p>
-            </div>
+
           </div>
+
         </div>
       </div>
+
+      <button class="nav-btn next-btn" :class="{ hidden: activeIndex === platforms.length - 1 }" @click="handleNext">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
     </div>
 
     <!-- NovelAI View -->
     <div v-else-if="currentView === 'novelai'" class="ia-page">
-      <!-- Header -->
-      <div class="ia-header">
-        <div class="ia-header-left" style="gap: 8px;">
-          <button class="nav-icon-btn" @click="currentView = 'platforms'" title="返回">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-          </button>
-          <button class="nav-icon-btn" @click="showHistoryModal = true" title="历史记录">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 4V1L8 5L12 9V6C15.31 6 18 8.69 18 12C18 15.31 15.31 18 12 18C8.69 18 6 15.31 6 12H4C4 16.42 7.58 20 12 20C16.42 20 20 16.42 20 12C20 7.58 16.42 4 12 4Z" fill="currentColor"/>
-              <path d="M11 8V13L15.28 15.54L16.5 14L13 11.8V8H11Z" fill="currentColor"/>
-            </svg>
-          </button>
-        </div>
-        <h2 class="ia-title">NovelAI</h2>
-        <div class="ia-header-right">
-          <button class="nav-icon-btn" @click="$emit('close')" title="关闭">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2ZM12 16L7 11H10V8H14V11H17L12 16Z" fill="currentColor"/>
-            </svg>
-          </button>
-        </div>
-      </div>
 
       <!-- Scrollable Body -->
       <div class="ia-scroll-body">
@@ -425,6 +483,9 @@ const resetPrompts = () => {
             <button class="text-btn" @click="savePreset">保存</button>
             <button v-if="currentPresetId" class="text-btn" style="color: #ff3b30;" @click="deletePreset">删除</button>
           </div>
+        </div>
+        <div class="form-row" style="display:flex;gap:8px;align-items:center">
+          <button class="action-btn" @click="showImageParseModal = true">解析图片 / 读取 NAI 参数</button>
         </div>
         <div class="form-row">
           <label>API Key</label>
@@ -583,6 +644,44 @@ const resetPrompts = () => {
             </label>
           </div>
         </div>
+        <div class="tab-content" style="margin-top:18px">
+          <label style="margin-bottom:12px;display:block">图生图底图（可删除）</label>
+          <div class="upload-area-mini" @click="$refs.baseImageInput.click()">
+            <input ref="baseImageInput" type="file" accept="image/*" @change="onBaseImage" hidden />
+            <div v-if="!baseImage" class="upload-placeholder-mini">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#888;margin-bottom:4px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              <span>上传底图</span>
+            </div>
+            <img v-else :src="baseImage" class="preview-mini" />
+          </div>
+          
+          <div v-if="baseImage" style="margin-top:12px">
+            <button class="action-btn-danger" @click="baseImage = ''">移除底图</button>
+            <div class="form-row-half" style="margin-top:16px">
+              <div class="form-row"><label>变化强度 (Strength)</label><input v-model.number="imageStrength" type="number" min="0" max="1" step="0.05" class="form-input" /></div>
+              <div class="form-row"><label>噪声 (Noise)</label><input v-model.number="imageNoise" type="number" min="0" max="1" step="0.05" class="form-input" /></div>
+            </div>
+          </div>
+        </div>
+        <div v-if="params.model.includes('nai-diffusion-4-5')" class="tab-content" style="margin-top:24px;padding-top:20px;border-top:1px solid #eee">
+          <label style="margin-bottom:12px;display:block">精密参考（角色 / 风格）<br><span style="font-size:12px;color:#888;font-weight:400">注意：与 Vibe 参考不能同时使用</span></label>
+          <div class="upload-area-mini" @click="$refs.refImageInput.click()">
+            <input ref="refImageInput" type="file" accept="image/*" @change="onPreciseReference" hidden />
+            <div v-if="!preciseReferenceImage" class="upload-placeholder-mini">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#888;margin-bottom:4px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              <span>上传精密参考</span>
+            </div>
+            <img v-else :src="preciseReferenceImage" class="preview-mini" />
+          </div>
+          
+          <div v-if="preciseReferenceImage" style="margin-top:12px">
+            <button class="action-btn-danger" @click="preciseReferenceImage = ''">删除参考图</button>
+            <div class="form-row-half" style="margin-top:16px">
+              <div class="form-row"><label>参考强度</label><input v-model.number="preciseReferenceStrength" type="number" min="0" max="1" step="0.05" class="form-input" /></div>
+              <div class="form-row"><label>忠实度</label><input v-model.number="preciseReferenceFidelity" type="number" min="0" max="1" step="0.05" class="form-input" /></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 第三部分：核心提示词输入区 -->
@@ -653,7 +752,8 @@ const resetPrompts = () => {
     </div>
 
       <ImageVibeManageModal v-if="showVibeManageModal" @close="showVibeManageModal = false" />
-      <ImageHistoryModal v-if="showHistoryModal" @close="showHistoryModal = false" />
+      <ImageHistoryModal v-if="showHistoryModal" @close="showHistoryModal = false" @reuse="applyParsedImage($event, '')" @variant="applyParsedImage({ ...$event, seed: '' }, '')" />
+      <ImageParseModal v-if="showImageParseModal" @close="showImageParseModal = false" @apply="applyParsedImage" />
 
       <!-- 通用确认弹窗 -->
       <Transition name="fade">
@@ -728,64 +828,91 @@ const resetPrompts = () => {
 }
 
 .ia-page {
-  display: flex; flex-direction: column; height: 100%; width: 100%;
+  display: flex; flex-direction: column; flex: 1; width: 100%; overflow: hidden;
 }
 
-/* Header */
-.ia-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: calc(env(safe-area-inset-top) + 16px) 20px 16px;
-  background-color: #f4f5f7;
-  z-index: 10;
+/* Header (from app_VoiceAccess) */
+.header-minimal {
+  position: relative;
+  padding: calc(env(safe-area-inset-top) + 24px) 24px 20px;
+  text-align: center;
+  flex-shrink: 0;
 }
-.ia-title { font-size: 17px; font-weight: 600; margin: 0; }
-.ia-header-left, .ia-header-right { width: 70px; display: flex; align-items: center; }
-.ia-header-right { justify-content: flex-end; }
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.main-title {
+  margin: 0; font-size: 18px; font-weight: 600; color: #000; letter-spacing: 0.5px;
+}
+.sub-title {
+  margin: 0; font-size: 13px; color: #888; font-weight: 400;
+}
+.close-btn {
+  position: absolute; top: calc(env(safe-area-inset-top) + 20px); right: 20px;
+  background: none; border: none; color: #000; cursor: pointer; padding: 6px;
+  border-radius: 50%; transition: background 0.2s;
+}
+.close-btn:active { background: rgba(0,0,0,0.05); }
+
+.back-btn {
+  position: absolute; top: calc(env(safe-area-inset-top) + 20px); left: 20px;
+  background: none; border: none; color: #000; cursor: pointer; padding: 6px;
+  border-radius: 50%; transition: background 0.2s;
+}
+.back-btn:active { background: rgba(0,0,0,0.05); }
+
+.history-btn {
+  position: absolute; top: calc(env(safe-area-inset-top) + 20px); right: 60px;
+  background: none; border: none; color: #000; cursor: pointer; padding: 6px;
+  border-radius: 50%; transition: background 0.2s;
+}
+.history-btn:active { background: rgba(0,0,0,0.05); }
+
+/* Carousel (from app_VoiceAccess) */
+.carousel-container {
+  flex: 1; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;
+}
 .nav-btn {
-  background: none; border: none; padding: 4px 0; color: #007aff;
-  font-size: 16px; font-weight: 500; cursor: pointer; display: flex; align-items: center;
+  position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: none; border: none; color: #bbbbbb; cursor: pointer; z-index: 10; transition: opacity 0.3s, color 0.3s;
 }
-.nav-icon-btn {
-  background: none; border: none; padding: 0; color: #111;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; transition: background-color 0.2s; width: 32px; height: 32px;
-}
-.nav-icon-btn:hover { background-color: rgba(0,0,0,0.05); }
+.nav-btn:active { color: #000; }
+.prev-btn { left: 16px; }
+.next-btn { right: 16px; }
+.nav-btn.hidden { opacity: 0; pointer-events: none; }
+
+.capsule-track { width: 250px; height: 460px; position: relative; }
+.capsule-wrapper { display: flex; gap: 40px; height: 100%; transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1); will-change: transform; }
+.capsule-item { width: 250px; flex-shrink: 0; height: 100%; transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s; will-change: transform, opacity; transform: scale(0.85); opacity: 0.3; display: flex; align-items: center; justify-content: center; }
+.capsule-item.active { transform: scale(1); opacity: 1; }
+
+.capsule-shape { width: 100%; height: 100%; border-radius: 125px; background: #ffffff; box-shadow: 0 20px 60px rgba(0,0,0,0.06), inset 0 0 0 1px rgba(0,0,0,0.03); display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 48px 24px 36px; position: relative; overflow: hidden; cursor: pointer; box-sizing: border-box; }
+.capsule-item.disabled .capsule-shape { background: #fbfbfb; }
+
+.ripple-bg { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); width: 64px; height: 64px; z-index: 0; pointer-events: none; }
+.ripple { position: absolute; top: 0; left: 0; right: 0; bottom: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.04); animation: rippleAnim 3.5s infinite cubic-bezier(0.4, 0, 0.2, 1); will-change: transform, opacity; }
+.ripple.r2 { animation-delay: 1.75s; }
+@keyframes rippleAnim { 0% { transform: scale(0.6); opacity: 1; } 100% { transform: scale(3.5); opacity: 0; } }
+
+.capsule-icon { width: 64px; height: 64px; border-radius: 50%; background: #fff; box-shadow: 0 12px 28px rgba(0,0,0,0.05), inset 0 0 0 1px rgba(0,0,0,0.03); display: flex; align-items: center; justify-content: center; color: #111; z-index: 1; margin-top: 8px; }
+.capsule-item.disabled .capsule-icon { color: #ccc; box-shadow: none; background: transparent; }
+
+.capsule-text { text-align: center; z-index: 1; margin-top: 24px; }
+.capsule-text h3 { margin: 0 0 12px 0; font-size: 20px; font-weight: 600; color: #111; }
+.capsule-text p { margin: 0; font-size: 13px; color: #888; line-height: 1.6; }
+
+.capsule-action { z-index: 1; font-size: 14px; font-weight: 600; color: #000; padding: 14px 28px; border-radius: 100px; background: rgba(0,0,0,0.04); transition: background 0.2s; }
+.capsule-item.disabled .capsule-action { color: #aaa; background: transparent; }
+.capsule-item.active .capsule-action:active { background: rgba(0,0,0,0.08); }
+
 
 /* Body */
 .ia-scroll-body {
   flex: 1;
   overflow-y: auto;
-  padding: 0 20px 40px 20px;
+  padding: 10px 24px 60px;
 }
-
-/* Platform Select */
-.ia-subtitle { font-size: 14px; color: #888888; margin-bottom: 24px; text-align: center; }
-
-.platform-list { display: flex; flex-direction: column; gap: 16px; }
-
-.platform-card {
-  background: #ffffff; border-radius: 16px; padding: 20px;
-  display: flex; align-items: center; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03);
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.platform-card.active { cursor: pointer; }
-.platform-card.active:active { transform: scale(0.98); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02); }
-.platform-card.disabled { opacity: 0.6; }
-
-.platform-icon {
-  width: 48px; height: 48px; border-radius: 12px;
-  display: flex; align-items: center; justify-content: center; margin-right: 16px;
-}
-
-.nai-icon { background: #111; color: #fff; }
-.default-icon { background: #f5f5f5; color: #999999; }
-
-.platform-info { flex: 1; }
-.platform-info h3 { margin: 0 0 4px 0; font-size: 16px; font-weight: 600; color: #222222; }
-.platform-info p { margin: 0; font-size: 13px; color: #888888; }
-.platform-arrow { color: #cccccc; }
 
 /* Sections */
 .section {
@@ -834,6 +961,21 @@ const resetPrompts = () => {
 
 .text-btn-small { color: #888; font-size: 13px; font-weight: 400; padding: 4px 8px; cursor: pointer; background: none; border: none; }
 .text-btn-small:hover { color: #111; }
+
+.upload-area-mini {
+  width: 100%; height: 120px; border: 2px dashed #e5e5ea; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; background: #fafafa;
+  cursor: pointer; overflow: hidden; transition: all 0.2s;
+}
+.upload-area-mini:hover { border-color: #007aff; background: rgba(0, 122, 255, 0.05); }
+.upload-placeholder-mini { display: flex; flex-direction: column; align-items: center; color: #888; font-size: 13px; }
+.preview-mini { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+
+.action-btn-danger {
+  width: 100%; background: #ffeceb; color: #ff3b30; border: none; padding: 12px;
+  border-radius: 10px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.2s;
+}
+.action-btn-danger:active { background: #ffd8d6; }
 
 .form-row-half { display: flex; gap: 16px; margin-bottom: 20px; }
 .form-row-half .form-row { flex: 1; margin-bottom: 0; }

@@ -263,6 +263,20 @@ const handleSave = () => {
                 rows="4" 
               ></textarea>
             </div>
+            <div class="form-row" style="padding:12px;background:rgba(0,122,255,.05);border-radius:8px">
+              <div class="flex-between"><label>角色视觉档案</label><label class="toggle-switch"><input type="checkbox" v-model="localConfig.visualProfile.enabled" class="toggle-checkbox" /><span class="toggle-slider"></span></label></div>
+              <template v-if="localConfig.visualProfile.enabled">
+                <div class="flex-between" style="margin-top:10px; margin-bottom: 6px;">
+                  <label style="margin:0;">中文设定（仅供你查看）</label>
+                  <button class="simple-modal-btn" style="padding: 4px 10px; font-size: 11px; border: none; border-radius: 4px; background: rgba(0,122,255,0.1); color: #007aff; height: auto; flex: none; min-width: auto; cursor: pointer;" @click="translateVisualProfile" :disabled="isTranslating">{{ isTranslating ? '翻译中...' : '一键翻译并填入' }}</button>
+                </div>
+                <div v-if="translateError" style="font-size: 11px; color: #ff3b30; margin-bottom: 6px;">{{ translateError }}</div>
+                <textarea v-model="localConfig.visualProfile.descriptionZh" class="form-textarea" rows="2" placeholder="例如：银发、异色瞳、黑色长风衣" />
+                <label style="margin-top:10px">固定英文角色词</label><textarea v-model="localConfig.visualProfile.promptEn" class="form-textarea" rows="3" placeholder="silver hair, heterochromia, black long coat" />
+                <label style="margin-top:10px">角色专属负面词</label><textarea v-model="localConfig.visualProfile.negativeEn" class="form-textarea" rows="2" placeholder="例如：wrong eye color" />
+                <button style="margin-top: 8px; padding: 6px 16px; border-radius: 8px; border: 1px solid rgba(255,59,48,0.3); background: rgba(255,59,48,0.05); color: #ff3b30; font-size: 13px; cursor: pointer; transition: all 0.2s;" @click="localConfig.visualProfile = { enabled:false, descriptionZh:'', promptEn:'', negativeEn:'' }">删除视觉档案</button>
+              </template>
+            </div>
           </div>
 
           <!-- LLM 辅助生图 -->

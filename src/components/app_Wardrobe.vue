@@ -20,7 +20,6 @@ const handleBack = () => {
     </div>
     <div class="content">
       <div class="empty-state">
-        <div class="empty-icon">👕</div>
         <div class="empty-text">衣柜功能开发中...</div>
       </div>
     </div>
@@ -84,10 +83,6 @@ const handleBack = () => {
   align-items: center;
   gap: 16px;
   opacity: 0.6;
-}
-
-.empty-icon {
-  font-size: 48px;
 }
 
 .empty-text {

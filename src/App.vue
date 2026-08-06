@@ -30,6 +30,35 @@ const isLocked = ref(globalSettings.enableLockScreen)
 const hasOpenedChatApp = ref(false)
 const chatAppRef = ref<any>(null)
 
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+}
+
+const deferredInstallPrompt = ref<InstallPromptEvent | null>(null)
+const showInstallPrompt = ref(false)
+const isInstallPromptReady = ref(false)
+const skipInstallPrompt = ref(false)
+const installPromptDismissedKey = 'nianrenji-install-prompt-dismissed'
+const isStandaloneApp = () => window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
+const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent)
+
+const openInstallPrompt = async () => {
+  if (!deferredInstallPrompt.value) return
+  await deferredInstallPrompt.value.prompt()
+  const { outcome } = await deferredInstallPrompt.value.userChoice
+  if (outcome === 'accepted') showInstallPrompt.value = false
+  deferredInstallPrompt.value = null
+  isInstallPromptReady.value = false
+}
+
+const dismissInstallPrompt = () => {
+  if (skipInstallPrompt.value) {
+    localStorage.setItem(installPromptDismissedKey, 'true')
+  }
+  showInstallPrompt.value = false
+}
+
 type VoiceCallState = {
   active: boolean
   minimized: boolean
@@ -78,6 +107,10 @@ const phoneCallWidgetStyle = computed(() => ({
 let usageTimer: ReturnType<typeof setInterval>
 
 onMounted(async () => {
+  if (!isStandaloneApp() && localStorage.getItem(installPromptDismissedKey) !== 'true') {
+    showInstallPrompt.value = true
+  }
+
   // 启动页面使用时长统计
   usageTimer = setInterval(() => {
     appStats.usageTime++
@@ -88,13 +121,23 @@ onMounted(async () => {
   loadCustomContacts()
   loadMyProfile()
   await loadAppIconsData()
+
 })
+
+const handleBeforeInstallPrompt = (event: Event) => {
+  event.preventDefault()
+  deferredInstallPrompt.value = event as InstallPromptEvent
+  isInstallPromptReady.value = true
+}
+
+window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
 
 onUnmounted(() => {
   if (usageTimer) {
     clearInterval(usageTimer)
   }
   window.removeEventListener('resize', initPhoneCallWidgetPosition)
+  window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
 })
 
 // 监听 darkMode 变化，将类直接加到 body 上，确保所有 Teleport 组件生效
@@ -236,6 +279,26 @@ const apps = computed(() => {
 
 <template>
   <div class="phone-container" :style="containerStyle">
+    <Transition name="install-prompt">
+      <div v-if="showInstallPrompt" class="install-prompt-backdrop" role="dialog" aria-modal="true" aria-labelledby="install-prompt-title">
+        <section class="install-prompt-card">
+          <img class="install-prompt-icon" src="/pwa-icon.jpg" alt="黏人机" />
+          <button class="install-prompt-close" type="button" aria-label="暂不安装" @click="dismissInstallPrompt">×</button>
+          <p class="install-prompt-kicker">安装到主屏幕</p>
+          <h1 id="install-prompt-title">把黏人机装到手机上</h1>
+          <p v-if="isInstallPromptReady">安装后可像原生 App 一样从主屏幕打开，使用更方便。</p>
+          <p v-else-if="isIos()">点击浏览器底部的“分享”按钮，再选择“添加到主屏幕”。</p>
+          <p v-else>可使用浏览器菜单中的“安装应用”或“添加到主屏幕”，随时把黏人机装到设备上。</p>
+          <label class="install-prompt-skip">
+            <input v-model="skipInstallPrompt" type="checkbox" />
+            <div class="custom-checkbox"></div>
+            <span>下次不再提示</span>
+          </label>
+          <button v-if="isInstallPromptReady" class="install-prompt-primary" type="button" @click="openInstallPrompt">立即安装</button>
+          <button v-else class="install-prompt-secondary" type="button" @click="dismissInstallPrompt">知道了</button>
+        </section>
+      </div>
+    </Transition>
     <!-- 夜间护眼滤镜遮罩 -->
     <div class="night-shift-overlay" v-if="globalSettings.nightShift"></div>
 
@@ -396,6 +459,25 @@ export default {
 </script>
 
 <style>
+ .install-prompt-enter-active, .install-prompt-leave-active { transition: opacity .22s ease; }
+ .install-prompt-enter-active .install-prompt-card, .install-prompt-leave-active .install-prompt-card { transition: transform .22s ease, opacity .22s ease; }
+ .install-prompt-enter-from, .install-prompt-leave-to { opacity: 0; }
+ .install-prompt-enter-from .install-prompt-card, .install-prompt-leave-to .install-prompt-card { opacity: 0; transform: translateY(18px) scale(.97); }
+ .install-prompt-backdrop { position: fixed; z-index: 20000; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(35, 22, 35, .38); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+ .install-prompt-card { position: relative; width: min(100%, 340px); padding: 26px 24px 22px; border: 1px solid rgba(255,255,255,.72); border-radius: 28px; background: rgba(255,255,255,.94); box-shadow: 0 22px 58px rgba(49, 28, 54, .24); color: #3c2d3a; text-align: center; }
+ .install-prompt-icon { width: 68px; height: 68px; margin-bottom: 10px; border-radius: 18px; box-shadow: 0 7px 18px rgba(133, 91, 157, .2); }
+ .install-prompt-close { position: absolute; top: 12px; right: 14px; width: 30px; height: 30px; border: 0; border-radius: 50%; background: #f1edf1; color: #8c7988; font-size: 24px; line-height: 1; }
+ .install-prompt-kicker { margin: 0 0 5px; color: #b85d88; font-size: 13px; font-weight: 700; letter-spacing: .04em; }
+ .install-prompt-card h1 { margin: 0; font-size: 21px; line-height: 1.3; }
+ .install-prompt-card p:not(.install-prompt-kicker) { margin: 10px 0 18px; color: #71616e; font-size: 14px; line-height: 1.55; }
+ .install-prompt-skip { display: flex; align-items: center; justify-content: center; gap: 8px; margin: -4px 0 15px; color: #81717f; font-size: 13px; cursor: pointer; user-select: none; }
+ .install-prompt-skip input { display: none; }
+ .install-prompt-skip .custom-checkbox { width: 18px; height: 18px; border: 1.5px solid #d4ccd3; border-radius: 5px; position: relative; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; background: white; }
+ .install-prompt-skip input:checked + .custom-checkbox { background: #c579a4; border-color: #c579a4; }
+ .install-prompt-skip input:checked + .custom-checkbox::after { content: ''; width: 4px; height: 8px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg); margin-bottom: 2px; }
+ .install-prompt-primary, .install-prompt-secondary { width: 100%; min-height: 44px; border: 0; border-radius: 14px; font: inherit; font-size: 15px; font-weight: 700; }
+ .install-prompt-primary { background: linear-gradient(135deg, #e982ad, #b282e7); box-shadow: 0 7px 16px rgba(200, 112, 170, .26); color: white; }
+ .install-prompt-secondary { background: #f2eef2; color: #665564; }
 /* 应用打开/关闭过渡动画 */
 .app-fade-enter-active,
 .app-fade-leave-active {

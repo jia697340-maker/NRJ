@@ -98,6 +98,7 @@ export function useChatNAIConfig(chatProps: any) {
 
     naiImagePrompt: '',
     negativePrompt: DEFAULT_NEGATIVE,
+    visualProfile: { enabled: false, descriptionZh: '', promptEn: '', negativeEn: '' },
 
     enableLlmAssist: false,
     llmPresetId: '',
@@ -136,6 +137,9 @@ export function useChatNAIConfig(chatProps: any) {
   const fetchModelError = ref('')
   const fetchModelSuccess = ref(false)
 
+  const isTranslating = ref(false)
+  const translateError = ref('')
+
   const handleConfirm = (message: string, action: () => void) => {
     confirmModalMessage.value = message
     confirmModalAction.value = action
@@ -151,6 +155,82 @@ export function useChatNAIConfig(chatProps: any) {
 
   const cancelConfirm = () => {
     showConfirmModal.value = false
+  }
+
+  const translateVisualProfile = async () => {
+    if (!localConfig.value.visualProfile.descriptionZh.trim()) {
+      translateError.value = '请先填写中文设定'
+      return
+    }
+
+    const apiUrl = localConfig.value.llmApiUrl || apiSettings.url
+    const apiKey = localConfig.value.llmApiKey || apiSettings.key
+    const model = localConfig.value.llmModel || apiSettings.model
+
+    if (!apiUrl || !apiKey || !model) {
+      translateError.value = '请先在全局设置或本页面配置 LLM (API地址、密钥和模型)'
+      return
+    }
+
+    isTranslating.value = true
+    translateError.value = ''
+
+    try {
+      const baseUrl = apiUrl.replace(/\/+$/, '')
+      const endpoint = `${baseUrl}/v1/chat/completions`
+      
+      const messages = [
+        {
+          role: 'system',
+          content: '你是一个专业的 NovelAI (NAI) 提示词翻译专家。你的任务是将用户提供的中文角色外观设定，翻译为纯正的 Danbooru 风格英文标签。规则：\n1. 只输出英文标签，用逗号加空格 `, ` 分隔。\n2. 全小写。\n3. 不要任何前言或后语，不要解释，不要使用markdown代码块，只返回标签本身。'
+        },
+        {
+          role: 'user',
+          content: `请翻译以下角色外观设定：\n${localConfig.value.visualProfile.descriptionZh}`
+        }
+      ]
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: messages,
+          temperature: 0.3,
+          max_tokens: 500
+        })
+      })
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      if (data.choices && data.choices[0] && data.choices[0].message) {
+        let result = data.choices[0].message.content.trim()
+        result = result.replace(/^`+|`+$/g, '').replace(/^txt\n/, '').replace(/^text\n/, '').trim()
+        
+        localConfig.value.visualProfile.promptEn = result
+
+        handleConfirm('翻译成功并填入！是否保留原本的“中文设定”作为备忘备注？（如果选择否，将清空中文输入框）', () => {
+          // Do nothing to keep the text
+        })
+        
+        // Temporarily override cancel behavior for this modal only
+        const originalCancel = cancelConfirm
+        cancelConfirm = () => {
+          localConfig.value.visualProfile.descriptionZh = ''
+          originalCancel()
+          cancelConfirm = originalCancel
+        }
+      } else {
+        throw new Error('LLM返回格式异常')
+      }
+    } catch (err: any) {
+      translateError.value = err.message || '翻译失败'
+    } finally {
+      isTranslating.value = false
+    }
   }
 
   const fetchLlmModels = async () => {
@@ -460,6 +540,12 @@ export function useChatNAIConfig(chatProps: any) {
 
       naiImagePrompt: c.naiImagePrompt || '',
       negativePrompt: c.negativePrompt || DEFAULT_NEGATIVE,
+      visualProfile: {
+        enabled: c.visualProfile?.enabled || false,
+        descriptionZh: c.visualProfile?.descriptionZh || '',
+        promptEn: c.visualProfile?.promptEn || '',
+        negativeEn: c.visualProfile?.negativeEn || ''
+      },
 
       enableLlmAssist: c.enableLlmAssist || false,
       llmPresetId: c.llmPresetId || '',
@@ -497,6 +583,7 @@ export function useChatNAIConfig(chatProps: any) {
     handlePromptDragStart, handlePromptDragOver, handlePromptDragEnd,
     applyPromptPreset, savePromptPreset, confirmSavePromptPreset, cancelSavePromptPreset, deletePromptPreset,
     applyPreset, fixResolution, onWidthBlur, onHeightBlur,
+    isTranslating, translateError, translateVisualProfile,
     handleConfirm, executeConfirm, cancelConfirm
   }
 }

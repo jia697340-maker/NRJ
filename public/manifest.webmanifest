@@ -1,0 +1,13 @@
+{
+  "id": "/",
+  "name": "Clingy OS",
+  "short_name": "Clingy OS",
+  "description": "Clingy OS: 安装到主屏幕，像原生应用一样使用。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7e7ef",
+  "theme_color": "#f7e7ef",
+  "icons": [{ "src": "/pwa-icon.jpg", "sizes": "1080x1075", "type": "image/jpeg", "purpose": "any maskable" }]
+}

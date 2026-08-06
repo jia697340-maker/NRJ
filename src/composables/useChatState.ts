@@ -302,7 +302,9 @@ export function useChatState() {
   const loadMyProfile = () => {
     const { currentAccount } = useChatAuth()
     if (currentAccount.value) {
-      myProfile.value.name = currentAccount.value.name
+      // Account name is the network name. Do not use it as a fallback here: a
+      // newly registered user has not provided a real name yet.
+      myProfile.value.name = currentAccount.value.realName || ''
       myProfile.value.avatarUrl = currentAccount.value.avatarUrl
       myProfile.value.persona = currentAccount.value.persona
       const extraKey = `clingy_user_extra_${currentAccount.value.id}`
@@ -324,7 +326,7 @@ export function useChatState() {
     const { currentChatUserId, updateAccount } = useChatAuth()
     if (currentChatUserId.value) {
       updateAccount(currentChatUserId.value, {
-        name: myProfile.value.name,
+        realName: myProfile.value.name,
         avatarUrl: myProfile.value.avatarUrl,
         persona: myProfile.value.persona
       })

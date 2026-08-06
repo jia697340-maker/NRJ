@@ -163,6 +163,10 @@ const formatMsgTime = (timestamp: number) => {
               @touch-end="emit('touch-end')"
               @touch-move="emit('touch-move', $event)"
             />
+            <details v-if="!msg.isGeneratingImage && msg.imageData?.prompt" style="max-width:200px;font-size:11px;color:var(--text-secondary);margin-top:4px" @click.stop>
+              <summary>查看中英提示词</summary>
+              <div style="white-space:pre-wrap;word-break:break-word">中文：{{ msg.imageData.sourceText || msg.imageData.text }}<br />英文：{{ msg.imageData.prompt }}<br v-if="msg.imageData.negativePrompt" />负面：{{ msg.imageData.negativePrompt }}</div>
+            </details>
           </template>
 
           <!-- 语音通话记录气泡 (AI端) -->

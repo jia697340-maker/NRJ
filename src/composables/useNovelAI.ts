@@ -26,7 +26,11 @@ export interface NovelAIGenerateParams {
   sm_dyn?: boolean
   skip_cfg_above_sigma?: number
   image?: string
+  strength?: number
+  noise?: number
   reference_image?: string
+  reference_strength?: number
+  reference_fidelity?: number
   reference_image_multiple?: string[]
   reference_strength_multiple?: number[]
   reference_information_extracted_multiple?: number[]
@@ -134,6 +138,8 @@ export function useNovelAI() {
       if (params.skip_cfg_above_sigma !== undefined) {
         payload.parameters.skip_cfg_above_sigma = params.skip_cfg_above_sigma
       }
+      if (params.strength !== undefined) payload.parameters.strength = params.strength
+      if (params.noise !== undefined) payload.parameters.noise = params.noise
 
       let hasImage = false
       if (params.image) {
@@ -148,6 +154,8 @@ export function useNovelAI() {
         if (rawB64.includes(',')) rawB64 = rawB64.split(',', 2)[1]
         payload.parameters.reference_image = rawB64
       }
+      if (params.reference_strength !== undefined) payload.parameters.reference_strength = params.reference_strength
+      if (params.reference_fidelity !== undefined) payload.parameters.reference_fidelity = params.reference_fidelity
 
       let hasVibe = false
       if (params.reference_image_multiple && params.reference_image_multiple.length > 0) {

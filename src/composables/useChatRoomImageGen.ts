@@ -19,6 +19,7 @@ export function useChatRoomImageGen(
     const naiConfig = selectedChat.value.naiConfig || {}
     const vibeText = naiConfig.vibeText || ''
     const positivePrompt = naiConfig.positivePrompt || ''
+    const visualProfile = naiConfig.visualProfile?.enabled ? naiConfig.visualProfile : null
     
     // 给用户一个 "正在构思画面..." 的状态
     chatToUpdate.messages.push({
@@ -55,7 +56,7 @@ export function useChatRoomImageGen(
           .join('\n\n')
 
         const llmSystemPrompt = `你是一个专业的生图辅助 AI。以下是你的工作准则：\n\n${enabledPrompts || ''}`
-        const llmUserPrompt = `[最近的聊天记录上下文]\n${recentMsgs}\n\n[本次生图的动作/画面描述]\n${actionContent}\n\n请根据上述上下文和画面描述，严格按照你的设定输出 Markdown 格式的解析和正反向提示词。`
+        const llmUserPrompt = `[最近的聊天记录上下文]\n${recentMsgs}\n\n[本次生图的动作/画面描述]\n${actionContent}\n\n只输出严格 JSON，不要 Markdown：{"scene_zh":"不超过80字的中文画面理解","positive_en":"逗号分隔的英文 NovelAI tags","negative_en":"逗号分隔的英文 negative tags"}`
 
         let endpoint = naiConfig.llmApiUrl || ''
         if (endpoint && !endpoint.endsWith('/chat/completions')) {
@@ -88,16 +89,11 @@ export function useChatRoomImageGen(
         const llmData = await llmRes.json()
         const llmReply = llmData.choices[0].message.content || ''
 
-        const posMatch = llmReply.match(/###\s*🟢\s*【Positive Prompt[^{]*】[\s\S]*?(?=(?:###|$))/i)
-        const negMatch = llmReply.match(/###\s*🔴\s*【Negative Prompt[^{]*】[\s\S]*?(?=(?:###|$))/i)
-
-        if (posMatch) {
-          const rawPos = posMatch[0].replace(/###\s*🟢\s*【[^】]*】/i, '').trim()
-          finalPrompt = rawPos.replace(/\n/g, ' ').replace(/\s+/g, ' ')
-        }
-        if (negMatch) {
-          const rawNeg = negMatch[0].replace(/###\s*🔴\s*【[^】]*】/i, '').trim()
-          dynamicNegativePrompt = rawNeg.replace(/\n/g, ' ').replace(/\s+/g, ' ')
+        const jsonText = llmReply.match(/\{[\s\S]*\}/)?.[0]
+        if (jsonText) {
+          const parsed = JSON.parse(jsonText)
+          finalPrompt = String(parsed.positive_en || '').trim()
+          dynamicNegativePrompt = String(parsed.negative_en || '').trim()
         }
 
         if (!finalPrompt) {
@@ -135,6 +131,9 @@ export function useChatRoomImageGen(
     if (positivePrompt) {
       finalPrompt = [positivePrompt, finalPrompt].filter(Boolean).join(', ')
     }
+    if (visualProfile?.promptEn) {
+      finalPrompt = [visualProfile.promptEn, finalPrompt].filter(Boolean).join(', ')
+    }
     if (vibeText) {
       finalPrompt = [vibeText, finalPrompt].filter(Boolean).join(', ')
     }
@@ -143,11 +142,16 @@ export function useChatRoomImageGen(
     if (dynamicNegativePrompt) {
       finalNegative = [finalNegative, dynamicNegativePrompt].filter(Boolean).join(', ')
     }
+    if (visualProfile?.negativeEn) {
+      finalNegative = [finalNegative, visualProfile.negativeEn].filter(Boolean).join(', ')
+    }
 
     const msgRef = chatToUpdate.messages.find((m: any) => m.id === baseMessageId)
     if (msgRef) {
       msgRef.content = '正在绘制图像...'
       msgRef.imageData.prompt = finalPrompt
+      msgRef.imageData.negativePrompt = finalNegative
+      msgRef.imageData.sourceText = actionContent
     }
 
     const { negativePrompt, presetId, apiKey, baseUrl, useStream, vibe_group_ids, seed, sm, sm_dyn, skip_cfg_above_sigma, ...restConfig } = naiConfig

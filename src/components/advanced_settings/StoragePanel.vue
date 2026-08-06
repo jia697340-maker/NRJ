@@ -5,6 +5,9 @@ import { onMounted, ref } from 'vue'
 import StorageCompressModal from './modals/StorageCompressModal.vue'
 import StorageDeepCleanView from './StorageDeepCleanView.vue'
 import StorageBreakdownModal from './modals/StorageBreakdownModal.vue'
+import StorageBackupModal from './modals/StorageBackupModal.vue'
+import StorageImportModal from './modals/StorageImportModal.vue'
+import StorageWebDAVModal from './modals/StorageWebDAVModal.vue'
 
 const props = defineProps<{
   showConfirm: any
@@ -32,6 +35,10 @@ const {
 
 const showDeepCleanView = ref(false)
 const activeCleanTab = ref('all')
+
+const showBackupModal = ref(false)
+const showImportModal = ref(false)
+const showWebDAVModal = ref(false)
 
 onMounted(() => {
   checkStorage()
@@ -118,6 +125,42 @@ onMounted(() => {
         </div>
         <div class="gu-feature-right" v-if="!isPersisted">「 开启 」</div>
       </div>
+
+      <!-- 数据导出备份 -->
+      <div class="gu-feature-item" @click="showBackupModal = true">
+        <div class="gu-feature-left">
+          <span class="gu-feature-dot">·</span>
+          <div class="gu-feature-text">
+            <div class="gu-feature-name">本地导出备份</div>
+            <div class="gu-feature-sub">将记录和设定导出为文件妥善保管</div>
+          </div>
+        </div>
+        <div class="gu-feature-right">「 导出 」</div>
+      </div>
+
+      <!-- 数据导入恢复 -->
+      <div class="gu-feature-item" @click="showImportModal = true">
+        <div class="gu-feature-left">
+          <span class="gu-feature-dot">·</span>
+          <div class="gu-feature-text">
+            <div class="gu-feature-name">从本地恢复数据</div>
+            <div class="gu-feature-sub">从备份文件中恢复或合并数据</div>
+          </div>
+        </div>
+        <div class="gu-feature-right">「 导入 」</div>
+      </div>
+
+      <!-- WebDAV 云端漫游 -->
+      <div class="gu-feature-item" @click="showWebDAVModal = true">
+        <div class="gu-feature-left">
+          <span class="gu-feature-dot" style="color: #0284c7">·</span>
+          <div class="gu-feature-text">
+            <div class="gu-feature-name">WebDAV 云端漫游</div>
+            <div class="gu-feature-sub">跨设备自动同步与云端备份管理</div>
+          </div>
+        </div>
+        <div class="gu-feature-right">「 配置 」</div>
+      </div>
     </div>
 
     <!-- 操作按钮区 -->
@@ -161,6 +204,26 @@ onMounted(() => {
     :format-bytes="formatBytes"
     @close="showDeepCleanView = false"
     @delete="deleteStorageItems"
+  />
+
+  <StorageBackupModal
+    :show="showBackupModal"
+    :show-confirm="props.showConfirm"
+    @close="showBackupModal = false"
+  />
+
+  <StorageImportModal
+    :show="showImportModal"
+    :show-confirm="props.showConfirm"
+    @close="showImportModal = false"
+    @success="checkStorage"
+  />
+
+  <StorageWebDAVModal
+    :show="showWebDAVModal"
+    :show-confirm="props.showConfirm"
+    @close="showWebDAVModal = false"
+    @success="checkStorage"
   />
 </template>
 

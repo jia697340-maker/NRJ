@@ -452,7 +452,8 @@ const saveUserPersona = () => {
       if (personas.value[index].boundAccountId === currentChatUserId.value) {
         updateAccount(currentChatUserId.value, {
           accountId: String(finalId),
-          name: newNetworkName.value || newUserName.value,
+          name: newNetworkName.value || useChatAuth().currentAccount.value?.name || '',
+          realName: newUserName.value,
           avatarUrl: newUserAvatar.value,
           persona: newUserDetail.value
         })
@@ -531,7 +532,8 @@ const handleBindPersonaToAccount = (personaId: number) => {
     if (acc) {
       updateAccount(currentChatUserId.value, {
         accountId: String(personas.value[index].id),
-        name: personas.value[index].networkName || personas.value[index].name,
+        name: personas.value[index].networkName || acc.name,
+        realName: personas.value[index].name || '',
         avatarUrl: personas.value[index].avatar || '',
         persona: personas.value[index].signature
       })

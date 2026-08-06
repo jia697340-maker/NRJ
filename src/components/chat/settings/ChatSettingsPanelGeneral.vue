@@ -40,17 +40,17 @@ const onOfflineToggle = () => {
 <template>
   <div class="role-edit-section">
     <div class="glass-panel" v-show="matchSearch('线下', '见面', '独立', '模式')">
-      <div class="glass-list-item" v-show="matchSearch('线下', '见面')">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>启用线下模式</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">允许进行线下面对面的真实接触场景</span>
+      <div class="glass-list-item" v-show="matchSearch('线下', '见面')" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">启用线下模式</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="selectedChat.offlineMeetEnabled" @change="onOfflineToggle">
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
-        <div class="item-value">
-          <label class="switch" @click.stop>
-            <input type="checkbox" v-model="selectedChat.offlineMeetEnabled" @change="onOfflineToggle">
-            <span class="slider"></span>
-          </label>
-        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">允许进行线下面对面的真实接触场景</span>
       </div>
 
       <template v-if="selectedChat.offlineMeetEnabled">
@@ -147,156 +147,156 @@ const onOfflineToggle = () => {
       </div>
       
       <!-- 语音专属上下文记忆条数 -->
-      <div class="glass-list-item" v-show="matchSearch('语音上下文记忆')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px;">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>语音短期上下文记忆</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">独立于文字聊天外的通话记录条数</span>
+      <div class="glass-list-item" v-show="matchSearch('语音上下文记忆')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px; display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">语音短期上下文记忆</span>
+          <div class="item-value" style="display:flex; align-items:center; gap:8px;">
+            <input type="number" v-model="chatSettings.voiceMsgCount" @change="handleSave" style="width: 50px; text-align: right; background: transparent; border: none; font-size: 15px; color: var(--text-secondary); outline: none;" min="1" max="100">
+            <span class="item-value-text">条</span>
+          </div>
         </div>
-        <div class="item-value" style="display:flex; align-items:center; gap:8px;">
-          <input type="number" v-model="chatSettings.voiceMsgCount" @change="handleSave" style="width: 50px; text-align: right; background: transparent; border: none; font-size: 15px; color: var(--text-secondary); outline: none;" min="1" max="100">
-          <span class="item-value-text">条</span>
-        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">独立于文字聊天外的通话记录条数</span>
       </div>
       
       <!-- 语音临时总结阈值 -->
-      <div class="glass-list-item" v-show="matchSearch('语音临时总结')" style="padding-top: 12px; margin-top: 4px;">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>语音临时总结频次</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">每达到几条自动总结一次以省Token</span>
+      <div class="glass-list-item" v-show="matchSearch('语音临时总结')" style="padding-top: 12px; margin-top: 4px; display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">语音临时总结频次</span>
+          <div class="item-value" style="display:flex; align-items:center; gap:8px;">
+            <input type="number" v-model="chatSettings.voiceSummaryThreshold" @change="handleSave" style="width: 50px; text-align: right; background: transparent; border: none; font-size: 15px; color: var(--text-secondary); outline: none;" min="10" max="200">
+            <span class="item-value-text">条</span>
+          </div>
         </div>
-        <div class="item-value" style="display:flex; align-items:center; gap:8px;">
-          <input type="number" v-model="chatSettings.voiceSummaryThreshold" @change="handleSave" style="width: 50px; text-align: right; background: transparent; border: none; font-size: 15px; color: var(--text-secondary); outline: none;" min="10" max="200">
-          <span class="item-value-text">条</span>
-        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">每达到几条自动总结一次以省Token</span>
       </div>
 
       <!-- 视频专属上下文记忆条数 -->
-      <div class="glass-list-item" v-show="matchSearch('视频上下文记忆')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px;">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>视频短期上下文记忆</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">独立于文字聊天外的视频通话记录条数</span>
+      <div class="glass-list-item" v-show="matchSearch('视频上下文记忆')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px; display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">视频短期上下文记忆</span>
+          <div class="item-value" style="display:flex; align-items:center; gap:8px;">
+            <input type="number" v-model="chatSettings.videoMsgCount" @change="handleSave" style="width: 50px; text-align: right; background: transparent; border: none; font-size: 15px; color: var(--text-secondary); outline: none;" min="1" max="100">
+            <span class="item-value-text">条</span>
+          </div>
         </div>
-        <div class="item-value" style="display:flex; align-items:center; gap:8px;">
-          <input type="number" v-model="chatSettings.videoMsgCount" @change="handleSave" style="width: 50px; text-align: right; background: transparent; border: none; font-size: 15px; color: var(--text-secondary); outline: none;" min="1" max="100">
-          <span class="item-value-text">条</span>
-        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">独立于文字聊天外的视频通话记录条数</span>
       </div>
       
       <!-- 视频临时总结阈值 -->
-      <div class="glass-list-item" v-show="matchSearch('视频临时总结')" style="padding-top: 12px; margin-top: 4px;">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>视频临时总结频次</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">每达到几条自动总结一次以省Token</span>
+      <div class="glass-list-item" v-show="matchSearch('视频临时总结')" style="padding-top: 12px; margin-top: 4px; display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">视频临时总结频次</span>
+          <div class="item-value" style="display:flex; align-items:center; gap:8px;">
+            <input type="number" v-model="chatSettings.videoSummaryThreshold" @change="handleSave" style="width: 50px; text-align: right; background: transparent; border: none; font-size: 15px; color: var(--text-secondary); outline: none;" min="10" max="200">
+            <span class="item-value-text">条</span>
+          </div>
         </div>
-        <div class="item-value" style="display:flex; align-items:center; gap:8px;">
-          <input type="number" v-model="chatSettings.videoSummaryThreshold" @change="handleSave" style="width: 50px; text-align: right; background: transparent; border: none; font-size: 15px; color: var(--text-secondary); outline: none;" min="10" max="200">
-          <span class="item-value-text">条</span>
-        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">每达到几条自动总结一次以省Token</span>
       </div>
     </div>
 
     <div class="glass-panel" v-show="matchSearch('允许角色主动来电', '来电', '响铃时长', '免打扰', '通话时禁用多媒体', '通话时禁用心声', '线下模式禁用多媒体', '线下模式禁用心声')">
-      <div class="glass-list-item" v-show="matchSearch('通话时禁用多媒体')">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>通话时禁用多媒体与互动功能</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">禁止角色发图片/表情/转账等，省Token防幻觉</span>
+      <div class="glass-list-item" v-show="matchSearch('通话时禁用多媒体')" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">通话时禁用多媒体与互动功能</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.disableSpecialTagsInCall" @change="handleSave">
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
-        <div class="item-value">
-          <label class="switch" @click.stop>
-            <input type="checkbox" v-model="chatSettings.disableSpecialTagsInCall" @change="handleSave">
-            <span class="slider"></span>
-          </label>
-        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">禁止角色发图片/表情/转账等，省Token防幻觉</span>
       </div>
-      <div class="glass-list-item" v-show="matchSearch('通话时禁用心声')">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>通话时禁用心声功能</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">通话时不再生成长段心声，大幅加快开口响应速度</span>
+      <div class="glass-list-item" v-show="matchSearch('通话时禁用心声')" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">通话时禁用心声功能</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.disableThoughtInCall" @change="handleSave">
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
-        <div class="item-value">
-          <label class="switch" @click.stop>
-            <input type="checkbox" v-model="chatSettings.disableThoughtInCall" @change="handleSave">
-            <span class="slider"></span>
-          </label>
-        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">通话时不再生成长段心声，大幅加快开口响应速度</span>
       </div>
       
       <!-- 新增线下模式的对应开关 -->
-      <div class="glass-list-item" v-show="matchSearch('线下模式禁用多媒体')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px;">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>线下模式禁用多媒体与互动</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">进入线下见面模式后禁止发图/表情/转账/拨打电话</span>
+      <div class="glass-list-item" v-show="matchSearch('线下模式禁用多媒体')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px; display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">线下模式禁用多媒体与互动</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.disableSpecialTagsInOffline" @change="handleSave">
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
-        <div class="item-value">
-          <label class="switch" @click.stop>
-            <input type="checkbox" v-model="chatSettings.disableSpecialTagsInOffline" @change="handleSave">
-            <span class="slider"></span>
-          </label>
-        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">进入线下见面模式后禁止发图/表情/转账/拨打电话</span>
       </div>
-      <div class="glass-list-item" v-show="matchSearch('线下模式禁用心声')">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>线下模式禁用心声功能</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">线下见面时不再写心声碎碎念，提升沉浸感和响应速度</span>
+      <div class="glass-list-item" v-show="matchSearch('线下模式禁用心声')" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">线下模式禁用心声功能</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.disableThoughtInOffline" @change="handleSave">
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
-        <div class="item-value">
-          <label class="switch" @click.stop>
-            <input type="checkbox" v-model="chatSettings.disableThoughtInOffline" @change="handleSave">
-            <span class="slider"></span>
-          </label>
-        </div>
-      </div>
-      
-      <div class="glass-list-item" v-show="matchSearch('允许角色主动发朋友圈与互动', '朋友圈')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px;">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>允许角色主动发朋友圈与互动</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">角色可以随心所欲去刷朋友圈、点赞评论或发帖</span>
-        </div>
-        <div class="item-value">
-          <label class="switch" @click.stop>
-            <input type="checkbox" v-model="chatSettings.enableCharMoments" @change="handleSave">
-            <span class="slider"></span>
-          </label>
-        </div>
-      </div>
-
-      <div class="glass-list-item" v-show="matchSearch('允许角色朋友圈真实生图', '朋友圈', '生图')">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>允许角色朋友圈真实生图</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">角色发帖带图片描述时调用其图像引擎；关闭后仅发布文字动态</span>
-        </div>
-        <div class="item-value">
-          <label class="switch" @click.stop>
-            <input type="checkbox" v-model="chatSettings.enableCharMomentImages" @change="handleSave">
-            <span class="slider"></span>
-          </label>
-        </div>
-      </div>
-
-      <div class="glass-list-item" v-show="matchSearch('允许角色主动拨打语音', '来电', '语音')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px;">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>允许角色主动拨打语音</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">关闭后角色拨来的语音会直接记为未接来电</span>
-        </div>
-        <div class="item-value">
-          <label class="switch" @click.stop>
-            <input type="checkbox" v-model="chatSettings.enableCharVoiceCall" @change="handleSave">
-            <span class="slider"></span>
-          </label>
-        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">线下见面时不再写心声碎碎念，提升沉浸感和响应速度</span>
       </div>
       
-      <div class="glass-list-item" v-show="matchSearch('允许角色主动拨打视频', '来电', '视频')">
-        <div class="item-label" style="display:flex; flex-direction:column; gap:4px;">
-          <span>允许角色主动拨打视频</span>
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">关闭后角色拨来的视频会直接记为未接来电</span>
+      <div class="glass-list-item" v-show="matchSearch('允许角色主动发朋友圈与互动', '朋友圈')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px; display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">允许角色主动发朋友圈与互动</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.enableCharMoments" @change="handleSave">
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
-        <div class="item-value">
-          <label class="switch" @click.stop>
-            <input type="checkbox" v-model="chatSettings.enableCharVideoCall" @change="handleSave">
-            <span class="slider"></span>
-          </label>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">角色可以随心所欲去刷朋友圈、点赞评论或发帖</span>
+      </div>
+
+      <div class="glass-list-item" v-show="matchSearch('允许角色朋友圈真实生图', '朋友圈', '生图')" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">允许角色朋友圈真实生图</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.enableCharMomentImages" @change="handleSave">
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">角色发帖带图片描述时调用其图像引擎；关闭后仅发布文字动态</span>
+      </div>
+
+      <div class="glass-list-item" v-show="matchSearch('允许角色主动拨打语音', '来电', '语音')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px; display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">允许角色主动拨打语音</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.enableCharVoiceCall" @change="handleSave">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">关闭后角色拨来的语音会直接记为未接来电</span>
+      </div>
+      
+      <div class="glass-list-item" v-show="matchSearch('允许角色主动拨打视频', '来电', '视频')" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <span class="item-label">允许角色主动拨打视频</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.enableCharVideoCall" @change="handleSave">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4;">关闭后角色拨来的视频会直接记为未接来电</span>
       </div>
 
       <template v-if="chatSettings.enableCharVoiceCall !== false || chatSettings.enableCharVideoCall !== false">
@@ -307,16 +307,16 @@ const onOfflineToggle = () => {
             <span class="item-value-text">秒</span>
           </div>
         </div>
-        <div class="glass-list-item" v-show="matchSearch('免打扰')">
-          <div class="item-label" style="display:flex; flex-direction:column; gap:4px; padding-left: 12px;">
+        <div class="glass-list-item" v-show="matchSearch('免打扰')" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+          <div style="display:flex; justify-content:space-between; width:100%; align-items:center; padding-left: 12px;">
             <span style="font-size: 13px; color: var(--text-secondary);">└ 免打扰时段</span>
-            <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">留空表示不限制，此时段内来电不响铃</span>
+            <div class="item-value" style="display:flex; align-items:center; gap:4px;">
+              <input type="time" v-model="chatSettings.dndStart" @change="handleSave" style="background: transparent; border: none; font-size: 13px; color: var(--text-secondary); outline: none;">
+              <span class="item-value-text" style="font-size: 12px;">至</span>
+              <input type="time" v-model="chatSettings.dndEnd" @change="handleSave" style="background: transparent; border: none; font-size: 13px; color: var(--text-secondary); outline: none;">
+            </div>
           </div>
-          <div class="item-value" style="display:flex; align-items:center; gap:4px;">
-            <input type="time" v-model="chatSettings.dndStart" @change="handleSave" style="background: transparent; border: none; font-size: 13px; color: var(--text-secondary); outline: none;">
-            <span class="item-value-text" style="font-size: 12px;">至</span>
-            <input type="time" v-model="chatSettings.dndEnd" @change="handleSave" style="background: transparent; border: none; font-size: 13px; color: var(--text-secondary); outline: none;">
-          </div>
+          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400; line-height: 1.4; padding-left: 12px;">留空表示不限制，此时段内来电不响铃</span>
         </div>
       </template>
     </div>

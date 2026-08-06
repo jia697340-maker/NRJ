@@ -6,7 +6,10 @@ const ACCOUNTS_STORAGE_KEY = 'clingy_chat_accounts'
 
 export interface ChatAccount {
   id: string
+  /** Account-wide network name, shown in account and persona views. */
   name: string
+  /** Chat user's real name. It is intentionally independent from the network name. */
+  realName?: string
   avatarUrl: string
   accountId: string // 聊天ID号
   persona: string // 用户人设

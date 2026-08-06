@@ -3,7 +3,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useNovelAIHistory } from '../composables/useNovelAIHistory'
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'reuse', 'variant'])
 
 const {
   historyItems,
@@ -113,6 +113,12 @@ const downloadDetailImage = () => {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+}
+
+const reuseDetail = (variant = false) => {
+  if (!detailItem.value?.params) return
+  emit(variant ? 'variant' : 'reuse', JSON.parse(JSON.stringify(detailItem.value.params)))
+  emit('close')
 }
 
 const formatDate = (timestamp: number) => {
@@ -232,6 +238,8 @@ const formatDate = (timestamp: number) => {
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
           </button>
+          <button class="nav-icon-btn" @click="reuseDetail(false)" title="载入参数">↺</button>
+          <button class="nav-icon-btn" @click="reuseDetail(true)" title="生成变体">✦</button>
         </div>
       </div>
       
@@ -291,7 +299,7 @@ const formatDate = (timestamp: number) => {
 <style scoped>
 .modal-overlay {
   position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-  background: #fff; z-index: 200; display: flex; flex-direction: column;
+  background: #f4f5f7; z-index: 200; display: flex; flex-direction: column;
 }
 
 .modal-content {
@@ -301,26 +309,25 @@ const formatDate = (timestamp: number) => {
 .modal-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: calc(env(safe-area-inset-top) + 12px) 16px 12px;
-  background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);
-  border-bottom: 1px solid #f0f0f0; z-index: 10;
+  background: rgba(244,245,247,0.9); backdrop-filter: blur(10px);
+  z-index: 10;
 }
 
 .header-left, .header-right { width: 80px; display: flex; align-items: center; }
 .header-right { justify-content: flex-end; }
-.modal-title { font-size: 17px; font-weight: 600; margin: 0; color: #111; }
+.modal-title { font-size: 18px; font-weight: 600; margin: 0; color: #000; letter-spacing: 0.5px; }
 
 .text-btn { background: none; border: none; font-size: 16px; padding: 4px 0; color: #111; cursor: pointer; }
 .text-btn-primary { color: #007aff; }
 .nav-icon-btn {
-  background: none; border: none; padding: 0; color: #111;
+  background: none; border: none; padding: 0; color: #000;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; transition: background-color 0.2s; width: 32px; height: 32px;
+  border-radius: 50%; transition: background-color 0.2s; width: 36px; height: 36px;
 }
-.nav-icon-btn:hover { background-color: rgba(0,0,0,0.05); }
-.nav-icon-btn.primary { color: #007aff; }
+.nav-icon-btn:active { background-color: rgba(0,0,0,0.05); }
 
 .modal-body {
-  flex: 1; overflow-y: auto; padding: 16px;
+  flex: 1; overflow-y: auto; padding: 12px 16px 24px;
 }
 
 .empty-state { text-align: center; color: #888; font-size: 15px; margin-top: 100px; }
@@ -330,77 +337,82 @@ const formatDate = (timestamp: number) => {
 }
 
 .grid-item {
-  position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: 12px;
-  overflow: hidden; background: #f0f0f5; cursor: pointer;
+  position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: 16px;
+  overflow: hidden; background: #fff; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.03); transition: transform 0.2s, box-shadow 0.2s;
 }
+.grid-item:active { transform: scale(0.98); box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
 
-.item-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.item-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #999; font-size: 13px; }
+.item-img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.3s ease; }
+.grid-item:hover .item-img { transform: scale(1.05); }
+.item-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #999; font-size: 13px; background: #f0f0f5; }
 
 .item-overlay {
   position: absolute; bottom: 0; left: 0; right: 0;
-  background: linear-gradient(transparent, rgba(0,0,0,0.6));
-  padding: 20px 8px 8px; color: #fff;
+  background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 100%);
+  padding: 30px 12px 12px; color: #fff; pointer-events: none;
 }
-.item-time { font-size: 12px; }
+.item-time { font-size: 12px; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
 
 .select-indicator {
-  position: absolute; top: 8px; right: 8px; width: 24px; height: 24px;
-  border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,0.2);
-  display: flex; align-items: center; justify-content: center;
+  position: absolute; top: 12px; right: 12px; width: 26px; height: 26px;
+  border-radius: 50%; border: 2px solid rgba(255,255,255,0.8); background: rgba(0,0,0,0.3);
+  display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);
+  transition: all 0.2s;
 }
 .select-indicator.selected { background: #007aff; border-color: #007aff; }
-.indicator-inner { width: 10px; height: 10px; border-radius: 50%; background: #fff; opacity: 0; }
+.indicator-inner { width: 12px; height: 12px; border-radius: 50%; background: #fff; opacity: 0; transition: opacity 0.2s; }
 .select-indicator.selected .indicator-inner { opacity: 1; }
 
 .modal-footer {
   padding: 16px 20px calc(env(safe-area-inset-bottom) + 16px);
-  background: #fff; border-top: 1px solid #f0f0f0;
+  background: rgba(244,245,247,0.9); backdrop-filter: blur(10px);
 }
 
 .delete-btn {
-  width: 100%; background: #ff3b30; color: #fff; border: none; padding: 14px;
-  border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;
+  width: 100%; background: #ff3b30; color: #fff; border: none; padding: 16px;
+  border-radius: 14px; font-size: 16px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 4px 12px rgba(255,59,48,0.2); transition: transform 0.1s;
 }
-.delete-btn:disabled { background: #ffcccc; cursor: not-allowed; }
+.delete-btn:active:not(:disabled) { transform: scale(0.98); }
+.delete-btn:disabled { background: #ffcccc; box-shadow: none; cursor: not-allowed; }
 
 /* Detail Overlay */
 .detail-overlay {
   position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-  background: #f7f7f8; z-index: 300; display: flex; flex-direction: column;
+  background: #f4f5f7; z-index: 300; display: flex; flex-direction: column;
 }
 
 .detail-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: calc(env(safe-area-inset-top) + 12px) 16px 12px;
-  background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);
-  border-bottom: 1px solid #f0f0f0;
+  background: rgba(244,245,247,0.9); backdrop-filter: blur(10px);
 }
 
-.detail-title { font-size: 17px; font-weight: 600; color: #111; }
+.detail-title { font-size: 18px; font-weight: 600; color: #000; letter-spacing: 0.5px; }
 
 .detail-body {
   flex: 1; overflow-y: auto; padding: 16px;
 }
 
 .detail-img-container {
-  width: 100%; border-radius: 12px; overflow: hidden; background: #fff;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px;
+  width: 100%; border-radius: 16px; overflow: hidden; background: #fff;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.06); margin-bottom: 24px;
 }
 .detail-img { width: 100%; display: block; }
 
 .detail-info {
-  background: #fff; border-radius: 12px; padding: 16px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  background: #fff; border-radius: 16px; padding: 20px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.03);
 }
 
 .info-group { margin-bottom: 16px; }
-.info-row { display: flex; margin-bottom: 12px; }
+.info-row { display: flex; margin-bottom: 16px; gap: 16px; }
 .info-row:last-child { margin-bottom: 0; }
-.info-col { flex: 1; display: flex; flex-direction: column; }
+.info-col { flex: 1; display: flex; flex-direction: column; background: #f8fafc; padding: 12px; border-radius: 10px; }
 
-.info-label { font-size: 13px; color: #888; margin-bottom: 4px; }
-.info-value { font-size: 14px; color: #111; word-break: break-all; }
+.info-label { font-size: 12px; color: #64748b; margin-bottom: 6px; font-weight: 500; text-transform: uppercase; }
+.info-value { font-size: 14px; color: #0f172a; word-break: break-all; font-weight: 500; }
 
 /* --- 轻量级弹窗样式 --- */
 .fade-enter-active,
