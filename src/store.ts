@@ -246,6 +246,26 @@ watch(summaryApiSettings, (newVal) => {
   localStorage.setItem(SUMMARY_API_STORAGE_KEY, JSON.stringify(newVal))
 }, { deep: true })
 
+const EMBEDDING_API_STORAGE_KEY = 'clingy_embedding_api_settings'
+const savedEmbeddingApiSettings = readStoredJSON<Record<string, any>>(EMBEDDING_API_STORAGE_KEY, {})
+
+// 向量节点完全可选。未启用时，长期记忆自动降级为关键词、标签、时间与重要度混合检索。
+export const embeddingApiSettings = reactive({
+  enabled: savedEmbeddingApiSettings.enabled ?? false,
+  provider: savedEmbeddingApiSettings.provider || 'openai',
+  url: savedEmbeddingApiSettings.url ?? 'https://api.openai.com',
+  key: savedEmbeddingApiSettings.key ?? '',
+  model: savedEmbeddingApiSettings.model ?? '',
+  availableModels: savedEmbeddingApiSettings.availableModels || [],
+  customUrl: savedEmbeddingApiSettings.customUrl ?? '',
+  customKey: savedEmbeddingApiSettings.customKey ?? '',
+  batchSize: savedEmbeddingApiSettings.batchSize ?? 20
+})
+
+watch(embeddingApiSettings, (newVal) => {
+  localStorage.setItem(EMBEDDING_API_STORAGE_KEY, JSON.stringify(newVal))
+}, { deep: true })
+
 const MOMENT_API_STORAGE_KEY = 'clingy_moment_api_settings'
 const savedMomentApiSettings = readStoredJSON<Record<string, any>>(MOMENT_API_STORAGE_KEY, {})
 

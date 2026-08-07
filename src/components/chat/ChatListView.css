@@ -1579,20 +1579,27 @@
   text-overflow: ellipsis;
 }
 
-.sidebar-search-placeholder {
-  width: 70px;
-  height: 26px;
-  border-radius: 13px;
-  background: var(--sys-bg-secondary);
+.sidebar-account-switch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  color: var(--text-tertiary);
-  font-size: 11px;
+  color: var(--text-secondary);
   margin-bottom: 24px;
   cursor: pointer;
-  border: 1px solid var(--border-color);
+  border: none;
+  transition: all 0.2s;
+}
+
+.sidebar-account-switch:hover {
+  color: var(--text-primary);
+}
+
+.sidebar-account-switch:active {
+  transform: scale(0.95);
 }
 
 .sidebar-contacts-wrapper {

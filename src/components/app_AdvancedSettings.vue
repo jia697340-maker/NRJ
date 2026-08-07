@@ -18,7 +18,8 @@ const tabs = [
   { id: 'cot', name: '思维链', en: 'Chain of Thought', desc: '控制模型内心活动' },
   { id: 'storage', name: '存储', en: 'Storage', desc: '空间管理与数据持久化' },
   { id: 'plugin', name: '插件', en: 'Plugins', desc: '扩展应用功能' },
-  { id: 'privacy', name: '隐私', en: 'Privacy', desc: '安全与数据保护' }
+  { id: 'updater', name: '更新日志和更新', en: 'Changelog', desc: '查看更新日志与检查更新' },
+  { id: 'tutorial', name: '使用教程', en: 'Tutorials', desc: '查看或下载使用教程' }
 ]
 
 const handleBack = () => {
@@ -95,7 +96,7 @@ const {
         <StoragePanel v-if="activeTab === 'storage'" :showConfirm="showConfirm" />
         <PluginPanel v-if="activeTab === 'plugin'" />
 
-        <div v-if="['privacy', 'about'].includes(activeTab)" class="gu-empty">
+        <div v-if="['updater', 'tutorial', 'about'].includes(activeTab)" class="gu-empty">
           <span>暂无内容卷宗</span>
         </div>
       </div>

@@ -29,6 +29,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'stream-setting', group: 'AI 与生成设置', name: '流式生成开关', description: '生成输出方式', localKeys: ['app_novelai_usestream'] },
   { id: 'app-theme', group: '外观与系统', name: '应用主题', description: '应用主题与登录页主题', localKeys: ['clingy_auth_theme'] },
   { id: 'app-icons', group: '外观与系统', name: '应用图标', description: '自定义应用图标', stores: [{ dbName: 'nrt-app', storeName: 'appIcons' }] },
+  { id: 'custom-fonts', group: '外观与系统', name: '自定义字体', description: '字体文件与作用范围', localKeys: ['clingy_custom_fonts'], stores: [{ dbName: 'nrt-app', storeName: 'customFonts' }] },
   { id: 'wallpapers', group: '外观与系统', name: '全局壁纸', description: '应用壁纸库', stores: [{ dbName: 'nrt-app', storeName: 'wallpapers' }] },
   { id: 'compression-setting', group: '外观与系统', name: '图片压缩设置', description: '图片压缩质量', localKeys: ['compressQuality'] },
   { id: 'personas', group: '联系人与角色', name: '角色列表', description: '角色资料与头像关联', localKeys: ['app_chat_personas'] },
@@ -129,7 +130,7 @@ const BACKUP_INTERNAL_KEYS = new Set([
   'webdav_config',
   'email_backup_password'
 ])
-const SENSITIVE_KEY_PATTERN = /(api[_-]?key|apikey|token|secret|password|credential|clingy_(api|vision_api|summary_api|moment_api)_settings|minimax_voice_config)/i
+const SENSITIVE_KEY_PATTERN = /(api[_-]?key|apikey|token|secret|password|credential|clingy_(api|vision_api|summary_api|moment_api|embedding_api)_settings|minimax_voice_config)/i
 
 const isInfrastructureCredentialKey = (key: string) => BACKUP_INTERNAL_KEYS.has(key) || /github.*config|webdav.*config/i.test(key)
 const isSensitiveKey = (key: string) => isInfrastructureCredentialKey(key) || SENSITIVE_KEY_PATTERN.test(key)

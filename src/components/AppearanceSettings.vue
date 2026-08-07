@@ -5,9 +5,12 @@ import { globalSettings } from '../store'
 import localforage from 'localforage'
 import AppearanceWallpaperModal from './AppearanceWallpaperModal.vue'
 import AppearanceAppIconModal from './AppearanceAppIconModal.vue'
+import AppearanceFontModal from './AppearanceFontModal.vue'
 import AvatarUploadModal from './AvatarUploadModal.vue'
+import { useCustomFonts } from '../composables/useCustomFonts'
 
 const emit = defineEmits(['close'])
+const { records: customFonts, initialize: initializeFonts } = useCustomFonts()
 
 
 // 全局聊天背景
@@ -20,6 +23,7 @@ const wallpaperStore = localforage.createInstance({
 
 // 加载全局聊天背景
 onMounted(async () => {
+  await initializeFonts()
   try {
     const globalWp = await wallpaperStore.getItem<string>('wallpaper_global')
     globalChatWallpaper.value = globalWp || null
@@ -77,6 +81,14 @@ const allSettingsData = computed(() => {
       type: 'link',
       label: '自定义应用图标',
       valueText: '设置'
+    },
+    {
+      id: 'custom_fonts',
+      type: 'link',
+      label: '自定义字体',
+      valueText: customFonts.filter(font => font.enabled).length
+        ? `已启用 ${customFonts.filter(font => font.enabled).length} 个`
+        : '默认'
     },
     {
       id: 'enableSlider',
@@ -214,6 +226,7 @@ const wallpaperTarget = ref<'desktop' | 'lockscreen' | 'chatlist'>('desktop')
 
 // 自定义应用图标
 const showAppIconModal = ref(false)
+const showFontModal = ref(false)
 
 // 强调色 (极简黑白灰阶)
 const showColorModal = ref(false)
@@ -316,6 +329,8 @@ const handleItemClick = (item: any) => {
     showColorModal.value = true
   } else if (item.id === 'app_icons') {
     showAppIconModal.value = true
+  } else if (item.id === 'custom_fonts') {
+    showFontModal.value = true
   } else if (item.id === 'sliderIcon') {
     showSliderIconModal.value = true
   } else if (item.id === 'unlockMethod') {
@@ -413,6 +428,10 @@ const handleItemClick = (item: any) => {
     <!-- 自定义图标弹窗 -->
     <AppearanceAppIconModal
       v-model:visible="showAppIconModal"
+    />
+
+    <AppearanceFontModal
+      v-model:visible="showFontModal"
     />
 
     <!-- 壁纸弹窗 (保持复用) -->

@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属"粘人精"，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
 import { sendChatMessage } from '../services/api'
+import { buildMemoryPacket } from '../services/memoryEngine'
 import { taskPromptSettings } from '../store'
 
 export type CallStatus = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended'
@@ -48,7 +49,7 @@ export function useVideoCall() {
     const userName = myProfile.name || '用户'
     const charPersona = chat.persona || '无设定'
     const userPersona = myProfile.persona || '无设定'
-    const longTermMemory = chat.longTermMemory || '无'
+    let longTermMemory = '无'
 
     let textMessages = currentMessages.filter(m => !m.isVideoCallProcessMsg && !m.isVoiceCallProcessMsg && !m.isHidden && !m.isRecalled)
 
@@ -72,6 +73,7 @@ export function useVideoCall() {
       }
       return `${sender}: ${content}`
     }).join('\n')
+    longTermMemory = (await buildMemoryPacket(chat, shortTermMemory, chat.memoryTokenBudget)) || '无'
 
     // 从配置中获取提示词，如果未启用或找不到，则使用回退的硬编码提示词
     const systemItem = taskPromptSettings.items.find(i => i.id === 'task_video_call_decision_system')

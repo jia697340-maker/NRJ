@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { watchEffect } from 'vue'
+import { watch, watchEffect } from 'vue'
 import StatusBar from './components/StatusBar.vue'
 import Desktop from './components/Desktop.vue'
 import AppearanceSettings from './components/AppearanceSettings.vue'
@@ -18,9 +18,12 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { globalSettings, appStats } from './store'
 import { useChatState } from './composables/useChatState'
 import { useAppIcons } from './composables/useAppIcons'
+import { appRegistry, availableAppIds } from './appRegistry'
+import { useCustomFonts } from './composables/useCustomFonts'
 
 const { globalNotifications, dismissNotification, showNotification, loadCustomContacts, loadMyProfile } = useChatState()
 const { loadData: loadAppIconsData, customIcons } = useAppIcons()
+const { setActiveApp: setActiveFontApp } = useCustomFonts()
 
 // 暴露到全局，方便开发者在控制台测试 UI 动画效果
 ;(window as any).testNotification = showNotification
@@ -172,7 +175,7 @@ const containerStyle = computed(() => {
 })
 
 const handleOpenApp = (appId: string) => {
-  if (appId === 'appearance' || appId === 'api_settings' || appId === 'chat' || appId === 'messages' || appId === 'wallet' || appId === 'world_book' || appId === 'settings' || appId === 'voice_access' || appId === 'image_access' || appId === 'wardrobe') {
+  if (availableAppIds.has(appId)) {
     if (appId === 'chat') {
       hasOpenedChatApp.value = true
     }
@@ -245,26 +248,7 @@ const endPhoneVoiceCall = () => {
   chatAppRef.value?.endVoiceCallFromOutside?.()
 }
 
-// 基础 App 列表数据
-const baseApps = [
-  { id: 'appearance', name: '外观设置', icon: '<span class="text-icon">颜</span>', color: '#ffffff' },
-  { id: 'world_book', name: '世界书', icon: '<span class="text-icon">书</span>', color: '#ffffff' },
-  { id: 'settings', name: '高级设置', icon: '<span class="text-icon">设</span>', color: '#ffffff' },
-  { id: 'messages', name: '短信', icon: '<span class="text-icon">信</span>', color: '#ffffff' },
-  
-  { id: 'api_settings', name: 'API设置', icon: '<span class="text-icon">A</span>', color: '#ffffff' },
-  { id: 'chat', name: '聊天', icon: '<span class="text-icon">聊</span>', color: '#ffffff' },
-  { id: 'delivery', name: '投递', icon: '<span class="text-icon">投</span>', color: '#ffffff' },
-  { id: 'wallet', name: '钱包', icon: '<span class="text-icon">包</span>', color: '#ffffff' },
-  
-  { id: 'app_store', name: '应用商城', icon: '<span class="text-icon">商</span>', color: '#ffffff' },
-  { id: 'couple_space', name: '情侣空间', icon: '<span class="text-icon">空</span>', color: '#ffffff' },
-  { id: 'forum', name: '论坛', icon: '<span class="text-icon">论</span>', color: '#ffffff' },
-  { id: 'live', name: '直播', icon: '<span class="text-icon">播</span>', color: '#ffffff' },
-  { id: 'voice_access', name: '语音接入', icon: '<span class="text-icon">音</span>', color: '#ffffff' },
-  { id: 'image_access', name: '图像接入', icon: '<span class="text-icon">图</span>', color: '#ffffff' },
-  { id: 'wardrobe', name: '衣柜', icon: '<span class="text-icon">衣</span>', color: '#ffffff' },
-]
+const baseApps = appRegistry
 
 // 计算应用列表，动态混合自定义图标
 const apps = computed(() => {
@@ -275,6 +259,10 @@ const apps = computed(() => {
     }
   })
 })
+
+watch(activeApp, appId => {
+  void setActiveFontApp(appId)
+}, { immediate: true })
 </script>
 
 <template>
@@ -304,23 +292,25 @@ const apps = computed(() => {
 
     <!-- 锁屏界面 -->
     <Transition name="lock-fade">
-      <LockScreen v-if="isLocked" @unlock="handleUnlock" @open-chat="handleOpenChatFromLock" />
+      <LockScreen v-if="isLocked" data-font-area="lockscreen" @unlock="handleUnlock" @open-chat="handleOpenChatFromLock" />
     </Transition>
 
     <!-- 状态栏：只要桌面壁纸是浅色的，状态栏就应该是深色字体。目前壁纸写死为浅色，所以 is-dark 恒为 true -->
-    <StatusBar :is-dark="true" v-show="globalSettings.showStatusBar && activeApp === null && (!isLocked || globalSettings.lockScreenStyle !== 'classic')" />
-    <Desktop :apps="apps" @open-app="handleOpenApp" v-show="!isLocked" />
+    <StatusBar data-font-area="desktop" :is-dark="true" v-show="globalSettings.showStatusBar && activeApp === null && (!isLocked || globalSettings.lockScreenStyle !== 'classic')" />
+    <Desktop data-font-area="desktop" :apps="apps" @open-app="handleOpenApp" v-show="!isLocked" />
     
     <!-- 应用视图 -->
     <Transition name="app-fade">
       <AppearanceSettings 
         v-if="activeApp === 'appearance'" 
+        data-font-app="appearance"
         @close="activeApp = null" 
       />
     </Transition>
     <Transition name="app-fade">
       <ApiSettings 
         v-if="activeApp === 'api_settings'" 
+        data-font-app="api_settings"
         @close="activeApp = null" 
       />
     </Transition>
@@ -329,6 +319,7 @@ const apps = computed(() => {
         v-if="hasOpenedChatApp"
         v-show="activeApp === 'chat'"
         ref="chatAppRef"
+        data-font-app="chat"
         @close="activeApp = null" 
         @voice-call-state-change="handlePhoneVoiceCallStateChange"
       />
@@ -336,42 +327,49 @@ const apps = computed(() => {
     <Transition name="app-fade">
       <AppSMS 
         v-if="activeApp === 'messages'" 
+        data-font-app="messages"
         @close="activeApp = null" 
       />
     </Transition>
     <Transition name="app-fade">
       <AppWallet 
         v-if="activeApp === 'wallet'" 
+        data-font-app="wallet"
         @close="activeApp = null" 
       />
     </Transition>
     <Transition name="app-fade">
       <AppWorldBook 
         v-if="activeApp === 'world_book'" 
+        data-font-app="world_book"
         @close="activeApp = null" 
       />
     </Transition>
     <Transition name="app-fade">
       <AppAdvancedSettings 
         v-if="activeApp === 'settings'" 
+        data-font-app="settings"
         @close="activeApp = null" 
       />
     </Transition>
     <Transition name="app-fade">
       <AppVoiceAccess 
         v-if="activeApp === 'voice_access'" 
+        data-font-app="voice_access"
         @close="activeApp = null" 
       />
     </Transition>
     <Transition name="app-fade">
       <AppImageAccess 
         v-if="activeApp === 'image_access'" 
+        data-font-app="image_access"
         @close="activeApp = null" 
       />
     </Transition>
     <Transition name="app-fade">
       <AppWardrobe 
         v-if="activeApp === 'wardrobe'" 
+        data-font-app="wardrobe"
         @close="activeApp = null" 
       />
     </Transition>
@@ -476,7 +474,7 @@ export default {
  .install-prompt-skip input:checked + .custom-checkbox { background: #c579a4; border-color: #c579a4; }
  .install-prompt-skip input:checked + .custom-checkbox::after { content: ''; width: 4px; height: 8px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg); margin-bottom: 2px; }
  .install-prompt-primary, .install-prompt-secondary { width: 100%; min-height: 44px; border: 0; border-radius: 14px; font: inherit; font-size: 15px; font-weight: 700; }
- .install-prompt-primary { background: linear-gradient(135deg, #e982ad, #b282e7); box-shadow: 0 7px 16px rgba(200, 112, 170, .26); color: white; }
+ .install-prompt-primary { background: #2d3748; box-shadow: 0 7px 16px rgba(45, 55, 72, .26); color: white; }
  .install-prompt-secondary { background: #f2eef2; color: #665564; }
 /* 应用打开/关闭过渡动画 */
 .app-fade-enter-active,

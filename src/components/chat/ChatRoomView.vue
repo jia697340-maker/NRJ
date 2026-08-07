@@ -78,6 +78,8 @@ function saveCustomContacts() {
       contacts[index].messages = selectedChat.value.messages
       contacts[index].innerThoughts = selectedChat.value.innerThoughts || []
       contacts[index].memoryBook = selectedChat.value.memoryBook || []
+      contacts[index].memoryState = selectedChat.value.memoryState || null
+      contacts[index].lastSummaryMsgId = selectedChat.value.lastSummaryMsgId || 0
       contacts[index].callSummaries = selectedChat.value.callSummaries || []
       contacts[index].preview = selectedChat.value.preview
       contacts[index].time = selectedChat.value.time
@@ -254,6 +256,11 @@ const handleEditSave = (payload: { messageId?: number, content: string, type: st
   if (targetMsg) {
     targetMsg.content = payload.content
     targetMsg.type = payload.type
+    if (targetMsg.translation) {
+      delete targetMsg.translation
+      delete targetMsg.translationLanguage
+      targetMsg.translationStatus = 'stale'
+    }
     
     if (payload.clearMedia) {
       delete targetMsg.imageData
@@ -528,7 +535,39 @@ const {
 )
 
 import { useChatSummary } from '../../composables/useChatSummary'
-const { summarizeMemories } = useChatSummary(selectedChat, saveCustomContacts, showToast)
+import { indexChatMemories } from '../../services/memoryEngine'
+const { summarizeMemories, handleAutoSummary, handleManualSummaryLatest } = useChatSummary(selectedChat, saveCustomContacts, showToast)
+let autoSummaryTimer: any = null
+let idleSummaryTimer: any = null
+const runAutoSummaryWhenChatIdle = (force = false) => {
+  if (isGenerating.value) {
+    autoSummaryTimer = setTimeout(() => runAutoSummaryWhenChatIdle(force), 900)
+    return
+  }
+  handleAutoSummary(force)
+}
+
+watch(() => selectedChat.value?.messages?.length || 0, () => {
+  if (!selectedChat.value?.autoSummaryEnabled) return
+  if (autoSummaryTimer) clearTimeout(autoSummaryTimer)
+  if (idleSummaryTimer) clearTimeout(idleSummaryTimer)
+  autoSummaryTimer = setTimeout(() => {
+    runAutoSummaryWhenChatIdle()
+  }, 900)
+  const idleMinutes = Number(selectedChat.value?.autoSummaryIdleMinutes || 0)
+  if (idleMinutes > 0) {
+    idleSummaryTimer = setTimeout(() => runAutoSummaryWhenChatIdle(true), Math.min(idleMinutes, 1440) * 60 * 1000)
+  }
+})
+
+const handleRoomBack = async () => {
+  if (autoSummaryTimer) clearTimeout(autoSummaryTimer)
+  if (idleSummaryTimer) clearTimeout(idleSummaryTimer)
+  if (selectedChat.value?.autoSummaryEnabled && selectedChat.value?.autoSummaryOnExit) {
+    await handleManualSummaryLatest()
+  }
+  emit('back')
+}
 
 const {
   showVoiceCallModal,
@@ -637,6 +676,7 @@ const handleUpdateMemories = (newMemories: any[]) => {
   if (selectedChat.value) {
     selectedChat.value.memoryBook = newMemories
     saveCustomContacts()
+    indexChatMemories(selectedChat.value).catch(error => console.warn('记忆书架已更新，向量同步稍后重试', error))
   }
 }
 
@@ -748,6 +788,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   isRoomActive.value = false
+  if (autoSummaryTimer) clearTimeout(autoSummaryTimer)
   if (timeInterval) clearInterval(timeInterval)
   stopVoice()
   if (callStatus.value === 'incoming') {
@@ -765,7 +806,7 @@ onUnmounted(() => {
       :totalUnreadCount="totalUnreadCount"
       :currentDateStr="currentDateStr"
       :currentDayStr="currentDayStr"
-      @back="emit('back')"
+      @back="handleRoomBack"
       @open-settings="emit('open-settings')"
       @show-inner-thought-modal="showInnerThoughtModal = true"
       @show-memory-modal="showMemoryModal = true"
@@ -1036,6 +1077,7 @@ onUnmounted(() => {
     <ChatMemoryModal
       :visible="showMemoryModal"
       :memories="selectedChat?.memoryBook || []"
+      :messages="selectedChat?.messages || []"
       :is-summarizing="isSummarizingMemories"
       @close="showMemoryModal = false"
       @update-memories="handleUpdateMemories"

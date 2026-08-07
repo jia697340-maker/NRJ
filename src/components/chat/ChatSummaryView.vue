@@ -7,6 +7,8 @@ import { useChatAuth } from '../../composables/useChatAuth'
 import TextEditModal from '../TextEditModal.vue'
 import LongTextEditModal from '../LongTextEditModal.vue'
 import ChatSummaryPresetsModal from './modals/ChatSummaryPresetsModal.vue'
+import ChatStructuredMemoryModal from './modals/ChatStructuredMemoryModal.vue'
+import { clearChatVectors, ensureMemoryState, indexChatMemories, isEmbeddingReady, type MemoryMode, type StructuredMemoryState } from '../../services/memoryEngine'
 
 const emit = defineEmits<{
   (e: 'back'): void
@@ -14,14 +16,7 @@ const emit = defineEmits<{
 
 const { selectedChat, mockChats } = useChatState()
 
-const defaultSummaryPrompt = `请你以角色的主观心理视角，对以下时间段内的聊天记录进行深度的记忆整理与情感归纳。
-要求：
-1. 【时间与脉络】明确这段记忆发生的时间节点或大致时间段，梳理事件的前因后果。
-2. 【细腻情感】深入捕捉角色在对话中产生的情感波动、心理细节以及对对方的特殊情愫。那些微小的、私密的瞬间往往最珍贵，请务必保留。
-3. 【重要标记】尤其注意标有【重要标记】的内容，这是绝对不可遗忘的羁绊与执念。
-4. 【同理心审视】在完成初稿后，请务必进行二次自我审视：反思这份总结是否遗漏了对方表达过的事件、信息、在意、脆弱或付出？如果有任何会让对方感到“你不重视我”的缺失，请务必将其补充进去。
-5. 【表达视角】总结请以第一人称（角色本人）或带有情感温度的第三人称视角进行书写，展现出对对方的在意与珍惜。
-6. 字数控制在100-300字以内。`
+const defaultSummaryPrompt = `优先保留明确的时间、事件、人物、喜好、边界、承诺、情绪变化和关系发展。尤其注意【重要标记】，但不得把猜测写成事实。`
 
 if (selectedChat.value && !selectedChat.value.summaryPrompt) {
   selectedChat.value.summaryPrompt = defaultSummaryPrompt
@@ -54,10 +49,20 @@ const saveCurrentChat = async () => {
   contacts[idx].memoryBook = selectedChat.value.memoryBook || []
   contacts[idx].autoSummaryEnabled = selectedChat.value.autoSummaryEnabled ?? false
   contacts[idx].autoSummaryThreshold = selectedChat.value.autoSummaryThreshold || null
+  contacts[idx].autoSummaryTokenThreshold = selectedChat.value.autoSummaryTokenThreshold || 6000
+  contacts[idx].autoSummaryTrigger = selectedChat.value.autoSummaryTrigger || 'both'
+  contacts[idx].autoSummaryOnImportant = selectedChat.value.autoSummaryOnImportant ?? true
+  contacts[idx].autoSummaryOnTopicChange = selectedChat.value.autoSummaryOnTopicChange ?? false
+  contacts[idx].autoSummaryOnExit = selectedChat.value.autoSummaryOnExit ?? false
+  contacts[idx].autoSummaryIdleMinutes = selectedChat.value.autoSummaryIdleMinutes || 0
+  contacts[idx].memoryMode = selectedChat.value.memoryMode || 'hybrid'
+  contacts[idx].memoryBatchSize = selectedChat.value.memoryBatchSize || 150
+  contacts[idx].memoryTokenBudget = selectedChat.value.memoryTokenBudget || 1200
+  contacts[idx].autoMemoryConsolidation = selectedChat.value.autoMemoryConsolidation ?? true
+  contacts[idx].memoryConsolidationThreshold = selectedChat.value.memoryConsolidationThreshold || 8
+  contacts[idx].memoryState = selectedChat.value.memoryState || null
   contacts[idx].summaryPrompt = selectedChat.value.summaryPrompt || ''
   contacts[idx].lastSummaryMsgId = selectedChat.value.lastSummaryMsgId || 0
-  contacts[idx].messages = selectedChat.value.messages || []
-
   localStorage.setItem(contactsKey, JSON.stringify(contacts))
 
   const listIdx = mockChats.value.findIndex(c => c.id === selectedChat.value.id)
@@ -85,6 +90,64 @@ const autoStatusText = computed(() =>
 const promptStatusText = computed(() =>
   selectedChat.value?.summaryPrompt === defaultSummaryPrompt ? '默认' : '已自定义'
 )
+const structuredMemoryVisible = ref(false)
+const choiceModal = ref<'mode' | 'trigger' | null>(null)
+const isIndexing = ref(false)
+const tutorialVisible = ref(false)
+const memoryState = computed(() => selectedChat.value ? ensureMemoryState(selectedChat.value) : null)
+const memoryStatsText = computed(() => {
+  const state = memoryState.value
+  if (!state) return '0 项'
+  return `${state.events.length + state.variables.length + state.tableRows.length + state.relations.length} 项`
+})
+const modeOptions: Array<{ value: MemoryMode; label: string; desc: string }> = [
+  { value: 'hybrid', label: '智能混合（推荐）', desc: '同时整理叙事、主观感受、事件、变量与表格。' },
+  { value: 'narrative', label: '经典叙事总结', desc: '以客观连贯摘要为主，兼容旧版记忆书架。' },
+  { value: 'subjective', label: '角色主观记忆', desc: '保留角色第一人称感受，并与客观事实分开。' },
+  { value: 'event', label: '事件卡记忆', desc: '重点拆分时间、人物、结果和未完成事项。' },
+  { value: 'variable', label: '变量记忆', desc: '重点维护称呼、喜好、边界、关系和当前状态。' },
+  { value: 'table', label: '表格记忆', desc: '重点生成可查看、修改的分类记录。' }
+]
+const triggerOptions = [
+  { value: 'both', label: '条数或 Token', desc: '任一阈值达到即自动整理。' },
+  { value: 'count', label: '仅消息条数', desc: '达到指定未总结消息数后整理。' },
+  { value: 'token', label: '仅 Token', desc: '达到估算上下文长度后整理。' }
+]
+const modeLabel = computed(() => modeOptions.find(item => item.value === (selectedChat.value?.memoryMode || 'hybrid'))?.label || '智能混合（推荐）')
+const triggerLabel = computed(() => triggerOptions.find(item => item.value === (selectedChat.value?.autoSummaryTrigger || 'both'))?.label || '条数或 Token')
+
+const selectChoice = (value: string) => {
+  if (!selectedChat.value || !choiceModal.value) return
+  if (choiceModal.value === 'mode') selectedChat.value.memoryMode = value
+  if (choiceModal.value === 'trigger') selectedChat.value.autoSummaryTrigger = value
+  choiceModal.value = null
+  saveCurrentChat()
+}
+
+const updateStructuredState = (state: StructuredMemoryState) => {
+  if (!selectedChat.value) return
+  selectedChat.value.memoryState = state
+  saveCurrentChat()
+  indexChatMemories(selectedChat.value).catch(error => console.warn('结构化记忆已保存，向量同步稍后重试', error))
+}
+
+const rebuildVectorIndex = async () => {
+  if (!selectedChat.value) return
+  if (!isEmbeddingReady()) {
+    showToast('请先在 API 设置中启用并配置向量节点')
+    return
+  }
+  isIndexing.value = true
+  try {
+    await clearChatVectors(selectedChat.value.id)
+    const result = await indexChatMemories(selectedChat.value)
+    showToast(`向量索引完成：${result.indexed} 条`)
+  } catch (error: any) {
+    showToast(error.message || '向量索引失败')
+  } finally {
+    isIndexing.value = false
+  }
+}
 
 const openLatestSummaryModal = () => {
   if (isSummarizing.value) return
@@ -153,6 +216,16 @@ const handleTextSave = (newText: string, target: string) => {
     selectedChat.value.summaryPrompt = newText
   } else if (target === 'autoSummaryThreshold') {
     selectedChat.value.autoSummaryThreshold = parseInt(newText) || null
+  } else if (target === 'autoSummaryTokenThreshold') {
+    selectedChat.value.autoSummaryTokenThreshold = parseInt(newText) || 6000
+  } else if (target === 'memoryBatchSize') {
+    selectedChat.value.memoryBatchSize = Math.max(20, Math.min(500, parseInt(newText) || 150))
+  } else if (target === 'memoryTokenBudget') {
+    selectedChat.value.memoryTokenBudget = Math.max(200, parseInt(newText) || 1200)
+  } else if (target === 'autoSummaryIdleMinutes') {
+    selectedChat.value.autoSummaryIdleMinutes = Math.max(0, Math.min(1440, parseInt(newText) || 0))
+  } else if (target === 'memoryConsolidationThreshold') {
+    selectedChat.value.memoryConsolidationThreshold = Math.max(4, Math.min(20, parseInt(newText) || 8))
   }
   saveCurrentChat()
 }
@@ -211,10 +284,18 @@ const resetSummaryPromptToDefault = () => {
           <div class="item-label">区间总结</div>
           <div class="item-value"><span class="arrow">></span></div>
         </div>
+        <div class="glass-list-item" @click="structuredMemoryVisible = true">
+          <div class="item-label">结构化记忆</div>
+          <div class="item-value"><span class="item-value-text">{{ memoryStatsText }}</span><span class="arrow">></span></div>
+        </div>
       </div>
 
       <div class="section-label">设置</div>
       <div class="glass-panel">
+        <div class="glass-list-item" @click="choiceModal = 'mode'">
+          <div class="item-label">记忆整理模式</div>
+          <div class="item-value"><span class="item-value-text">{{ modeLabel }}</span><span class="arrow">></span></div>
+        </div>
         <div class="glass-list-item">
           <div class="item-label">自动总结</div>
           <div class="item-value">
@@ -223,6 +304,10 @@ const resetSummaryPromptToDefault = () => {
               <span class="slider"></span>
             </label>
           </div>
+        </div>
+        <div class="glass-list-item" :class="{ 'disabled-block': !selectedChat.autoSummaryEnabled }" @click="choiceModal = 'trigger'">
+          <div class="item-label">触发方式</div>
+          <div class="item-value"><span class="item-value-text">{{ triggerLabel }}</span><span class="arrow">></span></div>
         </div>
         <div
           class="glass-list-item"
@@ -234,6 +319,46 @@ const resetSummaryPromptToDefault = () => {
             <span class="item-value-text">{{ selectedChat.autoSummaryThreshold || 500 }} (当前: {{ unsummarizedCount }})</span>
             <span class="arrow">></span>
           </div>
+        </div>
+        <div class="glass-list-item" :class="{ 'disabled-block': !selectedChat.autoSummaryEnabled || selectedChat.autoSummaryTrigger === 'count' }" @click="openTextModal('Token 阈值', String(selectedChat.autoSummaryTokenThreshold || 6000), '6000', '输入估算 Token 阈值', 'autoSummaryTokenThreshold')">
+          <div class="item-label">Token 阈值</div>
+          <div class="item-value"><span class="item-value-text">{{ selectedChat.autoSummaryTokenThreshold || 6000 }}</span><span class="arrow">></span></div>
+        </div>
+        <div class="glass-list-item" :class="{ 'disabled-block': !selectedChat.autoSummaryEnabled }">
+          <div class="item-label">重要标记触发</div>
+          <div class="item-value"><label class="switch" @click.stop><input type="checkbox" v-model="selectedChat.autoSummaryOnImportant" @change="saveCurrentChat"><span class="slider"></span></label></div>
+        </div>
+        <div class="glass-list-item" :class="{ 'disabled-block': !selectedChat.autoSummaryEnabled }">
+          <div class="item-label">话题切换触发</div>
+          <div class="item-value"><label class="switch" @click.stop><input type="checkbox" v-model="selectedChat.autoSummaryOnTopicChange" @change="saveCurrentChat"><span class="slider"></span></label></div>
+        </div>
+        <div class="glass-list-item" :class="{ 'disabled-block': !selectedChat.autoSummaryEnabled }">
+          <div class="item-label">离开聊天时整理</div>
+          <div class="item-value"><label class="switch" @click.stop><input type="checkbox" v-model="selectedChat.autoSummaryOnExit" @change="saveCurrentChat"><span class="slider"></span></label></div>
+        </div>
+        <div class="glass-list-item" :class="{ 'disabled-block': !selectedChat.autoSummaryEnabled }" @click="openTextModal('空闲整理', String(selectedChat.autoSummaryIdleMinutes || 0), '0', '分钟，0 表示关闭', 'autoSummaryIdleMinutes')">
+          <div class="item-label">空闲后台整理</div>
+          <div class="item-value"><span class="item-value-text">{{ selectedChat.autoSummaryIdleMinutes ? `${selectedChat.autoSummaryIdleMinutes} 分钟` : '关闭' }}</span><span class="arrow">></span></div>
+        </div>
+        <div class="glass-list-item" @click="openTextModal('单批消息数', String(selectedChat.memoryBatchSize || 150), '150', '20-500', 'memoryBatchSize')">
+          <div class="item-label">单批消息数</div>
+          <div class="item-value"><span class="item-value-text">{{ selectedChat.memoryBatchSize || 150 }}</span><span class="arrow">></span></div>
+        </div>
+        <div class="glass-list-item" @click="openTextModal('记忆注入预算', String(selectedChat.memoryTokenBudget || 1200), '1200', '输入 Token 预算', 'memoryTokenBudget')">
+          <div class="item-label">记忆注入预算</div>
+          <div class="item-value"><span class="item-value-text">{{ selectedChat.memoryTokenBudget || 1200 }} Token</span><span class="arrow">></span></div>
+        </div>
+        <div class="glass-list-item">
+          <div class="item-label">分层记忆巩固</div>
+          <div class="item-value"><label class="switch" @click.stop><input type="checkbox" v-model="selectedChat.autoMemoryConsolidation" @change="saveCurrentChat"><span class="slider"></span></label></div>
+        </div>
+        <div class="glass-list-item" :class="{ 'disabled-block': selectedChat.autoMemoryConsolidation === false }" @click="openTextModal('巩固阈值', String(selectedChat.memoryConsolidationThreshold || 8), '8', '4-20 条阶段摘要', 'memoryConsolidationThreshold')">
+          <div class="item-label">巩固阈值</div>
+          <div class="item-value"><span class="item-value-text">{{ selectedChat.memoryConsolidationThreshold || 8 }} 条摘要</span><span class="arrow">></span></div>
+        </div>
+        <div class="glass-list-item" :class="{ 'disabled-block': isIndexing }" @click="rebuildVectorIndex">
+          <div class="item-label">向量索引</div>
+          <div class="item-value"><span class="item-value-text">{{ isIndexing ? '重建中...' : (isEmbeddingReady() ? '重建' : '未配置（可选）') }}</span><span class="arrow">></span></div>
         </div>
         <div
           class="glass-list-item"
@@ -259,7 +384,13 @@ const resetSummaryPromptToDefault = () => {
 
       <div class="section-label">说明</div>
       <div class="hint-card">
-        总结结果会写入记忆书架。自动总结在未总结条数达到阈值时触发；立即总结处理全部未总结消息；区间总结可指定消息范围。
+        智能混合会同时生成叙事、事件、变量和表格记忆。向量节点完全可选；未配置时使用关键词、标签、时间与重要度召回。记忆按固定预算注入，不会再把全部书架塞入每轮对话。
+      </div>
+      <div class="glass-panel compact-help">
+        <div class="glass-list-item" @click="tutorialVisible = true">
+          <div class="item-label">使用教程</div>
+          <div class="item-value"><span class="item-value-text">查看配置与使用说明</span><span class="arrow">></span></div>
+        </div>
       </div>
     </main>
 
@@ -273,6 +404,33 @@ const resetSummaryPromptToDefault = () => {
         <div class="confirm-actions">
           <div class="confirm-btn cancel" @click="latestSummaryModalVisible = false">取消</div>
           <div class="confirm-btn" style="color: var(--text-primary); font-weight: 600;" @click="confirmLatestSummary">确认</div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="choiceModal" class="wb-modal-overlay" @click.self="choiceModal = null">
+      <div class="choice-modal">
+        <div class="choice-title">{{ choiceModal === 'mode' ? '记忆整理模式' : '自动触发方式' }}</div>
+        <div class="choice-list">
+          <div v-for="item in (choiceModal === 'mode' ? modeOptions : triggerOptions)" :key="item.value" class="choice-item" @click="selectChoice(item.value)">
+            <div><div class="choice-name">{{ item.label }}</div><div class="choice-desc">{{ item.desc }}</div></div>
+            <div class="choice-check" v-if="(choiceModal === 'mode' ? selectedChat?.memoryMode : selectedChat?.autoSummaryTrigger) === item.value">✓</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="tutorialVisible" class="wb-modal-overlay" @click.self="tutorialVisible = false">
+      <div class="tutorial-modal">
+        <div class="tutorial-header"><div class="choice-title">长期记忆使用教程</div><div class="tutorial-close" @click="tutorialVisible = false">×</div></div>
+        <div class="tutorial-body">
+          <div class="tutorial-step"><b>1. 选择模式</b><span>推荐“智能混合”，会同时整理叙事、事件、变量与表格。</span></div>
+          <div class="tutorial-step"><b>2. 开启自动总结</b><span>可按条数、Token、重要标记、话题切换、空闲或离开聊天触发。</span></div>
+          <div class="tutorial-step"><b>3. 配置总结节点（可选）</b><span>不配置时自动使用聊天节点；配置后可使用更便宜的独立模型。</span></div>
+          <div class="tutorial-step"><b>4. 配置向量节点（可选）</b><span>在“API 节点配置 → 向量节点”填写兼容 /v1/embeddings 的地址、密钥和模型。未配置也能正常召回。</span></div>
+          <div class="tutorial-step"><b>5. 检查和纠错</b><span>进入“结构化记忆”查看事件、变量和表格；重要变量可以锁定，避免被自动覆盖。</span></div>
+          <div class="tutorial-step"><b>6. 重建索引</b><span>更换 Embedding 模型后点击“向量索引 → 重建”。旧记忆会自动补齐向量。</span></div>
+          <div class="tutorial-note">详细教程同时保存在项目 docs/长期记忆与自动总结使用教程.md。</div>
         </div>
       </div>
     </div>
@@ -335,6 +493,12 @@ const resetSummaryPromptToDefault = () => {
         :current-text="selectedChat?.summaryPrompt || defaultSummaryPrompt"
         @apply="applyPreset"
         @reset-default="resetSummaryPromptToDefault"
+      />
+      <ChatStructuredMemoryModal
+        :visible="structuredMemoryVisible"
+        :state="memoryState"
+        @close="structuredMemoryVisible = false"
+        @update-state="updateStructuredState"
       />
     </Teleport>
   </div>
@@ -403,6 +567,8 @@ const resetSummaryPromptToDefault = () => {
   flex: 1;
   overflow-y: auto;
   padding: 16px 16px 32px;
+  width: 100%;
+  box-sizing: border-box;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -419,6 +585,8 @@ const resetSummaryPromptToDefault = () => {
   border: none;
   margin-bottom: 20px;
   overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .glass-list-item {
@@ -506,6 +674,23 @@ const resetSummaryPromptToDefault = () => {
   border-radius: 16px;
   overflow: hidden;
 }
+.choice-modal { width: 88%; max-width: 380px; max-height: 76vh; overflow: hidden; border-radius: 18px; background: var(--sys-bg-secondary, #fff); }
+.choice-title { padding: 18px 20px 12px; font-size: 17px; font-weight: 600; color: var(--text-primary, #222); }
+.choice-list { max-height: 62vh; overflow-y: auto; padding: 0 10px 12px; }
+.choice-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 10px; border-radius: 11px; cursor: pointer; }
+.choice-item:active { background: var(--sys-bg-primary, #f5f5f7); }
+.choice-name { font-size: 14px; color: var(--text-primary, #222); }
+.choice-desc { margin-top: 3px; font-size: 11px; line-height: 1.4; color: var(--text-tertiary, #999); }
+.choice-check { color: var(--theme-color, #5b8def); font-weight: 700; }
+.compact-help { margin-top: 12px; }
+.tutorial-modal { width: 90%; max-width: 390px; max-height: 78vh; overflow: hidden; border-radius: 18px; background: var(--sys-bg-secondary, #fff); }
+.tutorial-header { display: flex; align-items: center; justify-content: space-between; padding-right: 16px; border-bottom: 1px solid rgba(0,0,0,.05); }
+.tutorial-close { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--text-secondary, #666); font-size: 22px; cursor: pointer; }
+.tutorial-body { max-height: 62vh; overflow-y: auto; padding: 14px 20px 20px; }
+.tutorial-step { padding: 11px 0; border-bottom: 1px solid rgba(0,0,0,.05); }
+.tutorial-step b { display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-primary, #222); }
+.tutorial-step span { display: block; font-size: 12px; line-height: 1.55; color: var(--text-secondary, #666); }
+.tutorial-note { margin-top: 14px; padding: 10px 12px; border-radius: 9px; background: var(--sys-bg-primary, #f6f6f7); font-size: 11px; line-height: 1.5; color: var(--text-tertiary, #888); }
 
 .confirm-title {
   font-size: 17px;

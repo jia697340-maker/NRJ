@@ -31,6 +31,18 @@ export function useChatSettingsSave() {
         contacts[idx].callSummaries = selectedChat.value.callSummaries || []
         contacts[idx].autoSummaryEnabled = selectedChat.value.autoSummaryEnabled ?? false
         contacts[idx].autoSummaryThreshold = selectedChat.value.autoSummaryThreshold || null
+        contacts[idx].autoSummaryTokenThreshold = selectedChat.value.autoSummaryTokenThreshold || 6000
+        contacts[idx].autoSummaryTrigger = selectedChat.value.autoSummaryTrigger || 'both'
+        contacts[idx].autoSummaryOnImportant = selectedChat.value.autoSummaryOnImportant ?? true
+        contacts[idx].autoSummaryOnTopicChange = selectedChat.value.autoSummaryOnTopicChange ?? false
+        contacts[idx].autoSummaryOnExit = selectedChat.value.autoSummaryOnExit ?? false
+        contacts[idx].autoSummaryIdleMinutes = selectedChat.value.autoSummaryIdleMinutes || 0
+        contacts[idx].memoryMode = selectedChat.value.memoryMode || 'hybrid'
+        contacts[idx].memoryBatchSize = selectedChat.value.memoryBatchSize || 150
+        contacts[idx].memoryTokenBudget = selectedChat.value.memoryTokenBudget || 1200
+        contacts[idx].autoMemoryConsolidation = selectedChat.value.autoMemoryConsolidation ?? true
+        contacts[idx].memoryConsolidationThreshold = selectedChat.value.memoryConsolidationThreshold || 8
+        contacts[idx].memoryState = selectedChat.value.memoryState || null
         contacts[idx].summaryPrompt = selectedChat.value.summaryPrompt || ''
         contacts[idx].lastSummaryMsgId = selectedChat.value.lastSummaryMsgId || 0
         // 删除 contacts[idx].messages = selectedChat.value.messages || [] 避免 QuotaExceededError，聊天记录应由单独存储管理
@@ -68,6 +80,13 @@ export function useChatSettingsSave() {
         contacts[idx].voicePitch = selectedChat.value.voicePitch ?? 1.0
         contacts[idx].voiceVolume = selectedChat.value.voiceVolume ?? 1.0
         contacts[idx].voiceEmotion = selectedChat.value.voiceEmotion || ''
+        contacts[idx].bilingualEnabled = selectedChat.value.bilingualEnabled ?? false
+        contacts[idx].bilingualMode = selectedChat.value.bilingualMode || 'auto'
+        contacts[idx].dialogueLanguage = selectedChat.value.dialogueLanguage || 'auto'
+        contacts[idx].customDialogueLanguage = selectedChat.value.customDialogueLanguage || ''
+        contacts[idx].translationLanguage = selectedChat.value.translationLanguage || 'app'
+        contacts[idx].customTranslationLanguage = selectedChat.value.customTranslationLanguage || ''
+        contacts[idx].translationDisplay = selectedChat.value.translationDisplay || 'tap'
         contacts[idx].charSpeaksFirstOnCall = selectedChat.value.charSpeaksFirstOnCall ?? false
 
         // 回复条数控制持久化

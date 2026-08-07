@@ -29,6 +29,7 @@ const config = ref<WebDAVConfig>({
   })
 const showConfig = ref(false)
 const showTutorial = ref(false)
+const tutorialTab = ref<'simple' | 'hardcore'>('simple')
 const autoEnabled = ref(false)
 const intervalDays = ref(7)
 
@@ -378,14 +379,30 @@ const formatSize = (bytes: number) => {
 
         <!-- 内置教程：沿用现有摘要卡片与说明块 -->
         <div v-else-if="showTutorial" class="gu-sub-view">
-          <div class="gu-sub-header">WebDAV 与免费云主机教程</div>
-          <div class="gu-summary-card"><div class="gu-summary-mark">易</div><div><b>已有支持 WebDAV 的网盘</b><small>在网盘安全设置中开启 WebDAV并创建应用专用密码；应用内填写专用目录 URL、账号和应用密码即可。</small></div></div>
-          <div class="gu-summary-card"><div class="gu-summary-mark">免</div><div><b>免费云主机自建</b><small>可选择带长期免费计算额度的云平台，创建 Ubuntu 主机。免费政策可能变化，创建前务必在费用估算中确认金额为 0。</small></div></div>
-          <div class="gu-tutorial-step"><b>一、安装 WebDAV 服务</b><small>在主机安装 Docker，部署 SFTPGo 开源版，并为数据目录挂载持久磁盘。管理后台创建只用于粘人精备份的普通用户。</small></div>
-          <div class="gu-tutorial-step"><b>二、启用 HTTPS 与跨域</b><small>为 WebDAV 绑定域名和有效 HTTPS 证书。在 SFTPGo 的 webdavd binding 中开启 CORS，仅允许粘人精网页来源，并允许 OPTIONS、PROPFIND、GET、PUT、DELETE及 Authorization、Depth、Content-Type 请求头。</small></div>
-          <div class="gu-tutorial-step"><b>三、连接应用</b><small>网盘地址填写 https://你的域名/dav/，使用刚创建的普通账号，不要使用服务器管理员账号。设置自动备份密码后测试连接。</small></div>
-          <div class="gu-tutorial-step"><b>四、换机恢复</b><small>新设备填写相同地址和账号，刷新云端列表，选择最新备份。优先使用“追加合并”；只有确认新设备无重要数据时才使用覆盖。</small></div>
-          <div class="gu-note">自建服务必须同时满足 HTTPS、持久磁盘、定期更新和浏览器 CORS。若不熟悉服务器维护，优先使用现成 WebDAV 网盘。</div>
+          <div class="gu-sub-header" style="border-bottom:none; padding-bottom:0; margin-bottom:8px;">WebDAV 教程</div>
+          
+          <div class="gu-tabs-header" style="display:flex; gap:16px; margin-bottom:16px; border-bottom:1px solid #E5E5E5;">
+            <button style="padding:8px 0; background:transparent; border:none; cursor:pointer; font-weight:bold; font-size:14px; border-bottom: 2px solid transparent; transition: all 0.2s;" :style="tutorialTab === 'simple' ? 'color:#1A1A1A; border-bottom-color:#1A1A1A;' : 'color:#999;'" @click="tutorialTab = 'simple'">通用网盘教程 (极简推荐)</button>
+            <button style="padding:8px 0; background:transparent; border:none; cursor:pointer; font-weight:bold; font-size:14px; border-bottom: 2px solid transparent; transition: all 0.2s;" :style="tutorialTab === 'hardcore' ? 'color:#1A1A1A; border-bottom-color:#1A1A1A;' : 'color:#999;'" @click="tutorialTab = 'hardcore'">云主机自建教程 (硬核复杂)</button>
+          </div>
+
+          <div v-if="tutorialTab === 'simple'">
+            <div class="gu-summary-card"><div class="gu-summary-mark">荐</div><div><b>使用现成支持 WebDAV 的网盘（无需代码）</b><small>最简单、最适合普通用户的方法，只需3步即可开启云端漫游。</small></div></div>
+            <div class="gu-tutorial-step"><b>步骤一：注册/登录网盘</b><small>在搜索引擎查找“支持 WebDAV 的免费网盘”并注册账号。</small></div>
+            <div class="gu-tutorial-step"><b>步骤二：获取应用密码</b><small>在网盘的“安全”或“设置”中心，开启 WebDAV 功能，并生成一个专用的“应用密码”或“授权码”（注意通常不是登录密码）。</small></div>
+            <div class="gu-tutorial-step"><b>步骤三：一键连接</b><small>在应用配置中，填入网盘提供的 WebDAV 地址（URL）、账号以及刚生成的应用密码。点击保存即可使用！</small></div>
+            <div class="gu-tutorial-step"><b>换机恢复</b><small>在新设备上填入同样的 URL、账号和密码，即可获取云端备份文件进行恢复。</small></div>
+          </div>
+
+          <div v-else-if="tutorialTab === 'hardcore'">
+            <div class="gu-summary-card"><div class="gu-summary-mark">免</div><div><b>免费云主机自建</b><small>可选择带长期免费计算额度的云平台，创建 Ubuntu 主机。免费政策可能变化，创建前务必在费用估算中确认金额为 0。</small></div></div>
+            <div class="gu-tutorial-step"><b>一、安装 WebDAV 服务</b><small>在主机安装 Docker，部署 SFTPGo 开源版，并为数据目录挂载持久磁盘。管理后台创建只用于当前应用备份的普通用户。</small></div>
+            <div class="gu-tutorial-step"><b>二、启用 HTTPS 与跨域</b><small>为 WebDAV 绑定域名和有效 HTTPS 证书。在 SFTPGo 的 webdavd binding 中开启 CORS，仅允许当前网页来源，并允许 OPTIONS、PROPFIND、GET、PUT、DELETE及 Authorization、Depth、Content-Type 请求头。</small></div>
+            <div class="gu-tutorial-step"><b>三、连接应用</b><small>网盘地址填写 https://你的域名/dav/，使用刚创建的普通账号，不要使用服务器管理员账号。设置自动备份密码后测试连接。</small></div>
+            <div class="gu-tutorial-step"><b>四、换机恢复</b><small>新设备填写相同地址和账号，刷新云端列表，选择最新备份。优先使用“追加合并”；只有确认新设备无重要数据时才使用覆盖。</small></div>
+            <div class="gu-note">自建服务必须同时满足 HTTPS、持久磁盘、定期更新和浏览器 CORS。若不熟悉服务器维护，强烈建议使用现成 WebDAV 网盘。</div>
+          </div>
+
           <div class="gu-actions-row mt-4"><button class="gu-btn-cancel" @click="closeTutorial">{{ config.enabled ? '返回云端记录' : '返回连接配置' }}</button></div>
         </div>
 

@@ -69,7 +69,8 @@ export async function sendChatMessage(
   let payloadMessages = JSON.parse(JSON.stringify(messages)) // 深拷贝避免污染原数组
   let payloadStop: string[] | undefined = undefined
 
-  if (cotSettings.enabled) {
+  // 总结/结构化记忆要求稳定的 JSON 或纯摘要，不能被聊天思维链模板污染。
+  if (!isSummary && cotSettings.enabled) {
     if (cotSettings.mode === 'skip') {
       // 模式 A：跳过思考 (Skip)
       payloadMessages.push({

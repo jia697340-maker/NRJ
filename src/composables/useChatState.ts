@@ -5,6 +5,8 @@ import { worldBooks, globalPromptSettings, chatSettings } from '../store'
 import { buildOfflineMeetPrompt } from './useOfflineMeetPrompt'
 import { useChatAuth } from './useChatAuth'
 import { getMomentBehavior } from '../services/moments'
+import { buildMemoryPacket } from '../services/memoryEngine'
+import { buildBilingualPrompt } from '../services/bilingualChat'
 
 // 全局共享状态（单例外置）
 const mockChats = ref<any[]>([])
@@ -198,6 +200,18 @@ export function useChatState() {
         callSummaries: c.callSummaries || [],
         autoSummaryEnabled: c.autoSummaryEnabled ?? false,
         autoSummaryThreshold: c.autoSummaryThreshold || 500,
+        autoSummaryTokenThreshold: c.autoSummaryTokenThreshold || 6000,
+        autoSummaryTrigger: c.autoSummaryTrigger || 'both',
+        autoSummaryOnImportant: c.autoSummaryOnImportant ?? true,
+        autoSummaryOnTopicChange: c.autoSummaryOnTopicChange ?? false,
+        autoSummaryOnExit: c.autoSummaryOnExit ?? false,
+        autoSummaryIdleMinutes: c.autoSummaryIdleMinutes || 0,
+        memoryMode: c.memoryMode || 'hybrid',
+        memoryBatchSize: c.memoryBatchSize || 150,
+        memoryTokenBudget: c.memoryTokenBudget || 1200,
+        autoMemoryConsolidation: c.autoMemoryConsolidation ?? true,
+        memoryConsolidationThreshold: c.memoryConsolidationThreshold || 8,
+        memoryState: c.memoryState || null,
         lastSummaryMsgId: c.lastSummaryMsgId || 0,
         messages: c.messages || [],
         innerThoughts: c.innerThoughts || [],
@@ -220,6 +234,13 @@ export function useChatState() {
         voicePitch: c.voicePitch ?? 1.0,
         voiceVolume: c.voiceVolume ?? 1.0,
         voiceEmotion: c.voiceEmotion || '',
+        bilingualEnabled: c.bilingualEnabled ?? false,
+        bilingualMode: c.bilingualMode || 'auto',
+        dialogueLanguage: c.dialogueLanguage || 'auto',
+        customDialogueLanguage: c.customDialogueLanguage || '',
+        translationLanguage: c.translationLanguage || 'app',
+        customTranslationLanguage: c.customTranslationLanguage || '',
+        translationDisplay: c.translationDisplay || 'tap',
         charSpeaksFirstOnCall: c.charSpeaksFirstOnCall ?? false,
         enableMsgCountLimit: c.enableMsgCountLimit ?? false,
         minMsgCount: c.minMsgCount || 1,
@@ -440,12 +461,8 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
       '{{status_panel}}': statusPanelContent
     }
 
-    // 把记忆书本内容注入
-    let memoryBookContext = ''
-    if (chat.memoryBook && chat.memoryBook.length > 0) {
-      memoryBookContext = `\n\n【系统记忆大纲】\n这里记录了你与对方过去交流的重要记忆总结：\n`
-      memoryBookContext += chat.memoryBook.map((m: any) => `- [${m.date}] ${m.content}`).join('\n')
-    }
+    // 长期记忆由 buildChatMessages 按当前话题与 Token 预算动态检索，禁止在这里全量注入。
+    const memoryBookContext = ''
 
     // 从 globalPromptSettings 动态构建 Prompt
     let activePromptItems = globalPromptSettings.items.map((i: any) => ({ ...i })).filter((i: any) => {
@@ -706,7 +723,11 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
         ? `\n\n【朋友圈手动规则】活跃时段：${momentBehavior.activeStart}:00-${momentBehavior.activeEnd}:00；表达偏好：${momentBehavior.style || '遵循你自己的人设'}；默认受众：${momentBehavior.audience}。你仍可根据当下情境决定是否发帖、只看、点赞或评论；系统会执行用户设置的冷却与概率限制。`
         : `\n\n【朋友圈自主权】把朋友圈当作你真实生活的一部分。你拥有完整自主权：是否查看、发帖、配图、点赞、评论、回复以及何时做，都由你依据自己的人设、当下经历、情绪、关系和具体内容自然决定。不要为了展示功能而行动，也不要机械刷屏；系统不会用概率、固定频率或预设文风替你做决定。`
       : '\n\n【你的朋友圈习惯】当前不使用朋友圈，不要输出任何朋友圈标签。'
-    const sysPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode) + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
+    const latestMemoryQuery = [...(chat.messages || [])].reverse().find((item: any) =>
+      item?.type === 'left' || item?.type === 'right' || item?.type === 'system'
+    )?.content || ''
+    const memoryPacket = await buildMemoryPacket(chat, String(latestMemoryQuery), chat.memoryTokenBudget)
+    const sysPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode) + buildBilingualPrompt(chat) + memoryPacket + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
     
     if (chat.enableRoleEmojiVision && roleEmojiImages.length > 0) {
       const contentArr: any[] = [{ type: 'text', text: sysPrompt }]

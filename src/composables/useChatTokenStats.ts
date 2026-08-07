@@ -44,6 +44,15 @@ export function useChatTokenStats() {
         memoryTokens += estimateToken(m.content)
       })
     }
+    const structured = selectedChat.value.memoryState
+    if (structured) {
+      for (const item of structured.events || []) memoryTokens += estimateToken(`${item.title || ''}${item.summary || ''}`)
+      for (const item of structured.variables || []) memoryTokens += estimateToken(`${item.key || ''}${item.value || ''}`)
+      for (const item of structured.tableRows || []) memoryTokens += estimateToken(`${item.title || ''}${item.value || ''}`)
+      for (const item of structured.relations || []) memoryTokens += estimateToken(`${item.source || ''}${item.relation || ''}${item.target || ''}`)
+    }
+    // 实际请求只会注入预算范围内的相关记忆，不再统计整座记忆库。
+    memoryTokens = Math.min(memoryTokens, Number(selectedChat.value.memoryTokenBudget || 1200))
     
     // 4. 当前上下文记录
     let historyTokens = 0

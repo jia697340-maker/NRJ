@@ -4,6 +4,7 @@ import { ref, watch } from 'vue'
 import { chatSettings } from '../../../store'
 import localforage from 'localforage'
 import { canViewMoment } from '../../../services/moments'
+import { getChatLanguageLabel } from '../../../constants/chatLanguages'
 
 const props = defineProps<{
   selectedChat: any
@@ -20,12 +21,27 @@ const emit = defineEmits<{
   (e: 'show-voice-detail-modal'): void
   (e: 'show-nai-image-detail-modal'): void
   (e: 'show-world-book-bind-selector'): void
+  (e: 'show-bilingual-option-modal', kind: 'mode' | 'display'): void
+  (e: 'show-bilingual-language-modal', kind: 'output' | 'translation'): void
   (e: 'save'): void
 }>()
 
 const handleSave = () => {
   emit('save')
 }
+
+const bilingualModeLabel = () => ({
+  auto: '智能判断',
+  forced: '强制指定',
+  follow_user: '跟随用户'
+} as Record<string, string>)[props.selectedChat?.bilingualMode || 'auto'] || '智能判断'
+
+const translationDisplayLabel = () => ({
+  tap: '点击后显示',
+  always: '始终显示',
+  translated_only: '仅显示译文',
+  original_only: '仅显示原文'
+} as Record<string, string>)[props.selectedChat?.translationDisplay || 'tap'] || '点击后显示'
 
 // 朋友圈动态Token预估
 const momentTokenEstimate = ref('')
@@ -129,6 +145,36 @@ watch(() => props.selectedChat, calculateMomentTokens)
         <div class="item-label">角色设定</div>
         <div class="item-value"><span class="item-value-text">{{ selectedChat.persona || '未设置' }}</span><span class="arrow">></span></div>
       </div>
+    </div>
+
+    <div class="glass-panel" v-show="matchSearch('双语对话', '语言控制模式', '角色输出语言', '翻译目标语言', '翻译显示方式')">
+      <div class="glass-list-item" v-show="matchSearch('双语对话')">
+        <div class="item-label">双语对话</div>
+        <div class="item-value">
+          <label class="switch" @click.stop>
+            <input type="checkbox" :checked="!!selectedChat.bilingualEnabled" @change="(e) => { selectedChat.bilingualEnabled = (e.target as HTMLInputElement).checked; handleSave(); }">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+      <template v-if="selectedChat.bilingualEnabled">
+        <div class="glass-list-item" v-show="matchSearch('语言控制模式')" @click="emit('show-bilingual-option-modal', 'mode')">
+          <div class="item-label bilingual-child-label">└ 语言控制模式</div>
+          <div class="item-value"><span class="item-value-text">{{ bilingualModeLabel() }}</span><span class="arrow">></span></div>
+        </div>
+        <div class="glass-list-item" v-show="matchSearch('角色输出语言')" @click="emit('show-bilingual-language-modal', 'output')">
+          <div class="item-label bilingual-child-label">└ 角色输出语言</div>
+          <div class="item-value"><span class="item-value-text">{{ getChatLanguageLabel(selectedChat.dialogueLanguage || 'auto', selectedChat.customDialogueLanguage) }}</span><span class="arrow">></span></div>
+        </div>
+        <div class="glass-list-item" v-show="matchSearch('翻译目标语言')" @click="emit('show-bilingual-language-modal', 'translation')">
+          <div class="item-label bilingual-child-label">└ 翻译目标语言</div>
+          <div class="item-value"><span class="item-value-text">{{ getChatLanguageLabel(selectedChat.translationLanguage || 'app', selectedChat.customTranslationLanguage) }}</span><span class="arrow">></span></div>
+        </div>
+        <div class="glass-list-item" v-show="matchSearch('翻译显示方式')" @click="emit('show-bilingual-option-modal', 'display')">
+          <div class="item-label bilingual-child-label">└ 翻译显示方式</div>
+          <div class="item-value"><span class="item-value-text">{{ translationDisplayLabel() }}</span><span class="arrow">></span></div>
+        </div>
+      </template>
     </div>
 
     <div class="glass-panel" v-show="matchSearch('开启角色语音接入', '开启角色语音通话接入', '开启角色视频通话接入', '语音详细配置', '语音模型', '发音语言', '音色 ID', '合成音量', '合成语速', '合成语调', '情感风格')">
@@ -299,6 +345,14 @@ watch(() => props.selectedChat, calculateMomentTokens)
     </div>
   </div>
 </template>
+
+<style scoped>
+.bilingual-child-label {
+  padding-left: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+</style>
 
 <style scoped>
 @import './ChatSettingsStyles.css';

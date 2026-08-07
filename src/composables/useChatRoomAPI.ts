@@ -6,6 +6,7 @@ import localforage from 'localforage'
 import { useNovelAI } from './useNovelAI'
 import { useChatAuth } from './useChatAuth'
 import { appendMissedIncomingCall, isInDoNotDisturb } from './useCallRecords'
+import { parseBilingualMessage } from '../services/bilingualChat'
 
 // 引入拆分的逻辑模块
 import { useChatRoomError } from './useChatRoomError'
@@ -224,17 +225,26 @@ export function useChatRoomAPI(
       }
 
       // 修改解析逻辑：按原文顺序提取标签
-      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|voice_call_user|video_call_user|offline|status|narration)(?:\s+(?:amount|seconds)=["']?([0-9.]+)["']?)?>([\s\S]*?)<\/\1>/g
-      const extractedActions: { type: string, content: string, amount?: number, quote?: { sender: string, content: string } }[] = []
+      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|voice_call_user|video_call_user|offline|status|narration)(\s+[^>]*)?>([\s\S]*?)<\/\1>/g
+      const extractedActions: { type: string, content: string, amount?: number, quote?: { sender: string, content: string }, contentLanguage?: string, translation?: string, translationLanguage?: string }[] = []
       let match
       
       while ((match = tokenRegex.exec(replyText)) !== null) {
         const type = match[1]
-        const amountStr = match[2]
+        const attrs = match[2] || ''
+        const amountStr = attrs.match(/\b(?:amount|seconds)\s*=\s*["']?([0-9.]+)["']?/i)?.[1]
         let content = match[3].trim()
         let quote = undefined
+        let contentLanguage = undefined
+        let translation = undefined
+        let translationLanguage = undefined
         
         if (type === 'msg') {
+          const parsedMessage = parseBilingualMessage(content, attrs)
+          content = parsedMessage.content
+          contentLanguage = parsedMessage.contentLanguage
+          translation = parsedMessage.translation
+          translationLanguage = parsedMessage.translationLanguage
           const quoteRegex = /<quote\s+sender=(?:["'])?([^"'>]+)(?:["'])?\s*>([\s\S]*?)<\/quote>/i
           const quoteMatch = content.match(quoteRegex)
           if (quoteMatch) {
@@ -248,7 +258,7 @@ export function useChatRoomAPI(
 
         if (content || quote || type === 'send_transfer' || type === 'send_red_packet' || type === 'send_voice' || type === 'send_image' || type === 'send_emoji' || type === 'voice_call_user' || type === 'video_call_user' || type === 'offline' || type === 'status' || type === 'narration') {
           const amount = amountStr ? parseFloat(amountStr) : undefined
-          extractedActions.push({ type, content, amount, quote })
+          extractedActions.push({ type, content, amount, quote, contentLanguage, translation, translationLanguage })
         }
       }
       
@@ -258,7 +268,8 @@ export function useChatRoomAPI(
         let fallbackText = replyText.replace(/<inner_thought>[\s\S]*?<\/inner_thought>/gi, '')
         fallbackText = fallbackText.replace(/<\/?(msg|recall)>/g, '').trim()
         if (fallbackText) {
-          extractedActions.push({ type: 'msg', content: fallbackText })
+          const parsedFallback = parseBilingualMessage(fallbackText)
+          extractedActions.push({ type: 'msg', ...parsedFallback })
         } else {
           throw new Error('API 返回了空内容，请检查模型或 API 设置。')
         }
@@ -683,6 +694,10 @@ export function useChatRoomAPI(
               id: Date.now() + index,
               type: 'left',
               content: msgContent,
+              contentLanguage: action.contentLanguage,
+              translation: action.translation,
+              translationLanguage: action.translationLanguage,
+              translationStatus: action.translation ? 'ready' : undefined,
               thinking: thinking,
               costTime: isLastMsg ? costSeconds : undefined,
               quote: action.quote,

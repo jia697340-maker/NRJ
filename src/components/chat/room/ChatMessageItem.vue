@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import ChatImageBubble from '../bubbles/ChatImageBubble.vue'
 import ChatVoiceBubble from '../bubbles/ChatVoiceBubble.vue'
 import ChatTransferBubble from '../bubbles/ChatTransferBubble.vue'
@@ -23,6 +24,19 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits()
+const translationExpanded = ref(false)
+const translationDisplay = computed(() => props.selectedChat?.translationDisplay || 'tap')
+const hasTranslation = computed(() => typeof props.msg?.translation === 'string' && props.msg.translation.trim().length > 0)
+const showOriginal = computed(() => translationDisplay.value !== 'translated_only' || !hasTranslation.value)
+const showTranslation = computed(() => hasTranslation.value && (
+  translationDisplay.value === 'always' ||
+  translationDisplay.value === 'translated_only' ||
+  (translationDisplay.value === 'tap' && translationExpanded.value)
+))
+const canToggleTranslation = computed(() => hasTranslation.value && translationDisplay.value === 'tap')
+const toggleTranslation = () => {
+  translationExpanded.value = !translationExpanded.value
+}
 
 const shouldShowAvatar = (msg: any) => {
   if (msg.type !== 'left' && msg.type !== 'right') return false
@@ -221,7 +235,17 @@ const formatMsgTime = (timestamp: number) => {
                 <div class="msg-quote-sender">{{ msg.quote.sender }}</div>
                 <div class="msg-quote-content">{{ msg.quote.content }}</div>
               </div>
-              <div class="message-content">{{ msg.content }}</div>
+              <div v-if="showOriginal" class="message-content">{{ msg.content }}</div>
+              <div
+                v-if="canToggleTranslation"
+                class="translation-toggle"
+                role="button"
+                tabindex="0"
+                @click.stop="toggleTranslation"
+                @keydown.enter.stop="toggleTranslation"
+                @keydown.space.prevent.stop="toggleTranslation"
+              >{{ translationExpanded ? '收起翻译' : '翻译' }}</div>
+              <div v-if="showTranslation" class="message-translation">{{ msg.translation }}</div>
             </div>
             <div v-if="chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'bubble_outer'" class="msg-time-inline-outer left">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
@@ -356,6 +380,31 @@ const formatMsgTime = (timestamp: number) => {
 
 <style>
 @import '../ChatRoomView.css';
+
+.translation-toggle {
+  width: fit-content;
+  margin-top: 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.85;
+}
+
+.translation-toggle:active { opacity: 0.55; }
+
+.message-translation {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  color: inherit;
+  font-size: 0.92em;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0.72;
+}
 
 .chat-message-image-generating {
   display: flex;

@@ -1,12 +1,13 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, cotSettings, type CotItem } from '../store'
+import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, embeddingApiSettings, cotSettings, type CotItem } from '../store'
 import SearchableSelect from './SearchableSelect.vue'
 
-const currentTab = ref<'global' | 'summary' | 'vision' | 'moment'>('global')
+const currentTab = ref<'global' | 'summary' | 'vision' | 'moment' | 'embedding'>('global')
 
-const activeSettings = computed(() => {
+const activeSettings = computed<any>(() => {
+  if (currentTab.value === 'embedding') return embeddingApiSettings
   if (currentTab.value === 'summary') return summaryApiSettings
   if (currentTab.value === 'vision') return visionApiSettings
   if (currentTab.value === 'moment') return momentApiSettings
@@ -116,6 +117,14 @@ watch(() => momentApiSettings.key, (newKey) => {
   }
 })
 
+watch(() => embeddingApiSettings.url, (newUrl) => {
+  if (embeddingApiSettings.provider === 'custom') embeddingApiSettings.customUrl = newUrl
+})
+
+watch(() => embeddingApiSettings.key, (newKey) => {
+  if (embeddingApiSettings.provider === 'custom') embeddingApiSettings.customKey = newKey
+})
+
 const isFetching = ref(false)
 const fetchError = ref('')
 const fetchSuccess = ref(false)
@@ -131,7 +140,7 @@ const fetchModels = async () => {
   
   try {
     const baseUrl = activeSettings.value.url.replace(/\/+$/, '')
-    const endpoint = `${baseUrl}/v1/models`
+    const endpoint = `${baseUrl}${baseUrl.endsWith('/v1') ? '' : '/v1'}/models`
     const res = await fetch(endpoint, {
       headers: {
         'Authorization': `Bearer ${activeSettings.value.key}`,
@@ -184,11 +193,12 @@ const testResult = ref<{ type: 'success' | 'error', text: string } | null>(null)
 
 const handleTestConnectionClick = () => {
   if (!activeSettings.value.url || !activeSettings.value.key) {
-    alert('请先填写API地址和密钥')
-    return
+    showTestModal.value = true
+    testResult.value = { type: 'error', text: '请先填写 API 地址和密钥' }
+  } else {
+    showTestModal.value = true
+    testResult.value = null
   }
-  showTestModal.value = true
-  testResult.value = null
 }
 
 const cancelTest = () => {
@@ -225,17 +235,17 @@ const confirmTest = async () => {
   
   try {
     const baseUrl = activeSettings.value.url.replace(/\/+$/, '')
-    const endpoint = `${baseUrl}/v1/chat/completions`
+    const isEmbeddingTest = currentTab.value === 'embedding'
+    const endpoint = isEmbeddingTest
+      ? (baseUrl.endsWith('/embeddings') ? baseUrl : `${baseUrl}${baseUrl.includes('/v1') ? '' : '/v1'}/embeddings`)
+      : `${baseUrl}${baseUrl.endsWith('/v1') ? '' : '/v1'}/chat/completions`
     
     // 如果没有选择模型，则默认一个
     const modelToUse = activeSettings.value.model || (activeSettings.value.availableModels && activeSettings.value.availableModels[0]) || 'gpt-3.5-turbo'
     
-    const payload = {
-      model: modelToUse,
-      messages: [{ role: 'user', content: testInputText.value }],
-      max_tokens: 50,
-      stream: false
-    }
+    const payload = isEmbeddingTest
+      ? { model: modelToUse, input: [testInputText.value] }
+      : { model: modelToUse, messages: [{ role: 'user', content: testInputText.value }], max_tokens: 50, stream: false }
 
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -252,7 +262,9 @@ const confirmTest = async () => {
     }
     
     const data = await res.json()
-    if (data.choices && data.choices[0] && data.choices[0].message) {
+    if (isEmbeddingTest && Array.isArray(data.data) && Array.isArray(data.data[0]?.embedding)) {
+      testResult.value = { type: 'success', text: `向量节点连接成功，返回 ${data.data[0].embedding.length} 维向量。` }
+    } else if (data.choices && data.choices[0] && data.choices[0].message) {
       testResult.value = { type: 'success', text: data.choices[0].message.content }
     } else {
       throw new Error('返回数据格式异常')
@@ -314,6 +326,10 @@ const confirmTest = async () => {
         </div>
         <div class="tab-item" :class="{ active: currentTab === 'moment' }" @click="currentTab = 'moment'">
           <span>朋友圈节点</span>
+          <div class="tab-line"></div>
+        </div>
+        <div class="tab-item" :class="{ active: currentTab === 'embedding' }" @click="currentTab = 'embedding'">
+          <span>向量节点</span>
           <div class="tab-line"></div>
         </div>
       </div>
@@ -382,7 +398,28 @@ const confirmTest = async () => {
           </div>
         </div>
 
-        <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled) || (currentTab === 'moment' && momentApiSettings.enabled)">
+        <div class="settings-section" v-if="currentTab === 'embedding'">
+          <div class="red-dot"></div>
+          <div class="form-grid">
+            <div class="form-row">
+              <div class="form-label space-between">
+                <span class="cn-text">启用独立的向量节点</span>
+                <label class="editorial-switch">
+                  <input type="checkbox" v-model="embeddingApiSettings.enabled">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="section-desc" v-if="!embeddingApiSettings.enabled">
+            向量记忆为可选功能。未开启时仍可使用总结、变量、表格记忆，并自动采用本地关键词混合召回。
+          </div>
+          <div class="section-desc" v-else>
+            需要支持 OpenAI 风格 /v1/embeddings 的节点。聊天与总结模型不会因此改变。
+          </div>
+        </div>
+
+        <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled) || (currentTab === 'moment' && momentApiSettings.enabled) || (currentTab === 'embedding' && embeddingApiSettings.enabled)">
           
           <div class="settings-section" v-show="isMatch('服务商 接口地址 api密钥 测试 重置')">
             <div class="red-dot"></div>
@@ -478,6 +515,13 @@ const confirmTest = async () => {
                 </div>
               </div>
 
+              <div class="form-row" v-if="currentTab === 'embedding'" v-show="isMatch('批量 大小')">
+                <div class="form-label">批量大小</div>
+                <div class="form-value">
+                  <input type="number" v-model.number="embeddingApiSettings.batchSize" min="1" max="100" class="line-input" />
+                </div>
+              </div>
+
             </div>
             <div class="section-desc status-msg" v-if="fetchError || fetchSuccess">
               <span class="error" v-if="fetchError">{{ fetchError }}</span>
@@ -488,7 +532,7 @@ const confirmTest = async () => {
             </div>
           </div>
 
-          <div class="settings-section" v-show="isMatch('高级 参数 温度 max_tokens top_p 惩罚')">
+          <div class="settings-section" v-if="currentTab !== 'embedding'" v-show="isMatch('高级 参数 温度 max_tokens top_p 惩罚')">
             <div class="red-dot"></div>
             <div class="section-title">
               <span class="cn">高级参数</span>
@@ -879,11 +923,17 @@ const confirmTest = async () => {
 
 /* 纯文本 Tabs */
 .text-tabs {
-  display: flex;
-  gap: 24px;
-  margin-bottom: 40px;
-}
+    display: flex;
+    gap: 18px;
+    margin-bottom: 40px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+.text-tabs::-webkit-scrollbar { display: none; }
 .tab-item {
+  flex: 0 0 calc((100% - 54px) / 4);
+  white-space: nowrap;
+  text-align: center;
   font-family: 'Noto Serif SC', serif;
   font-size: 14px;
   color: #999;

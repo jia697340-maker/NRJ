@@ -81,7 +81,11 @@ export function useChatRoomMultiSelect(
     const msg = selectedChat.value?.messages?.find((m: any) => m.id === targetMessageId.value)
     if (msg) {
       try {
-        await navigator.clipboard.writeText(msg.content)
+        const display = selectedChat.value?.translationDisplay || 'tap'
+        let copyText = msg.content
+        if (msg.translation && display === 'translated_only') copyText = msg.translation
+        else if (msg.translation && display === 'always') copyText = `${msg.content}\n\n${msg.translation}`
+        await navigator.clipboard.writeText(copyText)
       } catch (e) {
         console.error('复制失败', e)
       }

@@ -15,6 +15,7 @@ import ChatListActionMenuModal from './modals/ChatListActionMenuModal.vue'
 import ChatListGroupManageModal from './modals/ChatListGroupManageModal.vue'
 import ChatListAssignGroupModal from './modals/ChatListAssignGroupModal.vue'
 import ChatListCreateChoiceModal from './modals/ChatListCreateChoiceModal.vue'
+import ChatAccountSwitchModal from './modals/ChatAccountSwitchModal.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -216,6 +217,8 @@ const createChoiceModalVisible = ref(false)
 const importModalVisible = ref(false)
 const importModalMode = ref<'card'|'doc'>('card')
 
+const accountSwitchModalVisible = ref(false)
+
 // === UI 行为 ===
 const handleImportComplete = (personas: any[]) => {
   const savedStr = localStorage.getItem(getContactsKey())
@@ -279,9 +282,8 @@ const handleImportComplete = (personas: any[]) => {
             <div class="sidebar-name">{{ currentAccount?.name || '未登录' }}</div>
           </div>
         
-        <div class="sidebar-search-placeholder">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <span>搜索</span>
+        <div class="sidebar-account-switch" @click="accountSwitchModalVisible = true">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line></svg>
         </div>
 
         <div class="sidebar-contacts-wrapper">
@@ -444,6 +446,8 @@ const handleImportComplete = (personas: any[]) => {
       <ChatListGroupManageModal v-if="groupManageModalVisible" :customGroups="customGroups" :selectedManageGroups="selectedManageGroups" @close="groupManageModalVisible = false" @toggle-all="() => { if(selectedManageGroups.size === customGroups.length) selectedManageGroups.clear(); else selectedManageGroups = new Set(customGroups) }" @toggle-group="(g) => { if(selectedManageGroups.has(g)) selectedManageGroups.delete(g); else selectedManageGroups.add(g) }" @rename-group="(g) => { showRenameGroupDialog(showDialog, g, () => {}) }" @delete-selected="deleteSelectedGroups(showDialog, selectedManageGroups, () => { groupManageModalVisible = false })" @merge-selected="mergeSelectedGroups(showDialog, selectedManageGroups, () => { groupManageModalVisible = false })" />
       <ChatListCreateChoiceModal v-if="createChoiceModalVisible" @close="createChoiceModalVisible = false" @manual-create="() => { createChoiceModalVisible = false; emit('open-create-contact') }" @import-create="() => { createChoiceModalVisible = false; importModalMode = 'card'; importModalVisible = true }" @import-doc-create="() => { createChoiceModalVisible = false; importModalMode = 'doc'; importModalVisible = true }" />
       
+      <ChatAccountSwitchModal v-if="accountSwitchModalVisible" @close="accountSwitchModalVisible = false" />
+
       <!-- Native / Upload Modals -->
       <PersonaImportModal v-model:visible="importModalVisible" :mode="importModalMode" @import="handleImportComplete" />
 

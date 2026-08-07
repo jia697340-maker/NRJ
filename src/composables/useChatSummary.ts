@@ -1,81 +1,82 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
 import { sendChatMessage } from '../services/api'
-import { apiSettings, summaryApiSettings } from '../store'
+import {
+  applyMemoryExtraction,
+  buildExtractionPrompt,
+  ensureMemoryState,
+  estimateMessageTokens,
+  detectTopicBoundary,
+  getUncoveredMessages,
+  indexChatMemories,
+  parseMemoryExtraction,
+  type MemoryMode
+} from '../services/memoryEngine'
 
 export function useChatSummary(selectedChat: any, saveCustomContacts: () => void, showToast: (msg: string) => void) {
   const isSummarizing = ref(false)
   const summaryModalVisible = ref(false)
 
-  // 这里的 api 同样要发送系统提示词等内容
-  const generateSummary = async (messagesToSummarize: any[], isAuto = false) => {
+  const consolidateNarrativeHierarchy = async (chat: any) => {
+    if (chat.autoMemoryConsolidation === false) return
+    const threshold = Math.max(4, Math.min(20, Number(chat.memoryConsolidationThreshold || 8)))
+    const candidates = (chat.memoryBook || []).filter((item: any) => item.enabled !== false && !item.archived && !item.isCondensed)
+    if (candidates.length < threshold) return
+    const children = candidates.slice(0, threshold)
+    const prompt = `你是长期记忆分层巩固助手。请把以下同一人物关系中的阶段摘要压缩成一条更高层长期记忆，保留时间变化、重要事件、承诺、边界与关系发展，不得添加新事实。只输出 JSON：{"narrative":"100-300字巩固摘要"}\n\n${children.map((item: any, index: number) => `[${index + 1}] ${item.date || ''} ${item.content || ''}`).join('\n')}`
+    const response = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+    const extraction = parseMemoryExtraction(typeof response === 'string' ? response : response.content)
+    if (!extraction.narrative) return
+    children.forEach((item: any) => { item.archived = true })
+    const evidenceMessageIds = children.flatMap((item: any) => item.evidenceMessageIds || [])
+    chat.memoryBook.push({
+      id: Date.now() + 1, date: new Date().toLocaleDateString('zh-CN'), content: extraction.narrative,
+      messageCount: children.reduce((total: number, item: any) => total + Number(item.messageCount || 0), 0),
+      fromMsgId: children.map((item: any) => item.fromMsgId).filter(Boolean).sort((a: number, b: number) => a - b)[0],
+      toMsgId: children.map((item: any) => item.toMsgId).filter(Boolean).sort((a: number, b: number) => b - a)[0],
+      evidenceMessageIds, childMemoryIds: children.map((item: any) => item.id),
+      isCondensed: true, memoryLevel: 2, memoryMode: 'narrative', version: 2,
+      createdAt: Date.now(), updatedAt: Date.now(), enabled: true
+    })
+  }
+
+  const generateSummary = async (messagesToSummarize: any[], isAuto = false, requestedMode?: MemoryMode) => {
     if (isSummarizing.value || messagesToSummarize.length === 0) return
 
     isSummarizing.value = true
     try {
-      const messagesPayload = messagesToSummarize.map(m => {
-        let prefix = m.type === 'left' ? 'AI: ' : '用户: '
-        if (m.type === 'system') prefix = '系统: '
-        // 如果消息被标记（着重），我们在这里加强提示
-        const markedNotice = m.isMarked ? '【重要标记】' : ''
-        return `${prefix}${markedNotice}${m.content}`
-      }).join('\n')
-
-      const customPrompt = selectedChat.value.summaryPrompt?.trim()
-      const defaultPrompt = `请你作为一个记忆整理助手，对以下历史聊天记录进行简明扼要的总结归纳。
-要求：
-1. 提炼出关键事件、情感变化以及核心讨论点。
-2. 尤其注意标有【重要标记】的内容，这是必须要着重注意和保留的信息。
-3. 总结必须以第三人称客观视角书写。
-4. 字数控制在100-300字以内。`
-      
-      const basePrompt = customPrompt || defaultPrompt
-
-      const prompt = `${basePrompt}
-
-聊天记录：
-${messagesPayload}`
-
-      const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
-      
-      let summaryContent = ''
-      if (typeof result === 'string') {
-        summaryContent = result
-      } else {
-        summaryContent = result.content
+      const chat = selectedChat.value
+      ensureMemoryState(chat)
+      const mode = requestedMode || (chat.memoryMode as MemoryMode) || 'hybrid'
+      const batchSize = Math.max(20, Math.min(500, Number(chat.memoryBatchSize || 150)))
+      const batches: any[][] = []
+      for (let offset = 0; offset < messagesToSummarize.length; offset += batchSize) {
+        batches.push(messagesToSummarize.slice(offset, offset + batchSize))
       }
 
-      // 提取纯文本内容，去掉可能存在的思维链标签
-      summaryContent = summaryContent.replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, '').trim() || summaryContent
+      let completed = 0
+      for (const batch of batches) {
+        const prompt = buildExtractionPrompt(batch, mode, chat.summaryPrompt?.trim() || '')
+        const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+        const rawContent = typeof result === 'string' ? result : result.content
+        if (!rawContent) throw new Error('总结生成内容为空')
+        const extraction = parseMemoryExtraction(rawContent)
+        applyMemoryExtraction(chat, extraction, batch, mode)
+        completed++
+        saveCustomContacts()
+      }
 
-      if (!summaryContent) throw new Error('总结生成内容为空')
-
-      // 写入记忆书本
-      if (!selectedChat.value.memoryBook) {
-        selectedChat.value.memoryBook = []
-      }
-      
-      const newMemory = {
-        id: Date.now(),
-        date: new Date().toLocaleDateString('zh-CN'),
-        content: summaryContent,
-        messageCount: messagesToSummarize.length,
-        fromMsgId: messagesToSummarize[0].id,
-        toMsgId: messagesToSummarize[messagesToSummarize.length - 1].id
-      }
-      
-      selectedChat.value.memoryBook.push(newMemory)
-      
-      // 更新 lastSummaryMsgId (仅当新的消息ID更大时才更新，防止自定义区间总结倒退最新总结标记)
-      const lastMsgId = messagesToSummarize[messagesToSummarize.length - 1].id
-      if (!selectedChat.value.lastSummaryMsgId || lastMsgId > selectedChat.value.lastSummaryMsgId) {
-        selectedChat.value.lastSummaryMsgId = lastMsgId
-      }
-      
+      await consolidateNarrativeHierarchy(chat)
       saveCustomContacts()
-      
+
+      try {
+        await indexChatMemories(chat)
+      } catch (embeddingError) {
+        console.warn('记忆已保存，但向量索引未完成', embeddingError)
+      }
+
       if (!isAuto) {
-        showToast('总结成功并已存入记忆书本')
+        showToast(batches.length > 1 ? `已分 ${completed} 批完成记忆整理` : '记忆整理成功')
       }
 
     } catch (err: any) {
@@ -83,23 +84,26 @@ ${messagesPayload}`
       if (!isAuto) {
          showToast(`总结失败: ${err.message}`)
       } else {
-         // 自动总结失败，弹窗提醒（这里用 toast 简易替代，也可设计一个专门弹窗）
-         alert(`后台自动总结失败: ${err.message}`)
+         showToast(`后台记忆整理失败: ${err.message}`)
       }
     } finally {
       isSummarizing.value = false
     }
   }
 
-  const handleAutoSummary = async () => {
+  const handleAutoSummary = async (force = false) => {
     if (!selectedChat.value?.autoSummaryEnabled) return
-    const msgs = selectedChat.value.messages || []
-    if (msgs.length === 0) return
-
-    const lastId = selectedChat.value.lastSummaryMsgId || 0
-    const unsummarizedMsgs = msgs.filter((m: any) => m.id > lastId && (m.type === 'left' || m.type === 'right' || m.type === 'system'))
-
-    if (unsummarizedMsgs.length >= selectedChat.value.autoSummaryThreshold) {
+    const unsummarizedMsgs = getUncoveredMessages(selectedChat.value)
+    if (unsummarizedMsgs.length === 0) return
+    const countReached = unsummarizedMsgs.length >= Number(selectedChat.value.autoSummaryThreshold || 500)
+    const tokenReached = estimateMessageTokens(unsummarizedMsgs) >= Number(selectedChat.value.autoSummaryTokenThreshold || 6000)
+    const importantReached = selectedChat.value.autoSummaryOnImportant !== false && unsummarizedMsgs.some((message: any) => message.isMarked)
+    const topicReached = selectedChat.value.autoSummaryOnTopicChange === true && detectTopicBoundary(unsummarizedMsgs)
+    const trigger = selectedChat.value.autoSummaryTrigger || 'both'
+    const shouldRun = force || topicReached || (trigger === 'count' ? countReached || importantReached
+      : trigger === 'token' ? tokenReached || importantReached
+      : countReached || tokenReached || importantReached)
+    if (shouldRun) {
       await generateSummary(unsummarizedMsgs, true)
     }
   }
@@ -136,8 +140,7 @@ ${messagesPayload}`
       return
     }
 
-    const lastId = selectedChat.value.lastSummaryMsgId || 0
-    const unsummarizedMsgs = msgs.filter((m: any) => m.id > lastId && (m.type === 'left' || m.type === 'right' || m.type === 'system'))
+    const unsummarizedMsgs = getUncoveredMessages(selectedChat.value)
 
     if (unsummarizedMsgs.length === 0) {
       showToast('目前没有新的未总结消息')
@@ -233,9 +236,7 @@ ${messagesPayload}`
 
   const getUnsummarizedCount = () => {
     if (!selectedChat.value) return 0
-    const msgs = selectedChat.value.messages || []
-    const lastId = selectedChat.value.lastSummaryMsgId || 0
-    return msgs.filter((m: any) => m.id > lastId && (m.type === 'left' || m.type === 'right' || m.type === 'system')).length
+    return getUncoveredMessages(selectedChat.value).length
   }
 
   const summarizeMemories = async (memoriesToSummarize: any[]) => {

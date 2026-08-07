@@ -3,6 +3,7 @@
 import { ref } from 'vue'
 import { useAppIcons } from '../composables/useAppIcons'
 import AvatarUploadModal from './AvatarUploadModal.vue'
+import { appRegistry } from '../appRegistry'
 
 const props = defineProps<{
   visible: boolean
@@ -16,21 +17,7 @@ const close = () => {
   emit('update:visible', false)
 }
 
-// 全部可更换图标的 App 列表（与 App.vue 保持同步）
-const apps = [
-  { id: 'appearance', name: '外观设置', defaultIcon: '<span class="text-icon">颜</span>' },
-  { id: 'world_book', name: '世界书', defaultIcon: '<span class="text-icon">书</span>' },
-  { id: 'settings', name: '高级设置', defaultIcon: '<span class="text-icon">设</span>' },
-  { id: 'messages', name: '短信', defaultIcon: '<span class="text-icon">信</span>' },
-  { id: 'api_settings', name: 'API设置', defaultIcon: '<span class="text-icon">A</span>' },
-  { id: 'chat', name: '聊天', defaultIcon: '<span class="text-icon">聊</span>' },
-  { id: 'delivery', name: '投递', defaultIcon: '<span class="text-icon">投</span>' },
-  { id: 'wallet', name: '钱包', defaultIcon: '<span class="text-icon">包</span>' },
-  { id: 'app_store', name: '应用商城', defaultIcon: '<span class="text-icon">商</span>' },
-  { id: 'couple_space', name: '情侣空间', defaultIcon: '<span class="text-icon">空</span>' },
-  { id: 'forum', name: '论坛', defaultIcon: '<span class="text-icon">论</span>' },
-  { id: 'live', name: '直播', defaultIcon: '<span class="text-icon">播</span>' }
-]
+const apps = appRegistry.map(app => ({ id: app.id, name: app.name, defaultIcon: app.icon }))
 
 const currentEditingApp = ref<string | null>(null)
 const showUploadModal = ref(false)

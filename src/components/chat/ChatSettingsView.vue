@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useChatState } from '../../composables/useChatState'
 import { useChatTokenStats } from '../../composables/useChatTokenStats'
 import ChatEmojiView from './ChatEmojiView.vue'
@@ -38,6 +38,8 @@ import ChatVoiceModelModal from './modals/ChatVoiceModelModal.vue'
 import ChatVoiceDetailModal from './modals/ChatVoiceDetailModal.vue'
 import ChatVoiceLanguageModal from './modals/ChatVoiceLanguageModal.vue'
 import ChatVoiceEmotionModal from './modals/ChatVoiceEmotionModal.vue'
+import ChatBilingualOptionModal from './modals/ChatBilingualOptionModal.vue'
+import ChatDialogueLanguageModal from './modals/ChatDialogueLanguageModal.vue'
 import ChatClearHistoryModal from './modals/ChatClearHistoryModal.vue'
 import ChatNAIImageDetailModal from './modals/ChatNAIImageDetailModal.vue'
 
@@ -139,12 +141,14 @@ const showAvatarDisplayModal = ref(false)
 const showNameDisplayModal = ref(false)
 const showTimeDisplayModal = ref(false)
 
-import { computed } from 'vue'
-
 const showModelModal = ref(false)
 const showVoiceModal = ref(false)
 const showLanguageModal = ref(false)
 const showEmotionModal = ref(false)
+const showBilingualOptionModal = ref(false)
+const bilingualOptionKind = ref<'mode' | 'display'>('mode')
+const showBilingualLanguageModal = ref(false)
+const bilingualLanguageKind = ref<'output' | 'translation'>('output')
 const isFetchingVoices = ref(false)
 const fetchedVoices = ref<{id: string, name: string}[]>([])
 
@@ -192,6 +196,63 @@ const selectEmotion = (val: string) => {
     saveCurrentChat()
   }
   showEmotionModal.value = false
+}
+
+const bilingualOptionTitle = computed(() => bilingualOptionKind.value === 'mode' ? '选择语言控制模式' : '选择翻译显示方式')
+const bilingualOptionValue = computed(() => bilingualOptionKind.value === 'mode'
+  ? (selectedChat.value?.bilingualMode || 'auto')
+  : (selectedChat.value?.translationDisplay || 'tap'))
+const bilingualOptionChoices = computed(() => bilingualOptionKind.value === 'mode'
+  ? [
+      { value: 'auto', label: '智能判断', description: '根据角色人设和当前语境自然决定语言' },
+      { value: 'forced', label: '强制指定', description: '始终使用指定的角色输出语言' },
+      { value: 'follow_user', label: '跟随用户', description: '跟随用户最近一条消息的主要语言' }
+    ]
+  : [
+      { value: 'tap', label: '点击后显示', description: '默认显示原文，点击后展开译文' },
+      { value: 'always', label: '始终显示', description: '在原文下方始终展示译文' },
+      { value: 'translated_only', label: '仅显示译文', description: '界面隐藏原文，但仍保留原文数据' },
+      { value: 'original_only', label: '仅显示原文', description: '保留译文数据但不在气泡中显示' }
+    ])
+
+const openBilingualOptionModal = (kind: 'mode' | 'display') => {
+  bilingualOptionKind.value = kind
+  showBilingualOptionModal.value = true
+}
+
+const selectBilingualOption = (value: string) => {
+  if (!selectedChat.value) return
+  if (bilingualOptionKind.value === 'mode') {
+    selectedChat.value.bilingualMode = value
+    if (value === 'forced' && ['auto', 'follow_user'].includes(selectedChat.value.dialogueLanguage || 'auto')) {
+      selectedChat.value.dialogueLanguage = 'en'
+    }
+  } else {
+    selectedChat.value.translationDisplay = value
+  }
+  saveCurrentChat()
+}
+
+const openBilingualLanguageModal = (kind: 'output' | 'translation') => {
+  bilingualLanguageKind.value = kind
+  showBilingualLanguageModal.value = true
+}
+
+const selectBilingualLanguage = (payload: { value: string; customLanguage?: string }) => {
+  if (!selectedChat.value) return
+  if (bilingualLanguageKind.value === 'output') {
+    selectedChat.value.dialogueLanguage = payload.value
+    if (payload.customLanguage !== undefined) selectedChat.value.customDialogueLanguage = payload.customLanguage
+    if (payload.value === 'auto') selectedChat.value.bilingualMode = 'auto'
+    else if (payload.value === 'follow_user') selectedChat.value.bilingualMode = 'follow_user'
+  } else {
+    selectedChat.value.translationLanguage = payload.value
+    if (payload.customLanguage !== undefined) selectedChat.value.customTranslationLanguage = payload.customLanguage
+    if (payload.value === 'off' && selectedChat.value.translationDisplay === 'translated_only') {
+      selectedChat.value.translationDisplay = 'original_only'
+    }
+  }
+  saveCurrentChat()
 }
 
 const selectModel = (m: string) => {
@@ -264,12 +325,7 @@ const currentMediaThumb = ref<string | null>(null)
 const showMediaThumbModal = ref(false)
 
 // 默认总结提示词
-const defaultSummaryPrompt = `请你作为一个记忆整理助手，对以下历史聊天记录进行简明扼要的总结归纳。
-要求：
-1. 提炼出关键事件、情感变化以及核心讨论点。
-2. 尤其注意标有【重要标记】的内容，这是必须要着重注意和保留的信息。
-3. 总结必须以第三人称客观视角书写。
-4. 字数控制在100-300字以内。`
+const defaultSummaryPrompt = `优先保留明确的时间、事件、人物、喜好、边界、承诺、情绪变化和关系发展。尤其注意【重要标记】，但不得把猜测写成事实。`
 
 // 组件挂载时或者聊天对象改变时加载专属壁纸与缩略图
 const loadAssets = async () => {
@@ -617,6 +673,8 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @show-voice-detail-modal="showVoiceDetailModal = true"
         @show-nai-image-detail-modal="showNAIImageDetailModal = true"
         @show-world-book-bind-selector="showWorldBookBindSelector = true"
+        @show-bilingual-option-modal="openBilingualOptionModal"
+        @show-bilingual-language-modal="openBilingualLanguageModal"
         @save="saveCurrentChat"
       />
 
@@ -773,6 +831,22 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         v-model:visible="showEmotionModal"
         :current-emotion="selectedChat.voiceEmotion || ''"
         @select="selectEmotion"
+      />
+
+      <ChatBilingualOptionModal
+        v-model:visible="showBilingualOptionModal"
+        :title="bilingualOptionTitle"
+        :current-value="bilingualOptionValue"
+        :options="bilingualOptionChoices"
+        @select="selectBilingualOption"
+      />
+
+      <ChatDialogueLanguageModal
+        v-model:visible="showBilingualLanguageModal"
+        :kind="bilingualLanguageKind"
+        :current-language="bilingualLanguageKind === 'output' ? (selectedChat.dialogueLanguage || 'auto') : (selectedChat.translationLanguage || 'app')"
+        :custom-language="bilingualLanguageKind === 'output' ? (selectedChat.customDialogueLanguage || '') : (selectedChat.customTranslationLanguage || '')"
+        @select="selectBilingualLanguage"
       />
 
       <!-- 音色选择弹窗 -->

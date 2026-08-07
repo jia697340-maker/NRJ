@@ -49,7 +49,7 @@ const CATEGORY_MAP: Record<string, { name: string, color: string }> = {
   others: { name: '其它可识别数据', color: '#e2e8f0' }
 }
 
-const isSensitiveStorageKey = (key: string) => /(api[_-]?key|apikey|token|secret|password|credential|github_backup_config|webdav_config|clingy_(api|vision_api|summary_api|moment_api)_settings|minimax_voice_config)/i.test(key)
+const isSensitiveStorageKey = (key: string) => /(api[_-]?key|apikey|token|secret|password|credential|github_backup_config|webdav_config|clingy_(api|vision_api|summary_api|moment_api|embedding_api)_settings|minimax_voice_config)/i.test(key)
 
 export function useAdvancedSettingsStorage(showConfirm: (message: string, title?: string, showCancel?: boolean, type?: 'normal' | 'danger') => Promise<boolean>) {
   const storageInfo = ref({
@@ -179,6 +179,7 @@ export function useAdvancedSettingsStorage(showConfirm: (message: string, title?
       { name: 'nrt-app', storeName: 'media-thumbs', label: '媒体缩略图', category: 'media_thumbs' },
       { name: 'nrt-app', storeName: 'mediaThumbs', label: '媒体缩略图', category: 'media_thumbs' },
       { name: 'nrt-app', storeName: 'appIcons', label: '应用图标', category: 'theme_appearance' },
+      { name: 'nrt-app', storeName: 'customFonts', label: '自定义字体', category: 'theme_appearance' },
       { name: 'nrt-app', storeName: 'chatWallpapers', label: '聊天壁纸', category: 'wallpapers' },
       { name: 'nrt-app', storeName: 'memoryCovers', label: '记忆封面', category: 'worldbook_covers' },
       { name: 'nrt-app', storeName: 'memoryStyles', label: '记忆样式', category: 'theme_appearance' },
