@@ -15,6 +15,11 @@ const props = defineProps<{
     category: string
     size: number
     formattedSize: string
+    storageFormat: string
+    reclaimable: boolean
+    protected: boolean
+    status: 'normal' | 'legacy' | 'duplicate' | 'orphan' | 'system'
+    description: string
   }>
   formatBytes: (bytes: number) => string
 }>()
@@ -26,14 +31,22 @@ const emit = defineEmits<{
 
 const selectedItems = ref<Set<string>>(new Set())
 const isManageMode = ref(false)
+const activeFilter = ref<'all' | 'large' | 'reclaimable' | 'legacy' | 'duplicate' | 'orphan'>('all')
+const filters = [
+  { id: 'all', name: '全部' }, { id: 'large', name: '大文件' }, { id: 'reclaimable', name: '可安全清理' },
+  { id: 'legacy', name: '旧版格式' }, { id: 'duplicate', name: '重复' }, { id: 'orphan', name: '无引用' }
+] as const
 
 const currentCategory = computed(() => props.initialTab)
 
 const filteredResults = computed(() => {
-  if (currentCategory.value === 'all' || currentCategory.value === 'others') {
-    return props.deepScanResults.filter(item => item.category === 'others' || !item.category)
-  }
-  return props.deepScanResults.filter(item => item.category === currentCategory.value)
+  let items = currentCategory.value === 'all'
+    ? [...props.deepScanResults]
+    : props.deepScanResults.filter(item => item.category === currentCategory.value || (currentCategory.value === 'others' && !item.category))
+  if (activeFilter.value === 'large') items = items.filter(item => item.size >= 1024 * 1024)
+  else if (activeFilter.value === 'reclaimable') items = items.filter(item => item.reclaimable)
+  else if (activeFilter.value !== 'all') items = items.filter(item => item.status === activeFilter.value)
+  return items.sort((a, b) => b.size - a.size)
 })
 
 const getCategoryName = (cat: string) => {
@@ -58,7 +71,11 @@ const getCategoryName = (cat: string) => {
     user_settings: '用户个人偏好设置',
     plugins: '插件与扩展数据',
     emoji_groups: '表情包分组设定',
-    others: '其它未归类的底层碎片'
+    backup_data: '本机恢复点与待发送备份',
+    offline_cache: '离线应用缓存',
+    system_overhead: '数据库与浏览器开销',
+    others: '其它可识别数据',
+    all: '全部存储项目'
   }
   return map[cat] || cat || '其它数据'
 }
@@ -76,6 +93,7 @@ const protectedKeys = new Set([
 ])
 
 const isProtected = (item: any) => {
+  if (item.protected || item.status === 'system') return true
   if (protectedKeys.has(item.key)) return true
   if (item.key.startsWith('clingy_sys_')) return true
   return false
@@ -167,6 +185,11 @@ const totalSelectedSize = computed(() => {
       </div>
 
       <div class="view-content">
+        <div class="filter-strip" v-if="!isScanning">
+          <button v-for="filter in filters" :key="filter.id" class="filter-chip" :class="{ active: activeFilter === filter.id }" @click="activeFilter = filter.id">
+            {{ filter.name }}
+          </button>
+        </div>
         <div v-if="isScanning" class="loading-state">
           <div class="spinner"></div>
           <p>正在读取底层文件数据...</p>
@@ -217,6 +240,10 @@ const totalSelectedSize = computed(() => {
                 <span class="item-source">{{ item.source }}</span>
                 <span class="dot-divider">·</span>
                 <span class="item-size">{{ item.formattedSize }}</span>
+                <template v-if="item.status !== 'normal'">
+                  <span class="dot-divider">·</span>
+                  <span class="status-badge">{{ item.status === 'legacy' ? '旧版格式' : item.status === 'duplicate' ? '内容重复' : item.status === 'orphan' ? '无引用' : '系统项' }}</span>
+                </template>
                 <template v-if="isProtected(item)">
                   <span class="dot-divider">·</span>
                   <span class="protected-badge">系统内置</span>
@@ -252,6 +279,12 @@ const totalSelectedSize = computed(() => {
           <div class="detail-body">
             <img v-if="currentDetailItem?.type === 'image' || currentDetailItem?.type === 'video'" :src="currentDetailItem?.preview" />
             <pre v-else class="text-content">{{ currentDetailItem?.preview }}</pre>
+            <div class="detail-ledger" v-if="currentDetailItem">
+              <div><span>占用</span><strong>{{ currentDetailItem.formattedSize }}</strong></div>
+              <div><span>格式</span><strong>{{ currentDetailItem.storageFormat }}</strong></div>
+              <div><span>来源</span><strong>{{ currentDetailItem.source }}</strong></div>
+              <p>{{ currentDetailItem.description }}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -624,4 +657,53 @@ const totalSelectedSize = computed(() => {
   padding: 16px;
   border-radius: 8px;
 }
+
+.filter-strip {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--sys-separator);
+  scrollbar-width: none;
+}
+
+.filter-strip::-webkit-scrollbar { display: none; }
+
+.filter-chip {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border: 1px solid var(--sys-separator);
+  border-radius: 16px;
+  background: var(--sys-bg-primary);
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.filter-chip.active {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+.status-badge { color: #9a6a2e; font-size: 11px; }
+
+.detail-ledger {
+  display: flex;
+  flex-direction: column;
+  margin-top: 16px;
+  border-top: 1px solid var(--sys-separator);
+}
+
+.detail-ledger > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--sys-separator);
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.detail-ledger strong { color: var(--text-primary); font-weight: 500; text-align: right; }
+.detail-ledger p { color: var(--text-tertiary); font-size: 12px; line-height: 1.7; }
 </style>

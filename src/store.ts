@@ -1,9 +1,19 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { reactive, watch } from 'vue'
 
+const readStoredJSON = <T>(key: string, fallback: T): T => {
+  try {
+    const value = localStorage.getItem(key)
+    return value === null ? fallback : JSON.parse(value) as T
+  } catch (error) {
+    console.warn(`本地数据 ${key} 已损坏，已使用安全默认值`, error)
+    return fallback
+  }
+}
+
 const STORAGE_KEY = 'clingy_global_settings'
 
-const savedSettings = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+const savedSettings = readStoredJSON<Record<string, any>>(STORAGE_KEY, {})
 
 export const globalSettings = reactive({
   darkMode: savedSettings.darkMode ?? false,
@@ -11,6 +21,7 @@ export const globalSettings = reactive({
   accentColor: savedSettings.accentColor ?? '#007aff',
   wallpaper: savedSettings.wallpaper ?? 'default',
   lockScreenWallpaper: savedSettings.lockScreenWallpaper ?? 'default',
+  lockScreenStyle: savedSettings.lockScreenStyle ?? 'modern',
   chatListWallpaper: savedSettings.chatListWallpaper ?? 'default',
   showStatusBar: savedSettings.showStatusBar ?? true,
   showNotch: savedSettings.showNotch ?? true,
@@ -31,7 +42,7 @@ watch(globalSettings, (newVal) => {
 }, { deep: true })
 
 const COT_STORAGE_KEY = 'clingy_cot_settings'
-const savedCotSettings = JSON.parse(localStorage.getItem(COT_STORAGE_KEY) || '{}')
+const savedCotSettings = readStoredJSON<Record<string, any>>(COT_STORAGE_KEY, {})
 
 export interface CotItem {
   id: string
@@ -121,7 +132,7 @@ watch(cotSettings, (newVal) => {
 }, { deep: true })
 
 const API_STORAGE_KEY = 'clingy_api_settings'
-const savedApiSettings = JSON.parse(localStorage.getItem(API_STORAGE_KEY) || '{}')
+const savedApiSettings = readStoredJSON<Record<string, any>>(API_STORAGE_KEY, {})
 
 export interface ApiPreset {
   id: string
@@ -174,7 +185,7 @@ watch(apiSettings, (newVal) => {
 }, { deep: true })
 
 const VISION_API_STORAGE_KEY = 'clingy_vision_api_settings'
-const savedVisionApiSettings = JSON.parse(localStorage.getItem(VISION_API_STORAGE_KEY) || '{}')
+const savedVisionApiSettings = readStoredJSON<Record<string, any>>(VISION_API_STORAGE_KEY, {})
 
 export const visionApiSettings = reactive({
   enabled: savedVisionApiSettings.enabled ?? false,
@@ -205,7 +216,7 @@ watch(visionApiSettings, (newVal) => {
 }, { deep: true })
 
 const SUMMARY_API_STORAGE_KEY = 'clingy_summary_api_settings'
-const savedSummaryApiSettings = JSON.parse(localStorage.getItem(SUMMARY_API_STORAGE_KEY) || '{}')
+const savedSummaryApiSettings = readStoredJSON<Record<string, any>>(SUMMARY_API_STORAGE_KEY, {})
 
 export const summaryApiSettings = reactive({
   enabled: savedSummaryApiSettings.enabled ?? false,
@@ -236,7 +247,7 @@ watch(summaryApiSettings, (newVal) => {
 }, { deep: true })
 
 const MOMENT_API_STORAGE_KEY = 'clingy_moment_api_settings'
-const savedMomentApiSettings = JSON.parse(localStorage.getItem(MOMENT_API_STORAGE_KEY) || '{}')
+const savedMomentApiSettings = readStoredJSON<Record<string, any>>(MOMENT_API_STORAGE_KEY, {})
 
 // 朋友圈专用节点只接管角色读取朋友圈后的第二轮回应。
 // 未启用或配置不完整时，调用层会自动继续使用全局节点。
@@ -269,7 +280,7 @@ watch(momentApiSettings, (newVal) => {
 }, { deep: true })
 
 const CHAT_STORAGE_KEY = 'clingy_chat_settings'
-const savedChatSettings = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || '{}')
+const savedChatSettings = readStoredJSON<Record<string, any>>(CHAT_STORAGE_KEY, {})
 
 export const chatSettings = reactive({
   theme: 'minimal', // 强制只使用极简主题
@@ -299,8 +310,8 @@ export const chatSettings = reactive({
   disableThoughtInCall: savedChatSettings.disableThoughtInCall ?? true, // 通话时禁用心声机制
   disableSpecialTagsInOffline: savedChatSettings.disableSpecialTagsInOffline ?? true, // 线下模式禁用媒体与互动功能
   disableThoughtInOffline: savedChatSettings.disableThoughtInOffline ?? true, // 线下模式禁用心声机制
-  enableCharMoments: savedChatSettings.enableCharMoments ?? true, // 允许角色主动发朋友圈与互动
-  enableCharMomentImages: savedChatSettings.enableCharMomentImages ?? false // 允许角色朋友圈消耗图像额度
+  enableCharMomentImages: savedChatSettings.enableCharMomentImages ?? false, // 允许角色朋友圈消耗图像额度
+  momentReadCount: savedChatSettings.momentReadCount ?? 5 // 角色每次获取朋友圈的最大条数
 })
 
 watch(chatSettings, (newVal) => {
@@ -308,7 +319,7 @@ watch(chatSettings, (newVal) => {
 }, { deep: true })
 
 const PROMPT_STORAGE_KEY = 'clingy_global_prompt_settings'
-const savedPromptSettings = JSON.parse(localStorage.getItem(PROMPT_STORAGE_KEY) || '{}')
+const savedPromptSettings = readStoredJSON<Record<string, any>>(PROMPT_STORAGE_KEY, {})
 
 export interface PromptItem {
   id: string
@@ -612,7 +623,7 @@ watch(globalPromptSettings, (newVal) => {
 }, { deep: true })
 
 const TASK_PROMPT_STORAGE_KEY = 'clingy_task_prompt_settings'
-const savedTaskPromptSettings = JSON.parse(localStorage.getItem(TASK_PROMPT_STORAGE_KEY) || '{}')
+const savedTaskPromptSettings = readStoredJSON<Record<string, any>>(TASK_PROMPT_STORAGE_KEY, {})
 
 export const defaultTaskPromptItems: PromptItem[] = [
   {
@@ -686,7 +697,7 @@ watch(taskPromptSettings, (newVal) => {
 }, { deep: true })
 
 const WORLD_BOOK_STORAGE_KEY = 'clingy_world_book'
-const savedWorldBook = JSON.parse(localStorage.getItem(WORLD_BOOK_STORAGE_KEY) || '[]')
+const savedWorldBook = readStoredJSON<any[]>(WORLD_BOOK_STORAGE_KEY, [])
 
 export type DepthPosition = 'front' | 'middle' | 'back' | 'custom'
 
@@ -829,7 +840,7 @@ watch(worldBooks, (newVal) => {
 }, { deep: true })
 
 const WORLD_BOOK_GROUPS_KEY = 'clingy_world_book_groups'
-const savedWorldBookGroups = JSON.parse(localStorage.getItem(WORLD_BOOK_GROUPS_KEY) || '[]')
+const savedWorldBookGroups = readStoredJSON<any[]>(WORLD_BOOK_GROUPS_KEY, [])
 export const worldBookGroups = reactive<WorldBookGroup[]>(savedWorldBookGroups)
 
 watch(worldBookGroups, (newVal) => {
@@ -837,10 +848,10 @@ watch(worldBookGroups, (newVal) => {
 }, { deep: true })
 
 const BUBBLE_STORAGE_KEY = 'clingy_bubble_settings'
-const savedBubbleSettings = JSON.parse(localStorage.getItem(BUBBLE_STORAGE_KEY) || '{}')
+const savedBubbleSettings = readStoredJSON<Record<string, any>>(BUBBLE_STORAGE_KEY, {})
 
 const APP_STATS_STORAGE_KEY = 'clingy_app_stats'
-const savedAppStats = JSON.parse(localStorage.getItem(APP_STATS_STORAGE_KEY) || '{}')
+const savedAppStats = readStoredJSON<Record<string, any>>(APP_STATS_STORAGE_KEY, {})
 
 export const appStats = reactive({
   apiCalls: savedAppStats.apiCalls ?? 0,

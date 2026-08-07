@@ -7,6 +7,8 @@ export interface WebDAVConfig {
   password: string
   // 是否已启用
   enabled: boolean
+  backupRetention?: number
+  backupPassword?: string
 }
 
 export interface WebDAVFile {
@@ -15,10 +17,12 @@ export interface WebDAVFile {
   size: number
   isDir: boolean
   path: string
+  etag?: string
 }
 
 export function useWebDAV() {
   const isConnecting = ref(false)
+  const lastError = ref('')
 
   // 辅助函数：构造 Basic Auth 头
   const getAuthHeader = (config: WebDAVConfig) => {
@@ -27,14 +31,18 @@ export function useWebDAV() {
 
   // 规范化 URL，确保以 / 结尾
   const normalizeUrl = (url: string) => {
-    return url.endsWith('/') ? url : url + '/'
+    const trimmed = url.trim()
+    return trimmed.endsWith('/') ? trimmed : trimmed + '/'
   }
+
+  const appendPath = (base: string, path: string) => normalizeUrl(base) + path.split('/').filter(Boolean).map(encodeURIComponent).join('/')
 
   // 1. 测试连接 (PROPFIND)
   const checkConnection = async (config: WebDAVConfig): Promise<boolean> => {
     isConnecting.value = true
+    lastError.value = ''
     try {
-      const response = await fetch(config.url, {
+      const response = await fetch(normalizeUrl(config.url), {
         method: 'PROPFIND',
         headers: {
           'Authorization': getAuthHeader(config),
@@ -45,6 +53,7 @@ export function useWebDAV() {
       return response.ok || response.status === 207 // 207 Multi-Status
     } catch (e) {
       console.error('WebDAV 连接测试失败', e)
+      lastError.value = e instanceof TypeError ? '浏览器阻止了跨域请求。请确认服务端允许 CORS，或使用同源同步网关。' : '连接请求失败。'
       isConnecting.value = false
       return false
     }
@@ -53,7 +62,7 @@ export function useWebDAV() {
   // 2. 列出目录文件
   const listFiles = async (config: WebDAVConfig, subPath: string = ''): Promise<WebDAVFile[]> => {
     try {
-      const targetUrl = normalizeUrl(config.url) + subPath
+      const targetUrl = appendPath(config.url, subPath)
       const response = await fetch(targetUrl, {
         method: 'PROPFIND',
         headers: {
@@ -102,6 +111,7 @@ export function useWebDAV() {
 
         const sizeNode = propNode.getElementsByTagNameNS('*', 'getcontentlength')[0]
         const size = sizeNode?.textContent ? parseInt(sizeNode.textContent, 10) : 0
+        const etagNode = propNode.getElementsByTagNameNS('*', 'getetag')[0]
 
         files.push({
           name,
@@ -109,6 +119,7 @@ export function useWebDAV() {
           size,
           isDir,
           path: href
+          , etag: etagNode?.textContent || undefined
         })
       }
       
@@ -125,11 +136,12 @@ export function useWebDAV() {
   // 3. 上传文件 (PUT)
   const uploadFile = async (config: WebDAVConfig, filename: string, data: ArrayBuffer | string): Promise<boolean> => {
     try {
-      const targetUrl = normalizeUrl(config.url) + filename
+      const targetUrl = appendPath(config.url, filename)
       const response = await fetch(targetUrl, {
         method: 'PUT',
         headers: {
-          'Authorization': getAuthHeader(config)
+          'Authorization': getAuthHeader(config),
+          'Content-Type': 'application/octet-stream'
         },
         body: data
       })
@@ -143,7 +155,7 @@ export function useWebDAV() {
   // 4. 下载文件 (GET)
   const downloadFile = async (config: WebDAVConfig, filename: string): Promise<ArrayBuffer> => {
     try {
-      const targetUrl = normalizeUrl(config.url) + filename
+      const targetUrl = appendPath(config.url, filename)
       const response = await fetch(targetUrl, {
         method: 'GET',
         headers: {
@@ -163,7 +175,7 @@ export function useWebDAV() {
   // 5. 删除文件 (DELETE)
   const deleteFile = async (config: WebDAVConfig, filename: string): Promise<boolean> => {
     try {
-      const targetUrl = normalizeUrl(config.url) + filename
+      const targetUrl = appendPath(config.url, filename)
       const response = await fetch(targetUrl, {
         method: 'DELETE',
         headers: {
@@ -179,6 +191,7 @@ export function useWebDAV() {
 
   return {
     isConnecting,
+    lastError,
     checkConnection,
     listFiles,
     uploadFile,

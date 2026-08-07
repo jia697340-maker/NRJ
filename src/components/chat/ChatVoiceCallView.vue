@@ -83,8 +83,8 @@ const handleActionDelete = (msgId?: number) => {
 }
 
 const handleSaveMemory = (countVal: number | null, thresholdVal: number | null) => {
-  chatSettings.value.voiceMsgCount = countVal || undefined
-  chatSettings.value.voiceSummaryThreshold = thresholdVal || undefined
+  chatSettings.voiceMsgCount = countVal || undefined
+  chatSettings.voiceSummaryThreshold = thresholdVal || undefined
   showMemoryModal.value = false
 }
 </script>

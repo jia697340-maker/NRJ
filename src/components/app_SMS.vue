@@ -16,6 +16,7 @@ const smsList = ref([
     name: '系统通知',
     avatarType: 'icon',
     avatarIcon: 'bell',
+    avatarText: '',
     number: '1069 0099 00',
     time: '刚刚',
     unread: true,

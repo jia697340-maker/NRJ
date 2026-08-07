@@ -22,6 +22,8 @@ const imageNoise = ref(0)
 const preciseReferenceImage = ref('')
 const preciseReferenceStrength = ref(0.65)
 const preciseReferenceFidelity = ref(0.5)
+const baseImageInput = ref<HTMLInputElement | null>(null)
+const refImageInput = ref<HTMLInputElement | null>(null)
 
 const currentView = ref<'platforms' | 'novelai'>('platforms')
 
@@ -646,7 +648,7 @@ const resetPrompts = () => {
         </div>
         <div class="tab-content" style="margin-top:18px">
           <label style="margin-bottom:12px;display:block">图生图底图（可删除）</label>
-          <div class="upload-area-mini" @click="$refs.baseImageInput.click()">
+          <div class="upload-area-mini" @click="baseImageInput?.click()">
             <input ref="baseImageInput" type="file" accept="image/*" @change="onBaseImage" hidden />
             <div v-if="!baseImage" class="upload-placeholder-mini">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#888;margin-bottom:4px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -665,7 +667,7 @@ const resetPrompts = () => {
         </div>
         <div v-if="params.model.includes('nai-diffusion-4-5')" class="tab-content" style="margin-top:24px;padding-top:20px;border-top:1px solid #eee">
           <label style="margin-bottom:12px;display:block">精密参考（角色 / 风格）<br><span style="font-size:12px;color:#888;font-weight:400">注意：与 Vibe 参考不能同时使用</span></label>
-          <div class="upload-area-mini" @click="$refs.refImageInput.click()">
+          <div class="upload-area-mini" @click="refImageInput?.click()">
             <input ref="refImageInput" type="file" accept="image/*" @change="onPreciseReference" hidden />
             <div v-if="!preciseReferenceImage" class="upload-placeholder-mini">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#888;margin-bottom:4px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -714,7 +716,7 @@ const resetPrompts = () => {
         
         <div v-if="finalImage || currentProgressImage" class="result-card">
           <div class="result-img-wrapper" @click="showPreviewModal = true">
-            <img :src="finalImage || currentProgressImage" class="result-thumbnail" />
+            <img :src="finalImage || currentProgressImage || undefined" class="result-thumbnail" />
             <div class="result-overlay">
               <span>点击查看大图</span>
             </div>
@@ -742,7 +744,7 @@ const resetPrompts = () => {
           <div class="lgm-text">正在渲染图像...</div>
         </div>
         <div v-else-if="finalImage || currentProgressImage" class="lgm-image-wrapper">
-          <img :src="finalImage || currentProgressImage" class="lgm-image" />
+          <img :src="finalImage || currentProgressImage || undefined" class="lgm-image" />
         </div>
         <div v-else class="lgm-empty">等待生成...</div>
         

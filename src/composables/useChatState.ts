@@ -701,8 +701,10 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
 
     // 组装系统提示词并推送
     const momentBehavior = getMomentBehavior(chat)
-    const momentBehaviorPrompt = chatSettings.enableCharMoments && momentBehavior.enabled
-      ? `\n\n【你的朋友圈习惯】活跃时段：${momentBehavior.activeStart}:00-${momentBehavior.activeEnd}:00；文风：${momentBehavior.style}；默认受众：${momentBehavior.audience}。可以只点赞、只评论、两者都做或只看不互动；系统会执行冷却与概率控制。`
+    const momentBehaviorPrompt = chat.enableCharMoments !== false
+      ? momentBehavior.mode === 'custom'
+        ? `\n\n【朋友圈手动规则】活跃时段：${momentBehavior.activeStart}:00-${momentBehavior.activeEnd}:00；表达偏好：${momentBehavior.style || '遵循你自己的人设'}；默认受众：${momentBehavior.audience}。你仍可根据当下情境决定是否发帖、只看、点赞或评论；系统会执行用户设置的冷却与概率限制。`
+        : `\n\n【朋友圈自主权】把朋友圈当作你真实生活的一部分。你拥有完整自主权：是否查看、发帖、配图、点赞、评论、回复以及何时做，都由你依据自己的人设、当下经历、情绪、关系和具体内容自然决定。不要为了展示功能而行动，也不要机械刷屏；系统不会用概率、固定频率或预设文风替你做决定。`
       : '\n\n【你的朋友圈习惯】当前不使用朋友圈，不要输出任何朋友圈标签。'
     const sysPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode) + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
     
@@ -989,9 +991,14 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
     }
   }
 
+  const switchChat = (id: string | number) => {
+    selectedChat.value = mockChats.value.find(chat => chat.id === id) ?? null
+  }
+
   return {
     mockChats,
     selectedChat,
+    switchChat,
     checkTransfersExpired,
     myProfile,
     customGroups,

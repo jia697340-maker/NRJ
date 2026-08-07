@@ -245,7 +245,7 @@ const formatDate = (timestamp: number) => {
       
       <div class="detail-body">
         <div class="detail-img-container">
-          <img :src="detailImageUrl" class="detail-img" />
+          <img :src="detailImageUrl || undefined" class="detail-img" />
         </div>
         
         <div class="detail-info">

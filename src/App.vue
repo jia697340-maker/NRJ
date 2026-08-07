@@ -451,7 +451,7 @@ export default {
         return { zIndex: total - 1, transform: `translate3d(0, 10px, 0) scale(0.92)`, opacity: 0.8 }
       } else {
         // 第三条及更早：在看不见的位置消失
-        return { zIndex: total - index, transform: `translate3d(0, 20px, 0) scale(0.8)`, opacity: 0, pointerEvents: 'none' }
+        return { zIndex: total - index, transform: `translate3d(0, 20px, 0) scale(0.8)`, opacity: 0, pointerEvents: 'none' as const }
       }
     }
   }

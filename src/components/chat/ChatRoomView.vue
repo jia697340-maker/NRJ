@@ -217,7 +217,7 @@ const {
   updatePreviewAndTime
 )
 
-const handleSendImage = (data: { text: string }) => originalHandleSendImage(data, showExtensionPanel)
+const handleSendImage = (data: { file?: File, dataUrl?: string, text?: string }) => originalHandleSendImage({ text: data.text ?? '' }, showExtensionPanel)
 const handleSendVoice = (data: { text: string, seconds: number }) => originalHandleSendVoice(data, showExtensionPanel)
 const handleSendTransfer = (data: { type: 'red_packet' | 'transfer', amount: number, remark: string, expireHours: number }) => originalHandleSendTransfer(data, showExtensionPanel)
 

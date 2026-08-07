@@ -32,7 +32,7 @@ const {
   handlePromptDragStart, handlePromptDragOver, handlePromptDragEnd,
   applyPromptPreset, savePromptPreset, confirmSavePromptPreset, cancelSavePromptPreset, deletePromptPreset,
   applyPreset, fixResolution, onWidthBlur, onHeightBlur,
-  cancelConfirm, executeConfirm
+  cancelConfirm, executeConfirm, translateVisualProfile, isTranslating, translateError
 } = useChatNAIConfig(props)
 
 watch(() => props.visible, (newVal) => {

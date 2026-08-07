@@ -10,7 +10,7 @@ import { sendChatMessage } from '../services/api'
 import { processMomentTags } from '../composables/useChatRoomMessage'
 import { addMomentNotification, canViewMoment, defaultMomentBehavior, getMomentBehavior } from '../services/moments'
 
-const { currentChatUserId } = useChatAuth()
+const { currentChatUserId, chatAccounts } = useChatAuth()
 const { mockChats, loadCustomContacts } = useChatState()
 const groups = computed(() => {
   const key = currentChatUserId.value ? `clingy_chat_groups_${currentChatUserId.value}` : 'clingy_chat_groups'
@@ -47,6 +47,8 @@ const detailMoment = ref<any | null>(null)
 const showNotifications = ref(false)
 const showCharacterPicker = ref(false)
 const showBehaviorSettings = ref(false)
+const showBehaviorEditor = ref(false)
+const behaviorSection = ref<'schedule' | 'interaction' | 'content'>('schedule')
 const showAudienceGroupPicker = ref(false)
 const activeMomentMenuId = ref<string | null>(null)
 const pendingDeleteMoment = ref<any | null>(null)
@@ -57,6 +59,11 @@ watch(() => behaviorDraft.value.audience, value => { if (['部分可见', '不�
 const manualViewLoading = ref(false)
 
 const resolvedAvatars = ref<Record<string, string>>({})
+const resolveAccountAvatar = (avatar: unknown) => {
+  if (typeof avatar !== 'string' || !avatar.startsWith('account-avatar:')) return ''
+  const accountId = avatar.slice('account-avatar:'.length)
+  return chatAccounts.value.find(account => account.id === accountId)?.avatarUrl || ''
+}
 const availableCharacters = computed(() => mockChats.value.filter((chat: any) => chat.id !== 1 && !chat.isCreate))
 const manualEligibleCharacters = computed(() => availableCharacters.value.filter((chat: any) => !manualMoment.value || canViewMoment(manualMoment.value, { id: chat.id, name: chat.name, groups: chat.groups, groupIds: chat.groupIds })))
 const allNotifications = computed(() => mockMoments.value.flatMap(moment => (moment.notifications || []).map((notice: any) => ({ ...notice, momentId: moment.id, momentContent: moment.content }))).sort((a, b) => b.createdAt - a.createdAt))
@@ -136,6 +143,8 @@ const loadPersonas = async () => {
             } catch (e) {
               console.error('Failed to load avatar from localforage', e)
             }
+          } else if (p.avatar && p.avatar.startsWith('account-avatar:')) {
+            personas.value[i].avatar = resolveAccountAvatar(p.avatar)
           }
         }
       }
@@ -250,6 +259,9 @@ const loadMoments = async () => {
               resolvedAvatars.value[m.id] = realAvatar
             }
           }).catch(() => {})
+        } else {
+          const accountAvatar = resolveAccountAvatar(m.avatar)
+          if (accountAvatar) resolvedAvatars.value[m.id] = accountAvatar
         }
       }
     } else {
@@ -386,7 +398,7 @@ const requestCharacterView = async (chat: any) => {
   try {
     const moment = manualMoment.value
     const request = [
-      { role: 'system', content: `你是${chat.name}。请阅读指定朋友圈并按照性格决定点赞、评论、两者都做或不互动。只输出朋友圈互动标签，不要输出聊天消息。动态ID：${moment.id}；作者：${moment.author}；内容：${moment.content}；评论：${(moment.comments || []).map((c: any) => `[${c.id}]${c.author}:${c.content}`).join('；') || '无'}` },
+      { role: 'system', content: `你是${chat.name}。你的人设是：${chat.persona || '按照你在既有对话中形成的性格与关系行事'}。请像真人刷到动态一样，只依据你自己的性格、当下感受、与作者的关系和内容，自主决定只看、点赞、评论、回复评论或组合互动；不必为了完成任务而互动。只输出你确实想做的朋友圈互动标签，不要输出聊天消息。动态ID：${moment.id}；作者：${moment.author}；内容：${moment.content}；评论：${(moment.comments || []).map((c: any) => `[${c.id}]${c.author}:${c.content}`).join('；') || '无'}` },
       { role: 'user', content: '请看看这条朋友圈。' }
     ]
     let result
@@ -411,7 +423,20 @@ const requestCharacterView = async (chat: any) => {
 }
 const markNotificationsRead = async () => { mockMoments.value.forEach(m => (m.notifications || []).forEach((n: any) => n.read = true)); await saveMoments() }
 const openNotificationMoment = async (notice: any) => { const moment = mockMoments.value.find(m => m.id === notice.momentId); if (!moment) return; const original = (moment.notifications || []).find((n: any) => n.id === notice.id); if (original) original.read = true; await saveMoments(); showNotifications.value = false; detailMoment.value = moment }
-const openBehavior = (chat: any) => { selectedBehaviorChatId.value = chat.id; behaviorDraft.value = JSON.parse(JSON.stringify(getMomentBehavior(chat))) }
+const openBehavior = (chat: any) => {
+  selectedBehaviorChatId.value = chat.id
+  behaviorDraft.value = JSON.parse(JSON.stringify(getMomentBehavior(chat)))
+  behaviorSection.value = 'schedule'
+  showBehaviorSettings.value = false
+  showBehaviorEditor.value = true
+}
+const closeBehaviorEditor = () => {
+  showBehaviorEditor.value = false
+  selectedBehaviorChatId.value = null
+}
+const adjustBehaviorNumber = (field: string, delta: number, min = 0, max = 999) => {
+  behaviorDraft.value[field] = Math.min(max, Math.max(min, Number(behaviorDraft.value[field] || 0) + delta))
+}
 const saveBehavior = () => {
   const chat = availableCharacters.value.find((item: any) => item.id === selectedBehaviorChatId.value)
   if (!chat) return
@@ -421,9 +446,10 @@ const saveBehavior = () => {
   const target = saved.find((item: any) => item.id === chat.id)
   if (target) target.momentBehavior = chat.momentBehavior
   localStorage.setItem(key, JSON.stringify(saved))
+  closeBehaviorEditor()
 }
 
-const handlePublish = async (data: { text: string, images: string[], visibility: string, groupIds?: string[], location?: string, mentions?: { id: string | number, name: string }[] }) => {
+const handlePublish = async (data: { text: string, images: {url: string, isBase64: boolean}[], visibility: string, groupIds?: string[], location?: string, mentions?: { id: string | number, name: string }[] }) => {
   // 如果当前有人设，则使用当前人设的名字和头像
   const currentName = activePersona.value?.name || '我'
   const currentAvatar = activePersona.value?.avatar || ''
@@ -433,7 +459,7 @@ const handlePublish = async (data: { text: string, images: string[], visibility:
     author: currentName,
     avatar: currentAvatar, 
     content: data.text,
-    images: data.images,
+    images: data.images.map(img => img.url),
     time: Date.now(), // 存入真实时间戳
     visibility: data.visibility,
     visibilityGroups: data.groupIds || [],
@@ -676,8 +702,47 @@ const handleSignSave = (text: string) => {
       <div v-if="previewImage" class="image-preview-overlay" @click="previewImage = ''"><img :src="previewImage" @click.stop /><a :href="previewImage" download="moment-image.png" @click.stop>保存图片</a></div>
       <div v-if="showCharacterPicker" class="moment-modal-overlay" @click.self="showCharacterPicker = false"><div class="moment-sheet"><h3>让谁看看这条</h3><button v-for="chat in manualEligibleCharacters" :key="chat.id" :disabled="manualViewLoading" @click="requestCharacterView(chat)">{{ chat.name }}</button><div v-if="!manualEligibleCharacters.length" class="empty-note">没有角色拥有这条动态的查看权限</div><button @click="showCharacterPicker = false">取消</button></div></div>
       <div v-if="showNotifications" class="moment-modal-overlay" @click.self="showNotifications = false"><div class="moment-sheet notification-sheet"><h3>互动消息</h3><div v-if="!allNotifications.length" class="empty-note">还没有新互动</div><div v-for="notice in allNotifications" :key="notice.id" class="notice-item" :class="{ unread: !notice.read }" @click="openNotificationMoment(notice)"><b>{{ notice.actorName }}</b> {{ notice.type === 'like' ? '赞了你的动态' : notice.type === 'comment' ? `评论：${notice.content}` : notice.type === 'reply' ? `回复：${notice.content}` : notice.type === 'view' ? '查看了这条动态' : '赞了你的评论' }}<small>{{ formatTime(notice.createdAt) }}</small></div><button @click="markNotificationsRead">全部已读</button><button @click="showNotifications = false">关闭</button></div></div>
-      <div v-if="showBehaviorSettings" class="moment-modal-overlay" @click.self="showBehaviorSettings = false"><div class="behavior-panel"><header><button @click="showBehaviorSettings = false">‹</button><strong>角色朋友圈设置</strong><span></span></header><div class="behavior-characters"><button v-for="chat in availableCharacters" :key="chat.id" :class="{ active: selectedBehaviorChatId === chat.id }" @click="openBehavior(chat)">{{ chat.name }}</button></div><div v-if="selectedBehaviorChatId" class="behavior-form"><label>允许使用朋友圈<input type="checkbox" v-model="behaviorDraft.enabled" /></label><label>活跃开始<input type="number" min="0" max="23" v-model.number="behaviorDraft.activeStart" /></label><label>活跃结束<input type="number" min="0" max="23" v-model.number="behaviorDraft.activeEnd" /></label><label>发帖冷却（分钟）<input type="number" min="0" v-model.number="behaviorDraft.postCooldownMinutes" /></label><label>互动冷却（分钟）<input type="number" min="0" v-model.number="behaviorDraft.interactCooldownMinutes" /></label><label>点赞概率 %<input type="range" min="0" max="100" v-model.number="behaviorDraft.likeProbability" /><span>{{ behaviorDraft.likeProbability }}</span></label><label>评论概率 %<input type="range" min="0" max="100" v-model.number="behaviorDraft.commentProbability" /><span>{{ behaviorDraft.commentProbability }}</span></label><label>发图概率 %<input type="range" min="0" max="100" v-model.number="behaviorDraft.imageProbability" /><span>{{ behaviorDraft.imageProbability }}</span></label><label>朋友圈文风<textarea v-model="behaviorDraft.style"></textarea></label><label>默认受众<select v-model="behaviorDraft.audience"><option>公开</option><option>私密</option><option>部分可见</option><option>不给谁看</option></select></label><button class="behavior-save" @click="saveBehavior">保存设置</button></div></div></div>
-      <div v-if="showAudienceGroupPicker" class="moment-modal-overlay audience-picker-overlay" @click.self="showAudienceGroupPicker = false"><div class="moment-sheet"><h3>{{ behaviorDraft.audience }}的分组</h3><label v-for="group in groups" :key="group.id" class="audience-check"><span>{{ group.name }}</span><input type="checkbox" :value="group.id" v-model="behaviorDraft.audienceGroupIds" /></label><div v-if="!groups.length" class="empty-note">请先在联系人中创建分组</div><button @click="showAudienceGroupPicker = false">确定</button></div></div>
+      <div v-if="showBehaviorSettings" class="moment-modal-overlay behavior-modal-overlay" @click.self="showBehaviorSettings = false">
+        <div class="custom-modal behavior-picker-modal">
+          <div class="behavior-picker-header">
+            <h3>选择要设置的角色</h3>
+            <p class="behavior-picker-tip">默认由角色像真人一样自主决定；需要时也可为单个角色启用手动规则。</p>
+          </div>
+          <div class="behavior-role-list">
+            <button v-for="chat in availableCharacters" :key="chat.id" class="behavior-role-item" @click="openBehavior(chat)">
+              <span>{{ chat.name }}</span><span class="behavior-role-arrow">›</span>
+            </button>
+            <div v-if="!availableCharacters.length" class="empty-note">暂无可设置的角色</div>
+          </div>
+          <div class="behavior-picker-footer">
+            <button class="behavior-picker-cancel" @click="showBehaviorSettings = false">取消</button>
+          </div>
+        </div>
+      </div>
+      <div v-if="showBehaviorEditor" class="moment-modal-overlay behavior-modal-overlay" @click.self="closeBehaviorEditor">
+        <div class="behavior-panel">
+          <header><button @click="closeBehaviorEditor">‹</button><strong>{{ availableCharacters.find((chat: any) => chat.id === selectedBehaviorChatId)?.name }} 的朋友圈</strong><span></span></header>
+          <div class="behavior-form">
+            <div class="behavior-row behavior-mode-row"><span><b>真人自主模式</b><small>由角色按人设、情境和关系自由决定，不使用下面的概率、冷却或预设文风</small></span><label class="behavior-switch"><input type="checkbox" :checked="behaviorDraft.mode !== 'custom'" @change="behaviorDraft.mode = ($event.target as HTMLInputElement).checked ? 'autonomous' : 'custom'"><i></i></label></div>
+            <div v-if="behaviorDraft.mode !== 'custom'" class="behavior-autonomous-note">已关闭全部行为参数。角色想不想发、发不发图、要不要点赞评论以及怎么说，都由角色自己决定。</div>
+            <template v-else>
+              <div class="behavior-manual-label">高级手动规则</div>
+              <div class="behavior-section-nav"><button :class="{ active: behaviorSection === 'schedule' }" @click="behaviorSection = 'schedule'">频率</button><button :class="{ active: behaviorSection === 'interaction' }" @click="behaviorSection = 'interaction'">互动</button><button :class="{ active: behaviorSection === 'content' }" @click="behaviorSection = 'content'">内容</button></div>
+              <template v-if="behaviorSection === 'schedule'"><div class="behavior-row"><span>活跃开始</span><div class="stepper"><button @click="adjustBehaviorNumber('activeStart', -1, 0, 23)">−</button><b>{{ behaviorDraft.activeStart }}:00</b><button @click="adjustBehaviorNumber('activeStart', 1, 0, 23)">＋</button></div></div><div class="behavior-row"><span>活跃结束</span><div class="stepper"><button @click="adjustBehaviorNumber('activeEnd', -1, 0, 23)">−</button><b>{{ behaviorDraft.activeEnd }}:00</b><button @click="adjustBehaviorNumber('activeEnd', 1, 0, 23)">＋</button></div></div><div class="behavior-row"><span>发帖冷却</span><div class="stepper"><button @click="adjustBehaviorNumber('postCooldownMinutes', -10)">−</button><b>{{ behaviorDraft.postCooldownMinutes }} 分钟</b><button @click="adjustBehaviorNumber('postCooldownMinutes', 10)">＋</button></div></div></template>
+              <template v-else-if="behaviorSection === 'interaction'"><div class="behavior-row"><span>互动冷却</span><div class="stepper"><button @click="adjustBehaviorNumber('interactCooldownMinutes', -5)">−</button><b>{{ behaviorDraft.interactCooldownMinutes }} 分钟</b><button @click="adjustBehaviorNumber('interactCooldownMinutes', 5)">＋</button></div></div><div class="behavior-slider"><div><span>点赞概率</span><b>{{ behaviorDraft.likeProbability }}%</b></div><input type="range" min="0" max="100" v-model.number="behaviorDraft.likeProbability" /></div><div class="behavior-slider"><div><span>评论概率</span><b>{{ behaviorDraft.commentProbability }}%</b></div><input type="range" min="0" max="100" v-model.number="behaviorDraft.commentProbability" /></div></template>
+              <template v-else><div class="behavior-slider"><div><span>发图概率</span><b>{{ behaviorDraft.imageProbability }}%</b></div><input type="range" min="0" max="100" v-model.number="behaviorDraft.imageProbability" /></div><div class="behavior-text"><span>额外表达偏好（可留空）</span><textarea v-model="behaviorDraft.style" placeholder="留空时完全遵循角色自己的人设"></textarea></div><button class="behavior-choice" @click="showAudienceGroupPicker = true"><span>默认受众</span><b>{{ behaviorDraft.audience }} <i>›</i></b></button></template>
+            </template>
+            <button class="behavior-save" @click="saveBehavior">保存设置</button>
+          </div>
+        </div>
+      </div>
+      <div v-if="showAudienceGroupPicker" class="moment-modal-overlay audience-picker-overlay" @click.self="showAudienceGroupPicker = false">
+        <div class="moment-sheet"><h3>默认受众</h3>
+          <button v-for="audience in ['公开', '私密', '部分可见', '不给谁看']" :key="audience" class="audience-option" :class="{ active: behaviorDraft.audience === audience }" @click="behaviorDraft.audience = audience"><span>{{ audience }}</span><span v-if="behaviorDraft.audience === audience">✓</span></button>
+          <template v-if="['部分可见', '不给谁看'].includes(behaviorDraft.audience)"><h3 class="audience-group-title">选择分组</h3><label v-for="group in groups" :key="group.id" class="audience-check"><span>{{ group.name }}</span><input type="checkbox" :value="group.id" v-model="behaviorDraft.audienceGroupIds" /></label><div v-if="!groups.length" class="empty-note">请先在联系人中创建分组</div></template>
+          <button @click="showAudienceGroupPicker = false">确定</button>
+        </div>
+      </div>
       <div v-if="pendingDeleteMoment" class="moment-modal-overlay" @click.self="pendingDeleteMoment = null"><div class="moment-sheet"><h3>删除朋友圈</h3><div class="empty-note">删除后无法恢复，确定继续吗？</div><button class="danger-text" @click="confirmDeleteMoment">删除</button><button @click="pendingDeleteMoment = null">取消</button></div></div>
       <Transition name="zoom-fade">
         <DiscoverPublish 
@@ -984,8 +1049,23 @@ const handleSignSave = (text: string) => {
 .moment-detail-modal section { padding:20px; }.detail-author { color:#576b95;font-weight:600}.detail-meta-row{display:flex;gap:10px;color:#999;font-size:11px;margin:8px 0}.detail-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:14px 0}.detail-grid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px}.detail-like-list,.detail-comment-list{padding:10px;background:var(--sys-bg-secondary,#f6f6f6);font-size:13px}.detail-comment-list div{padding:5px 0}.detail-comment-list b{color:#576b95}.detail-comment-list button{float:right;border:0;background:none;color:#8994a7}.detail-composer{display:flex;gap:7px;align-items:center;margin-top:12px;padding:8px;background:var(--sys-bg-secondary,#f6f6f6);border-radius:7px}.detail-composer span{font-size:11px;color:#576b95}.detail-composer input{flex:1;min-width:0;border:0;outline:0;background:none}.detail-composer button{border:0;background:#576b95;color:#fff;border-radius:5px;padding:5px 9px}.detail-composer button:disabled{opacity:.4}
 .image-preview-overlay{position:fixed;inset:0;z-index:13000;background:#050505;display:flex;align-items:center;justify-content:center}.image-preview-overlay img{max-width:100%;max-height:90%;object-fit:contain}.image-preview-overlay a{position:absolute;right:20px;bottom:28px;color:#fff;text-decoration:none;padding:8px 12px;border:1px solid rgba(255,255,255,.5);border-radius:18px}
 .moment-sheet{width:min(100%,480px);max-height:75vh;overflow:auto;background:var(--sys-bg-primary,#fff);border-radius:16px 16px 0 0;padding:16px;display:flex;flex-direction:column}.moment-sheet h3{text-align:center;margin:0 0 12px}.moment-sheet>button{padding:13px;border:0;border-top:1px solid var(--border-color,#eee);background:none;color:var(--text-primary,#333);font-size:15px}.notice-item{position:relative;padding:12px 4px;border-bottom:1px solid var(--border-color,#eee);font-size:13px;cursor:pointer}.notice-item.unread:before{content:'';position:absolute;left:-8px;top:17px;width:5px;height:5px;border-radius:50%;background:#e5484d}.notice-item small{display:block;color:#999;margin-top:4px}.empty-note{text-align:center;color:#999;padding:30px}
-.behavior-characters{display:flex;gap:8px;overflow:auto;padding:12px}.behavior-characters button{white-space:nowrap;border:1px solid #ddd;background:none;border-radius:16px;padding:6px 12px}.behavior-characters button.active{background:#576b95;color:#fff;border-color:#576b95}.behavior-form{padding:0 18px 24px}.behavior-form label{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-color,#eee);font-size:13px}.behavior-form input[type=number],.behavior-form select{width:90px}.behavior-form textarea{width:55%;min-height:55px}.behavior-save{width:100%;margin-top:18px;padding:11px;border:0;border-radius:8px;background:#576b95;color:#fff}
-.audience-picker-overlay{z-index:12500}.audience-check{display:flex;justify-content:space-between;padding:12px;border-bottom:1px solid var(--border-color,#eee)}.audience-check input{width:18px;height:18px;accent-color:#576b95}
+.behavior-modal-overlay{align-items:center;padding:20px;justify-content:center}
+.behavior-picker-modal{width:min(100%,320px);max-height:85vh;border-radius:14px;display:flex;flex-direction:column;background:var(--sys-bg-primary,#fff);overflow:hidden;}
+.behavior-picker-header{padding:20px 20px 10px;text-align:center;}
+.behavior-picker-header h3{margin:0 0 8px;font-size:17px;color:var(--text-primary,#333);}
+.behavior-picker-tip{margin:0;color:var(--text-secondary,#888);font-size:13px;line-height:1.45;}
+.behavior-role-list{flex:1;overflow-y:auto;padding:0 16px;margin-bottom:10px;}
+.behavior-role-list::-webkit-scrollbar{width:4px;}
+.behavior-role-list::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.1);border-radius:2px;}
+.behavior-role-item{width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 12px;margin-bottom:6px;border:none;border-radius:10px;background:var(--sys-bg-secondary,#f5f6f8);color:var(--text-primary,#333);font-size:15px;cursor:pointer;transition:background 0.2s;}
+.behavior-role-item:active{background:rgba(0,0,0,0.05);}
+.behavior-role-arrow{color:#b2b2b2;font-size:20px;line-height:1;}
+.behavior-picker-footer{padding:10px 16px 16px;}
+.behavior-picker-cancel{width:100%;padding:12px;border:none;border-radius:24px;background:var(--sys-bg-secondary,#f5f6f8);color:var(--text-primary,#333);font-size:16px;font-weight:500;cursor:pointer;transition:background 0.2s;}
+.behavior-picker-cancel:active{background:rgba(0,0,0,0.08);}
+.behavior-panel{width:min(100%,460px);max-height:82vh;border-radius:16px}.behavior-form{padding:0 18px 20px}.behavior-section-nav{display:flex;gap:4px;padding:13px 0 7px;border-bottom:1px solid var(--border-color,#eee)}.behavior-section-nav button{flex:1;border:0;border-radius:7px;background:transparent;padding:8px 0;color:var(--text-secondary,#888);font-size:13px}.behavior-section-nav button.active{background:var(--sys-bg-secondary,#f0f2f5);color:#576b95;font-weight:600}.behavior-row,.behavior-choice{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;border-bottom:1px solid var(--border-color,#eee);font-size:15px}.behavior-row span{display:flex;flex-direction:column;gap:3px}.behavior-row small{color:var(--text-secondary,#888);font-size:12px;line-height:1.35}.behavior-global-note{margin:13px 0 0;padding:10px 12px;border-radius:8px;background:var(--sys-bg-secondary,#f4f5f7);color:var(--text-secondary,#777);font-size:12px;line-height:1.5}.behavior-switch{position:relative;display:block;width:46px;height:28px}.behavior-switch input{position:absolute;opacity:0;pointer-events:none}.behavior-switch i{position:absolute;inset:0;border-radius:20px;background:#d6d9df;transition:.2s}.behavior-switch i:after{content:'';position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18);transition:.2s}.behavior-switch input:checked + i{background:#576b95}.behavior-switch input:checked + i:after{transform:translateX(18px)}.stepper{display:flex;align-items:center;border-radius:8px;background:var(--sys-bg-secondary,#f4f5f7);overflow:hidden}.stepper button{width:31px;height:31px;border:0;background:transparent;color:#576b95;font-size:19px;line-height:1}.stepper b{min-width:64px;text-align:center;font-size:13px;font-weight:500}.behavior-slider{padding:14px 0;border-bottom:1px solid var(--border-color,#eee)}.behavior-slider>div{display:flex;justify-content:space-between;font-size:15px}.behavior-slider b{font-weight:500;color:#576b95}.behavior-slider input{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:13px 0 2px;border-radius:4px;background:#d8dce3;outline:0}.behavior-slider input::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:19px;height:19px;border-radius:50%;background:#576b95;box-shadow:0 1px 3px rgba(0,0,0,.2)}.behavior-text{padding:15px 0;border-bottom:1px solid var(--border-color,#eee);font-size:15px}.behavior-text span{display:block;margin-bottom:10px}.behavior-text textarea{box-sizing:border-box;width:100%;min-height:78px;padding:10px;border:1px solid var(--border-color,#e5e5e5);border-radius:8px;outline:0;resize:vertical;background:var(--sys-bg-secondary,#f6f6f6);color:var(--text-primary,#222);font:inherit;font-size:14px;line-height:1.45}.behavior-choice{width:100%;border-left:0;border-right:0;border-top:0;background:none;color:var(--text-primary,#222);cursor:pointer}.behavior-choice b{font-size:14px;font-weight:400;color:var(--text-secondary,#888)}.behavior-choice i{font-style:normal;font-size:21px;vertical-align:-1px}.behavior-save{width:100%;margin-top:20px;padding:12px;border:0;border-radius:8px;background:#576b95;color:#fff;font-size:15px}
+.behavior-mode-row{padding:8px 0}.behavior-mode-row span{flex:1}.behavior-mode-row b{font-size:15px}.behavior-autonomous-note{margin:14px 0 2px;padding:15px;border-radius:10px;background:var(--sys-bg-secondary,#f4f5f7);color:var(--text-secondary,#777);font-size:13px;line-height:1.65}.behavior-manual-label{padding-top:16px;color:var(--text-secondary,#888);font-size:12px;font-weight:600}.behavior-switch{flex:0 0 46px;cursor:pointer}
+.audience-picker-overlay{z-index:12500}.audience-option{display:flex;align-items:center;justify-content:space-between;padding:13px 4px;border-bottom:1px solid var(--border-color,#eee);font-size:15px}.audience-option.active{color:#576b95;font-weight:600}.audience-check{display:flex;justify-content:space-between;padding:12px 4px;border-bottom:1px solid var(--border-color,#eee)}.audience-check input{appearance:none;width:20px;height:20px;margin:0;border:1px solid #c8cdd5;border-radius:5px;background:transparent}.audience-check input:checked{border-color:#576b95;background:#576b95;box-shadow:inset 0 0 0 4px var(--sys-bg-primary,#fff)}
 .own-moment-menu-wrap{position:relative}.own-moment-more{border:0;background:none;color:#576b95;font-size:12px}.own-moment-menu{position:absolute;left:0;top:20px;z-index:8;display:flex;background:#4b4b4b;border-radius:5px;overflow:hidden;box-shadow:0 3px 10px rgba(0,0,0,.2)}.own-moment-menu button{white-space:nowrap;border:0;border-right:1px solid rgba(255,255,255,.15);background:none;color:#fff;padding:7px 10px;font-size:11px}.own-moment-menu button.danger{color:#ffb4b4}.danger-text{color:#e5484d!important}
 
 .moment-footer {

@@ -27,7 +27,19 @@ const handleLogout = () => {
   logout()
 }
 
-const defaultPersonas = [
+interface Persona {
+  id: number
+  name: string
+  signature: string
+  customText: string
+  mood: string
+  isCreate: boolean
+  networkName?: string
+  avatar?: string
+  boundAccountId?: string
+}
+
+const defaultPersonas: Persona[] = [
   { 
     id: 1, 
     name: '你的名字', 
@@ -46,7 +58,7 @@ const defaultPersonas = [
   }
 ]
 
-const personas = ref([...defaultPersonas])
+const personas = ref<Persona[]>([...defaultPersonas])
 const activePersonaIndex = ref(0)
 
 interface PersonaGroup {
@@ -62,17 +74,73 @@ const avatarStore = localforage.createInstance({
   storeName: 'avatars'
 })
 
-const syncPersonasToStorage = () => {
-  localStorage.setItem(getKey('app_chat_personas'), JSON.stringify(personas.value))
+const isInlineAvatar = (avatar: unknown): avatar is string => {
+  return typeof avatar === 'string' && avatar.startsWith('data:image/')
 }
 
-onMounted(() => {
+const getAvatarContentKey = async (avatar: string) => {
+  try {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(avatar))
+    const hash = Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('')
+    return `avatar_content_${hash}`
+  } catch {
+    let hash = 2166136261
+    for (let index = 0; index < avatar.length; index += Math.max(1, Math.floor(avatar.length / 4096))) {
+      hash = Math.imul(hash ^ avatar.charCodeAt(index), 16777619)
+    }
+    return `avatar_content_${avatar.length}_${(hash >>> 0).toString(16)}`
+  }
+}
+
+// localStorage 容量很小，Base64 头像放进人设数组后很容易触发 QuotaExceededError。
+// 头像正文保存到 IndexedDB，localStorage 中只保留一个轻量引用。
+let personaSyncQueue: Promise<void> = Promise.resolve()
+const syncPersonasToStorage = () => {
+  const snapshot = personas.value.map(persona => ({ ...persona }))
+  const account = useChatAuth().currentAccount.value
+  personaSyncQueue = personaSyncQueue.then(async () => {
+    const storablePersonas = await Promise.all(snapshot.map(async persona => {
+      const storablePersona = { ...persona }
+      if (isInlineAvatar(persona.avatar)) {
+        if (account?.avatarUrl === persona.avatar) {
+          storablePersona.avatar = `account-avatar:${account.id}`
+        } else {
+          const avatarKey = await getAvatarContentKey(persona.avatar)
+          if (!await avatarStore.getItem(avatarKey)) await avatarStore.setItem(avatarKey, persona.avatar)
+          storablePersona.avatar = `localforage:${avatarKey}`
+        }
+      }
+      return storablePersona
+    }))
+
+    localStorage.setItem(getKey('app_chat_personas'), JSON.stringify(storablePersonas))
+  }).catch(error => {
+    // 存储故障不应中断 mounted hook 或用户操作。
+    console.error('Failed to save personas', error)
+  })
+  return personaSyncQueue
+}
+
+onMounted(async () => {
   const saved = localStorage.getItem(getKey('app_chat_personas'))
   if (saved) {
     try {
       const parsed = JSON.parse(saved)
       if (Array.isArray(parsed) && parsed.length > 0) {
         let loadedPersonas = parsed
+
+        // 将 IndexedDB 中的头像引用还原成界面可以直接展示的 URL。
+        await Promise.all(loadedPersonas.map(async (persona: Persona) => {
+          if (typeof persona.avatar === 'string' && persona.avatar.startsWith('localforage:')) {
+            const avatarKey = persona.avatar.slice('localforage:'.length)
+            const storedAvatar = await avatarStore.getItem<string>(avatarKey)
+            if (storedAvatar) persona.avatar = storedAvatar
+          } else if (typeof persona.avatar === 'string' && persona.avatar.startsWith('account-avatar:')) {
+            const accountId = persona.avatar.slice('account-avatar:'.length)
+            const account = useChatAuth().chatAccounts.value.find(item => item.id === accountId)
+            persona.avatar = account?.avatarUrl || ''
+          }
+        }))
 
         // 排序逻辑：将当前账号绑定的人设前置到第一位，新建占位符置底
         if (currentChatUserId.value) {
@@ -87,13 +155,15 @@ onMounted(() => {
         // 同步继承的账号头像
         loadedPersonas.forEach((p: any) => {
           if (p.boundAccountId === currentChatUserId.value) {
-            updateAccount(currentChatUserId.value, {
+            updateAccount(currentChatUserId.value ?? '', {
               avatarUrl: p.avatar || ''
             })
           }
         })
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('Failed to load personas', e)
+    }
   } else {
     // 初次进入，没有任何本地人设缓存，强制继承全局注册账号的信息
     const globalAccount = useChatAuth().currentAccount.value
@@ -101,7 +171,7 @@ onMounted(() => {
       personas.value[0].networkName = globalAccount.name || ''
       personas.value[0].avatar = globalAccount.avatarUrl || ''
       // 这里不覆盖 name（真名），保留默认的“你的名字”或为空，严格区分网名与真名
-      personas.value[0].boundAccountId = currentChatUserId.value
+       personas.value[0].boundAccountId = currentChatUserId.value ?? undefined
       syncPersonasToStorage()
     }
   }
@@ -235,8 +305,9 @@ const toggleSelectAllPersonas = () => {
   }
 }
 
-const deleteSelectedPersonas = () => {
+const deleteSelectedPersonas = async () => {
   if (selectedPersonaIds.value.length === 0) return
+  const removedPersonas = personas.value.filter(p => !p.isCreate && selectedPersonaIds.value.includes(p.id))
   personas.value = personas.value.filter(p => p.isCreate || !selectedPersonaIds.value.includes(p.id))
   
   personaGroups.value.forEach(group => {
@@ -247,6 +318,12 @@ const deleteSelectedPersonas = () => {
   isPersonaManageMode.value = false
   if (activePersonaIndex.value >= personas.value.length - 1) {
     activePersonaIndex.value = Math.max(0, personas.value.length - 2)
+  }
+  const accountAvatars = new Set(useChatAuth().chatAccounts.value.map(account => account.avatarUrl).filter(Boolean))
+  for (const persona of removedPersonas) {
+    if (!isInlineAvatar(persona.avatar) || accountAvatars.has(persona.avatar)) continue
+    if (personas.value.some(item => item.avatar === persona.avatar)) continue
+    await avatarStore.removeItem(await getAvatarContentKey(persona.avatar))
   }
 }
 
@@ -275,7 +352,8 @@ const confirmCreateGroup = () => {
 const groupActionSheetVisible = ref(false)
 const targetActionGroupId = ref<string | null>(null)
 
-const handleGroupTabClick = (groupId: string) => {
+const handleGroupTabClick = (groupId: string | null) => {
+  if (groupId === null) return
   if (activeGroupId.value === groupId) {
     targetActionGroupId.value = groupId
     groupActionSheetVisible.value = true
@@ -436,7 +514,7 @@ const saveUserPersona = () => {
   if (!newUserName.value.trim() && !newNetworkName.value.trim()) return
   
   // 使用用户输入的 ID，如果为空则降级为时间戳
-  const finalId = newUserId.value.trim() ? newUserId.value.trim() : Date.now()
+  const finalId = Number(newUserId.value.trim()) || Date.now()
   
   if (editingPersonaId.value !== null) {
     const index = personas.value.findIndex(p => p.id === editingPersonaId.value)
@@ -466,6 +544,7 @@ const saveUserPersona = () => {
       networkName: newNetworkName.value,
       name: newUserName.value,
       signature: newUserDetail.value,
+      customText: '',
       mood: '',
       isCreate: false,
       avatar: newUserAvatar.value
@@ -558,7 +637,7 @@ const handleBindPersonaToAccount = (personaId: number) => {
   }
 }
 
-const handleUnbindPersonaFromAccount = (personaId: number) => {
+const handleUnbindPersonaFromAccount = (personaId: string | number) => {
   const index = personas.value.findIndex(p => p.id === personaId)
   if (index > -1) {
     personas.value[index].boundAccountId = undefined

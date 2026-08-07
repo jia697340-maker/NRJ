@@ -8,7 +8,15 @@ const props = defineProps<{
     usage: number
     quota: number
     percentage: number
-    details: Array<{id: string, name: string, usage: number, percentage: number, color: string}>
+    details: Array<{id: string, name: string, usage: number, percentage: number, color: string, count: number, reclaimable: number}>
+    recognizedUsage: number
+    userDataUsage: number
+    cacheUsage: number
+    backupUsage: number
+    overheadUsage: number
+    reclaimableUsage: number
+    itemCount: number
+    accuracy: string
   }
   isScanning: boolean
   deepScanResults: Array<any>
@@ -215,6 +223,21 @@ const pieChartSegments = computed(() => {
             <p class="chart-hint">点击图表色块或文字即可定位至详情，点击卡片进行管理</p>
           </div>
 
+          <div class="storage-ledger-summary">
+            <div class="ledger-summary-item">
+              <span>用户内容</span>
+              <strong>{{ formatBytes(storageInfo.userDataUsage) }}</strong>
+            </div>
+            <div class="ledger-summary-item">
+              <span>离线缓存</span>
+              <strong>{{ formatBytes(storageInfo.cacheUsage) }}</strong>
+            </div>
+            <div class="ledger-summary-item">
+              <span>系统开销</span>
+              <strong>{{ formatBytes(storageInfo.overheadUsage) }}</strong>
+            </div>
+          </div>
+
           <!-- 精细的 20+ 种分类列表，取代粗糙的大类 -->
           <div class="category-list">
             <div 
@@ -228,7 +251,8 @@ const pieChartSegments = computed(() => {
               <div class="cat-color" :style="{ backgroundColor: item.color }"></div>
               <div class="cat-info">
                 <span class="cat-name">{{ item.name }}</span>
-                <span class="cat-size">{{ formatBytes(item.usage) }} ({{ item.percentage }}%)</span>
+                <span class="cat-size">{{ formatBytes(item.usage) }} ({{ item.percentage }}%) · {{ item.count }} 项</span>
+                <span v-if="item.reclaimable" class="cat-reclaimable">可安全释放 {{ formatBytes(item.reclaimable) }}</span>
               </div>
               <svg class="cat-arrow" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
                 <polyline points="9 18 15 12 9 6"></polyline>
@@ -450,6 +474,34 @@ const pieChartSegments = computed(() => {
   font-size: 13px;
   color: var(--text-tertiary);
 }
+
+.cat-reclaimable {
+  color: #6b9080;
+  font-size: 11px;
+}
+
+.storage-ledger-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0 24px 24px;
+  padding: 16px 0;
+  border-top: 1px solid var(--sys-separator, #e5e5e5);
+  border-bottom: 1px solid var(--sys-separator, #e5e5e5);
+}
+
+.ledger-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  border-right: 1px dashed var(--sys-separator, #eeeeee);
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-align: center;
+}
+
+.ledger-summary-item:last-child { border-right: 0; }
+.ledger-summary-item strong { color: var(--text-primary); font-size: 13px; font-weight: 600; }
 
 .cat-arrow {
   color: var(--text-tertiary);

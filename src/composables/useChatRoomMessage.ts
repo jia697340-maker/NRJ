@@ -173,10 +173,7 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
   let handledMomentAction = false
 
   // 如果开关关闭，直接返回
-  if (!chatSettings.enableCharMoments) {
-    return { newContent, shouldTriggerAI, aiContext, handledMomentAction }
-  }
-  if (!selectedChat.__forceMomentAction && !getMomentBehavior(selectedChat).enabled) {
+  if (!selectedChat.__forceMomentAction && selectedChat.enableCharMoments === false) {
     return { newContent, shouldTriggerAI, aiContext, handledMomentAction }
   }
 
@@ -186,25 +183,81 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
     newContent = newContent.replace(readRegex, '')
     try {
       const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
-      // 简单筛选出前 5 条用户公开或当前角色可见的朋友圈
+      // 简单筛选出设定数量的用户公开或当前角色可见的朋友圈
       const visibleMoments = moments
         .filter(m => canViewMoment(m, { id: selectedChat.id, name: selectedChat.name || '对方', groups: selectedChat.groups, groupIds: selectedChat.groupIds }))
         .filter(m => String(m.authorId ?? '') !== String(selectedChat.id) && m.author !== (selectedChat.name || '对方'))
         .sort((a, b) => Number((b.mentions || []).some((person: any) => String(person.id) === String(selectedChat.id))) - Number((a.mentions || []).some((person: any) => String(person.id) === String(selectedChat.id))) || Number(b.time) - Number(a.time))
-        .slice(0, 5)
+        .slice(0, chatSettings.momentReadCount ?? 5)
 
       if (visibleMoments.length > 0) {
         const behavior = getMomentBehavior(selectedChat)
-        aiContext = `【系统旁白：你打开了朋友圈。你的朋友圈表达风格是“${behavior.style}”。你可以选择只点赞、只评论、两者都做或不互动。看到了以下最新动态：\n`
-        visibleMoments.forEach(m => {
+        const behaviorHint = behavior.mode === 'custom'
+          ? `请遵循用户设置的表达偏好“${behavior.style || '符合你自己的人设'}”。`
+          : '请只依据你自己的人设、当下情绪、与作者的关系和动态内容自然反应；你可以只看，也可以点赞、评论、回复或在聊天中提起，不必为了互动而互动。'
+        aiContext = `【系统旁白：你打开了朋友圈。${behaviorHint}你看到了以下最新动态：\n`
+        
+        // 如果开启了视觉 API 和图片省 Token 机制，进行静默识图
+        const { visionApiSettings, chatSettings: globalChatSettings } = await import('../store')
+        const { sendChatMessage } = await import('../services/api')
+        const shouldSummarizeImages = visionApiSettings.enabled && globalChatSettings.enableVisionTokenSaver
+
+        for (let m of visibleMoments) {
           aiContext += `[动态ID：${m.id}] ${m.author}：${m.content}\n`
-          if (m.images && m.images.length) aiContext += `(附带了${m.images.length}张图片)\n`
+          if (m.images && m.images.length) {
+            let imageInfos = []
+            for (let i = 0; i < m.images.length; i++) {
+              let img = m.images[i]
+              // 兼容老数据：如果是纯字符串或新格式
+              let url = typeof img === 'string' ? img : img.url
+              let summary = typeof img === 'object' && img.summary ? img.summary : null
+              
+              if (url && !summary && shouldSummarizeImages && url.startsWith('data:image')) {
+                try {
+                   console.log(`[朋友圈识图] 正在识别动态 ${m.id} 的第 ${i+1} 张图片...`)
+                   const compressRequest = [
+                     { role: 'user', content: [
+                       { type: 'text', text: '请简短客观地描述这张图片的内容，捕捉主要元素。' },
+                       { type: 'image_url', image_url: { url } }
+                     ]}
+                   ]
+                   const res = await sendChatMessage(compressRequest, undefined, false, true)
+                   let summaryContent = typeof res === 'string' ? res : res.content
+                   summaryContent = summaryContent.trim()
+                   if (summaryContent) {
+                     summary = summaryContent
+                     // 更新内存和本地存储
+                     if (typeof img === 'string') {
+                       m.images[i] = { url, summary }
+                     } else {
+                       m.images[i].summary = summary
+                     }
+                     // 回写本地存储
+                     const allMoments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
+                     const targetMoment = allMoments.find((am: any) => am.id === m.id)
+                     if (targetMoment) {
+                       targetMoment.images = m.images
+                       await discoverStore.setItem(getMomentStorageKey(), allMoments)
+                     }
+                   }
+                } catch (e) {
+                   console.error('[朋友圈识图] 失败：', e)
+                }
+              }
+              if (summary) {
+                imageInfos.push(`画面内容：${summary}`)
+              } else {
+                imageInfos.push(`未识别的图片`)
+              }
+            }
+            aiContext += `(附带了${m.images.length}张图片，其中：${imageInfos.join('；')})\n`
+          }
           if (m.comments?.length) {
             m.comments.forEach((c: any) => {
               aiContext += `[评论ID：${c.id || 'legacy'}] ${c.author}：${c.content}\n`
             })
           }
-        })
+        }
         aiContext += `你可以使用 <interact_moment action="like|comment" id="动态ID" content="评论内容" /> 来进行点赞或评论；也可对评论用 like_comment 或 reply_comment 标签互动，或者直接在聊天中讨论此事。】`
       } else {
         aiContext = `【系统旁白：你打开了朋友圈，但最近没有任何新动态。】`
@@ -235,8 +288,8 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         content: textContent,
         images: [], // 文字图或占位
         time: Date.now(),
-        visibility: ['公开', '私密', '部分可见', '不给谁看'].includes(visibility) ? visibility : getMomentBehavior(selectedChat).audience,
-        visibilityGroups: visibilityGroups.length ? visibilityGroups : getMomentBehavior(selectedChat).audienceGroupIds,
+        visibility: ['公开', '私密', '部分可见', '不给谁看'].includes(visibility) ? visibility : (getMomentBehavior(selectedChat).mode === 'custom' ? getMomentBehavior(selectedChat).audience : '公开'),
+        visibilityGroups: visibilityGroups.length ? visibilityGroups : (getMomentBehavior(selectedChat).mode === 'custom' ? getMomentBehavior(selectedChat).audienceGroupIds : []),
         isOwn: false,
         likes: [],
         comments: [],
@@ -248,7 +301,8 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
       await discoverStore.setItem(getMomentStorageKey(), moments)
       window.dispatchEvent(new CustomEvent('clingy:moments-updated'))
       const behavior = getMomentBehavior(selectedChat)
-      if (imgDesc && chatSettings.enableCharMomentImages && Math.random() * 100 < behavior.imageProbability) {
+      const shouldGenerateImage = behavior.mode !== 'custom' || Math.random() * 100 < behavior.imageProbability
+      if (imgDesc && chatSettings.enableCharMomentImages && shouldGenerateImage) {
         generateMomentImage(imgDesc, selectedChat)
           .then(async image => {
             const latest = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []

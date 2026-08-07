@@ -195,6 +195,7 @@ const handleSave = () => {
               <span style="font-size: 14px; color: var(--text-primary);">{{ getEmotionLabel(selectedChat.voiceEmotion || '') }}</span>
               <span class="arrow">></span>
             </div>
+            <div v-if="selectedChat.voiceEmotion && !['speech-02-hd', 'speech-02-turbo', 'speech-01-hd', 'speech-01-turbo', 'speech-2.6-hd', 'speech-2.6-turbo'].includes(selectedChat.voiceModel || 'speech-2.6-turbo')" style="font-size: 11px; color: var(--text-secondary); margin-top: 7px; line-height: 1.4;">当前模型不支持显式情感参数，将由模型自动表达情绪。</div>
           </div>
         </div>
         

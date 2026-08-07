@@ -10,7 +10,7 @@ defineProps<{
 const currentTime = ref('')
 const isExpanded = ref(false)
 const notchRef = ref<HTMLElement | null>(null)
-let timer: number
+let timer: ReturnType<typeof setInterval>
 
 const batteryLevel = ref(100)
 const isCharging = ref(false)

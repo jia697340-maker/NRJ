@@ -249,10 +249,10 @@ const onOfflineToggle = () => {
       
       <div class="glass-list-item" v-show="matchSearch('允许角色主动发朋友圈与互动', '朋友圈')" style="border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 12px; margin-top: 4px; display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
         <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-          <span class="item-label">允许角色主动发朋友圈与互动</span>
+          <span class="item-label">允许此角色主动发朋友圈与互动</span>
           <div class="item-value">
             <label class="switch" @click.stop>
-              <input type="checkbox" v-model="chatSettings.enableCharMoments" @change="handleSave">
+              <input type="checkbox" v-model="selectedChat.enableCharMoments" @change="handleSave">
               <span class="slider"></span>
             </label>
           </div>

@@ -42,7 +42,10 @@ const selectedGroupIds = ref<string[]>([])
 const handlePublish = () => {
   emit('publish', {
     text: text.value,
-    images: images.value.map(img => img.dataUrl),
+    images: images.value.map(img => ({
+      url: img.dataUrl,
+      isBase64: img.dataUrl.startsWith('data:image')
+    })),
     visibility: currentVisibility.value,
     groupIds: ['部分可见', '不给谁看'].includes(currentVisibility.value) ? selectedGroupIds.value : [],
     location: location.value.trim(),

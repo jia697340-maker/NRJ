@@ -22,20 +22,7 @@ const props = defineProps<{
   isVoiceSynthesizing: boolean
 }>()
 
-const emit = defineEmits<{
-  (e: 'click-message', msgId: number): void
-  (e: 'toggle-selection', msgId: number): void
-  (e: 'touch-start', msgId: number): void
-  (e: 'touch-end'): void
-  (e: 'touch-move', event: TouchEvent): void
-  (e: 'toggle-image-text', msgId: number): void
-  (e: 'toggle-voice-text', msgId: number): void
-  (e: 'play-voice', msgId: number, text: string): void
-  (e: 'handle-left-transfer-click', msg: any): void
-  (e: 'handle-emoji-click', url: string | undefined, name: string | undefined): void
-  (e: 'view-recalled-message', content: string): void
-  (e: 'cancel-image-generation', msgId: number): void
-}>()
+const emit = defineEmits()
 
 const shouldShowAvatar = (msg: any) => {
   if (msg.type !== 'left' && msg.type !== 'right') return false

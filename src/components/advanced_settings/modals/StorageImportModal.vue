@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { BackupData } from '../../../composables/useDataBackup'
+import type { BackupData, BackupModule, RestoreStrategies, RestoreStrategy } from '../../../composables/useDataBackup'
 import { useDataBackup } from '../../../composables/useDataBackup'
 
 const props = defineProps<{
@@ -14,14 +14,19 @@ const emit = defineEmits<{
   (e: 'success'): void
 }>()
 
-const { decryptData, restoreBackupData } = useDataBackup()
+const { readBackupFile, inspectBackupFile, restoreBackupData, saveSnapshot, getImportDiff } = useDataBackup()
 
 const isImporting = ref(false)
 const selectedFile = ref<File | null>(null)
 const requirePassword = ref(false)
 const password = ref('')
 const previewData = ref<BackupData | null>(null)
+const importDiff = ref({ added: 0, overwritten: 0, mediaRecords: 0 })
 const importMode = ref<'overwrite' | 'merge'>('merge')
+const restoreStrategies = ref<RestoreStrategies>({})
+const strategyItems: Array<{ id: BackupModule; name: string }> = [{ id: 'chats', name: '角色与聊天' }, { id: 'worldbooks', name: '世界书' }, { id: 'images', name: '媒体与图片' }, { id: 'settings', name: '应用设定' }, { id: 'history', name: '生成历史' }]
+const setStrategy = (id: BackupModule, strategy: RestoreStrategy) => { restoreStrategies.value = { ...restoreStrategies.value, [id]: strategy } }
+const currentStrategy = (id: BackupModule): RestoreStrategy => restoreStrategies.value[id] || importMode.value
 const statusText = ref('')
 const isDragging = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -32,10 +37,10 @@ const triggerFileInput = () => {
   }
 }
 
-const processFile = (file: File) => {
+const processFile = async (file: File) => {
   selectedFile.value = file
   previewData.value = null
-  requirePassword.value = file.name.endsWith('.clingybackup')
+  requirePassword.value = inspectBackupFile(await file.arrayBuffer()).encrypted || file.name.endsWith('.clingybackup')
 }
 
 const handleDrop = (e: DragEvent) => {
@@ -43,10 +48,10 @@ const handleDrop = (e: DragEvent) => {
   if (isImporting.value) return
   if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
     const file = e.dataTransfer.files[0]
-    if (file.name.endsWith('.json') || file.name.endsWith('.clingybackup')) {
-      processFile(file)
+    if (file.name.endsWith('.json') || file.name.endsWith('.clingybackup') || file.name.endsWith('.nrtbackup')) {
+      void processFile(file)
     } else {
-      props.showConfirm('仅支持 .json 或 .clingybackup 格式的备份文件', '格式错误', false)
+      props.showConfirm('仅支持 .nrtbackup 及兼容的旧备份文件', '格式错误', false)
     }
   }
 }
@@ -54,7 +59,7 @@ const handleDrop = (e: DragEvent) => {
 const handleFileSelect = (e: Event) => {
   const target = e.target as HTMLInputElement
   if (target.files && target.files.length > 0) {
-    processFile(target.files[0])
+    void processFile(target.files[0])
   }
 }
 
@@ -76,13 +81,14 @@ const handlePreview = async () => {
     // 稍微延迟渲染UI
     await new Promise(r => setTimeout(r, 100))
     
-    const data = await decryptData(arrayBuffer, requirePassword.value ? password.value : undefined)
+    const { data } = await readBackupFile(arrayBuffer, password.value || undefined)
     
     if (!data || !data.meta) {
       throw new Error('无效的备份文件格式')
     }
     
     previewData.value = data
+    importDiff.value = getImportDiff(data)
     isImporting.value = false
     statusText.value = ''
   } catch (e: any) {
@@ -108,7 +114,10 @@ const handleImport = async () => {
   
   try {
     await new Promise(r => setTimeout(r, 100))
-    await restoreBackupData(previewData.value, importMode.value)
+    statusText.value = '正在保存当前恢复点...'
+    await saveSnapshot('导入前自动恢复点')
+    statusText.value = '正在写入数据...'
+    await restoreBackupData(previewData.value, importMode.value, restoreStrategies.value)
     
     isImporting.value = false
     statusText.value = ''
@@ -168,7 +177,7 @@ const formatSize = (bytes: number) => {
                 type="file" 
                 ref="fileInputRef"
                 class="gu-hidden-input" 
-                accept=".json,.clingybackup" 
+                accept=".nrtbackup,.json,.clingybackup"
                 @change="handleFileSelect" 
                 :disabled="isImporting"
               >
@@ -176,7 +185,7 @@ const formatSize = (bytes: number) => {
               <div v-if="!selectedFile" class="gu-drop-content">
                 <div class="gu-drop-icon">卷</div>
                 <div class="gu-drop-text">点击或将备份文件拖拽至此处</div>
-                <div class="gu-drop-sub">支持 .json 或加密的 .clingybackup 格式</div>
+                <div class="gu-drop-sub">支持 .nrtbackup 与兼容的旧备份格式</div>
               </div>
               
               <div v-else class="gu-selected-content">
@@ -227,22 +236,36 @@ const formatSize = (bytes: number) => {
           </div>
 
           <div class="gu-section">
+            <div class="gu-section-title">按类别处理冲突</div>
+            <div class="gu-strategy-list">
+              <div v-for="item in strategyItems" :key="item.id" class="gu-strategy-row"><span>{{ item.name }}</span><div class="gu-strategy-actions"><button v-for="choice in [{ id: 'merge', name: '合并' }, { id: 'overwrite', name: '覆盖' }, { id: 'skip', name: '跳过' }]" :key="choice.id" class="gu-strategy-btn" :class="{ active: currentStrategy(item.id) === choice.id }" @click="setStrategy(item.id, choice.id as RestoreStrategy)">{{ choice.name }}</button></div></div>
+            </div>
+          </div>
+
+          <div class="gu-preview-card gu-diff-card">
+            <div class="gu-preview-title">导入影响</div>
+            <div class="gu-preview-row"><span class="gu-preview-label">新增数据项：</span><span class="gu-preview-val">{{ importDiff.added }} 项</span></div>
+            <div class="gu-preview-row"><span class="gu-preview-label">可能覆盖的项目：</span><span class="gu-preview-val">{{ importDiff.overwritten }} 项</span></div>
+            <div class="gu-preview-row"><span class="gu-preview-label">媒体与缓存记录：</span><span class="gu-preview-val">{{ importDiff.mediaRecords }} 项</span></div>
+          </div>
+
+          <div class="gu-section">
             <div class="gu-section-title">选择导入模式</div>
             <div class="gu-radio-group">
-              <label class="gu-radio-label" :class="{ active: importMode === 'merge' }">
-                <input type="radio" value="merge" v-model="importMode" :disabled="isImporting">
+              <button class="gu-radio-label" :class="{ active: importMode === 'merge' }" :disabled="isImporting" @click="importMode = 'merge'">
+                <span class="gu-radio-dot">{{ importMode === 'merge' ? '·' : '' }}</span>
                 <div class="gu-radio-text">
                   <div class="gu-radio-title">追加合并模式 (推荐)</div>
                   <div class="gu-radio-desc">将备份中的数据追加到当前设备，不丢失现有进度</div>
                 </div>
-              </label>
-              <label class="gu-radio-label" :class="{ active: importMode === 'overwrite' }">
-                <input type="radio" value="overwrite" v-model="importMode" :disabled="isImporting">
+              </button>
+              <button class="gu-radio-label" :class="{ active: importMode === 'overwrite' }" :disabled="isImporting" @click="importMode = 'overwrite'">
+                <span class="gu-radio-dot">{{ importMode === 'overwrite' ? '·' : '' }}</span>
                 <div class="gu-radio-text">
                   <div class="gu-radio-title">完全覆盖模式 (危险)</div>
                   <div class="gu-radio-desc">清空当前设备上的所有数据，使其与备份完全一致</div>
                 </div>
-              </label>
+              </button>
             </div>
           </div>
         </div>
@@ -567,6 +590,9 @@ const formatSize = (bytes: number) => {
   border: 1px solid #E5E5E5;
   cursor: pointer;
   transition: all 0.2s;
+  appearance: none;
+  background: #FFF;
+  text-align: left;
 }
 
 .gu-radio-label.active {
@@ -574,10 +600,8 @@ const formatSize = (bytes: number) => {
   background: #FAFAFA;
 }
 
-.gu-radio-label input[type="radio"] {
-  margin-top: 2px;
-  accent-color: #1A1A1A;
-}
+.gu-radio-dot { width: 16px; height: 16px; flex: 0 0 16px; display:flex; align-items:center; justify-content:center; border:1px solid #CFCFCF; color:#1A1A1A; font-size:22px; line-height:1; }
+.gu-radio-label.active .gu-radio-dot { border-color:#1A1A1A; }
 
 .gu-radio-text {
   display: flex;
@@ -596,6 +620,12 @@ const formatSize = (bytes: number) => {
   color: #666;
   line-height: 1.4;
 }
+
+.gu-strategy-list { border-top: 1px solid #F0F0F0; }
+.gu-strategy-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 0; border-bottom:1px solid #F0F0F0; font-size:13px; color:#333; }
+.gu-strategy-actions { display:flex; gap:4px; }
+.gu-strategy-btn { appearance:none; border:1px solid #E5E5E5; background:#FFF; color:#777; padding:5px 7px; font-size:12px; cursor:pointer; }
+.gu-strategy-btn.active { background:#1A1A1A; border-color:#1A1A1A; color:#FFF; }
 
 .gu-loading-area {
   display: flex;

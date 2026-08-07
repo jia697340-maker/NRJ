@@ -15,6 +15,7 @@
         <img v-if="previewUrl" :src="previewUrl" class="avatar-img" :class="shapeClass" />
         <div v-else class="avatar-placeholder" :class="shapeClass">预览</div>
       </div>
+      <div v-if="optimizeHint" class="optimize-hint">{{ optimizeHint }}</div>
       
       <div class="upload-options">
         <div class="option-group">
@@ -37,7 +38,7 @@
       
       <div class="modal-actions">
         <button @click="resetAvatar" class="btn btn-secondary">重置头像</button>
-        <button @click="saveAvatar" class="btn btn-primary">保存</button>
+        <button @click="saveAvatar" class="btn btn-primary" :class="{ 'is-disabled': isOptimizing }">{{ isOptimizing ? '优化中…' : '保存' }}</button>
       </div>
     </div>
   </div>
@@ -49,7 +50,7 @@ import { ref, watch, computed } from 'vue'
 const props = withDefaults(defineProps<{
   visible: boolean
   currentAvatar: string | null
-  shape?: 'avatar' | 'bg-left' | 'bg-right' | 'circle' | 'portrait' | 'wallpaper'
+  shape?: 'avatar' | 'bg-left' | 'bg-right' | 'circle' | 'portrait' | 'wallpaper' | 'square'
   title?: string
 }>(), {
   shape: 'circle'
@@ -66,6 +67,8 @@ const emit = defineEmits<{
 
 const previewUrl = ref<string | null>(null)
 const inputUrl = ref('')
+const isOptimizing = ref(false)
+const optimizeHint = ref('')
 
 watch(() => props.visible, (newVal) => {
   if (newVal) {
@@ -78,13 +81,57 @@ const close = () => {
   emit('update:visible', false)
 }
 
+const dataUrlSize = (value: string) => {
+  const comma = value.indexOf(',')
+  if (comma < 0) return new Blob([value]).size
+  const body = value.slice(comma + 1)
+  const padding = body.endsWith('==') ? 2 : body.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor(body.length * 3 / 4) - padding)
+}
+
+const formatCompactBytes = (bytes: number) => bytes >= 1024 * 1024
+  ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  : `${Math.max(1, Math.round(bytes / 1024))} KB`
+
+const optimizeImage = (source: string, file: File): Promise<string> => new Promise((resolve) => {
+  if (file.type === 'image/gif' || file.type === 'image/svg+xml') return resolve(source)
+  const image = new Image()
+  image.onload = () => {
+    const isLargeSurface = ['wallpaper', 'bg-left', 'bg-right'].includes(props.shape)
+    const maxSide = isLargeSurface ? 1920 : props.shape === 'square' ? 1024 : 512
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const context = canvas.getContext('2d')
+    if (!context) return resolve(source)
+    context.imageSmoothingEnabled = true
+    context.imageSmoothingQuality = 'high'
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    const optimized = canvas.toDataURL('image/webp', isLargeSurface ? 0.86 : 0.84)
+    resolve(dataUrlSize(optimized) < dataUrlSize(source) ? optimized : source)
+  }
+  image.onerror = () => resolve(source)
+  image.src = source
+})
+
 const handleFileChange = (e: Event) => {
   const target = e.target as HTMLInputElement
   const file = target.files?.[0]
   if (file) {
     const reader = new FileReader()
-    reader.onload = (e) => {
-      previewUrl.value = e.target?.result as string
+    reader.onload = async (event) => {
+      const original = event.target?.result as string
+      isOptimizing.value = true
+      optimizeHint.value = '正在优化图片…'
+      const optimized = await optimizeImage(original, file)
+      previewUrl.value = optimized
+      const before = dataUrlSize(original)
+      const after = dataUrlSize(optimized)
+      optimizeHint.value = after < before
+        ? `已由 ${formatCompactBytes(before)} 优化至 ${formatCompactBytes(after)}`
+        : `图片大小 ${formatCompactBytes(after)}`
+      isOptimizing.value = false
     }
     reader.readAsDataURL(file)
   }
@@ -99,9 +146,11 @@ const applyUrl = () => {
 const resetAvatar = () => {
   previewUrl.value = null
   inputUrl.value = ''
+  optimizeHint.value = ''
 }
 
 const saveAvatar = () => {
+  if (isOptimizing.value) return
   emit('saved', previewUrl.value)
   close()
 }
@@ -192,6 +241,20 @@ const saveAvatar = () => {
   justify-content: center;
   margin: 10px 0;
   max-height: 200px;
+}
+
+.optimize-hint {
+  margin-top: -12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.btn.is-disabled {
+  cursor: default;
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .avatar-img, .avatar-placeholder {

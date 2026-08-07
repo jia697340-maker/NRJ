@@ -1,5 +1,10 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
+import { ref, watch } from 'vue'
+import { chatSettings } from '../../../store'
+import localforage from 'localforage'
+import { canViewMoment } from '../../../services/moments'
+
 const props = defineProps<{
   selectedChat: any
   characterCurrentTime: string
@@ -21,6 +26,67 @@ const emit = defineEmits<{
 const handleSave = () => {
   emit('save')
 }
+
+// 朋友圈动态Token预估
+const momentTokenEstimate = ref('')
+
+const calculateMomentTokens = async () => {
+  if (!props.selectedChat) {
+    momentTokenEstimate.value = '计算中...'
+    return
+  }
+  try {
+    const discoverStore = localforage.createInstance({
+      name: 'nrt-app',
+      storeName: 'discover_moments'
+    })
+    
+    // 我们需要通过当前已授权用户的ID去获取朋友圈列表
+    // 由于在这里拿不到 user ID，暂退一步只获取全局的。如果遇到登录隔离这会有偏差，但作为UI预估可以接受。
+    let storageKey = 'moments_list'
+    try {
+      const auth = localStorage.getItem('clingy_chat_auth')
+      if (auth) {
+        const authData = JSON.parse(auth)
+        if (authData.currentUserId) storageKey = `moments_list_${authData.currentUserId}`
+      }
+    } catch(e) {}
+    
+    const moments = await discoverStore.getItem<any[]>(storageKey) || []
+    const visibleMoments = moments
+      .filter(m => canViewMoment(m, { id: props.selectedChat.id, name: props.selectedChat.name || '对方', groups: props.selectedChat.groups, groupIds: props.selectedChat.groupIds }))
+      .filter(m => String(m.authorId ?? '') !== String(props.selectedChat.id) && m.author !== (props.selectedChat.name || '对方'))
+      .sort((a, b) => Number((b.mentions || []).some((person: any) => String(person.id) === String(props.selectedChat.id))) - Number((a.mentions || []).some((person: any) => String(person.id) === String(props.selectedChat.id))) || Number(b.time) - Number(a.time))
+      .slice(0, chatSettings.momentReadCount ?? 5)
+
+    if (visibleMoments.length === 0) {
+      momentTokenEstimate.value = '当前无最新动态'
+      return
+    }
+
+    let rawTextLength = 0
+    visibleMoments.forEach(m => {
+      rawTextLength += (m.author || '').length
+      rawTextLength += (m.content || '').length
+      if (m.images && m.images.length) rawTextLength += 10 // 算上一句旁白提示
+      if (m.comments?.length) {
+        m.comments.forEach((c: any) => {
+          rawTextLength += (c.author || '').length
+          rawTextLength += (c.content || '').length
+        })
+      }
+    })
+    
+    // 如果存在动态，则不加上强硬的 80 误导字数限制，仅根据真实内容加一点点基础系统词
+    const estimatedTokens = Math.ceil((rawTextLength + 20) * 0.6)
+    momentTokenEstimate.value = `将发送 ${visibleMoments.length} 条真实动态，按内容预计消耗 ~${estimatedTokens} Tokens`
+  } catch (error) {
+    momentTokenEstimate.value = '预估失败'
+  }
+}
+
+watch(() => chatSettings.momentReadCount, calculateMomentTokens, { immediate: true })
+watch(() => props.selectedChat, calculateMomentTokens)
 </script>
 
 <template>
@@ -158,6 +224,33 @@ const handleSave = () => {
           </div>
           <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.3;">
             开启后电话一接通角色就会主动说第一句话，关闭则等你先开口。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass-panel" v-show="matchSearch('角色获取朋友圈条数', '数量', '朋友圈')">
+      <div class="glass-list-item" v-show="matchSearch('角色获取朋友圈条数', '数量', '朋友圈')">
+        <div style="display: flex; flex-direction: column; width: 100%;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="item-label">角色获取朋友圈条数</div>
+            <div class="item-value" style="flex: unset; display: flex; align-items: center; gap: 8px;">
+              <input type="number" 
+                :value="chatSettings.momentReadCount" 
+                @change="(e) => { 
+                  let val = parseInt((e.target as HTMLInputElement).value);
+                  if (isNaN(val) || val < 1) val = 1;
+                  chatSettings.momentReadCount = val; 
+                  handleSave(); 
+                }"
+                min="1"
+                style="width: 50px; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 4px; text-align: center; color: var(--text-primary); outline: none;"
+              >
+              <span style="font-size: 13px; color: var(--text-secondary);">条</span>
+            </div>
+          </div>
+          <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.3;">
+            {{ momentTokenEstimate }}
           </div>
         </div>
       </div>

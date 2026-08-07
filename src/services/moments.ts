@@ -1,7 +1,7 @@
 export type MomentViewer = { id?: string | number; name?: string; groupIds?: string[]; groups?: string[] }
 
 export type MomentBehavior = {
-  enabled: boolean
+  mode: 'autonomous' | 'custom'
   activeStart: number
   activeEnd: number
   postCooldownMinutes: number
@@ -15,7 +15,7 @@ export type MomentBehavior = {
 }
 
 export const defaultMomentBehavior = (): MomentBehavior => ({
-  enabled: true,
+  mode: 'autonomous',
   activeStart: 8,
   activeEnd: 23,
   postCooldownMinutes: 180,
@@ -42,7 +42,9 @@ export const isMomentActiveHour = (behavior: MomentBehavior, hour = new Date().g
 
 export const canPerformMomentAction = (character: any, action: 'post' | 'like' | 'comment', now = Date.now()) => {
   const behavior = getMomentBehavior(character)
-  if (!behavior.enabled || !isMomentActiveHour(behavior)) return false
+  // 真人自主模式只负责执行角色已经主动选择的动作，不再用随机数和时间表二次否决。
+  if (behavior.mode !== 'custom') return true
+  if (!isMomentActiveHour(behavior)) return false
   const state = character.momentBehaviorState || {}
   const lastAt = action === 'post' ? state.lastPostAt : state.lastInteractAt
   const cooldown = (action === 'post' ? behavior.postCooldownMinutes : behavior.interactCooldownMinutes) * 60000

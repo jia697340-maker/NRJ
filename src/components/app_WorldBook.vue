@@ -86,7 +86,8 @@ const openVisualSettings = () => {
 const editModal = ref<{ show: boolean, field: 'title' | 'author' | 'rating' | null, title: string, valStr: string, valNum: number }>({ show: false, field: null, title: '', valStr: '', valNum: 0 })
 
 const openEditModal = (field: 'title' | 'author' | 'rating') => {
-  if (!activeBook.value) return
+  const book = activeBook.value
+  if (!book) return
   editModal.value.field = field
   editModal.value.show = true
   if (field === 'title') { editModal.value.title = '修改书名'; editModal.value.valStr = activeBook.value.title || '' }
@@ -299,12 +300,13 @@ const openEntry = (id: string) => {
 
 const deleteEntry = (id: string, event: Event) => {
   event.stopPropagation()
-  if (!activeBook.value) return
+  const book = activeBook.value
+  if (!book) return
   showConfirm('确认抹去这一页？', () => {
-    const index = activeBook.value.entries.findIndex(e => e.id === id)
+    const index = book.entries.findIndex(e => e.id === id)
     if (index !== -1) {
-      activeBook.value.entries.splice(index, 1)
-      activeBook.value.updatedAt = Date.now()
+      book.entries.splice(index, 1)
+      book.updatedAt = Date.now()
     }
   })
 }

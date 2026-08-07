@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, watch } from 'vue'
 import type { WebDAVConfig, WebDAVFile } from '../../../composables/useWebDAV'
 import { useWebDAV } from '../../../composables/useWebDAV'
 import { useDataBackup, type BackupModule } from '../../../composables/useDataBackup'
@@ -15,17 +15,22 @@ const emit = defineEmits<{
   (e: 'success'): void
 }>()
 
-const { isConnecting, checkConnection, listFiles, uploadFile, downloadFile, deleteFile } = useWebDAV()
-const { generateBackupData, encryptData, decryptData, restoreBackupData } = useDataBackup()
+const { isConnecting, lastError, checkConnection, listFiles, uploadFile, downloadFile, deleteFile } = useWebDAV()
+const { createBackupFile, readBackupFile, saveSnapshot, restoreBackupData, getAutomationPlans, setAutomationPlan } = useDataBackup()
 
 // WebDAV 配置
 const config = ref<WebDAVConfig>({
   url: '',
   username: '',
   password: '',
-  enabled: false
-})
+    enabled: false,
+    backupRetention: 10,
+    backupPassword: ''
+  })
 const showConfig = ref(false)
+const showTutorial = ref(false)
+const autoEnabled = ref(false)
+const intervalDays = ref(7)
 
 // 备份文件列表
 const backupFiles = ref<WebDAVFile[]>([])
@@ -38,7 +43,6 @@ const actionProgress = ref('')
 // 导出配置
 const showExportConfig = ref(false)
 const selectedModules = ref<BackupModule[]>(['settings', 'chats', 'worldbooks', 'images', 'history'])
-const usePassword = ref(false)
 const encryptPassword = ref('')
 const confirmPassword = ref('')
 
@@ -48,7 +52,7 @@ const selectedFileToImport = ref<WebDAVFile | null>(null)
 const importPassword = ref('')
 const importMode = ref<'overwrite' | 'merge'>('merge')
 
-onMounted(() => {
+const loadSavedConfig = () => {
   const saved = localStorage.getItem('webdav_config')
   if (saved) {
     try {
@@ -60,7 +64,32 @@ onMounted(() => {
   } else {
     showConfig.value = true
   }
+  const plan = getAutomationPlans().find(item => item.destination === 'webdav')
+  if (plan) { autoEnabled.value = plan.enabled; intervalDays.value = plan.intervalDays }
+}
+
+watch(() => props.show, visible => { if (visible) loadSavedConfig() })
+
+const saveAutomation = () => setAutomationPlan({
+  destination: 'webdav',
+  enabled: autoEnabled.value,
+  intervalDays: intervalDays.value,
+  modules: selectedModules.value,
+  lastRunAt: getAutomationPlans().find(item => item.destination === 'webdav')?.lastRunAt || 0
 })
+
+const toggleAutomation = async () => {
+  if (!autoEnabled.value && !config.value.backupPassword) {
+    await props.showConfirm('请先在配置中设置“自动备份加密密码”。该密码只保存在当前设备，恢复时仍需输入。', '需要加密密码', false)
+    showConfig.value = true
+    return
+  }
+  autoEnabled.value = !autoEnabled.value
+  saveAutomation()
+}
+
+const openTutorial = () => { showConfig.value = false; showTutorial.value = true }
+const closeTutorial = () => { showTutorial.value = false; if (!config.value.enabled) showConfig.value = true }
 
 const saveConfig = async () => {
   if (!config.value.url || !config.value.username || !config.value.password) {
@@ -70,12 +99,13 @@ const saveConfig = async () => {
   
   const ok = await checkConnection(config.value)
   if (!ok) {
-    await props.showConfirm('连接失败，请检查 URL 格式或账号密码是否正确。', '提示', false)
+    await props.showConfirm(lastError.value || '连接失败，请检查 URL 格式、账号密码或服务端跨域设置。', '提示', false)
     return
   }
 
   config.value.enabled = true
   localStorage.setItem('webdav_config', JSON.stringify(config.value))
+  saveAutomation()
   showConfig.value = false
   await loadBackupFiles()
   await props.showConfirm('WebDAV 连接成功并已保存配置！', '提示', false)
@@ -87,13 +117,20 @@ const loadBackupFiles = async () => {
   try {
     const files = await listFiles(config.value)
     // 过滤出备份文件
-    backupFiles.value = files.filter(f => f.name.startsWith('backup_') && (f.name.endsWith('.json') || f.name.endsWith('.clingybackup')))
+    backupFiles.value = files.filter(f => f.name.endsWith('.nrtbackup') || f.name.startsWith('backup_') && (f.name.endsWith('.json') || f.name.endsWith('.clingybackup')))
   } catch(e) {
     console.error(e)
     await props.showConfirm('获取云端列表失败，请检查网络或配置', '提示', false)
   } finally {
     isLoadingFiles.value = false
   }
+}
+
+const pruneCloudBackups = async () => {
+  const limit = Math.max(1, config.value.backupRetention || 10)
+  const files = await listFiles(config.value)
+  const backups = files.filter(file => file.name.endsWith('.nrtbackup') || file.name.startsWith('backup_') && (file.name.endsWith('.json') || file.name.endsWith('.clingybackup')))
+  await Promise.all(backups.slice(limit).map(file => deleteFile(config.value, file.name)))
 }
 
 const toggleModule = (mod: BackupModule) => {
@@ -106,15 +143,13 @@ const toggleModule = (mod: BackupModule) => {
 }
 
 const startCloudBackup = async () => {
-  if (usePassword.value) {
-    if (!encryptPassword.value) {
-      await props.showConfirm('请输入加密密码', '提示', false)
-      return
-    }
-    if (encryptPassword.value !== confirmPassword.value) {
-      await props.showConfirm('两次输入的密码不一致', '提示', false)
-      return
-    }
+  if (!encryptPassword.value) {
+    await props.showConfirm('云端备份必须设置加密密码', '提示', false)
+    return
+  }
+  if (encryptPassword.value !== confirmPassword.value) {
+    await props.showConfirm('两次输入的密码不一致', '提示', false)
+    return
   }
 
   activeAction.value = 'upload'
@@ -123,21 +158,20 @@ const startCloudBackup = async () => {
   try {
     actionProgress.value = '正在收集并打包本地数据...'
     await new Promise(r => setTimeout(r, 100))
-    const rawData = await generateBackupData(selectedModules.value)
+    const backup = await createBackupFile(selectedModules.value, encryptPassword.value)
     
     actionProgress.value = '正在加密并生成文件...'
     await new Promise(r => setTimeout(r, 100))
-    const encryptedBuffer = await encryptData(rawData, usePassword.value ? encryptPassword.value : undefined)
     
     actionProgress.value = '正在上传到 WebDAV 云端...'
     const date = new Date()
     const dateStr = `${date.getFullYear()}${(date.getMonth()+1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}_${date.getHours()}${date.getMinutes()}`
-    const ext = usePassword.value ? '.clingybackup' : '.json'
-    const filename = `backup_${dateStr}${ext}`
+    const filename = `粘人精-云端备份-${dateStr}.nrtbackup`
     
-    const success = await uploadFile(config.value, filename, encryptedBuffer)
+    const success = await uploadFile(config.value, filename, backup.buffer)
     
     if (success) {
+      await pruneCloudBackups()
       await loadBackupFiles()
       await props.showConfirm('已成功备份到云端！', '提示', false)
     } else {
@@ -160,11 +194,6 @@ const prepareRestore = (file: WebDAVFile) => {
 
 const startCloudRestore = async () => {
   if (!selectedFileToImport.value) return
-  const requirePwd = selectedFileToImport.value.name.endsWith('.clingybackup')
-  if (requirePwd && !importPassword.value) {
-    await props.showConfirm('请输入解密密码', '提示', false)
-    return
-  }
 
   const confirmMsg = importMode.value === 'overwrite'
     ? '将从云端下载并【完全覆盖】本地数据，确定继续？'
@@ -182,10 +211,11 @@ const startCloudRestore = async () => {
     
     actionProgress.value = '正在解密并解析数据...'
     await new Promise(r => setTimeout(r, 100))
-    const data = await decryptData(buffer, requirePwd ? importPassword.value : undefined)
+    const { data } = await readBackupFile(buffer, importPassword.value || undefined)
     
     actionProgress.value = '正在写入本地存储...'
     await new Promise(r => setTimeout(r, 100))
+    await saveSnapshot('云端恢复前自动恢复点')
     await restoreBackupData(data, importMode.value)
     
     emit('success')
@@ -264,7 +294,22 @@ const formatSize = (bytes: number) => {
             <div class="gu-section-title">密码 / 应用密码 (Password)</div>
             <input type="password" class="gu-input" v-model="config.password" placeholder="建议使用网盘分配的应用专用密码">
           </div>
+          <div class="gu-section">
+            <div class="gu-section-title">云端版本保留数量</div>
+            <div class="gu-retention-row"><button v-for="count in [5, 10, 20]" :key="count" class="gu-retention-btn" :class="{ active: config.backupRetention === count }" @click="config.backupRetention = count">保留 {{ count }} 个</button></div>
+          </div>
+          <div class="gu-section">
+            <div class="gu-section-title">自动备份加密密码</div>
+            <input type="password" class="gu-input" v-model="config.backupPassword" placeholder="自动备份与换机恢复时使用">
+            <div class="gu-note">密码只保存在当前设备且不会写入备份。忘记密码将无法恢复云端文件。</div>
+          </div>
+          <div class="gu-section">
+            <div class="gu-section-title">应用打开时自动备份</div>
+            <button class="gu-choice gu-auto-choice" :class="{ selected: autoEnabled }" @click="toggleAutomation"><span class="gu-check">{{ autoEnabled ? '✓' : '' }}</span><span><b>{{ autoEnabled ? '已开启' : '未开启' }}</b><small>到期后在应用打开或重新联网时执行</small></span></button>
+            <div v-if="autoEnabled" class="gu-retention-row"><button v-for="day in [1, 7, 30]" :key="day" class="gu-retention-btn" :class="{ active: intervalDays === day }" @click="intervalDays = day; saveAutomation()">每 {{ day }} 天</button></div>
+          </div>
           
+          <button class="gu-btn-cancel mt-2" @click="openTutorial">不知道怎么配置？查看免费云主机教程</button>
           <button class="gu-btn-confirm mt-4" @click="saveConfig" :disabled="isConnecting">
             {{ isConnecting ? '连接测试中...' : '连接并保存' }}
           </button>
@@ -276,30 +321,15 @@ const formatSize = (bytes: number) => {
         <div v-else-if="showExportConfig" class="gu-sub-view">
           <div class="gu-sub-header">上传新备份至云端</div>
           <div class="gu-checkbox-list">
-            <label class="gu-checkbox-item">
-              <input type="checkbox" :checked="selectedModules.includes('settings')" @change="toggleModule('settings')">
-              <span class="gu-checkbox-text">应用设置与预设</span>
-            </label>
-            <label class="gu-checkbox-item">
-              <input type="checkbox" :checked="selectedModules.includes('chats')" @change="toggleModule('chats')">
-              <span class="gu-checkbox-text">角色与聊天记录</span>
-            </label>
-            <label class="gu-checkbox-item">
-              <input type="checkbox" :checked="selectedModules.includes('worldbooks')" @change="toggleModule('worldbooks')">
-              <span class="gu-checkbox-text">世界书文本</span>
-            </label>
-            <label class="gu-checkbox-item">
-              <input type="checkbox" :checked="selectedModules.includes('images')" @change="toggleModule('images')">
-              <span class="gu-checkbox-text">全量图片库 (较慢)</span>
-            </label>
+            <button class="gu-checkbox-item" :class="{ active: selectedModules.includes('settings') }" @click="toggleModule('settings')"><span class="gu-check">{{ selectedModules.includes('settings') ? '✓' : '' }}</span><span class="gu-checkbox-text">应用设置与预设</span></button>
+            <button class="gu-checkbox-item" :class="{ active: selectedModules.includes('chats') }" @click="toggleModule('chats')"><span class="gu-check">{{ selectedModules.includes('chats') ? '✓' : '' }}</span><span class="gu-checkbox-text">角色与聊天记录</span></button>
+            <button class="gu-checkbox-item" :class="{ active: selectedModules.includes('worldbooks') }" @click="toggleModule('worldbooks')"><span class="gu-check">{{ selectedModules.includes('worldbooks') ? '✓' : '' }}</span><span class="gu-checkbox-text">世界书文本</span></button>
+            <button class="gu-checkbox-item" :class="{ active: selectedModules.includes('images') }" @click="toggleModule('images')"><span class="gu-check">{{ selectedModules.includes('images') ? '✓' : '' }}</span><span class="gu-checkbox-text">全量图片库 (较慢)</span></button>
           </div>
 
           <div class="gu-section mt-4">
-            <label class="gu-toggle-label">
-              <input type="checkbox" v-model="usePassword">
-              <span>使用 AES 加密保护云端文件</span>
-            </label>
-            <div class="gu-password-fields" v-if="usePassword">
+            <div class="gu-choice selected gu-encryption-lock"><span class="gu-check">✓</span><span><b>强制加密云端文件</b><small>AES-GCM 加密后再上传</small></span></div>
+            <div class="gu-password-fields">
               <input type="password" class="gu-input" v-model="encryptPassword" placeholder="设置加密密码">
               <input type="password" class="gu-input" v-model="confirmPassword" placeholder="再次确认密码">
             </div>
@@ -319,26 +349,24 @@ const formatSize = (bytes: number) => {
             <div class="gu-file-size-mini">{{ formatSize(selectedFileToImport.size) }}</div>
           </div>
 
-          <div class="gu-section mt-4" v-if="selectedFileToImport.name.endsWith('.clingybackup')">
-            <div class="gu-section-title">输入解密密码</div>
-            <input type="password" class="gu-input" v-model="importPassword" placeholder="此文件已加密">
+          <div class="gu-section mt-4">
+            <div class="gu-section-title">解密密码（如该备份已加密）</div>
+            <input type="password" class="gu-input" v-model="importPassword" placeholder="未加密备份可留空">
           </div>
 
           <div class="gu-section mt-4">
             <div class="gu-section-title">选择导入模式</div>
             <div class="gu-radio-group">
-              <label class="gu-radio-label" :class="{ active: importMode === 'merge' }">
-                <input type="radio" value="merge" v-model="importMode">
+              <button class="gu-radio-label" :class="{ active: importMode === 'merge' }" @click="importMode = 'merge'">
                 <div class="gu-radio-text">
                   <div class="gu-radio-title">追加合并 (推荐)</div>
                 </div>
-              </label>
-              <label class="gu-radio-label" :class="{ active: importMode === 'overwrite' }">
-                <input type="radio" value="overwrite" v-model="importMode">
+              </button>
+              <button class="gu-radio-label" :class="{ active: importMode === 'overwrite' }" @click="importMode = 'overwrite'">
                 <div class="gu-radio-text">
                   <div class="gu-radio-title">完全覆盖 (危险)</div>
                 </div>
-              </label>
+              </button>
             </div>
           </div>
 
@@ -346,6 +374,19 @@ const formatSize = (bytes: number) => {
             <button class="gu-btn-cancel" @click="showImportConfig = false">返回</button>
             <button class="gu-btn-confirm" @click="startCloudRestore">开始下载并恢复</button>
           </div>
+        </div>
+
+        <!-- 内置教程：沿用现有摘要卡片与说明块 -->
+        <div v-else-if="showTutorial" class="gu-sub-view">
+          <div class="gu-sub-header">WebDAV 与免费云主机教程</div>
+          <div class="gu-summary-card"><div class="gu-summary-mark">易</div><div><b>已有支持 WebDAV 的网盘</b><small>在网盘安全设置中开启 WebDAV并创建应用专用密码；应用内填写专用目录 URL、账号和应用密码即可。</small></div></div>
+          <div class="gu-summary-card"><div class="gu-summary-mark">免</div><div><b>免费云主机自建</b><small>可选择带长期免费计算额度的云平台，创建 Ubuntu 主机。免费政策可能变化，创建前务必在费用估算中确认金额为 0。</small></div></div>
+          <div class="gu-tutorial-step"><b>一、安装 WebDAV 服务</b><small>在主机安装 Docker，部署 SFTPGo 开源版，并为数据目录挂载持久磁盘。管理后台创建只用于粘人精备份的普通用户。</small></div>
+          <div class="gu-tutorial-step"><b>二、启用 HTTPS 与跨域</b><small>为 WebDAV 绑定域名和有效 HTTPS 证书。在 SFTPGo 的 webdavd binding 中开启 CORS，仅允许粘人精网页来源，并允许 OPTIONS、PROPFIND、GET、PUT、DELETE及 Authorization、Depth、Content-Type 请求头。</small></div>
+          <div class="gu-tutorial-step"><b>三、连接应用</b><small>网盘地址填写 https://你的域名/dav/，使用刚创建的普通账号，不要使用服务器管理员账号。设置自动备份密码后测试连接。</small></div>
+          <div class="gu-tutorial-step"><b>四、换机恢复</b><small>新设备填写相同地址和账号，刷新云端列表，选择最新备份。优先使用“追加合并”；只有确认新设备无重要数据时才使用覆盖。</small></div>
+          <div class="gu-note">自建服务必须同时满足 HTTPS、持久磁盘、定期更新和浏览器 CORS。若不熟悉服务器维护，优先使用现成 WebDAV 网盘。</div>
+          <div class="gu-actions-row mt-4"><button class="gu-btn-cancel" @click="closeTutorial">{{ config.enabled ? '返回云端记录' : '返回连接配置' }}</button></div>
         </div>
 
         <!-- 主界面：云端文件列表 -->
@@ -359,6 +400,9 @@ const formatSize = (bytes: number) => {
             </button>
             <button class="gu-btn-action" @click="showConfig = true">
               <span class="icon">⚙</span> 配置
+            </button>
+            <button class="gu-btn-action" @click="openTutorial">
+              <span class="icon">?</span> 教程
             </button>
           </div>
 
@@ -436,7 +480,7 @@ const formatSize = (bytes: number) => {
 .gu-modal-body {
   padding: 24px;
   display: flex; flex-direction: column;
-  flex: 1; position: relative;
+  flex: 1; position: relative; max-height: 68vh; overflow-y: auto;
 }
 
 /* 遮罩 */
@@ -463,7 +507,7 @@ const formatSize = (bytes: number) => {
 .gu-section { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
 .gu-section-title { font-size: 13px; font-weight: bold; color: #1A1A1A; }
 .gu-input {
-  width: 100%; padding: 10px 12px; background: #FAFAFA;
+  appearance: none; box-sizing: border-box; width: 100%; padding: 10px 12px; background: #FAFAFA;
   border: 1px solid #E5E5E5; font-size: 14px; outline: none; transition: all 0.2s;
 }
 .gu-input:focus { border-color: #0284c7; background: #FFFFFF; }
@@ -473,7 +517,7 @@ const formatSize = (bytes: number) => {
 
 /* 按钮 */
 .gu-btn-confirm, .gu-btn-cancel, .gu-btn-action {
-  width: 100%; padding: 12px; font-size: 14px; cursor: pointer; border: none; transition: all 0.2s;
+  appearance: none; width: 100%; padding: 12px; font-size: 14px; cursor: pointer; border: none; transition: all 0.2s;
 }
 .gu-btn-confirm { background: #1A1A1A; color: #FFF; }
 .gu-btn-confirm:hover:not(:disabled) { background: #0284c7; }
@@ -490,7 +534,7 @@ const formatSize = (bytes: number) => {
 .gu-actions-row { display: flex; gap: 12px; }
 
 /* 列表视图 */
-.gu-toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
+.gu-toolbar { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px; }
 .gu-toolbar .gu-btn-action { padding: 8px; font-size: 13px; }
 
 .gu-file-list {
@@ -528,8 +572,7 @@ const formatSize = (bytes: number) => {
   margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px dashed #E5E5E5;
 }
 .gu-checkbox-list { display: flex; flex-direction: column; gap: 10px; }
-.gu-checkbox-item { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.gu-checkbox-item input { accent-color: #1A1A1A; width: 16px; height: 16px; }
+.gu-checkbox-item { appearance:none; display: flex; align-items: center; gap: 8px; padding:8px 0; border:0; border-bottom:1px solid #F0F0F0; background:transparent; cursor: pointer; text-align:left; }
 .gu-checkbox-text { font-size: 13px; color: #333; }
 
 .gu-toggle-label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #1A1A1A; cursor: pointer; }
@@ -540,8 +583,11 @@ const formatSize = (bytes: number) => {
 .gu-file-size-mini { font-size: 12px; color: #999; margin-top: 4px; }
 
 .gu-radio-group { display: flex; flex-direction: column; gap: 8px; }
-.gu-radio-label { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid #E5E5E5; cursor: pointer; transition: all 0.2s; }
+.gu-radio-label { appearance:none; display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid #E5E5E5; background:#FFF; cursor: pointer; transition: all 0.2s; text-align:left; }
 .gu-radio-label.active { border-color: #0284c7; background: #F0F9FF; }
-.gu-radio-label input { accent-color: #0284c7; }
 .gu-radio-title { font-size: 13px; font-weight: bold; color: #1A1A1A; }
+.gu-retention-row { display:flex; gap:8px; }.gu-retention-btn { appearance:none; flex:1; padding:9px 0; border:1px solid #E5E5E5; background:#FFF; color:#666; font-size:12px; cursor:pointer; }.gu-retention-btn.active { border-color:#1A1A1A; background:#1A1A1A; color:#FFF; }
+.gu-note { padding:12px; border:1px solid #F0F0F0; background:#FAFAFA; color:#777; font-size:12px; line-height:1.6; }
+.gu-choice { appearance:none; display:flex; width:100%; align-items:flex-start; gap:10px; padding:11px; border:1px solid #E5E5E5; background:#FAFAFA; color:#1A1A1A; text-align:left; cursor:pointer; }
+.gu-choice b,.gu-choice small { display:block; }.gu-choice b{font-size:13px}.gu-choice small{margin-top:3px;color:#777;font-size:11px;line-height:1.5}.gu-check{width:16px;height:16px;display:grid;place-items:center;flex:none;border:1px solid #CFCFCF;color:#FFF;font-size:11px}.gu-choice.selected .gu-check,.gu-checkbox-item.active .gu-check{background:#1A1A1A;border-color:#1A1A1A}.gu-auto-choice{padding:10px}.gu-encryption-lock{cursor:default}.gu-summary-card{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid #F0F0F0;background:#FAFAFA;margin-bottom:10px}.gu-summary-mark{width:30px;height:30px;display:grid;place-items:center;flex:none;background:#1A1A1A;color:#FFF;font-family:"STSong","SimSun",serif}.gu-summary-card b,.gu-summary-card small{display:block}.gu-summary-card b{font-size:14px;margin-bottom:3px}.gu-summary-card small{color:#777;font-size:12px;line-height:1.6}.gu-tutorial-step{padding:13px 0;border-bottom:1px dashed #E5E5E5}.gu-tutorial-step b,.gu-tutorial-step small{display:block}.gu-tutorial-step b{font-family:"STSong","SimSun",serif;font-size:14px}.gu-tutorial-step small{margin-top:5px;color:#777;font-size:12px;line-height:1.7}
 </style>

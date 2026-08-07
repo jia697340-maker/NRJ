@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
+import localforage from 'localforage'
 
 defineEmits(['close'])
 
@@ -104,6 +105,16 @@ watch([region, apiKey, testText, testModel, testVoiceId, keyPresets], () => {
 }, { deep: true })
 
 let audioInstance: HTMLAudioElement | null = null
+const testVoiceStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatVoices' })
+const testVoiceMetaStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatVoiceMeta' })
+const pendingTests = new Map<string, Promise<string>>()
+const MAX_TEST_CACHE_ITEMS = 20
+
+const hash = (value: string) => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < value.length; i++) { h ^= value.charCodeAt(i); h = Math.imul(h, 0x01000193) }
+  return (h >>> 0).toString(36)
+}
 
 const hexToBlob = (hexString: string, mimeType: string) => {
   const bytes = new Uint8Array(Math.ceil(hexString.length / 2))
@@ -115,6 +126,19 @@ const hexToBlob = (hexString: string, mimeType: string) => {
 
 const getBaseUrl = () => {
   return region.value === 'china' ? 'https://api.minimaxi.com' : 'https://api.minimax.io'
+}
+
+const trimTestCache = async () => {
+  const entries: Array<{ key: string, timestamp: number }> = []
+  await testVoiceStore.iterate((_: unknown, key: string) => {
+    if (key.startsWith('voice_test_v1_')) entries.push({ key, timestamp: 0 })
+  })
+  await Promise.all(entries.map(async item => { item.timestamp = (await testVoiceMetaStore.getItem<number>(item.key)) || 0 }))
+  entries.sort((a, b) => a.timestamp - b.timestamp)
+  while (entries.length > MAX_TEST_CACHE_ITEMS) {
+    const oldest = entries.shift()
+    if (oldest) await Promise.all([testVoiceStore.removeItem(oldest.key), testVoiceMetaStore.removeItem(oldest.key)])
+  }
 }
 
 const savePreset = () => {
@@ -218,8 +242,6 @@ const playTest = async () => {
     audioInstance = null
   }
 
-  const url = `${getBaseUrl()}/v1/t2a_v2`
-
   const voiceSetting: any = {
     voice_id: testVoiceId.value || 'female-yujie',
     speed: 1.0,
@@ -227,39 +249,38 @@ const playTest = async () => {
     vol: 1.0
   }
 
+  const cacheKey = `voice_test_v1_${hash(JSON.stringify({ text: testText.value, model: testModel.value || 'speech-2.6-turbo', voiceSetting, region: region.value, format: 'mp3', sampleRate: 32000, bitrate: 128000 }))}`
+
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey.value}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: testModel.value || 'speech-2.6-turbo',
-        text: testText.value,
-        stream: false,
-        voice_setting: voiceSetting,
-        audio_setting: {
-          format: "mp3",
-          sample_rate: 32000,
-          bitrate: 128000
-        }
-      })
-    })
-
-    if (!res.ok) {
-      if (res.status === 401) throw new Error('鉴权失败：密钥错误或区域不匹配')
-      if (res.status === 429) throw new Error('请求超限：并发过高或余额不足')
-      throw new Error(`服务异常 (状态码: ${res.status})`)
+    let audioHex = await testVoiceStore.getItem<string>(cacheKey)
+    if (audioHex) {
+      void testVoiceMetaStore.setItem(cacheKey, Date.now())
+    } else {
+      let request = pendingTests.get(cacheKey)
+      if (!request) {
+        request = (async () => {
+          const res = await fetch(`${getBaseUrl()}/v1/t2a_v2`, {
+            method: 'POST', headers: { 'Authorization': `Bearer ${apiKey.value}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: testModel.value || 'speech-2.6-turbo', text: testText.value, stream: false, language_boost: 'auto', output_format: 'hex', voice_setting: voiceSetting, audio_setting: { format: 'mp3', sample_rate: 32000, bitrate: 128000, channel: 1 } })
+          })
+          if (!res.ok) {
+            if (res.status === 401) throw new Error('鉴权失败：密钥错误或区域不匹配')
+            if (res.status === 429) throw new Error('请求超限：并发过高或余额不足')
+            throw new Error(`服务异常 (状态码: ${res.status})`)
+          }
+          const data = await res.json()
+          if (data.base_resp?.status_code !== 0) throw new Error(data.base_resp?.status_msg || '合成失败')
+          if (!data.data?.audio) throw new Error('未接收到有效音频流')
+          await Promise.all([testVoiceStore.setItem(cacheKey, data.data.audio), testVoiceMetaStore.setItem(cacheKey, Date.now())])
+          void trimTestCache()
+          return data.data.audio as string
+        })().finally(() => pendingTests.delete(cacheKey))
+        pendingTests.set(cacheKey, request)
+      }
+      audioHex = await request
     }
-
-    const data = await res.json()
-    if (data.base_resp && data.base_resp.status_code !== 0) {
-      throw new Error(data.base_resp.status_msg || '合成失败')
-    }
-
-    if (data.data && data.data.audio) {
-      const blob = hexToBlob(data.data.audio, 'audio/mp3')
+    if (audioHex) {
+      const blob = hexToBlob(audioHex, 'audio/mp3')
       const blobUrl = URL.createObjectURL(blob)
       audioInstance = new Audio(blobUrl)
       audioInstance.play()

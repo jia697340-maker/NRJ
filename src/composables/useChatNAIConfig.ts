@@ -153,7 +153,7 @@ export function useChatNAIConfig(chatProps: any) {
     showConfirmModal.value = false
   }
 
-  const cancelConfirm = () => {
+  let cancelConfirm = () => {
     showConfirmModal.value = false
   }
 

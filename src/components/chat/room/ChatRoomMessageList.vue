@@ -17,22 +17,7 @@ const props = defineProps<{
   isVoiceSynthesizing: boolean
 }>()
 
-const emit = defineEmits<{
-  (e: 'click-overlay'): void
-  (e: 'click-message', msgId: number): void
-  (e: 'toggle-selection', msgId: number): void
-  (e: 'touch-start', msgId: number): void
-  (e: 'touch-end'): void
-  (e: 'touch-move', event: TouchEvent): void
-  (e: 'toggle-image-text', msgId: number): void
-  (e: 'toggle-voice-text', msgId: number): void
-  (e: 'play-voice', msgId: number, text: string): void
-  (e: 'handle-left-transfer-click', msg: any): void
-  (e: 'handle-emoji-click', url: string | undefined, name: string | undefined): void
-  (e: 'view-recalled-message', content: string): void
-  (e: 'cancel-image-generation', msgId: number): void
-  (e: 'open-gallery', msg: any): void
-}>()
+const emit = defineEmits()
 
 const messageAreaRef = ref<HTMLElement | null>(null)
 
@@ -74,7 +59,7 @@ defineExpose({
         @touch-start="emit('touch-start', $event)"
         @touch-end="emit('touch-end')"
         @touch-move="emit('touch-move', $event)"
-        @toggle-image-text="(id) => {
+        @toggle-image-text="(id: number) => {
           const m = displayMessages.find(msg => msg.id === id);
           if (m && (m.imageData?.imageId || (m.imageData?.history && m.imageData.history.length > 0))) {
             emit('open-gallery', m);
@@ -83,9 +68,9 @@ defineExpose({
           }
         }"
         @toggle-voice-text="emit('toggle-voice-text', $event)"
-        @play-voice="(id, text) => emit('play-voice', id, text)"
+        @play-voice="(id: number, text: string) => emit('play-voice', id, text)"
         @handle-left-transfer-click="emit('handle-left-transfer-click', $event)"
-        @handle-emoji-click="(u, n) => emit('handle-emoji-click', u, n)"
+        @handle-emoji-click="(u: string | undefined, n: string | undefined) => emit('handle-emoji-click', u, n)"
         @view-recalled-message="emit('view-recalled-message', $event)"
         @cancel-image-generation="emit('cancel-image-generation', $event)"
       />

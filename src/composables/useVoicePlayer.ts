@@ -2,276 +2,156 @@
 import { ref } from 'vue'
 import localforage from 'localforage'
 
-// 模块级状态共享，确保全局只有一个队列在运行
 let globalAudioInstance: HTMLAudioElement | null = null
 const isPlaying = ref(false)
 const isSynthesizing = ref(false)
 const currentPlayingId = ref<number | null>(null)
 
-// 语音播放队列
-interface VoiceTask {
-  msgId: number
-  text: string
-  chatSettings: any
-  resolve: () => void
-  reject: (err: any) => void
+interface VoiceTask { msgId: number; text: string; chatSettings: any; resolve: () => void; reject: (err: any) => void }
+interface VoiceProfile {
+  model: string; voiceId: string; speed: number; pitch: number; volume: number
+  language: string; emotion: string; format: 'mp3'; sampleRate: number; bitrate: number; channel: number
 }
+
 const voiceQueue: VoiceTask[] = []
+const inFlightSynthesis = new Map<string, Promise<string>>()
+const voiceStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatVoices' })
+const voiceMetaStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatVoiceMeta' })
+const MAX_CACHE_BYTES = 300 * 1024 * 1024
+const MAX_CACHE_ITEMS = 500
 let isQueueProcessing = false
 
-export function useVoicePlayer() {
+const languageMap: Record<string, string> = {
+  zh: 'Chinese', en: 'English', ja: 'Japanese', ko: 'Korean', fr: 'French', de: 'German', es: 'Spanish',
+  it: 'Italian', ru: 'Russian', pt: 'Portuguese', ar: 'Arabic', hi: 'Hindi', id: 'Indonesian', vi: 'Vietnamese',
+  th: 'Thai', tr: 'Turkish', fa: 'Persian', pl: 'Polish', uk: 'Ukrainian', nl: 'Dutch', ro: 'Romanian',
+  el: 'Greek', sv: 'Swedish', fi: 'Finnish', da: 'Danish', no: 'Norwegian', he: 'Hebrew', ms: 'Malay', ta: 'Tamil'
+}
+const emotionModels = new Set(['speech-02-hd', 'speech-02-turbo', 'speech-01-hd', 'speech-01-turbo', 'speech-2.6-hd', 'speech-2.6-turbo'])
 
-  const hexToBlob = (hexString: string, mimeType: string) => {
-    const bytes = new Uint8Array(Math.ceil(hexString.length / 2))
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = parseInt(hexString.substring(i * 2, (i * 2) + 2), 16)
-    }
-    return new Blob([bytes], { type: mimeType })
+const cleanVoiceText = (text: string) => text.replace(/\*.*?\*/g, '').replace(/[\(（].*?[\)）]/g, '').replace(/<[^>]*>/g, '').trim()
+const hexToBlob = (hex: string) => {
+  const bytes = new Uint8Array(Math.ceil(hex.length / 2))
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16)
+  return new Blob([bytes], { type: 'audio/mp3' })
+}
+const hash = (value: string) => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < value.length; i++) { h ^= value.charCodeAt(i); h = Math.imul(h, 0x01000193) }
+  return (h >>> 0).toString(36)
+}
+const profileFor = (settings: any): VoiceProfile => ({
+  model: settings?.voiceModel || 'speech-2.6-turbo', voiceId: settings?.voiceId || 'female-yujie',
+  speed: settings?.voiceSpeed ?? 1, pitch: settings?.voicePitch ?? 1, volume: settings?.voiceVolume ?? 1,
+  language: languageMap[settings?.voiceLanguage || ''] || 'auto', emotion: settings?.voiceEmotion || '',
+  format: 'mp3', sampleRate: 32000, bitrate: 128000, channel: 1
+})
+const cacheKeyFor = (msgId: number, text: string, profile: VoiceProfile) => `voice_v2_${msgId}_${hash(JSON.stringify({ text, profile }))}`
+
+async function trimVoiceCache() {
+  const entries: Array<{ key: string; size: number; updatedAt: number }> = []
+  await voiceStore.iterate((value: unknown, key: string) => {
+    if (typeof value === 'string' && key.startsWith('voice_')) entries.push({ key, size: value.length / 2, updatedAt: 0 })
+  })
+  await Promise.all(entries.map(async entry => { entry.updatedAt = (await voiceMetaStore.getItem<number>(entry.key)) || 0 }))
+  let total = entries.reduce((sum, entry) => sum + entry.size, 0)
+  entries.sort((a, b) => a.updatedAt - b.updatedAt)
+  while (entries.length > MAX_CACHE_ITEMS || total > MAX_CACHE_BYTES) {
+    const oldest = entries.shift()
+    if (!oldest) break
+    await Promise.all([voiceStore.removeItem(oldest.key), voiceMetaStore.removeItem(oldest.key)])
+    total -= oldest.size
   }
+}
 
-  // 内部真实的播放逻辑，独立出来供队列调用
-  const _executePlayVoice = async (msgId: number, text: string, chatSettings: any) => {
-    currentPlayingId.value = msgId
-
-    // 合并角色特定配置
-    const model = chatSettings?.voiceModel || 'speech-2.6-turbo'
-    const voiceSetting = {
-      voice_id: chatSettings?.voiceId || 'female-yujie',
-      speed: chatSettings?.voiceSpeed ?? 1.0,
-      pitch: chatSettings?.voicePitch ?? 1.0,
-      vol: chatSettings?.voiceVolume ?? 1.0
+function playAudioHex(hex: string, msgId: number) {
+  return new Promise<void>((resolve) => {
+    const blobUrl = URL.createObjectURL(hexToBlob(hex))
+    globalAudioInstance = new Audio(blobUrl)
+    const finish = () => {
+      URL.revokeObjectURL(blobUrl)
+      if (currentPlayingId.value === msgId) { isPlaying.value = false; currentPlayingId.value = null }
+      resolve()
     }
+    globalAudioInstance.onended = finish
+    globalAudioInstance.onpause = finish
+    globalAudioInstance.onerror = finish
+    globalAudioInstance.play().then(() => { isPlaying.value = true }).catch(finish)
+  })
+}
 
-    // 文本清洗：正则过滤掉动作和表情（星号和括号中的内容）
-    const cleanText = text
-      .replace(/\*.*?\*/g, '')
-      .replace(/[\(（].*?[\)）]/g, '')
-      .replace(/<[^>]*>/g, '') // 额外清洗可能残留的HTML标签
-      .trim()
-      
-    // 如果清洗后没内容了，就不播报了
-    if (!cleanText) {
-      isPlaying.value = false
-      currentPlayingId.value = null
-      return
-    }
+async function synthesize(text: string, profile: VoiceProfile, apiKey: string, region: string, stream: boolean) {
+  const baseUrl = region === 'china' ? 'https://api.minimaxi.com' : 'https://api.minimax.io'
+  const voiceSetting: Record<string, unknown> = { voice_id: profile.voiceId, speed: profile.speed, pitch: profile.pitch, vol: profile.volume }
+  // MiniMax only documents explicit emotion for the 01/02 and 2.6 model families.
+  if (profile.emotion && emotionModels.has(profile.model)) voiceSetting.emotion = profile.emotion
+  const response = await fetch(`${baseUrl}/v1/t2a_v2`, {
+    method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: profile.model, text, stream, language_boost: profile.language, output_format: 'hex', voice_setting: voiceSetting, audio_setting: { format: profile.format, sample_rate: profile.sampleRate, bitrate: profile.bitrate, channel: profile.channel } })
+  })
+  if (!response.ok) throw new Error(`语音合成请求失败 (状态码: ${response.status})`)
+  const data = await response.json()
+  if (data.base_resp?.status_code !== 0) throw new Error(data.base_resp?.status_msg || '语音合成失败')
+  if (!data.data?.audio) throw new Error('未接收到有效音频流')
+  return data.data.audio as string
+}
 
-    const voiceStore = localforage.createInstance({
-      name: 'nrt-app',
-      storeName: 'chatVoices'
-    })
-    // 缓存键值结合了 msgId、模型、音色，确保修改音色后能重新生成
-    const cacheKey = `voice_${msgId}_${model}_${voiceSetting.voice_id}`
+async function getAudioHex(cacheKey: string, text: string, profile: VoiceProfile, settings: any) {
+  const cached = await voiceStore.getItem<string>(cacheKey)
+  if (cached) { await voiceMetaStore.setItem(cacheKey, Date.now()); return cached }
+  const pending = inFlightSynthesis.get(cacheKey)
+  if (pending) return pending
+  const configString = localStorage.getItem('minimax_voice_config_v4')
+  if (!configString) throw new Error('MISSING_API_KEY')
+  let config: any
+  try { config = JSON.parse(configString) } catch { throw new Error('MISSING_API_KEY') }
+  if (!config.apiKey) throw new Error('MISSING_API_KEY')
+  const request = synthesize(text, profile, config.apiKey, config.region || 'global', Boolean(settings?.voiceStream))
+    .then(async audio => {
+      await Promise.all([voiceStore.setItem(cacheKey, audio), voiceMetaStore.setItem(cacheKey, Date.now())])
+      void trimVoiceCache()
+      return audio
+    }).finally(() => inFlightSynthesis.delete(cacheKey))
+  inFlightSynthesis.set(cacheKey, request)
+  return request
+}
 
+async function executePlayVoice(msgId: number, rawText: string, settings: any) {
+  currentPlayingId.value = msgId
+  const text = cleanVoiceText(rawText)
+  if (!text) { currentPlayingId.value = null; return }
+  const profile = profileFor(settings)
+  const cacheKey = cacheKeyFor(msgId, text, profile)
+  try {
+    isSynthesizing.value = true
+    const audio = await getAudioHex(cacheKey, text, profile, settings)
+    await playAudioHex(audio, msgId)
+  } finally { isSynthesizing.value = false }
+}
+
+async function processQueue() {
+  if (isQueueProcessing || voiceQueue.length === 0) return
+  isQueueProcessing = true
+  while (voiceQueue.length) {
+    const task = voiceQueue.shift()!
     try {
-      // 1. 先尝试读取本地缓存（即使没开开关或没密钥也能听以前的）
-      const cachedAudioHex = await voiceStore.getItem<string>(cacheKey)
-      if (cachedAudioHex) {
-        return new Promise<void>((resolve) => {
-          const blob = hexToBlob(cachedAudioHex, 'audio/mp3')
-          const blobUrl = URL.createObjectURL(blob)
-          
-          globalAudioInstance = new Audio(blobUrl)
-          
-          globalAudioInstance.onended = () => {
-            if (currentPlayingId.value === msgId) {
-              isPlaying.value = false
-              currentPlayingId.value = null
-            }
-            resolve()
-          }
-          
-          globalAudioInstance.onpause = () => {
-            if (currentPlayingId.value === msgId) {
-              isPlaying.value = false
-              currentPlayingId.value = null
-            }
-            // 暂停也认为本段任务结束，放行下一段
-            resolve()
-          }
-
-          globalAudioInstance.onerror = (e) => {
-            console.error('Audio play error', e)
-            resolve() // 发生错误也放行队列
-          }
-
-          globalAudioInstance.play().then(() => {
-            isPlaying.value = true
-            isSynthesizing.value = false
-          }).catch(err => {
-            console.error('缓存音频播放失败:', err)
-            resolve() // 无法播放也要放行
-          })
-        })
-      }
-
-      // 2. 缓存未命中，开始检查配置并调用 API
-      
-    // 既然需要播放，获取全局 MiniMax 配置
-    const savedGlobalConfig = localStorage.getItem('minimax_voice_config_v4')
-    if (!savedGlobalConfig) {
-      throw new Error('MISSING_API_KEY')
-    }
-
-      let globalConfig: any = {}
-      try {
-        globalConfig = JSON.parse(savedGlobalConfig)
-      } catch (e) {
-        console.error(e)
-      }
-
-      const apiKey = globalConfig.apiKey
-      if (!apiKey) {
-        throw new Error('MISSING_API_KEY')
-      }
-
-      isSynthesizing.value = true
-
-      const region = globalConfig.region || 'global'
-      const baseUrl = region === 'china' ? 'https://api.minimaxi.com' : 'https://api.minimax.io'
-
-    const payload = {
-      model: model,
-      text: cleanText,
-      stream: false,
-      voice_setting: voiceSetting,
-      audio_setting: {
-        format: "mp3",
-        sample_rate: 32000,
-        bitrate: 128000
-      }
-    }
-    
-    console.log('[useVoicePlayer] 发起合成请求 payload:', payload)
-
-    const res = await fetch(`${baseUrl}/v1/t2a_v2`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    })
-
-    if (!res.ok) {
-      throw new Error(`语音合成请求失败 (状态码: ${res.status})`)
-    }
-
-      const data = await res.json()
-      if (data.base_resp && data.base_resp.status_code !== 0) {
-        throw new Error(data.base_resp.status_msg || '语音合成失败')
-      }
-
-      if (data.data && data.data.audio) {
-        // 保存到缓存
-        try {
-          await voiceStore.setItem(cacheKey, data.data.audio)
-        } catch (e) {
-          console.error('保存语音缓存失败:', e)
-        }
-
-        return new Promise<void>((resolve) => {
-          const blob = hexToBlob(data.data.audio, 'audio/mp3')
-          const blobUrl = URL.createObjectURL(blob)
-          
-          globalAudioInstance = new Audio(blobUrl)
-          
-          globalAudioInstance.onended = () => {
-            if (currentPlayingId.value === msgId) {
-              isPlaying.value = false
-              currentPlayingId.value = null
-            }
-            resolve()
-          }
-          
-          globalAudioInstance.onpause = () => {
-             if (currentPlayingId.value === msgId) {
-              isPlaying.value = false
-              currentPlayingId.value = null
-            }
-            resolve()
-          }
-
-          globalAudioInstance.onerror = (e) => {
-            console.error('Audio play error', e)
-            resolve()
-          }
-
-          globalAudioInstance.play().then(() => {
-            isPlaying.value = true
-          }).catch(err => {
-            console.error('音频播放失败:', err)
-            resolve()
-          })
-        })
-      } else {
-        throw new Error('未接收到有效音频流')
-      }
-
-  } catch (err: any) {
-    console.error('语音合成播放错误:', err)
-    currentPlayingId.value = null
-    // 必须抛出错误，否则外层完全不知道失败了
-    throw err
-  } finally {
-      isSynthesizing.value = false
-    }
+      if (globalAudioInstance) { globalAudioInstance.pause(); globalAudioInstance = null }
+      await executePlayVoice(task.msgId, task.text, task.chatSettings)
+      task.resolve()
+    } catch (error) { currentPlayingId.value = null; task.reject(error) }
   }
+  isQueueProcessing = false
+}
 
-  const processQueue = async () => {
-    if (isQueueProcessing || voiceQueue.length === 0) return
-    isQueueProcessing = true
-
-    while (voiceQueue.length > 0) {
-      const task = voiceQueue.shift()
-      if (task) {
-        try {
-          // 清理可能遗留的上一首
-          if (globalAudioInstance) {
-            globalAudioInstance.pause()
-            globalAudioInstance = null
-          }
-          await _executePlayVoice(task.msgId, task.text, task.chatSettings)
-          task.resolve()
-        } catch (err) {
-          task.reject(err)
-        }
-      }
-    }
-
-    isQueueProcessing = false
-  }
-
+export function useVoicePlayer() {
   const playVoice = (msgId: number, text: string, chatSettings: any) => {
-    // 拦截点击同一条停止的功能（如果是用户手动点击按钮触发的重叠点击）
-    if (currentPlayingId.value === msgId && isPlaying.value && voiceQueue.length === 0) {
-      stopVoice()
-      return Promise.resolve()
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      voiceQueue.push({ msgId, text, chatSettings, resolve, reject })
-      processQueue()
-    })
+    if (currentPlayingId.value === msgId && isPlaying.value && voiceQueue.length === 0) { stopVoice(); return Promise.resolve() }
+    return new Promise<void>((resolve, reject) => { voiceQueue.push({ msgId, text, chatSettings, resolve, reject }); void processQueue() })
   }
-
   const stopVoice = () => {
-     // 清空队列
-     voiceQueue.length = 0
-     if (globalAudioInstance) {
-        globalAudioInstance.pause()
-        globalAudioInstance = null
-      }
-      isPlaying.value = false
-      currentPlayingId.value = null
-      isQueueProcessing = false
+    voiceQueue.length = 0
+    if (globalAudioInstance) { globalAudioInstance.pause(); globalAudioInstance = null }
+    isPlaying.value = false; currentPlayingId.value = null; isQueueProcessing = false
   }
-
-  return {
-    playVoice,
-    stopVoice,
-    isPlaying,
-    isSynthesizing,
-    currentPlayingId
-  }
+  return { playVoice, stopVoice, isPlaying, isSynthesizing, currentPlayingId }
 }

@@ -55,7 +55,8 @@ const updateParallax = (x: number, y: number) => {
 }
 
 const handleMouseMove = (e: MouseEvent) => {
-  const { clientX, clientY, innerWidth, innerHeight } = window
+  const { clientX, clientY } = e
+  const { innerWidth, innerHeight } = window
   const x = (clientX / innerWidth - 0.5) * 30 // Max 15px shift
   const y = (clientY / innerHeight - 0.5) * 30
   updateParallax(-x, -y)
@@ -395,7 +396,7 @@ const closeOverlay = () => {
                 class="dot" 
                 v-for="(_, i) in globalSettings.unlockDigit.length" 
                 :key="i"
-                :class="{ filled: i < overlayInput.length }"
+                :class="{ filled: Number(i) < overlayInput.length }"
               ></div>
             </div>
             <div class="digit-keyboard">

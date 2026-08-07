@@ -24,6 +24,7 @@ const emit = defineEmits<{
   (e: 'openMoveModal', ids: string[]): void
   (e: 'openCopyModal', ids: string[]): void
   (e: 'deleteSelectedBooks'): void
+  (e: 'exitApp'): void
 }>()
 
 const activeGroupId = ref<string>('all')
