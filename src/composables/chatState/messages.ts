@@ -8,6 +8,8 @@ import { getEffectiveUserProfile } from '../useChatUserProfiles'
 import { myProfile } from './state'
 import { buildSystemPrompt } from './prompt'
 import { buildOfflinePostHistoryPrompt } from '../useOfflineMeetPrompt'
+import { useVoiceCall } from '../useVoiceCall'
+import { useVideoCall } from '../useVideoCall'
 
 // 将 Blob 转为 Base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -99,12 +101,12 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
   // --- 拦截：通话临时总结 ---
   let callTempSummaryContext = ''
   if (callMode === 'voice') {
-    const { currentCallTempSummary } = await import('../useVoiceCall').then(m => m.useVoiceCall())
+    const { currentCallTempSummary } = useVoiceCall()
     if (currentCallTempSummary.value) {
       callTempSummaryContext = `\n\n【本次通话前半段提要】\n${currentCallTempSummary.value}\n(注：以上是本次通话前半段的总结，请结合它以及下方的最新明细进行回复。)`
     }
   } else if (callMode === 'video') {
-    const { currentVideoCallTempSummary } = await import('../useVideoCall').then(m => m.useVideoCall())
+    const { currentVideoCallTempSummary } = useVideoCall()
     if (currentVideoCallTempSummary.value) {
       callTempSummaryContext = `\n\n【本次视频通话前半段提要】\n${currentVideoCallTempSummary.value}\n(注：以上是本次视频通话前半段的总结，请结合它以及下方的最新明细进行回复。)`
     }

@@ -4,6 +4,7 @@ import localforage from 'localforage'
 import { useGptImageReference } from './useGptImageReference'
 import { useGeminiImageReference } from './useGeminiImageReference'
 import { useFluxImageReference } from './useFluxImageReference'
+import { useSeedreamImageReference } from './useSeedreamImageReference'
 
 export function useChatRoomImageGen(
   selectedChat: any,
@@ -12,6 +13,8 @@ export function useChatRoomImageGen(
   generateGptImage: any,
   generateGeminiImage: any,
   generateFluxImage: any,
+  generateNijiImage: any,
+  generateSeedreamImage: any,
   saveCustomContacts: (targetChat?: any) => void,
   scrollToBottom: () => Promise<void>
 ) {
@@ -27,6 +30,8 @@ export function useChatRoomImageGen(
     const gptConfig = chatToUpdate.gptImageConfig || {}
     const geminiConfig = chatToUpdate.geminiImageConfig || {}
     const fluxConfig = chatToUpdate.fluxImageConfig || {}
+    const nijiConfig = chatToUpdate.nijiImageConfig || {}
+    const seedreamConfig = chatToUpdate.seedreamImageConfig || {}
     const vibeText = naiConfig.vibeText || ''
     const positivePrompt = naiConfig.positivePrompt || ''
     const visualProfile = naiConfig.visualProfile?.enabled ? naiConfig.visualProfile : null
@@ -45,6 +50,164 @@ export function useChatRoomImageGen(
     chatToUpdate.preview = '[正在作画中...]'
     if (isRoomActive && selectedChat.value && selectedChat.value.id === currentChatId) {
       await scrollToBottom()
+    }
+
+    if (provider === 'seedream') {
+      let scenePrompt = actionContent.trim()
+      if (seedreamConfig.enableLlmAssist) {
+        try {
+          const contextSize = Math.min(50, Math.max(1, Number(seedreamConfig.llmContextSize) || 12))
+          const recentMessages = chatToUpdate.messages
+            .filter((message: any) => message.type === 'left' || message.type === 'right')
+            .slice(-contextSize)
+            .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value.name || '用户')}：${message.content}`)
+            .join('\n')
+          const result = await sendChatMessage([
+            {
+              role: 'system',
+              content: '你是 Seedream 5.0 的画面整理助手。根据角色设定、聊天上下文和本次要求，输出一段简洁明确的中文自然语言生图描述，写清人物外貌、服装、动作、场景、构图、镜头和光线。不要输出 JSON、标签列表、Negative Prompt 或解释。'
+            },
+            {
+              role: 'user',
+              content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}`
+            }
+          ], undefined, false, true)
+          scenePrompt = (typeof result === 'string' ? result : result.content).trim() || scenePrompt
+        } catch (error) {
+          console.warn('Seedream 生图画面整理失败，改用原始描述', error)
+        }
+      }
+
+      const { loadData, referenceGroups, getImagesForGroups } = useSeedreamImageReference()
+      await loadData()
+      const groupIds: string[] = seedreamConfig.referenceGroupIds || []
+      const instructions = referenceGroups.value
+        .filter(group => groupIds.includes(group.id) && group.description?.trim())
+        .map(group => `参考组“${group.name}”：${group.description.trim()}`)
+      const finalSeedreamPrompt = [seedreamConfig.promptPrefix?.trim(), ...instructions, scenePrompt].filter(Boolean).join('\n')
+      const references = getImagesForGroups(groupIds)
+      const msgRef = chatToUpdate.messages.find((message: any) => message.id === baseMessageId)
+      if (msgRef) {
+        msgRef.content = '正在使用 Seedream 5.0 绘制图像...'
+        msgRef.imageData.prompt = finalSeedreamPrompt
+        msgRef.imageData.sourceText = actionContent
+        msgRef.imageData.provider = 'seedream'
+        msgRef.imageData.referenceGroupIds = groupIds
+      }
+
+      try {
+        const generatedImage = await generateSeedreamImage({
+          apiKey: seedreamConfig.apiKey || localStorage.getItem('app_seedream_image_apikey') || '',
+          baseUrl: seedreamConfig.baseUrl || localStorage.getItem('app_seedream_image_baseurl') || 'https://ark.cn-beijing.volces.com/api/v3'
+        }, {
+          model: seedreamConfig.model || localStorage.getItem('app_seedream_image_model') || 'doubao-seedream-5-0-lite-260128',
+          prompt: finalSeedreamPrompt,
+          size: seedreamConfig.size || localStorage.getItem('app_seedream_image_size') || '2K',
+          outputFormat: seedreamConfig.outputFormat || localStorage.getItem('app_seedream_image_format') || 'png',
+          watermark: seedreamConfig.watermark ?? localStorage.getItem('app_seedream_image_watermark') === 'true',
+          seed: seedreamConfig.seed === '' || seedreamConfig.seed === undefined ? null : Number(seedreamConfig.seed),
+          referenceImages: references.map(image => image.dataUrl)
+        })
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = '[图片]'
+          const imageId = `seedream_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+          const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+          await imageStore.setItem(imageId, generatedImage)
+          message.imageData.imageId = imageId
+          chatToUpdate.preview = '[发来图片/视频]'
+          saveCustomContacts(chatToUpdate)
+          if (isRoomActive && selectedChat.value?.id === currentChatId) await scrollToBottom()
+        }
+      } catch (error: any) {
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = `[Seedream 图片生成失败: ${error.message}]`
+          saveCustomContacts(chatToUpdate)
+        }
+      }
+      return
+    }
+
+    if (provider === 'niji') {
+      let scenePrompt = actionContent.trim()
+      if (nijiConfig.enableLlmAssist) {
+        try {
+          const contextSize = Math.min(50, Math.max(1, Number(nijiConfig.llmContextSize) || 12))
+          const recentMessages = chatToUpdate.messages
+            .filter((message: any) => message.type === 'left' || message.type === 'right')
+            .slice(-contextSize)
+            .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value.name || '用户')}：${message.content}`)
+            .join('\n')
+          const result = await sendChatMessage([
+            {
+              role: 'system',
+              content: '你是 Niji 7 的画面整理助手。根据角色设定、聊天上下文和本次要求，输出一段精确的自然语言生图描述，明确写出人物外貌、服装、动作、场景、构图、镜头与光线。Niji 7 偏字面理解，不要只写空泛氛围词。不要输出参数、JSON、Negative Prompt 或解释。'
+            },
+            {
+              role: 'user',
+              content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}`
+            }
+          ], undefined, false, true)
+          scenePrompt = (typeof result === 'string' ? result : result.content).trim() || scenePrompt
+        } catch (error) {
+          console.warn('Niji 生图画面整理失败，改用原始描述', error)
+        }
+      }
+
+      const finalNijiPrompt = [nijiConfig.promptPrefix?.trim(), scenePrompt].filter(Boolean).join('\n')
+      const msgRef = chatToUpdate.messages.find((message: any) => message.id === baseMessageId)
+      if (msgRef) {
+        msgRef.content = '正在使用 Niji 7 绘制图像...'
+        msgRef.imageData.prompt = finalNijiPrompt
+        msgRef.imageData.sourceText = actionContent
+        msgRef.imageData.provider = 'niji'
+      }
+
+      try {
+        const generatedImage = await generateNijiImage({
+          apiKey: nijiConfig.apiKey || localStorage.getItem('app_niji_image_apikey') || '',
+          baseUrl: nijiConfig.baseUrl || localStorage.getItem('app_niji_image_baseurl') || '',
+          protocol: nijiConfig.protocol || localStorage.getItem('app_niji_image_protocol') || 'proxy',
+          pollInterval: nijiConfig.pollInterval || Number(localStorage.getItem('app_niji_image_poll_interval') || 3000),
+          timeout: nijiConfig.timeout || Number(localStorage.getItem('app_niji_image_timeout') || 600000)
+        }, {
+          prompt: finalNijiPrompt,
+          speedMode: nijiConfig.speedMode || localStorage.getItem('app_niji_image_speed') || 'fast',
+          aspectRatio: nijiConfig.aspectRatio || localStorage.getItem('app_niji_image_aspect_ratio') || '2:3',
+          stylize: nijiConfig.stylize ?? Number(localStorage.getItem('app_niji_image_stylize') || 100),
+          chaos: nijiConfig.chaos ?? Number(localStorage.getItem('app_niji_image_chaos') || 0),
+          weird: nijiConfig.weird ?? Number(localStorage.getItem('app_niji_image_weird') || 0),
+          seed: nijiConfig.seed === '' || nijiConfig.seed === undefined ? null : Number(nijiConfig.seed),
+          raw: nijiConfig.raw ?? localStorage.getItem('app_niji_image_raw') === 'true',
+          styleReference: nijiConfig.styleReference || localStorage.getItem('app_niji_image_sref') || '',
+          styleWeight: nijiConfig.styleWeight ?? Number(localStorage.getItem('app_niji_image_sw') || 100),
+          imagePromptUrl: nijiConfig.imagePromptUrl || localStorage.getItem('app_niji_image_reference_url') || '',
+          imageWeight: nijiConfig.imageWeight ?? Number(localStorage.getItem('app_niji_image_iw') || 1)
+        })
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = '[图片]'
+          const imageId = `niji_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+          const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+          await imageStore.setItem(imageId, generatedImage)
+          message.imageData.imageId = imageId
+          chatToUpdate.preview = '[发来图片/视频]'
+          saveCustomContacts(chatToUpdate)
+          if (isRoomActive && selectedChat.value?.id === currentChatId) await scrollToBottom()
+        }
+      } catch (error: any) {
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = `[Niji 图片生成失败: ${error.message}]`
+          saveCustomContacts(chatToUpdate)
+        }
+      }
+      return
     }
 
     if (provider === 'flux') {

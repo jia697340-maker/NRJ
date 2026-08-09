@@ -113,6 +113,8 @@ export const loadCustomContacts = async () => {
       gptImageConfig: c.gptImageConfig || null,
       geminiImageConfig: c.geminiImageConfig || null,
       fluxImageConfig: c.fluxImageConfig || null,
+      nijiImageConfig: c.nijiImageConfig || null,
+      seedreamImageConfig: c.seedreamImageConfig || null,
       naiImagePrompt: c.naiImagePrompt || '',
       naiImageNegativePrompt: c.naiImageNegativePrompt || '',
       naiImageResolution: c.naiImageResolution || '1024x1024',

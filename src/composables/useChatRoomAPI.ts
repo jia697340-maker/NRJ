@@ -7,10 +7,13 @@ import { useNovelAI } from './useNovelAI'
 import { useGptImage } from './useGptImage'
 import { useGeminiImage } from './useGeminiImage'
 import { useFluxImage } from './useFluxImage'
+import { useNijiImage } from './useNijiImage'
+import { useSeedreamImage } from './useSeedreamImage'
 import { useChatAuth } from './useChatAuth'
 import { appendMissedIncomingCall, isInDoNotDisturb } from './useCallRecords'
 import { parseBilingualMessage } from '../services/bilingualChat'
 import { attachActiveOfflineSession } from '../services/offlineSessions'
+import { useVoicePlayer } from './useVoicePlayer'
 
 // 引入拆分的逻辑模块
 import { useChatRoomError } from './useChatRoomError'
@@ -62,6 +65,8 @@ export function useChatRoomAPI(
   const { generateImage: generateGptImage, abortGeneration: abortGptGeneration } = useGptImage()
   const { generateImage: generateGeminiImage, abortGeneration: abortGeminiGeneration } = useGeminiImage()
   const { generateImage: generateFluxImage, abortGeneration: abortFluxGeneration } = useFluxImage()
+  const { generateImage: generateNijiImage, abortGeneration: abortNijiGeneration } = useNijiImage()
+  const { generateImage: generateSeedreamImage, abortGeneration: abortSeedreamGeneration } = useSeedreamImage()
 
   // 1. 初始化错误处理模块
   const {
@@ -90,6 +95,8 @@ export function useChatRoomAPI(
     generateGptImage,
     generateGeminiImage,
     generateFluxImage,
+    generateNijiImage,
+    generateSeedreamImage,
     saveCustomContacts,
     scrollToBottom
   )
@@ -103,6 +110,8 @@ export function useChatRoomAPI(
     abortGptGeneration()
     abortGeminiGeneration()
     abortFluxGeneration()
+    abortNijiGeneration()
+    abortSeedreamGeneration()
     
     typingTimers.forEach(clearTimeout)
     typingTimers.length = 0
@@ -778,11 +787,9 @@ export function useChatRoomAPI(
                  )
                }
                if ((callMode === 'voice' && targetChat.enableVoiceCall) || (callMode === 'video' && targetChat.enableVideoCall)) {
-                 import('./useVoicePlayer').then(({ useVoicePlayer }) => {
-                   useVoicePlayer().playVoice(chatToUpdate.messages[chatToUpdate.messages.length - 1].id, msgContent, targetChat).catch(err => {
-                     console.error('通话中播放语音失败', err)
-                   })
-                 })
+                  useVoicePlayer().playVoice(chatToUpdate.messages[chatToUpdate.messages.length - 1].id, msgContent, targetChat).catch(err => {
+                    console.error('通话中播放语音失败', err)
+                  })
                }
             } else {
                chatToUpdate.unread = (chatToUpdate.unread || 0) + 1

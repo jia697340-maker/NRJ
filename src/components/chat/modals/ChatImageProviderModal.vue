@@ -23,7 +23,9 @@ const providers = [
   { id: 'novelai', name: 'NovelAI' },
   { id: 'gpt', name: 'GPT Image' },
   { id: 'gemini', name: 'Gemini Image' },
-  { id: 'flux', name: 'FLUX.2' }
+  { id: 'flux', name: 'FLUX.2' },
+  { id: 'niji', name: 'Niji 7（第三方）' },
+  { id: 'seedream', name: 'Seedream 5.0' }
 ]
 </script>
 

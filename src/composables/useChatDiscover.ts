@@ -167,9 +167,9 @@ export function useChatDiscover() {
     await saveMoments()
   }
 
-  const formatTime = (timestamp: number | string) => {
+  const formatTime = (timestamp: number | string): string => {
     const time = typeof timestamp === 'string' ? parseInt(timestamp) : timestamp
-    if (isNaN(time)) return timestamp
+    if (isNaN(time)) return String(timestamp)
     const now = Date.now()
     const diff = now - time
     if (diff < 60000) return '刚刚'

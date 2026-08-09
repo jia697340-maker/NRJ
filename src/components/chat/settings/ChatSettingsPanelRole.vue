@@ -23,6 +23,8 @@ const emit = defineEmits<{
   (e: 'show-gpt-image-detail-modal'): void
   (e: 'show-gemini-image-detail-modal'): void
   (e: 'show-flux-image-detail-modal'): void
+  (e: 'show-niji-image-detail-modal'): void
+  (e: 'show-seedream-image-detail-modal'): void
   (e: 'show-image-provider-modal'): void
   (e: 'show-world-book-bind-selector'): void
   (e: 'show-bilingual-option-modal', kind: 'mode' | 'display'): void
@@ -220,7 +222,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </template>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('开启角色生图', '生图引擎', 'NAI生图详细配置', 'GPT生图详细配置', 'Gemini生图详细配置', 'FLUX生图详细配置')">
+    <div class="glass-panel" v-show="matchSearch('开启角色生图', '生图引擎', 'NAI生图详细配置', 'GPT生图详细配置', 'Gemini生图详细配置', 'FLUX生图详细配置', 'Niji生图详细配置', 'Seedream生图详细配置')">
       <div class="glass-list-item" v-show="matchSearch('开启角色生图')">
         <div class="item-label">开启角色生图</div>
         <div class="item-value">
@@ -231,10 +233,10 @@ watch(() => props.selectedChat, calculateMomentTokens)
         </div>
       </div>
       <template v-if="selectedChat.enableNAIImageGen">
-        <div class="glass-list-item" v-show="matchSearch('生图引擎', 'NovelAI', 'GPT Image', 'Gemini Image', 'FLUX.2')" @click="emit('show-image-provider-modal')">
+        <div class="glass-list-item" v-show="matchSearch('生图引擎', 'NovelAI', 'GPT Image', 'Gemini Image', 'FLUX.2', 'Niji 7', 'Seedream 5.0')" @click="emit('show-image-provider-modal')">
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 生图引擎</div>
           <div class="item-value">
-            <span class="item-value-text">{{ (selectedChat.imageGenProvider || 'novelai') === 'novelai' ? 'NovelAI' : selectedChat.imageGenProvider === 'gemini' ? 'Gemini Image' : selectedChat.imageGenProvider === 'flux' ? 'FLUX.2' : 'GPT Image' }}</span>
+            <span class="item-value-text">{{ (selectedChat.imageGenProvider || 'novelai') === 'novelai' ? 'NovelAI' : selectedChat.imageGenProvider === 'gemini' ? 'Gemini Image' : selectedChat.imageGenProvider === 'flux' ? 'FLUX.2' : selectedChat.imageGenProvider === 'niji' ? 'Niji 7' : selectedChat.imageGenProvider === 'seedream' ? 'Seedream 5.0' : 'GPT Image' }}</span>
             <span class="arrow">></span>
           </div>
         </div>
@@ -259,12 +261,20 @@ watch(() => props.selectedChat, calculateMomentTokens)
             <span class="arrow">></span>
           </div>
         </div>
-        <div v-else class="glass-list-item" v-show="matchSearch('FLUX生图详细配置')" @click="emit('show-flux-image-detail-modal')">
+        <div v-else-if="selectedChat.imageGenProvider === 'flux'" class="glass-list-item" v-show="matchSearch('FLUX生图详细配置')" @click="emit('show-flux-image-detail-modal')">
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ FLUX 生图详细配置</div>
           <div class="item-value">
             <span class="item-value-text">设置 Pro / Max、尺寸与独立参考组</span>
             <span class="arrow">></span>
           </div>
+        </div>
+        <div v-else-if="selectedChat.imageGenProvider === 'niji'" class="glass-list-item" v-show="matchSearch('Niji生图详细配置')" @click="emit('show-niji-image-detail-modal')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ Niji 7 生图详细配置</div>
+          <div class="item-value"><span class="item-value-text">设置中转协议、Niji 参数与提示词</span><span class="arrow">></span></div>
+        </div>
+        <div v-else class="glass-list-item" v-show="matchSearch('Seedream生图详细配置')" @click="emit('show-seedream-image-detail-modal')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ Seedream 生图详细配置</div>
+          <div class="item-value"><span class="item-value-text">设置方舟模型、清晰度与独立参考组</span><span class="arrow">></span></div>
         </div>
       </template>
     </div>

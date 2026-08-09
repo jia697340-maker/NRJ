@@ -79,6 +79,12 @@ export function useChatSettingsSave() {
         contacts[idx].fluxImageConfig = selectedChat.value.fluxImageConfig
           ? JSON.parse(JSON.stringify(selectedChat.value.fluxImageConfig))
           : null
+        contacts[idx].nijiImageConfig = selectedChat.value.nijiImageConfig
+          ? JSON.parse(JSON.stringify(selectedChat.value.nijiImageConfig))
+          : null
+        contacts[idx].seedreamImageConfig = selectedChat.value.seedreamImageConfig
+          ? JSON.parse(JSON.stringify(selectedChat.value.seedreamImageConfig))
+          : null
 
         // 语音设置持久化
         contacts[idx].enableVoiceReply = selectedChat.value.enableVoiceReply ?? false

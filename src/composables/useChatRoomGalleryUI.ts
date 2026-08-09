@@ -8,6 +8,9 @@ import { useGeminiImage } from './useGeminiImage'
 import { useGeminiImageReference } from './useGeminiImageReference'
 import { useFluxImage } from './useFluxImage'
 import { useFluxImageReference } from './useFluxImageReference'
+import { useNijiImage } from './useNijiImage'
+import { useSeedreamImage } from './useSeedreamImage'
+import { useSeedreamImageReference } from './useSeedreamImageReference'
 
 export function useChatRoomGalleryUI(
   selectedChat: Ref<any>,
@@ -43,8 +46,105 @@ export function useChatRoomGalleryUI(
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('gemini_img_') ? 'gemini' : '')
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('gpt_img_') ? 'gpt' : '')
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('flux_img_') ? 'flux' : '')
+      || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('niji_img_') ? 'niji' : '')
+      || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('seedream_img_') ? 'seedream' : '')
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('nai_img_') ? 'novelai' : '')
     const provider = storedProvider || selectedChat.value.imageGenProvider || 'novelai'
+    if (provider === 'seedream') {
+      const seedreamConfig = selectedChat.value.seedreamImageConfig || {}
+      showToast('正在使用 Seedream 5.0 重新生成...')
+      try {
+        const { loadData, referenceGroups, getImagesForGroups } = useSeedreamImageReference()
+        await loadData()
+        const groupIds: string[] = seedreamConfig.referenceGroupIds || []
+        const instructions = referenceGroups.value
+          .filter(group => groupIds.includes(group.id) && group.description?.trim())
+          .map(group => `参考组“${group.name}”：${group.description.trim()}`)
+        const finalPrompt = [seedreamConfig.promptPrefix, ...instructions, prompt].filter(Boolean).join('\n')
+        const { generateImage } = useSeedreamImage()
+        const image = await generateImage({
+          apiKey: seedreamConfig.apiKey || localStorage.getItem('app_seedream_image_apikey') || '',
+          baseUrl: seedreamConfig.baseUrl || localStorage.getItem('app_seedream_image_baseurl') || 'https://ark.cn-beijing.volces.com/api/v3'
+        }, {
+          model: seedreamConfig.model || localStorage.getItem('app_seedream_image_model') || 'doubao-seedream-5-0-lite-260128',
+          prompt: finalPrompt,
+          size: seedreamConfig.size || localStorage.getItem('app_seedream_image_size') || '2K',
+          outputFormat: seedreamConfig.outputFormat || localStorage.getItem('app_seedream_image_format') || 'png',
+          watermark: seedreamConfig.watermark ?? localStorage.getItem('app_seedream_image_watermark') === 'true',
+          seed: seedreamConfig.seed === '' || seedreamConfig.seed === undefined ? null : Number(seedreamConfig.seed),
+          referenceImages: getImagesForGroups(groupIds).map(item => item.dataUrl)
+        })
+        const imageId = `seedream_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+        const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+        await imageStore.setItem(imageId, image)
+        const localUrl = URL.createObjectURL(await (await fetch(image)).blob())
+        if (!galleryTargetMessage.value.imageData.history) {
+          galleryTargetMessage.value.imageData.history = []
+          if (galleryTargetMessage.value.imageData.imageId) {
+            galleryTargetMessage.value.imageData.history.push({
+              imageId: galleryTargetMessage.value.imageData.imageId,
+              prompt: galleryTargetMessage.value.imageData.prompt || '',
+              url: galleryTargetMessage.value._localImageUrl || localUrl,
+              provider: 'seedream'
+            })
+          }
+        }
+        galleryTargetMessage.value.imageData.history.push({ imageId, prompt, url: localUrl, provider: 'seedream' })
+        galleryTargetMessage.value.imageData.imageId = imageId
+        galleryTargetMessage.value.imageData.prompt = finalPrompt
+        galleryTargetMessage.value.imageData.provider = 'seedream'
+        galleryTargetMessage.value._localImageUrl = localUrl
+        saveCustomContacts()
+        showToast('Seedream 重新生成成功！')
+      } catch (error: any) {
+        showToast(`Seedream 生成失败: ${error.message}`)
+      }
+      return
+    }
+    if (provider === 'niji') {
+      const nijiConfig = selectedChat.value.nijiImageConfig || {}
+      showToast('正在使用 Niji 7 重新生成...')
+      try {
+        const finalPrompt = [nijiConfig.promptPrefix, prompt].filter(Boolean).join('\n')
+        const { generateImage } = useNijiImage()
+        const image = await generateImage({
+          apiKey: nijiConfig.apiKey || localStorage.getItem('app_niji_image_apikey') || '',
+          baseUrl: nijiConfig.baseUrl || localStorage.getItem('app_niji_image_baseurl') || '',
+          protocol: nijiConfig.protocol || localStorage.getItem('app_niji_image_protocol') || 'proxy',
+          pollInterval: nijiConfig.pollInterval || Number(localStorage.getItem('app_niji_image_poll_interval') || 3000),
+          timeout: nijiConfig.timeout || Number(localStorage.getItem('app_niji_image_timeout') || 600000)
+        }, {
+          prompt: finalPrompt,
+          speedMode: nijiConfig.speedMode || localStorage.getItem('app_niji_image_speed') || 'fast',
+          aspectRatio: nijiConfig.aspectRatio || localStorage.getItem('app_niji_image_aspect_ratio') || '2:3',
+          stylize: nijiConfig.stylize ?? Number(localStorage.getItem('app_niji_image_stylize') || 100),
+          chaos: nijiConfig.chaos ?? Number(localStorage.getItem('app_niji_image_chaos') || 0),
+          weird: nijiConfig.weird ?? Number(localStorage.getItem('app_niji_image_weird') || 0),
+          seed: nijiConfig.seed === '' || nijiConfig.seed === undefined ? null : Number(nijiConfig.seed),
+          raw: nijiConfig.raw ?? localStorage.getItem('app_niji_image_raw') === 'true',
+          styleReference: nijiConfig.styleReference || localStorage.getItem('app_niji_image_sref') || '',
+          styleWeight: nijiConfig.styleWeight ?? Number(localStorage.getItem('app_niji_image_sw') || 100),
+          imagePromptUrl: nijiConfig.imagePromptUrl || localStorage.getItem('app_niji_image_reference_url') || '',
+          imageWeight: nijiConfig.imageWeight ?? Number(localStorage.getItem('app_niji_image_iw') || 1)
+        })
+        const imageId = `niji_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+        const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+        await imageStore.setItem(imageId, image)
+        let localUrl = image
+        try { localUrl = URL.createObjectURL(await (await fetch(image)).blob()) } catch { /* 保留远程地址 */ }
+        if (!galleryTargetMessage.value.imageData.history) galleryTargetMessage.value.imageData.history = []
+        galleryTargetMessage.value.imageData.history.push({ imageId, prompt, url: localUrl, provider: 'niji' })
+        galleryTargetMessage.value.imageData.imageId = imageId
+        galleryTargetMessage.value.imageData.prompt = finalPrompt
+        galleryTargetMessage.value.imageData.provider = 'niji'
+        galleryTargetMessage.value._localImageUrl = localUrl
+        saveCustomContacts()
+        showToast('Niji 重新生成成功！')
+      } catch (error: any) {
+        showToast(`Niji 生成失败: ${error.message}`)
+      }
+      return
+    }
     if (provider === 'flux') {
       const fluxConfig = selectedChat.value.fluxImageConfig || {}
       showToast('正在使用 FLUX.2 重新生成...')

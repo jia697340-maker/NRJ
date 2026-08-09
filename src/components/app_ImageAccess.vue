@@ -7,17 +7,21 @@ import NovelAIImageAccessView from './image/NovelAIImageAccessView.vue'
 import GptImageAccessView from './image/GptImageAccessView.vue'
 import GeminiImageAccessView from './image/GeminiImageAccessView.vue'
 import FluxImageAccessView from './image/FluxImageAccessView.vue'
+import NijiImageAccessView from './image/NijiImageAccessView.vue'
+import SeedreamImageAccessView from './image/SeedreamImageAccessView.vue'
 
 const emit = defineEmits(['close'])
 
-const currentView = ref<'platforms' | 'novelai' | 'gptimage' | 'gemini' | 'flux'>('platforms')
+const currentView = ref<'platforms' | 'novelai' | 'gptimage' | 'gemini' | 'flux' | 'niji' | 'seedream'>('platforms')
 
 const activeIndex = ref(0)
 const platforms = [
   { id: 'novelai', name: 'NovelAI', desc: '二次元及丰富画风的\n图像生成引擎', action: '进入配置', disabled: false },
   { id: 'gptimage', name: 'GPT Image', desc: '支持最新与兼容模型的\n图像生成与编辑', action: '进入配置', disabled: false },
   { id: 'gemini', name: 'Gemini Image', desc: 'Nano Banana 2\n原生生图与多图编辑', action: '进入配置', disabled: false },
-  { id: 'flux', name: 'FLUX.2', desc: 'Black Forest Labs\nPro / Max 独立接入', action: '进入配置', disabled: false }
+  { id: 'flux', name: 'FLUX.2', desc: 'Black Forest Labs\nPro / Max 独立接入', action: '进入配置', disabled: false },
+  { id: 'niji', name: 'Niji 7', desc: 'Midjourney 动漫模型\n第三方中转独立接入', action: '进入配置', disabled: false },
+  { id: 'seedream', name: 'Seedream', desc: '字节跳动 5.0 系列\n火山方舟独立接入', action: '进入配置', disabled: false }
 ]
 
 const handlePrev = () => {
@@ -27,8 +31,8 @@ const handleNext = () => {
   if (activeIndex.value < platforms.length - 1) activeIndex.value++
 }
 const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && (id === 'novelai' || id === 'gptimage' || id === 'gemini' || id === 'flux')) {
-    currentView.value = id as 'novelai' | 'gptimage' | 'gemini' | 'flux'
+  if (!disabled && (id === 'novelai' || id === 'gptimage' || id === 'gemini' || id === 'flux' || id === 'niji' || id === 'seedream')) {
+    currentView.value = id as 'novelai' | 'gptimage' | 'gemini' | 'flux' | 'niji' | 'seedream'
   }
 }
 </script>
@@ -67,11 +71,13 @@ const handleSelect = (id: string, disabled: boolean) => {
                 <div class="ripple r2"></div>
               </div>
               
-              <div class="capsule-icon" :style="item.id === 'novelai' ? 'background: #111; color: #fff;' : item.id === 'gptimage' ? 'background: #555a61; color: #fff;' : item.id === 'gemini' ? 'background: linear-gradient(135deg,#4285f4,#a142f4); color: #fff;' : item.id === 'flux' ? 'background: linear-gradient(135deg,#111,#287a50); color: #fff;' : ''">
+              <div class="capsule-icon" :style="item.id === 'novelai' ? 'background: #111; color: #fff;' : item.id === 'gptimage' ? 'background: #555a61; color: #fff;' : item.id === 'gemini' ? 'background: linear-gradient(135deg,#4285f4,#a142f4); color: #fff;' : item.id === 'flux' ? 'background: linear-gradient(135deg,#111,#287a50); color: #fff;' : item.id === 'niji' ? 'background: linear-gradient(135deg,#27213e,#765e9b); color: #fff;' : item.id === 'seedream' ? 'background: linear-gradient(135deg,#1c3570,#3566a8); color: #fff;' : ''">
                 <span v-if="item.id === 'novelai'" style="font-weight: 800; font-style: italic; font-size: 16px;">NAI</span>
                 <span v-else-if="item.id === 'gptimage'" style="font-weight: 800; font-size: 13px;">GPT</span>
                 <span v-else-if="item.id === 'gemini'" style="font-weight: 800; font-size: 12px;">GEM</span>
                 <span v-else-if="item.id === 'flux'" style="font-weight: 800; font-size: 12px;">FLX</span>
+                <span v-else-if="item.id === 'niji'" style="font-weight: 800; font-size: 12px;">N7</span>
+                <span v-else-if="item.id === 'seedream'" style="font-weight: 800; font-size: 11px;">SDR</span>
                 <svg v-else viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
               </div>
 
@@ -100,6 +106,8 @@ const handleSelect = (id: string, disabled: boolean) => {
     <GptImageAccessView v-else-if="currentView === 'gptimage'" @back="currentView = 'platforms'" />
     <GeminiImageAccessView v-else-if="currentView === 'gemini'" @back="currentView = 'platforms'" />
     <FluxImageAccessView v-else-if="currentView === 'flux'" @back="currentView = 'platforms'" />
+    <NijiImageAccessView v-else-if="currentView === 'niji'" @back="currentView = 'platforms'" />
+    <SeedreamImageAccessView v-else-if="currentView === 'seedream'" @back="currentView = 'platforms'" />
 
   </div>
 </template>

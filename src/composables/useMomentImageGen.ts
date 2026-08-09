@@ -6,10 +6,67 @@ import { useGeminiImage } from './useGeminiImage'
 import { useGeminiImageReference } from './useGeminiImageReference'
 import { useFluxImage } from './useFluxImage'
 import { useFluxImageReference } from './useFluxImageReference'
+import { useNijiImage } from './useNijiImage'
+import { useSeedreamImage } from './useSeedreamImage'
+import { useSeedreamImageReference } from './useSeedreamImageReference'
 import { sendChatMessage } from '../services/api'
 
 // 朋友圈与聊天共用已有 NovelAI 接入；每次生成使用独立实例，避免影响聊天室中的生成状态。
 export async function generateMomentImage(description: string, character: any): Promise<string> {
+  if (character?.imageGenProvider === 'seedream') {
+    const seedreamConfig = character?.seedreamImageConfig || {}
+    const apiKey = seedreamConfig.apiKey || localStorage.getItem('app_seedream_image_apikey') || ''
+    if (!apiKey) throw new Error('未配置火山方舟 Seedream API Key')
+    const { loadData, referenceGroups, getImagesForGroups } = useSeedreamImageReference()
+    await loadData()
+    const groupIds: string[] = seedreamConfig.referenceGroupIds || []
+    const instructions = referenceGroups.value
+      .filter(group => groupIds.includes(group.id) && group.description?.trim())
+      .map(group => `参考组“${group.name}”：${group.description.trim()}`)
+    const prompt = [seedreamConfig.promptPrefix, ...instructions, description.trim()].filter(Boolean).join('\n')
+    const { generateImage } = useSeedreamImage()
+    return generateImage({
+      apiKey,
+      baseUrl: seedreamConfig.baseUrl || localStorage.getItem('app_seedream_image_baseurl') || 'https://ark.cn-beijing.volces.com/api/v3'
+    }, {
+      model: seedreamConfig.model || localStorage.getItem('app_seedream_image_model') || 'doubao-seedream-5-0-lite-260128',
+      prompt,
+      size: seedreamConfig.size || localStorage.getItem('app_seedream_image_size') || '2K',
+      outputFormat: seedreamConfig.outputFormat || localStorage.getItem('app_seedream_image_format') || 'png',
+      watermark: seedreamConfig.watermark ?? localStorage.getItem('app_seedream_image_watermark') === 'true',
+      seed: seedreamConfig.seed === '' || seedreamConfig.seed === undefined ? null : Number(seedreamConfig.seed),
+      referenceImages: getImagesForGroups(groupIds).map(image => image.dataUrl)
+    })
+  }
+
+  if (character?.imageGenProvider === 'niji') {
+    const nijiConfig = character?.nijiImageConfig || {}
+    const apiKey = nijiConfig.apiKey || localStorage.getItem('app_niji_image_apikey') || ''
+    if (!apiKey) throw new Error('未配置 Niji 第三方中转密钥')
+    const prompt = [nijiConfig.promptPrefix, description.trim()].filter(Boolean).join('\n')
+    const { generateImage } = useNijiImage()
+    return generateImage({
+      apiKey,
+      baseUrl: nijiConfig.baseUrl || localStorage.getItem('app_niji_image_baseurl') || '',
+      protocol: nijiConfig.protocol || localStorage.getItem('app_niji_image_protocol') || 'proxy',
+      pollInterval: nijiConfig.pollInterval || Number(localStorage.getItem('app_niji_image_poll_interval') || 3000),
+      timeout: nijiConfig.timeout || Number(localStorage.getItem('app_niji_image_timeout') || 600000)
+    }, {
+      prompt,
+      speedMode: nijiConfig.speedMode || localStorage.getItem('app_niji_image_speed') || 'fast',
+      aspectRatio: nijiConfig.aspectRatio || localStorage.getItem('app_niji_image_aspect_ratio') || '2:3',
+      stylize: nijiConfig.stylize ?? Number(localStorage.getItem('app_niji_image_stylize') || 100),
+      chaos: nijiConfig.chaos ?? Number(localStorage.getItem('app_niji_image_chaos') || 0),
+      weird: nijiConfig.weird ?? Number(localStorage.getItem('app_niji_image_weird') || 0),
+      seed: nijiConfig.seed === '' || nijiConfig.seed === undefined ? null : Number(nijiConfig.seed),
+      raw: nijiConfig.raw ?? localStorage.getItem('app_niji_image_raw') === 'true',
+      styleReference: nijiConfig.styleReference || localStorage.getItem('app_niji_image_sref') || '',
+      styleWeight: nijiConfig.styleWeight ?? Number(localStorage.getItem('app_niji_image_sw') || 100),
+      imagePromptUrl: nijiConfig.imagePromptUrl || localStorage.getItem('app_niji_image_reference_url') || '',
+      imageWeight: nijiConfig.imageWeight ?? Number(localStorage.getItem('app_niji_image_iw') || 1)
+    })
+  }
+
   if (character?.imageGenProvider === 'flux') {
     const fluxConfig = character?.fluxImageConfig || {}
     const apiKey = fluxConfig.apiKey || localStorage.getItem('app_flux_image_apikey') || ''

@@ -50,6 +50,8 @@ import ChatNAIImageDetailModal from './modals/ChatNAIImageDetailModal.vue'
 import ChatGptImageDetailModal from './modals/ChatGptImageDetailModal.vue'
 import ChatGeminiImageDetailModal from './modals/ChatGeminiImageDetailModal.vue'
 import ChatFluxImageDetailModal from './modals/ChatFluxImageDetailModal.vue'
+import ChatNijiImageDetailModal from './modals/ChatNijiImageDetailModal.vue'
+import ChatSeedreamImageDetailModal from './modals/ChatSeedreamImageDetailModal.vue'
 import ChatImageProviderModal from './modals/ChatImageProviderModal.vue'
 
 const searchQuery = ref('')
@@ -190,6 +192,8 @@ const showNAIImageDetailModal = ref(false)
 const showGptImageDetailModal = ref(false)
 const showGeminiImageDetailModal = ref(false)
 const showFluxImageDetailModal = ref(false)
+const showNijiImageDetailModal = ref(false)
+const showSeedreamImageDetailModal = ref(false)
 const showImageProviderModal = ref(false)
 
 const presetVoices = [
@@ -786,6 +790,8 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @show-gpt-image-detail-modal="showGptImageDetailModal = true"
         @show-gemini-image-detail-modal="showGeminiImageDetailModal = true"
         @show-flux-image-detail-modal="showFluxImageDetailModal = true"
+        @show-niji-image-detail-modal="showNijiImageDetailModal = true"
+        @show-seedream-image-detail-modal="showSeedreamImageDetailModal = true"
         @show-image-provider-modal="showImageProviderModal = true"
         @show-world-book-bind-selector="showWorldBookBindSelector = true"
         @show-bilingual-option-modal="openBilingualOptionModal"
@@ -940,6 +946,18 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
 
       <ChatFluxImageDetailModal
         v-model:visible="showFluxImageDetailModal"
+        :chat="selectedChat"
+        @save="saveCurrentChat"
+      />
+
+      <ChatNijiImageDetailModal
+        v-model:visible="showNijiImageDetailModal"
+        :chat="selectedChat"
+        @save="saveCurrentChat"
+      />
+
+      <ChatSeedreamImageDetailModal
+        v-model:visible="showSeedreamImageDetailModal"
         :chat="selectedChat"
         @save="saveCurrentChat"
       />

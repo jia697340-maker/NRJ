@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import localforage from 'localforage'
 import { sendChatMessage } from '../services/api'
+import { useChatState } from './useChatState'
 
 export function useChatRoomMultiSelect(
   selectedChat: any,
@@ -231,7 +232,7 @@ export function useChatRoomMultiSelect(
     selectedChat.value.messages = selectedChat.value.messages.filter((m: any) => !selectedMessageIds.value.has(m.id))
     
     // 手动更新外部 mockChats 里的状态
-    import('./useChatState').then(({ useChatState }) => {
+    {
       const { mockChats } = useChatState()
       const targetChat = mockChats.value.find(c => c.id === selectedChat.value.id)
       if (targetChat) {
@@ -253,7 +254,7 @@ export function useChatRoomMultiSelect(
       }
       saveCustomContacts()
       exitMultiSelectMode()
-    })
+    }
   }
 
   return {

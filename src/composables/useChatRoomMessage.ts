@@ -1,7 +1,8 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref, computed } from 'vue'
 import localforage from 'localforage'
-import { chatSettings } from '../store'
+import { chatSettings, visionApiSettings } from '../store'
+import { sendChatMessage } from '../services/api'
 import { useChatAuth } from './useChatAuth'
 import { generateMomentImage } from './useMomentImageGen'
 import { canViewMoment, canPerformMomentAction, recordMomentAction, addMomentNotification, getMomentBehavior } from '../services/moments'
@@ -198,9 +199,7 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         aiContext = `【系统旁白：你打开了朋友圈。${behaviorHint}你看到了以下最新动态：\n`
         
         // 如果开启了视觉 API 和图片省 Token 机制，进行静默识图
-        const { visionApiSettings, chatSettings: globalChatSettings } = await import('../store')
-        const { sendChatMessage } = await import('../services/api')
-        const shouldSummarizeImages = visionApiSettings.enabled && globalChatSettings.enableVisionTokenSaver
+        const shouldSummarizeImages = visionApiSettings.enabled && chatSettings.enableVisionTokenSaver
 
         for (let m of visibleMoments) {
           aiContext += `[动态ID：${m.id}] ${m.author}：${m.content}\n`

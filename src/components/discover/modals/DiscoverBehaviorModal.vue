@@ -7,7 +7,6 @@ const props = defineProps<{
   availableCharacters: any[]
   groups: { id: string, name: string }[]
   getMomentBehavior: (chat: any) => any
-  saveCustomContacts: (contacts: any[]) => void
 }>()
 
 const emit = defineEmits<{
