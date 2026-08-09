@@ -1,6 +1,12 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
-import { globalPromptSettings, type PromptItem } from '../store'
+import {
+  getDefaultPromptItemsByPreset,
+  globalPromptSettings,
+  systemPromptItemIds,
+  type PromptItem,
+  type PromptPresetId
+} from '../store'
 
 export function useAdvancedSettingsPrompt(showConfirm: (message: string, title?: string, showCancel?: boolean) => Promise<boolean>) {
   const promptModalVisible = ref(false)
@@ -60,20 +66,34 @@ export function useAdvancedSettingsPrompt(showConfirm: (message: string, title?:
   }
 
   const resetPromptItems = async () => {
-    if (await showConfirm('确定要将提示词重置为官方最新默认配置吗？这将会覆盖您修改过的系统同名条目，但会保留您自己新增的条目。')) {
-      const { defaultPromptItems } = await import('../store')
-      
+    if (await showConfirm(`确定要将当前${globalPromptSettings.activePresetId === 'v2' ? '版本2' : '版本1'}重置为默认配置吗？这将覆盖系统条目的修改，但会保留您自己新增的条目。`)) {
       const currentItems = [...globalPromptSettings.items]
-      const defaultIds = defaultPromptItems.map((i: any) => i.id)
+      const customItems = currentItems.filter(item => !systemPromptItemIds.has(item.id))
+      globalPromptSettings.items = [
+        ...getDefaultPromptItemsByPreset(globalPromptSettings.activePresetId),
+        ...customItems
+      ]
       
-      // 留下完全是用户自己添加的条目
-      const customItems = currentItems.filter(i => !defaultIds.includes(i.id))
-      
-      // 把官方最新列表拼在前面，用户的拼接在后面
-      globalPromptSettings.items = [...JSON.parse(JSON.stringify(defaultPromptItems)), ...customItems]
-      
-      await showConfirm('已成功重置为官方最新配置！', '提示', false)
+      await showConfirm('已成功重置当前版本的默认配置！', '提示', false)
     }
+  }
+
+  const switchPromptPreset = async (presetId: PromptPresetId) => {
+    if (presetId === globalPromptSettings.activePresetId) return
+
+    const targetName = presetId === 'v2' ? '版本2' : '版本1'
+    const confirmed = await showConfirm(
+      `确定切换到${targetName}吗？\n\n切换会载入该版本的系统提示词，并覆盖您对系统条目的修改；自己新增的条目会保留。`,
+      '切换提示词版本'
+    )
+    if (!confirmed) return
+
+    const customItems = globalPromptSettings.items.filter(item => !systemPromptItemIds.has(item.id))
+    globalPromptSettings.items = [
+      ...getDefaultPromptItemsByPreset(presetId),
+      ...customItems
+    ]
+    globalPromptSettings.activePresetId = presetId
   }
 
   return {
@@ -86,6 +106,7 @@ export function useAdvancedSettingsPrompt(showConfirm: (message: string, title?:
     openPromptModal,
     savePromptItem,
     deletePromptItem,
-    resetPromptItems
+    resetPromptItems,
+    switchPromptPreset
   }
 }

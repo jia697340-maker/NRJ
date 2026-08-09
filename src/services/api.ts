@@ -1,6 +1,8 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, cotSettings, appStats, type ApiPreset } from '../store'
 import { apiLogger } from './apiLogger'
+import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest } from './modelAdapters'
+import type { ModelAdapterProfile } from './modelAdapters'
 
 export type ChatApiPurpose = 'default' | 'moment-followup'
 
@@ -16,7 +18,8 @@ export async function sendChatMessage(
   signal?: AbortSignal,
   isSummary: boolean = false,
   isVision: boolean = false,
-  purpose: ChatApiPurpose = 'default'
+  purpose: ChatApiPurpose = 'default',
+  adapterOverride: ModelAdapterProfile = 'auto'
 ) {
   // 定义一个包含所有可能属性的接口，包括各个设置独有的属性
   interface MergedApiSettings {
@@ -61,14 +64,8 @@ export async function sendChatMessage(
     throw new Error('API 设置不完整，请先在设置中配置 API。')
   }
 
-  let endpoint = url
-  if (!endpoint.endsWith('/chat/completions')) {
-    endpoint = endpoint.replace(/\/+$/, '') + (endpoint.includes('/v1') ? '/chat/completions' : '/v1/chat/completions')
-  }
-
   // --- COT 控制动态注入逻辑 ---
   let payloadMessages = JSON.parse(JSON.stringify(messages)) // 深拷贝避免污染原数组
-  let payloadStop: string[] | undefined = undefined
 
   // 总结/结构化记忆要求稳定的 JSON 或纯摘要，不能被聊天思维链模板污染。
   if (!isSummary && cotSettings.enabled) {
@@ -110,38 +107,19 @@ export async function sendChatMessage(
   console.log('Messages:', payloadMessages)
   console.log('----------------------------')
 
-  const requestBody: any = {
-    model: model,
-    messages: payloadMessages
-  }
-
-  if (activeSettings.enableTemperature && activeSettings.temperature !== undefined) {
-    requestBody.temperature = activeSettings.temperature
-  }
-  
-  if (activeSettings.enableMaxTokens && activeSettings.maxTokens !== undefined) {
-    requestBody.max_tokens = activeSettings.maxTokens
-  }
-  
-  if (activeSettings.enableTopP && activeSettings.topP !== undefined) {
-    requestBody.top_p = activeSettings.topP
-  }
-  
-  if (activeSettings.enableFrequencyPenalty && activeSettings.frequencyPenalty !== undefined) {
-    requestBody.frequency_penalty = activeSettings.frequencyPenalty
-  }
-  
-  if (activeSettings.enablePresencePenalty && activeSettings.presencePenalty !== undefined) {
-    requestBody.presence_penalty = activeSettings.presencePenalty
-  }
-
-  if (payloadStop) {
-    requestBody.stop = payloadStop
-  }
-
-  if (activeSettings.enableStream) {
-    requestBody.stream = true
-  }
+  const preparedRequest = prepareAdapterRequest({
+    provider: activeSettings.provider,
+    url,
+    key,
+    model,
+    profile: adapterOverride,
+    stream: activeSettings.enableStream,
+    maxTokens: activeSettings.enableMaxTokens ? activeSettings.maxTokens : undefined,
+    temperature: activeSettings.enableTemperature ? activeSettings.temperature : undefined,
+    topP: activeSettings.enableTopP ? activeSettings.topP : undefined,
+    frequencyPenalty: activeSettings.enableFrequencyPenalty ? activeSettings.frequencyPenalty : undefined,
+    presencePenalty: activeSettings.enablePresencePenalty ? activeSettings.presencePenalty : undefined
+  }, payloadMessages)
 
   const startTime = Date.now()
   appStats.apiCalls++
@@ -201,14 +179,11 @@ export async function sendChatMessage(
   let response: Response
   let tokensUsage = 0
   try {
-    response = await fetch(endpoint, {
+    response = await fetch(preparedRequest.endpoint, {
       signal,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${key}`
-      },
-      body: JSON.stringify(requestBody)
+      headers: preparedRequest.headers,
+      body: JSON.stringify(preparedRequest.body)
     })
   } catch (e: any) {
     appStats.apiFailures++
@@ -268,12 +243,9 @@ export async function sendChatMessage(
           
           try {
             const dataObj = JSON.parse(dataStr)
-            if (dataObj.choices && dataObj.choices.length > 0) {
-              const delta = dataObj.choices[0].delta
-              if (delta && delta.content) {
-                content += delta.content
-              }
-            }
+            const delta = consumeAdapterStreamEvent(preparedRequest.profile, dataObj)
+            if (delta.content) content += delta.content
+            if (delta.thinking) thinking += delta.thinking
           } catch (e) {
             // 忽略解析失败的非标准块
           }
@@ -284,9 +256,9 @@ export async function sendChatMessage(
     if (buffer.startsWith('data: ') && buffer.trim() !== 'data: [DONE]') {
       try {
         const dataObj = JSON.parse(buffer.slice(6))
-        if (dataObj.choices && dataObj.choices.length > 0 && dataObj.choices[0].delta?.content) {
-          content += dataObj.choices[0].delta.content
-        }
+        const delta = consumeAdapterStreamEvent(preparedRequest.profile, dataObj)
+        if (delta.content) content += delta.content
+        if (delta.thinking) thinking += delta.thinking
       } catch (e) {}
     }
     
@@ -298,10 +270,10 @@ export async function sendChatMessage(
     console.log('--- AI 接口原始返回数据 ---')
     console.log(data)
     console.log('----------------------------')
-    content = data.choices[0].message.content || ''
-    if (data.usage?.total_tokens) {
-      tokensUsage = data.usage.total_tokens
-    }
+    const parsed = parseAdapterResponse(preparedRequest.profile, data)
+    content = parsed.content
+    thinking = parsed.thinking
+    if (parsed.tokens) tokensUsage = parsed.tokens
   }
 
   // 记录成功日志

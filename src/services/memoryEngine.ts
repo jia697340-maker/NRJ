@@ -170,7 +170,10 @@ const isCovered = (id: number, coverage: MemoryCoverage[]) =>
 export const getUncoveredMessages = (chat: any) => {
   const state = ensureMemoryState(chat)
   return (chat.messages || []).filter((message: any) =>
-    isMemoryMessage(message) && typeof message.id === 'number' && !isCovered(message.id, state.coverage)
+    isMemoryMessage(message) &&
+    message.excludeFromGeneralMemory !== true &&
+    typeof message.id === 'number' &&
+    !isCovered(message.id, state.coverage)
   )
 }
 

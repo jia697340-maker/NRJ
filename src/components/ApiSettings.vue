@@ -5,6 +5,7 @@ import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, mom
 import SearchableSelect from './SearchableSelect.vue'
 import TextEditModal from './TextEditModal.vue'
 import ApiPresetManageModal from './ApiPresetManageModal.vue'
+import { parseAdapterResponse, prepareAdapterRequest } from '../services/modelAdapters'
 
 const currentTab = ref<'global' | 'summary' | 'vision' | 'moment' | 'embedding'>('global')
 
@@ -235,17 +236,24 @@ const fetchModels = async () => {
   
   try {
     const baseUrl = activeSettings.value.url.replace(/\/+$/, '')
-    const endpoint = `${baseUrl}${baseUrl.endsWith('/v1') ? '' : '/v1'}/models`
-    const res = await fetch(endpoint, {
-      headers: {
-        'Authorization': `Bearer ${activeSettings.value.key}`,
-        'Content-Type': 'application/json'
-      }
-    })
+    const provider = activeSettings.value.provider
+    let endpoint = `${baseUrl}${baseUrl.endsWith('/v1') ? '' : '/v1'}/models`
+    let headers: Record<string, string> = { Authorization: `Bearer ${activeSettings.value.key}`, 'Content-Type': 'application/json' }
+    if (provider === 'claude') {
+      endpoint = `${baseUrl}${baseUrl.endsWith('/v1') ? '' : '/v1'}/models`
+      headers = { 'x-api-key': activeSettings.value.key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' }
+    } else if (provider === 'gemini') {
+      endpoint = `${baseUrl.replace(/\/v1(?:beta)?$/i, '')}/v1beta/models?pageSize=1000`
+      headers = { 'x-goog-api-key': activeSettings.value.key, 'Content-Type': 'application/json' }
+    }
+    const res = await fetch(endpoint, { headers })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
-    if (data && data.data && Array.isArray(data.data)) {
-      activeSettings.value.availableModels = data.data.map((m: any) => m.id)
+    const modelIds = provider === 'gemini'
+      ? (Array.isArray(data?.models) ? data.models.filter((m: any) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent')).map((m: any) => String(m.name || '').replace(/^models\//, '')) : [])
+      : (Array.isArray(data?.data) ? data.data.map((m: any) => m.id) : [])
+    if (modelIds.length) {
+      activeSettings.value.availableModels = modelIds
       fetchSuccess.value = true
       
       if (activeSettings.value.availableModels.length > 0 && (!activeSettings.value.model || !activeSettings.value.availableModels.includes(activeSettings.value.model))) {
@@ -331,23 +339,27 @@ const confirmTest = async () => {
   try {
     const baseUrl = activeSettings.value.url.replace(/\/+$/, '')
     const isEmbeddingTest = currentTab.value === 'embedding'
-    const endpoint = isEmbeddingTest
-      ? (baseUrl.endsWith('/embeddings') ? baseUrl : `${baseUrl}${baseUrl.includes('/v1') ? '' : '/v1'}/embeddings`)
-      : `${baseUrl}${baseUrl.endsWith('/v1') ? '' : '/v1'}/chat/completions`
-    
     // 如果没有选择模型，则默认一个
     const modelToUse = activeSettings.value.model || (activeSettings.value.availableModels && activeSettings.value.availableModels[0]) || 'gpt-3.5-turbo'
-    
-    const payload = isEmbeddingTest
-      ? { model: modelToUse, input: [testInputText.value] }
-      : { model: modelToUse, messages: [{ role: 'user', content: testInputText.value }], max_tokens: 50, stream: false }
+    const prepared = isEmbeddingTest ? null : prepareAdapterRequest({
+      provider: activeSettings.value.provider,
+      url: baseUrl,
+      key: activeSettings.value.key,
+      model: modelToUse,
+      maxTokens: 50,
+      stream: false
+    }, [{ role: 'user', content: testInputText.value }])
+    const endpoint = isEmbeddingTest
+      ? (baseUrl.endsWith('/embeddings') ? baseUrl : `${baseUrl}${baseUrl.includes('/v1') ? '' : '/v1'}/embeddings`)
+      : prepared!.endpoint
+    const headers = isEmbeddingTest
+      ? { Authorization: `Bearer ${activeSettings.value.key}`, 'Content-Type': 'application/json' }
+      : prepared!.headers
+    const payload = isEmbeddingTest ? { model: modelToUse, input: [testInputText.value] } : prepared!.body
 
     const res = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${activeSettings.value.key}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify(payload)
     })
     
@@ -359,8 +371,10 @@ const confirmTest = async () => {
     const data = await res.json()
     if (isEmbeddingTest && Array.isArray(data.data) && Array.isArray(data.data[0]?.embedding)) {
       testResult.value = { type: 'success', text: `向量节点连接成功，返回 ${data.data[0].embedding.length} 维向量。` }
-    } else if (data.choices && data.choices[0] && data.choices[0].message) {
-      testResult.value = { type: 'success', text: data.choices[0].message.content }
+    } else if (prepared) {
+      const parsed = parseAdapterResponse(prepared.profile, data)
+      if (!parsed.content && !parsed.thinking) throw new Error('返回数据格式异常')
+      testResult.value = { type: 'success', text: parsed.content || parsed.thinking }
     } else {
       throw new Error('返回数据格式异常')
     }

@@ -109,8 +109,11 @@ export function useChatSettingsSave() {
         // 线下见面设置持久化
         contacts[idx].offlineMeetEnabled = selectedChat.value.offlineMeetEnabled ?? false
         contacts[idx].offlineMeetMode = selectedChat.value.offlineMeetMode || 'mixed'
-        contacts[idx].offlinePresetId = selectedChat.value.offlinePresetId || 'offline_preset_daily'
+        contacts[idx].offlinePresetId = selectedChat.value.offlinePresetId || 'offline_default'
+        contacts[idx].offlineModelProfile = selectedChat.value.offlineModelProfile || 'auto'
         contacts[idx].offlineMeetLocationMode = selectedChat.value.offlineMeetLocationMode || 'vague'
+        contacts[idx].offlineMeetSessions = selectedChat.value.offlineMeetSessions || []
+        contacts[idx].activeOfflineSessionId = selectedChat.value.activeOfflineSessionId || null
         
         selectedChat.value.name = selectedChat.value.remark || selectedChat.value.realName
         selectedChat.value.avatarText = selectedChat.value.avatarUrl ? '' : ((selectedChat.value.realName || selectedChat.value.name).charAt(0) || '伴')

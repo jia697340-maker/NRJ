@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref } from 'vue'
-import { globalPromptSettings, taskPromptSettings } from '../../store'
+import { computed, ref } from 'vue'
+import { globalPromptSettings, promptPresetOptions, taskPromptSettings } from '../../store'
 import { useAdvancedSettingsPrompt } from '../../composables/useAdvancedSettingsPrompt'
 
 const props = defineProps<{
@@ -18,10 +18,14 @@ const {
   openPromptModal,
   savePromptItem,
   deletePromptItem,
-  resetPromptItems
+  resetPromptItems,
+  switchPromptPreset
 } = useAdvancedSettingsPrompt(props.showConfirm)
 
 const activePromptTab = ref<'normal' | 'task'>('normal')
+const activePresetDescription = computed(() =>
+  promptPresetOptions.find(option => option.id === globalPromptSettings.activePresetId)?.description || ''
+)
 
 const dragTaskPromptIndex = ref<number | null>(null)
 
@@ -133,6 +137,24 @@ const resetTaskPromptItems = () => {
       >
         特殊任务
       </button>
+    </div>
+
+    <div class="prompt-version-card" v-if="activePromptTab === 'normal'">
+      <div class="prompt-version-copy">
+        <span class="mag-list-label">提示词版本</span>
+        <span class="prompt-version-desc">{{ activePresetDescription }}</span>
+      </div>
+      <div class="mag-tabs prompt-version-tabs">
+        <button
+          v-for="option in promptPresetOptions"
+          :key="option.id"
+          class="mag-tab-btn"
+          :class="{ active: globalPromptSettings.activePresetId === option.id }"
+          @click="switchPromptPreset(option.id)"
+        >
+          {{ option.name }}
+        </button>
+      </div>
     </div>
     
     <div class="mag-settings-card" v-if="activePromptTab === 'normal'">
@@ -377,6 +399,49 @@ const resetTaskPromptItems = () => {
   gap: 12px;
   margin-bottom: 16px;
   padding: 0 10px;
+}
+
+.prompt-version-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 10px 16px;
+  padding: 14px 16px;
+  background: #FFFFFF;
+  border: 1px solid #EBE5DF;
+  border-radius: 16px;
+}
+
+.prompt-version-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.prompt-version-desc {
+  color: #8C8681;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.prompt-version-tabs {
+  flex-shrink: 0;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.prompt-version-tabs .mag-tab-btn {
+  padding: 6px 12px;
+}
+
+@media (max-width: 520px) {
+  .prompt-version-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .mag-tab-btn {

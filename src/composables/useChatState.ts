@@ -2,12 +2,13 @@
 import { ref, computed, watch } from 'vue'
 import localforage from 'localforage'
 import { worldBooks, globalPromptSettings, chatSettings } from '../store'
-import { buildOfflineMeetPrompt } from './useOfflineMeetPrompt'
+import { buildOfflineMeetPrompt, buildOfflinePostHistoryPrompt } from './useOfflineMeetPrompt'
 import { useChatAuth } from './useChatAuth'
 import { getMomentBehavior } from '../services/moments'
 import { buildMemoryPacket } from '../services/memoryEngine'
 import { buildBilingualPrompt } from '../services/bilingualChat'
 import { getEffectiveUserProfile } from './useChatUserProfiles'
+import { filterOnlineHistoryByOfflineSessions } from '../services/offlineSessions'
 
 // 全局共享状态（单例外置）
 const mockChats = ref<any[]>([])
@@ -255,8 +256,11 @@ export function useChatState() {
         maxMsgCount: c.maxMsgCount || 3,
         offlineMeetEnabled: c.offlineMeetEnabled ?? false,
         offlineMeetMode: c.offlineMeetMode || 'mixed',
-        offlinePresetId: c.offlinePresetId || 'offline_preset_daily',
+        offlinePresetId: c.offlinePresetId && c.offlinePresetId !== 'offline_preset_daily' ? c.offlinePresetId : 'offline_default',
+        offlineModelProfile: c.offlineModelProfile || 'auto',
         offlineMeetLocationMode: c.offlineMeetLocationMode || 'vague',
+        offlineMeetSessions: Array.isArray(c.offlineMeetSessions) ? c.offlineMeetSessions : [],
+        activeOfflineSessionId: c.activeOfflineSessionId || null,
         enableImmersiveStatus: c.enableImmersiveStatus ?? false,
         statusText: c.statusText || '',
         offlineUntil: c.offlineUntil || 0,
@@ -371,6 +375,7 @@ export function useChatState() {
     const charName = chat.name || '角色'
     const userProfile = getEffectiveUserProfile(chat, myProfile.value)
     const userName = userProfile.name || '我'
+    const usesNaturalPromptV2 = globalPromptSettings.activePresetId === 'v2'
     
     // 构建世界书内容
     let worldBookContent = ''
@@ -413,7 +418,9 @@ export function useChatState() {
 - 对方也有可能会发语音给你，用 <user_voice_msg seconds="时长秒数">[对方发来一段语音，转文字内容：xxxx]</user_voice_msg> 包裹。如果是语音，你可以表现出你是在“听”而不是在“看”文字。
 - 对方可能会发图片给你，用 <user_image_msg>[对方发来一张图片，描述：xxxx]</user_image_msg> 包裹。你应该能“看”到图片里的内容。
 ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间的时间间隔，以及你和对方发言的时间差（例如对方几个小时没理你，或者你隔了很久才回对方），并作出符合真实时间流逝的自然反应。
-- 你发消息像真人一样，想到什么说什么，经常分成多条发。一条消息通常就一个表达。
+${usesNaturalPromptV2
+  ? '- 根据内容自然决定发送一条或多条消息。每个气泡承载一个自然完整的表达，不为模拟真人而机械拆句。'
+  : '- 你发消息像真人一样，想到什么说什么，经常分成多条发。一条消息通常就一个表达。'}
 - 对方可能会发表情包给你，用 <user_emoji_msg name="表情包名称">[对方发来一个名为“表情包名称”的表情包]</user_emoji_msg> 包裹。如果视觉模型开启，你还能直接看到该表情包的图像画面。
 - 你的每条回复必须用 <msg> 标签包裹（你此刻的回复无需自己加时间，系统会自动处理）。转账、红包、语音等特殊动作标签（如果可用的话）独立存在，不要包裹在 <msg> 内。
 - 如果你想主动给对方发图片（包括照片、视频或GIF等任何视觉画面），请使用 <send_image>这里写出具体的画面描述</send_image> 标签。这也是独立存在的动作标签。
@@ -427,7 +434,9 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
 - 对方的每条消息会用 <user_msg> 包裹。对方可能会连续发送多段话（多个 <user_msg>），请结合它们的内容来理解。
 - 对方也有可能会发语音给你，用 <user_voice_msg seconds="时长秒数">[对方发来一段语音，转文字内容：xxxx]</user_voice_msg> 包裹。如果是语音，你可以表现出你是在“听”而不是在“看”文字。
 - 对方可能会发图片给你，用 <user_image_msg>[对方发来一张图片，描述：xxxx]</user_image_msg> 包裹。你应该能“看”到图片里的内容。
-- 你发消息像真人一样，想到什么说什么，经常分成多条发。一条消息通常就一个表达。
+${usesNaturalPromptV2
+  ? '- 根据内容自然决定发送一条或多条消息。每个气泡承载一个自然完整的表达，不为模拟真人而机械拆句。'
+  : '- 你发消息像真人一样，想到什么说什么，经常分成多条发。一条消息通常就一个表达。'}
 - 对方可能会发表情包给你，用 <user_emoji_msg name="表情包名称">[对方发来一个名为“表情包名称”的表情包]</user_emoji_msg> 包裹。如果视觉模型开启，你还能直接看到该表情包的图像画面。
 - 你的每条回复必须用 <msg> 标签包裹。转账、红包、语音等特殊动作标签（如果可用的话）独立存在，不要包裹在 <msg> 内。
 - 如果你想主动给对方发图片（包括照片、视频或GIF等任何视觉画面），请使用 <send_image>这里写出具体的画面描述</send_image> 标签。这也是独立存在的动作标签。
@@ -438,7 +447,11 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
 - 记住，没有被相应标签包裹的内容不会被展示给对方。`
     }
 
-    if (chat.enableMsgCountLimit) {
+    if (offlineMeetMode) {
+      formatRules = `【线下输出格式】\n当前是线下面对面互动，具体回复格式由线下预设约束。`
+    }
+
+    if (chat.enableMsgCountLimit && !offlineMeetMode) {
       formatRules += `\n[强制约束：本次回复你必须精确输出 ${chat.minMsgCount || 1} 到 ${chat.maxMsgCount || 3} 条消息。即：在你的整个回复中，必须包含 ${chat.minMsgCount || 1} 到 ${chat.maxMsgCount || 3} 个完整的 <msg>...</msg> 标签，绝不可少于下限或多于上限！]`
     }
 
@@ -560,7 +573,9 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
     }
     
     // 【强制语音输出规则控制】
-    const voiceRules = `【语音输出规则】
+    const voiceRules = usesNaturalPromptV2 ? `【语音输出规则】
+你的回复将直接用于语音合成（TTS）。只能输出角色真正说出口的纯文本，严禁加入动作描写、旁白、颜文字或表情符号。
+保持符合人设的口语节奏：句子长短、停顿、语气词和措辞由角色性格、当下情绪与具体内容决定。不要为了制造“活人感”机械堆叠逗号、省略号、口癖或气声，也不要用书面总结、分点说教和过长从句。自然清楚地说完此刻真正要表达的内容。` : `【语音输出规则】
 你的回复将直接用于语音合成（TTS），请严格遵守以下要求以确保“活人感”：
 纯对话输出（铁律）：严禁包含任何动作描写（如 *轻笑*、（叹气））、颜文字或表情符号。只能输出角色真正会“说出口”的纯文本。
 符合人设的口语化：拒绝任何形式式的说教（如“首先、其次”）、拒绝书面语和过长的从句。请根据当前角色的性格与身份，把句子拆短，确保句子长度符合真人说话时的自然呼吸节奏。
@@ -598,7 +613,7 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
       return content
     })
 
-    return resolvedPrompts.join('\n\n') + memoryBookContext + finalVoiceRules + (offlineMeetMode ? buildOfflineMeetPrompt(chat, offlineMeetMode) : '')
+    return resolvedPrompts.join('\n\n') + memoryBookContext + finalVoiceRules + (offlineMeetMode ? buildOfflineMeetPrompt(chat, offlineMeetMode, userProfile) : '')
   }
 
   const totalUnreadCount = computed(() => {
@@ -733,7 +748,12 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
         ? `\n\n【朋友圈手动规则】活跃时段：${momentBehavior.activeStart}:00-${momentBehavior.activeEnd}:00；表达偏好：${momentBehavior.style || '遵循你自己的人设'}；默认受众：${momentBehavior.audience}。你仍可根据当下情境决定是否发帖、只看、点赞或评论；系统会执行用户设置的冷却与概率限制。`
         : `\n\n【朋友圈自主权】把朋友圈当作你真实生活的一部分。你拥有完整自主权：是否查看、发帖、配图、点赞、评论、回复以及何时做，都由你依据自己的人设、当下经历、情绪、关系和具体内容自然决定。不要为了展示功能而行动，也不要机械刷屏；系统不会用概率、固定频率或预设文风替你做决定。`
       : '\n\n【你的朋友圈习惯】当前不使用朋友圈，不要输出任何朋友圈标签。'
-    const latestMemoryQuery = [...(chat.messages || [])].reverse().find((item: any) =>
+    const memoryQueryMessages = offlineMeetMode === 'separate'
+      ? (chat.messages || []).filter((item: any) => item.isOfflineMeetMsg)
+      : offlineMeetMode === false
+        ? filterOnlineHistoryByOfflineSessions(chat, (chat.messages || []).filter((item: any) => !item.isOfflineMeetMsg))
+        : (chat.messages || [])
+    const latestMemoryQuery = [...memoryQueryMessages].reverse().find((item: any) =>
       item?.type === 'left' || item?.type === 'right' || item?.type === 'system'
     )?.content || ''
     const memoryPacket = await buildMemoryPacket(chat, String(latestMemoryQuery), chat.memoryTokenBudget)
@@ -759,11 +779,16 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
         // 独立线下页面只保留线下见面消息
         if (offlineMeetMode === 'separate') {
           validHistory = validHistory.filter((m: any) => m.isOfflineMeetMsg)
+        } else if (offlineMeetMode === false) {
+          validHistory = validHistory.filter((m: any) => !m.isOfflineMeetMsg)
+          validHistory = filterOnlineHistoryByOfflineSessions(chat, validHistory)
         }
       } else if (callMode === 'voice') {
-        validHistory = validHistory.filter((m: any) => !m.isVideoCallProcessMsg)
+        validHistory = validHistory.filter((m: any) => !m.isVideoCallProcessMsg && !m.isOfflineMeetMsg)
+        validHistory = filterOnlineHistoryByOfflineSessions(chat, validHistory)
       } else if (callMode === 'video') {
-        validHistory = validHistory.filter((m: any) => !m.isVoiceCallProcessMsg)
+        validHistory = validHistory.filter((m: any) => !m.isVoiceCallProcessMsg && !m.isOfflineMeetMsg)
+        validHistory = filterOnlineHistoryByOfflineSessions(chat, validHistory)
       }
       
       let historyToKeep = validHistory
@@ -784,6 +809,12 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
       } else {
          if (chat.memoryType === 'count' && chat.memoryValue > 0) {
            historyToKeep = validHistory.slice(-chat.memoryValue)
+         } else if (chat.memoryType === 'round' && chat.memoryValue > 0) {
+           const userMessageIndexes = validHistory
+             .map((item: any, index: number) => item.type === 'right' ? index : -1)
+             .filter((index: number) => index >= 0)
+           const firstRoundIndex = userMessageIndexes[Math.max(0, userMessageIndexes.length - Number(chat.memoryValue))]
+           historyToKeep = typeof firstRoundIndex === 'number' ? validHistory.slice(firstRoundIndex) : validHistory
          }
       }
 
@@ -967,6 +998,11 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
           })
         }
       }
+    }
+
+    if (offlineMeetMode) {
+      const postHistoryPrompt = buildOfflinePostHistoryPrompt(chat, userProfile)
+      if (postHistoryPrompt) messages.push({ role: 'system', content: postHistoryPrompt })
     }
 
     return messages

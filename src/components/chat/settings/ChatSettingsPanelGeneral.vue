@@ -1,7 +1,9 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed } from 'vue'
-import { chatSettings } from '../../../store'
+import { computed, ref } from 'vue'
+import { chatSettings, offlinePresetSettings } from '../../../store'
+import ChatOfflinePresetModal from '../modals/ChatOfflinePresetModal.vue'
+import { getOfflineModelProfileLabel } from '../../../services/offlinePresets'
 
 const props = defineProps<{
   selectedChat: any
@@ -23,6 +25,27 @@ const emit = defineEmits<{
 
 const handleSave = () => {
   emit('save')
+}
+
+const showOfflinePresetModal = ref(false)
+const showOfflineModeModal = ref(false)
+const showOfflineLocationModal = ref(false)
+const currentOfflinePresetName = computed(() => {
+  const id = props.selectedChat?.offlinePresetId || offlinePresetSettings.currentPresetId || 'offline_default'
+  return offlinePresetSettings.presets.find(item => item.id === id)?.name || '线下默认'
+})
+const currentOfflineProfileName = computed(() => getOfflineModelProfileLabel(props.selectedChat?.offlineModelProfile || 'auto'))
+
+const selectOfflineMode = (mode: 'mixed' | 'separate') => {
+  props.selectedChat.offlineMeetMode = mode
+  showOfflineModeModal.value = false
+  handleSave()
+}
+
+const selectOfflineLocationMode = (mode: 'vague' | 'continuous') => {
+  props.selectedChat.offlineMeetLocationMode = mode
+  showOfflineLocationModal.value = false
+  handleSave()
 }
 
 const ensureOfflineDefaults = () => {
@@ -54,17 +77,29 @@ const onOfflineToggle = () => {
       </div>
 
       <template v-if="selectedChat.offlineMeetEnabled">
-        <div class="glass-list-item" v-show="matchSearch('模式', '独立')">
+        <div class="glass-list-item" v-show="matchSearch('模式', '独立')" @click="showOfflineModeModal = true">
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 线下表现形式</div>
           <div class="item-value">
-            <select
-              v-model="selectedChat.offlineMeetMode"
-              @change="handleSave"
-              style="background: transparent; border: none; font-size: 14px; color: var(--text-secondary); outline: none; text-align: right;"
-            >
-              <option value="mixed">与线上共用页面</option>
-              <option value="separate">独立线下页面</option>
-            </select>
+            <span class="item-value-text">{{ selectedChat.offlineMeetMode === 'separate' ? '独立线下页面' : '与线上共用页面' }}</span>
+            <span class="arrow">></span>
+          </div>
+        </div>
+
+        <div class="glass-list-item" v-show="matchSearch('线下预设', '提示词')" @click="showOfflinePresetModal = true">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">├ 线下预设</div>
+          <div class="item-value"><span class="item-value-text">{{ currentOfflinePresetName }}</span><span class="arrow">></span></div>
+        </div>
+
+        <div class="glass-list-item" v-show="matchSearch('模型适配', 'Claude', 'DeepSeek', 'Gemini')" @click="showOfflinePresetModal = true">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">├ 模型适配</div>
+          <div class="item-value"><span class="item-value-text">{{ currentOfflineProfileName }}</span><span class="arrow">></span></div>
+        </div>
+
+        <div class="glass-list-item" v-show="matchSearch('地点', '场景连续')" @click="showOfflineLocationModal = true">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 地点处理</div>
+          <div class="item-value">
+            <span class="item-value-text">{{ selectedChat.offlineMeetLocationMode === 'continuous' ? '保持场景连续' : '未确定时保持模糊' }}</span>
+            <span class="arrow">></span>
           </div>
         </div>
 
@@ -404,9 +439,54 @@ const onOfflineToggle = () => {
         <div class="item-label" style="color: #FF4D4F; width: 100%; text-align: center; font-weight: bold;">清空聊天记录</div>
       </div>
     </div>
+
+    <ChatOfflinePresetModal
+      :visible="showOfflinePresetModal"
+      :selected-chat="selectedChat"
+      @close="showOfflinePresetModal = false"
+      @save="handleSave"
+    />
+
+    <div v-if="showOfflineModeModal" class="wb-modal-overlay" @click.self="showOfflineModeModal = false">
+      <div class="custom-confirm-modal offline-choice-modal">
+        <div class="confirm-title">线下表现形式</div>
+        <div class="offline-choice-list">
+          <div class="memory-type-item" :class="{ active: selectedChat.offlineMeetMode !== 'separate' }" @click="selectOfflineMode('mixed')">
+            <div><div class="offline-choice-name">与线上共用页面</div><div class="offline-choice-desc">在当前聊天中切换线下状态</div></div>
+            <span v-if="selectedChat.offlineMeetMode !== 'separate'">✓</span>
+          </div>
+          <div class="memory-type-item" :class="{ active: selectedChat.offlineMeetMode === 'separate' }" @click="selectOfflineMode('separate')">
+            <div><div class="offline-choice-name">独立线下页面</div><div class="offline-choice-desc">线下记录与线上消息分开展示</div></div>
+            <span v-if="selectedChat.offlineMeetMode === 'separate'">✓</span>
+          </div>
+        </div>
+        <div class="confirm-actions"><button class="confirm-btn cancel" @click="showOfflineModeModal = false">取消</button></div>
+      </div>
+    </div>
+
+    <div v-if="showOfflineLocationModal" class="wb-modal-overlay" @click.self="showOfflineLocationModal = false">
+      <div class="custom-confirm-modal offline-choice-modal">
+        <div class="confirm-title">地点处理</div>
+        <div class="offline-choice-list">
+          <div class="memory-type-item" :class="{ active: selectedChat.offlineMeetLocationMode !== 'continuous' }" @click="selectOfflineLocationMode('vague')">
+            <div><div class="offline-choice-name">未确定时保持模糊</div><div class="offline-choice-desc">不替用户擅自决定具体见面地点</div></div>
+            <span v-if="selectedChat.offlineMeetLocationMode !== 'continuous'">✓</span>
+          </div>
+          <div class="memory-type-item" :class="{ active: selectedChat.offlineMeetLocationMode === 'continuous' }" @click="selectOfflineLocationMode('continuous')">
+            <div><div class="offline-choice-name">保持场景连续</div><div class="offline-choice-desc">优先沿用历史中已经确定的地点</div></div>
+            <span v-if="selectedChat.offlineMeetLocationMode === 'continuous'">✓</span>
+          </div>
+        </div>
+        <div class="confirm-actions"><button class="confirm-btn cancel" @click="showOfflineLocationModal = false">取消</button></div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 @import './ChatSettingsStyles.css';
+.offline-choice-modal { width: min(88vw, 360px); }
+.offline-choice-list { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.offline-choice-name { color: var(--text-primary); font-size: 14px; font-weight: 500; }
+.offline-choice-desc { color: var(--text-tertiary); font-size: 11px; line-height: 1.4; margin-top: 3px; }
 </style>

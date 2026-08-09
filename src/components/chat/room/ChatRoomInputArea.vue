@@ -12,6 +12,7 @@ const props = defineProps<{
   panelEmojis: any[]
   isGenerating: boolean
   selectedChat: any
+  isMixedOfflineActive: boolean
 }>()
 
 const emit = defineEmits<{
@@ -34,6 +35,7 @@ const emit = defineEmits<{
   (e: 'show-image-modal'): void
   (e: 'show-voice-call-modal'): void
   (e: 'show-video-call-modal'): void
+  (e: 'toggle-mixed-offline'): void
   (e: 'update:showExtensionPanel', val: boolean): void
   (e: 'update:showEmojiPanel', val: boolean): void
 }>()
@@ -120,6 +122,10 @@ const onFocusInput = () => {
     </div>
 
     <div v-else class="input-flat-bar-wrapper" style="width: 100%;">
+      <div v-if="isMixedOfflineActive" class="offline-context-indicator">
+        <span class="offline-context-dot"></span>
+        <span>当前为线下见面</span>
+      </div>
       <!-- 引用提示条 -->
       <transition name="reply-fade">
         <div v-if="replyTargetMessage" class="reply-preview-bar">
@@ -259,17 +265,39 @@ const onFocusInput = () => {
           <span class="extension-label">视频通话</span>
         </div>
 
-        <!-- 占位功能 8 -->
-        <div class="extension-item placeholder">
-          <div class="extension-icon-box">
-            <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <circle cx="8.5" cy="8.5" r="1.5"></circle>
-              <polyline points="21 15 16 10 5 21"></polyline>
-            </svg>
+          <!-- 功能 8: 共用页面线下状态切换 -->
+          <div
+            v-if="selectedChat?.offlineMeetEnabled && selectedChat?.offlineMeetMode === 'mixed'"
+            class="extension-item is-active"
+            :class="{ 'offline-active': isMixedOfflineActive }"
+            @click="emit('toggle-mixed-offline')"
+          >
+            <div class="extension-icon-box">
+              <svg v-if="isMixedOfflineActive" viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18l6-6-6-6"></path>
+                <path d="M15 12H3"></path>
+                <path d="M21 4v16"></path>
+              </svg>
+              <svg v-else viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              </svg>
+            </div>
+            <span class="extension-label">{{ isMixedOfflineActive ? '结束线下' : '开始线下' }}</span>
           </div>
-          <span class="extension-label">敬请期待</span>
-        </div>
+
+          <div v-else class="extension-item placeholder">
+            <div class="extension-icon-box">
+              <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+            </div>
+            <span class="extension-label">敬请期待</span>
+          </div>
       </div>
     </div>
   </footer>
@@ -277,4 +305,28 @@ const onFocusInput = () => {
 
 <style scoped>
 @import '../ChatRoomView.css';
+
+.offline-context-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: .2px;
+}
+
+.offline-context-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .75;
+}
+
+.extension-item.offline-active .extension-icon-box {
+  background: var(--text-primary);
+  color: var(--bg-primary);
+}
 </style>

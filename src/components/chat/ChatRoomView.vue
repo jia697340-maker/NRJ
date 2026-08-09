@@ -13,6 +13,7 @@ import ChatMemoryModal from './modals/ChatMemoryModal.vue'
 import ChatEmojiPreviewModal from './modals/ChatEmojiPreviewModal.vue'
 import ChatInnerThoughtModal from './modals/ChatInnerThoughtModal.vue'
 import ChatImageGalleryModal from './modals/ChatImageGalleryModal.vue'
+import ChatOfflineSessionEndModal from './modals/ChatOfflineSessionEndModal.vue'
 import ChatVoiceCallView from './ChatVoiceCallView.vue'
 import ChatVideoCallView from './ChatVideoCallView.vue'
 import ChatCallRecordsView from './ChatCallRecordsView.vue'
@@ -24,6 +25,15 @@ import { useChatAuth } from '../../composables/useChatAuth'
 import { useChatRoomGalleryUI } from '../../composables/useChatRoomGalleryUI'
 import { useChatRoomVoiceCallUI } from '../../composables/useChatRoomVoiceCallUI'
 import { useChatRoomVideoCallUI } from '../../composables/useChatRoomVideoCallUI'
+import {
+  attachActiveOfflineSession,
+  finishMixedOfflineSession,
+  generateOfflineSessionSummary,
+  getActiveOfflineSession,
+  isMixedOfflineActive as checkMixedOfflineActive,
+  startMixedOfflineSession,
+  type OfflineCarryoverMode
+} from '../../services/offlineSessions'
 
 useBubbleBeautify()
 
@@ -82,6 +92,8 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
       contacts[index].memoryState = targetChat.memoryState || null
       contacts[index].lastSummaryMsgId = targetChat.lastSummaryMsgId || 0
       contacts[index].callSummaries = targetChat.callSummaries || []
+      contacts[index].offlineMeetSessions = targetChat.offlineMeetSessions || []
+      contacts[index].activeOfflineSessionId = targetChat.activeOfflineSessionId || null
       contacts[index].preview = targetChat.preview
       contacts[index].time = targetChat.time
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
@@ -120,6 +132,24 @@ const { mockChats, selectedChat, effectiveMyProfile: myProfile, buildChatMessage
 
 const showExtensionPanel = ref(false)
 const showEmojiPanel = ref(false)
+const showOfflineSessionEndModal = ref(false)
+const isEndingOfflineSession = ref(false)
+const offlineSessionEndError = ref('')
+const isMixedOfflineSessionActive = computed(() => checkMixedOfflineActive(selectedChat.value))
+const activeOfflineSessionMessageCount = computed(() => {
+  const session = getActiveOfflineSession(selectedChat.value)
+  if (!session) return 0
+  return (selectedChat.value?.messages || []).filter((item: any) =>
+    item.offlineSessionId === session.id && !item.isOfflineSessionBoundary
+  ).length
+})
+
+watch(() => selectedChat.value?.messages?.length || 0, () => {
+  if (!isMixedOfflineSessionActive.value) return
+  const latestMessage = selectedChat.value?.messages?.[selectedChat.value.messages.length - 1]
+  if (!latestMessage || latestMessage.offlineSessionId || latestMessage.isVoiceCallProcessMsg || latestMessage.isVideoCallProcessMsg) return
+  attachActiveOfflineSession(selectedChat.value, latestMessage)
+}, { flush: 'sync' })
 
 import { useChatEmoji } from '../../composables/useChatEmoji'
 const { emojis, loadEmojis } = useChatEmoji()
@@ -419,14 +449,18 @@ const handleAddMessage = async (text: string) => {
     }
   }
 
-  selectedChat.value.messages.push({
+  const newMessage = {
     id: Date.now(),
     type: 'right',
     content: text,
     quote: quote,
     isVoiceCallProcessMsg: isCallPanelActive.value,
     isVideoCallProcessMsg: isVideoCallPanelActive.value
-  })
+  }
+  if (!isCallPanelActive.value && !isVideoCallPanelActive.value && isMixedOfflineSessionActive.value) {
+    attachActiveOfflineSession(selectedChat.value, newMessage)
+  }
+  selectedChat.value.messages.push(newMessage)
   
   if (isCallPanelActive.value) {
      checkAndGenerateTempSummary(voiceCallMessages.value)
@@ -484,11 +518,78 @@ const {
   isRoomActive,
   (reason, resume) => handleIncomingCall(reason, resume, Number(chatSettings.charCallRingSeconds) > 0 ? Number(chatSettings.charCallRingSeconds) : 30),
   () => {
-    if (!selectedChat.value?.offlineMeetEnabled) return false
-    if (selectedChat.value.offlineMeetMode === 'mixed') return 'mixed'
+    if (isMixedOfflineSessionActive.value) return 'mixed'
     return false
   }
 )
+
+const toggleMixedOfflineSession = () => {
+  if (!selectedChat.value?.offlineMeetEnabled || selectedChat.value.offlineMeetMode !== 'mixed') return
+  if (isCallPanelActive.value || isVideoCallPanelActive.value) {
+    showToast('请先结束当前通话')
+    return
+  }
+  if (isMixedOfflineSessionActive.value) {
+    offlineSessionEndError.value = ''
+    showOfflineSessionEndModal.value = true
+    showExtensionPanel.value = false
+    return
+  }
+  if (isGenerating.value) {
+    showToast('请等待当前回复完成或先停止响应')
+    return
+  }
+  startMixedOfflineSession(selectedChat.value)
+  updatePreviewAndTime('本次线下见面开始')
+  saveCustomContacts()
+  showExtensionPanel.value = false
+  showToast('已进入线下见面')
+  scrollToBottom()
+}
+
+const finishOfflineSession = async (options: {
+  carryoverMode: OfflineCarryoverMode
+  recentMessageCount: number
+  summaryInstruction: string
+}) => {
+  const chat = selectedChat.value
+  const session = getActiveOfflineSession(chat)
+  if (!chat || !session || isEndingOfflineSession.value) return
+
+  isEndingOfflineSession.value = true
+  offlineSessionEndError.value = ''
+  if (isGenerating.value) handleStopCall()
+
+  try {
+    const sourceMessages = (chat.messages || []).filter((item: any) =>
+      item.offlineSessionId === session.id && !item.isOfflineSessionBoundary
+    )
+    let summary = ''
+    if (options.carryoverMode !== 'none') {
+      if (sourceMessages.length === 0) throw new Error('本次见面还没有可整理的内容')
+      summary = await generateOfflineSessionSummary(
+        chat,
+        sourceMessages,
+        myProfile.value?.name || '用户',
+        options.summaryInstruction
+      )
+    }
+
+    const preview = finishMixedOfflineSession(chat, session, { ...options, summary })
+    updatePreviewAndTime(preview.split('\n')[0])
+    saveCustomContacts()
+    if (summary && options.carryoverMode !== 'none') {
+      indexChatMemories(chat).catch(error => console.warn('线下见面摘要已保存，但记忆索引未完成', error))
+    }
+    showOfflineSessionEndModal.value = false
+    showToast('已结束线下见面并返回线上')
+    await scrollToBottom()
+  } catch (error: any) {
+    offlineSessionEndError.value = error?.message || '线下记录整理失败，请稍后重试'
+  } finally {
+    isEndingOfflineSession.value = false
+  }
+}
 
 const handleRegenerate = () => {
   originalHandleRegenerate(showExtensionPanel, showToast)
@@ -1033,6 +1134,7 @@ onUnmounted(() => {
       :panelEmojis="panelEmojis"
       :isGenerating="isGenerating"
       :selectedChat="selectedChat"
+      :isMixedOfflineActive="isMixedOfflineSessionActive"
       @exit-multi-select-mode="exitMultiSelectMode"
       @select-all="selectAll"
       @recall-selected-messages="recallSelectedMessages"
@@ -1052,6 +1154,7 @@ onUnmounted(() => {
       @show-image-modal="showImageModal = true"
       @show-voice-call-modal="startVoiceCall"
       @show-video-call-modal="startVideoCall"
+      @toggle-mixed-offline="toggleMixedOfflineSession"
       @update:showExtensionPanel="showExtensionPanel = $event"
       @update:showEmojiPanel="showEmojiPanel = $event"
     />
@@ -1103,6 +1206,15 @@ onUnmounted(() => {
       :message="galleryTargetMessage"
       @regenerate="handleGalleryRegenerate"
       @delete="handleGalleryDelete"
+    />
+
+    <ChatOfflineSessionEndModal
+      :visible="showOfflineSessionEndModal"
+      :message-count="activeOfflineSessionMessageCount"
+      :is-processing="isEndingOfflineSession"
+      :error-message="offlineSessionEndError"
+      @close="showOfflineSessionEndModal = false"
+      @confirm="finishOfflineSession"
     />
 
     <transition name="folder-fade">

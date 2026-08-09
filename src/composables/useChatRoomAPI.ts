@@ -10,6 +10,7 @@ import { useFluxImage } from './useFluxImage'
 import { useChatAuth } from './useChatAuth'
 import { appendMissedIncomingCall, isInDoNotDisturb } from './useCallRecords'
 import { parseBilingualMessage } from '../services/bilingualChat'
+import { attachActiveOfflineSession } from '../services/offlineSessions'
 
 // 引入拆分的逻辑模块
 import { useChatRoomError } from './useChatRoomError'
@@ -24,6 +25,21 @@ const CALL_BLOCKED_ACTIONS = new Set([
   'send_emoji',
   'send_transfer',
   'send_red_packet'
+])
+
+const OFFLINE_BLOCKED_ACTIONS = new Set([
+  'recall',
+  'claim',
+  'reject',
+  'send_image',
+  'send_voice',
+  'send_emoji',
+  'send_transfer',
+  'send_red_packet',
+  'voice_call_user',
+  'video_call_user',
+  'offline',
+  'status'
 ])
 
 export function useChatRoomAPI(
@@ -103,8 +119,13 @@ export function useChatRoomAPI(
     const msgs = selectedChat.value.messages
     if (!msgs || msgs.length === 0) return
 
+    const regenerateOfflineMode = getOfflineMeetMode?.() ?? false
     let removed = false
-    while (msgs.length > 0 && msgs[msgs.length - 1].type === 'left') {
+    while (
+      msgs.length > 0 &&
+      msgs[msgs.length - 1].type === 'left' &&
+      (regenerateOfflineMode !== 'separate' || msgs[msgs.length - 1].isOfflineMeetMsg)
+    ) {
       msgs.pop()
       removed = true
     }
@@ -158,6 +179,7 @@ export function useChatRoomAPI(
     const offlineMeetMode = getOfflineMeetMode?.() ?? false
     const pushMsg = (chat: any, msg: Record<string, any>) => {
       if (offlineMeetMode === 'separate') msg.isOfflineMeetMsg = true
+      if (offlineMeetMode === 'mixed') attachActiveOfflineSession(chat, msg)
       chat.messages.push(msg)
     }
 
@@ -172,13 +194,27 @@ export function useChatRoomAPI(
       const startTime = Date.now()
       let result
       try {
-        result = await sendChatMessage(apiMessages, abortController.signal, false, false, apiPurpose)
+        result = await sendChatMessage(
+          apiMessages,
+          abortController.signal,
+          false,
+          false,
+          apiPurpose,
+          offlineMeetMode ? (selectedChat.value.offlineModelProfile || 'auto') : 'auto'
+        )
       } catch (specializedError: any) {
         const shouldFallbackToGlobal = apiPurpose === 'moment-followup' && isMomentApiReady() && specializedError?.name !== 'AbortError'
         if (!shouldFallbackToGlobal) throw specializedError
 
         console.warn('[朋友圈] 专用节点调用失败，已自动回退全局节点', specializedError)
-        result = await sendChatMessage(apiMessages, abortController.signal)
+        result = await sendChatMessage(
+          apiMessages,
+          abortController.signal,
+          false,
+          false,
+          'default',
+          offlineMeetMode ? (selectedChat.value.offlineModelProfile || 'auto') : 'auto'
+        )
       }
       const costSeconds = ((Date.now() - startTime) / 1000).toFixed(1)
       
@@ -193,7 +229,9 @@ export function useChatRoomAPI(
       }
       
       // 优先拦截并处理朋友圈相关的特殊标签
-      const processMomentRes = await processMomentTags(replyText, targetChat)
+      const processMomentRes = offlineMeetMode && chatSettings.disableSpecialTagsInOffline !== false
+        ? { newContent: replyText, shouldTriggerAI: false, aiContext: '', handledMomentAction: false }
+        : await processMomentTags(replyText, targetChat)
       replyText = processMomentRes.newContent
       // 第二轮再次出现读取标签时只移除标签，不继续递归请求，避免模型形成循环。
       const shouldTriggerAI = apiPurpose !== 'moment-followup' && processMomentRes.shouldTriggerAI
@@ -341,6 +379,12 @@ export function useChatRoomAPI(
           
           if (callMode && CALL_BLOCKED_ACTIONS.has(action.type)) {
             console.log(`[拦截] 通话中角色尝试执行「${action.type}」，已静默拦截以免穿帮。`)
+            processNextAction(index + 1)
+            return
+          }
+
+          if (offlineMeetMode && chatSettings.disableSpecialTagsInOffline !== false && OFFLINE_BLOCKED_ACTIONS.has(action.type)) {
+            console.log(`[拦截] 线下模式中角色尝试执行「${action.type}」，已静默拦截。`)
             processNextAction(index + 1)
             return
           }
