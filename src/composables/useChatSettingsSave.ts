@@ -90,6 +90,9 @@ export function useChatSettingsSave() {
         contacts[idx].enableVoiceReply = selectedChat.value.enableVoiceReply ?? false
         contacts[idx].enableVoiceCall = selectedChat.value.enableVoiceCall ?? false
         contacts[idx].enableVideoCall = selectedChat.value.enableVideoCall ?? false
+        contacts[idx].voiceProvider = selectedChat.value.voiceProvider === 'seed_audio' || selectedChat.value.voiceProvider === 'gemini' || selectedChat.value.voiceProvider === 'elevenlabs'
+          ? selectedChat.value.voiceProvider
+          : 'minimax'
         contacts[idx].voiceModel = selectedChat.value.voiceModel || 'speech-2.6-turbo'
         contacts[idx].voiceId = selectedChat.value.voiceId || ''
         contacts[idx].voiceLanguage = selectedChat.value.voiceLanguage || ''
@@ -98,6 +101,20 @@ export function useChatSettingsSave() {
         contacts[idx].voicePitch = selectedChat.value.voicePitch ?? 1.0
         contacts[idx].voiceVolume = selectedChat.value.voiceVolume ?? 1.0
         contacts[idx].voiceEmotion = selectedChat.value.voiceEmotion || ''
+        contacts[idx].seedAudioMode = selectedChat.value.seedAudioMode === 'scene' ? 'scene' : 'speech'
+        contacts[idx].seedAudioPromptPrefix = selectedChat.value.seedAudioPromptPrefix || ''
+        contacts[idx].seedAudioReferenceUrls = Array.isArray(selectedChat.value.seedAudioReferenceUrls) ? [...selectedChat.value.seedAudioReferenceUrls] : []
+        contacts[idx].seedAudioMultilingual = selectedChat.value.seedAudioMultilingual ?? true
+        contacts[idx].geminiVoiceName = selectedChat.value.geminiVoiceName || 'Kore'
+        contacts[idx].geminiVoicePrompt = selectedChat.value.geminiVoicePrompt || ''
+        contacts[idx].elevenLabsVoiceId = selectedChat.value.elevenLabsVoiceId || ''
+        contacts[idx].elevenLabsModel = selectedChat.value.elevenLabsModel || ''
+        contacts[idx].elevenLabsLanguage = selectedChat.value.elevenLabsLanguage || ''
+        contacts[idx].elevenLabsStability = selectedChat.value.elevenLabsStability ?? 0.5
+        contacts[idx].elevenLabsSimilarity = selectedChat.value.elevenLabsSimilarity ?? 0.75
+        contacts[idx].elevenLabsStyle = selectedChat.value.elevenLabsStyle ?? 0
+        contacts[idx].elevenLabsSpeakerBoost = selectedChat.value.elevenLabsSpeakerBoost ?? true
+        contacts[idx].elevenLabsSpeed = selectedChat.value.elevenLabsSpeed ?? 1
         contacts[idx].bilingualEnabled = selectedChat.value.bilingualEnabled ?? false
         contacts[idx].bilingualMode = selectedChat.value.bilingualMode || 'auto'
         contacts[idx].dialogueLanguage = selectedChat.value.dialogueLanguage || 'auto'

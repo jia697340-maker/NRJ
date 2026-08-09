@@ -2,14 +2,20 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import localforage from 'localforage'
+import { defaultSeedAudioBaseUrl, generateSeedAudio, loadSeedAudioConfig, SEED_AUDIO_CONFIG_KEY, type SeedAudioProtocol, type SeedAudioTransport } from '../composables/useSeedAudio'
+import { defaultGeminiVoiceBaseUrl, generateGeminiVoice, loadGeminiVoiceConfig, GEMINI_VOICE_CONFIG_KEY, type GeminiVoiceAuthMode, type GeminiVoiceProtocol, type GeminiVoiceTransport } from '../composables/useGeminiVoice'
+import { defaultElevenLabsVoiceBaseUrl, generateElevenLabsVoice, loadElevenLabsVoiceConfig, ELEVENLABS_VOICE_CONFIG_KEY, type ElevenLabsVoiceOutputFormat, type ElevenLabsVoiceProtocol, type ElevenLabsVoiceTransport } from '../composables/useElevenLabsVoice'
 
 defineEmits(['close'])
 
-const currentView = ref<'platforms' | 'minimax'>('platforms')
+const currentView = ref<'platforms' | 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs'>('platforms')
 
 const activeIndex = ref(0)
 const platforms = [
   { id: 'minimax', name: 'MiniMax 语音', desc: '高保真、超低时延的\n语音合成服务', action: '进入配置', disabled: false },
+  { id: 'seed_audio', name: 'Seed Audio 1.0', desc: '高表现力角色语音与\n完整场景音频生成', action: '进入配置', disabled: false },
+  { id: 'gemini', name: 'Google Gemini', desc: '自然可控、富有表现力的\n角色语音合成', action: '进入配置', disabled: false },
+  { id: 'elevenlabs', name: 'ElevenLabs', desc: '自然细腻、支持多语种的\n高表现力角色语音', action: '进入配置', disabled: false },
   { id: 'more', name: '更多平台', desc: '敬请期待更多\n优秀语音引擎接入', action: '即将开放', disabled: true }
 ]
 
@@ -20,8 +26,71 @@ const handleNext = () => {
   if (activeIndex.value < platforms.length - 1) activeIndex.value++
 }
 const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && id === 'minimax') {
-    currentView.value = 'minimax'
+  if (!disabled && (id === 'minimax' || id === 'seed_audio' || id === 'gemini' || id === 'elevenlabs')) currentView.value = id
+}
+
+const viewTitle = () => {
+  if (currentView.value === 'minimax') return 'MiniMax 接入'
+  if (currentView.value === 'seed_audio') return 'Seed Audio 接入'
+  if (currentView.value === 'gemini') return 'Gemini TTS 接入'
+  if (currentView.value === 'elevenlabs') return 'ElevenLabs 接入'
+  return '语音引擎'
+}
+
+const seedTransport = ref<SeedAudioTransport>('byteplus')
+const seedCustomProtocol = ref<SeedAudioProtocol>('byteplus')
+const seedApiKey = ref('')
+const seedBaseUrl = ref('')
+const seedModel = ref('seed-audio-1.0')
+const seedTestText = ref('请用温柔、自然、亲密的语气说：“今天也很想你。”')
+const seedTestMode = ref<'speech' | 'scene'>('speech')
+const seedTestFormat = ref<'mp3' | 'wav'>('mp3')
+const seedIsLoading = ref(false)
+const seedErrorMsg = ref('')
+
+const selectSeedTransport = (transport: SeedAudioTransport) => {
+  const previousDefault = defaultSeedAudioBaseUrl(seedTransport.value)
+  seedTransport.value = transport
+  if (!seedBaseUrl.value || seedBaseUrl.value === previousDefault) seedBaseUrl.value = defaultSeedAudioBaseUrl(transport)
+}
+
+const geminiTransport = ref<GeminiVoiceTransport>('official')
+const geminiProtocol = ref<GeminiVoiceProtocol>('interactions')
+const geminiAuthMode = ref<GeminiVoiceAuthMode>('x_goog_api_key')
+const geminiApiKey = ref('')
+const geminiBaseUrl = ref(defaultGeminiVoiceBaseUrl())
+const geminiModel = ref('gemini-3.1-flash-tts-preview')
+const geminiTestVoice = ref('Kore')
+const geminiTestStyle = ref('温柔、自然、亲密，语速舒缓，像在和最亲近的人说话。')
+const geminiTestText = ref('今天也很想你。')
+const geminiIsLoading = ref(false)
+const geminiErrorMsg = ref('')
+
+const selectGeminiTransport = (transport: GeminiVoiceTransport) => {
+  geminiTransport.value = transport
+  if (transport === 'official') {
+    geminiBaseUrl.value = defaultGeminiVoiceBaseUrl()
+    geminiProtocol.value = 'interactions'
+    geminiAuthMode.value = 'x_goog_api_key'
+  }
+}
+
+const elevenLabsTransport = ref<ElevenLabsVoiceTransport>('official')
+const elevenLabsProtocol = ref<ElevenLabsVoiceProtocol>('elevenlabs')
+const elevenLabsApiKey = ref('')
+const elevenLabsBaseUrl = ref(defaultElevenLabsVoiceBaseUrl())
+const elevenLabsModel = ref('eleven_multilingual_v2')
+const elevenLabsOutputFormat = ref<ElevenLabsVoiceOutputFormat>('mp3_44100_128')
+const elevenLabsTestVoiceId = ref('')
+const elevenLabsTestText = ref('今天也很想你。')
+const elevenLabsIsLoading = ref(false)
+const elevenLabsErrorMsg = ref('')
+
+const selectElevenLabsTransport = (transport: ElevenLabsVoiceTransport) => {
+  elevenLabsTransport.value = transport
+  if (transport === 'official') {
+    elevenLabsBaseUrl.value = defaultElevenLabsVoiceBaseUrl()
+    elevenLabsProtocol.value = 'elevenlabs'
   }
 }
 
@@ -86,6 +155,43 @@ onMounted(() => {
       if (parsed.keyPresets) keyPresets.value = parsed.keyPresets
     } catch(e) {}
   }
+  const seedConfig = loadSeedAudioConfig()
+  seedTransport.value = seedConfig.transport
+  seedCustomProtocol.value = seedConfig.customProtocol
+  seedApiKey.value = seedConfig.apiKey
+  seedBaseUrl.value = seedConfig.baseUrl
+  seedModel.value = seedConfig.model
+  try {
+    const savedSeed = JSON.parse(localStorage.getItem(SEED_AUDIO_CONFIG_KEY) || '{}')
+    if (savedSeed.testText) seedTestText.value = savedSeed.testText
+    if (savedSeed.testMode === 'scene') seedTestMode.value = 'scene'
+    if (savedSeed.testFormat === 'wav') seedTestFormat.value = 'wav'
+  } catch {}
+  const geminiConfig = loadGeminiVoiceConfig()
+  geminiTransport.value = geminiConfig.transport
+  geminiProtocol.value = geminiConfig.protocol
+  geminiAuthMode.value = geminiConfig.authMode
+  geminiApiKey.value = geminiConfig.apiKey
+  geminiBaseUrl.value = geminiConfig.baseUrl
+  geminiModel.value = geminiConfig.model
+  try {
+    const savedGemini = JSON.parse(localStorage.getItem(GEMINI_VOICE_CONFIG_KEY) || '{}')
+    if (savedGemini.testVoice) geminiTestVoice.value = savedGemini.testVoice
+    if (savedGemini.testStyle) geminiTestStyle.value = savedGemini.testStyle
+    if (savedGemini.testText) geminiTestText.value = savedGemini.testText
+  } catch {}
+  const elevenLabsConfig = loadElevenLabsVoiceConfig()
+  elevenLabsTransport.value = elevenLabsConfig.transport
+  elevenLabsProtocol.value = elevenLabsConfig.protocol
+  elevenLabsApiKey.value = elevenLabsConfig.apiKey
+  elevenLabsBaseUrl.value = elevenLabsConfig.baseUrl
+  elevenLabsModel.value = elevenLabsConfig.model
+  elevenLabsOutputFormat.value = elevenLabsConfig.outputFormat
+  try {
+    const savedElevenLabs = JSON.parse(localStorage.getItem(ELEVENLABS_VOICE_CONFIG_KEY) || '{}')
+    if (savedElevenLabs.testVoiceId) elevenLabsTestVoiceId.value = savedElevenLabs.testVoiceId
+    if (savedElevenLabs.testText) elevenLabsTestText.value = savedElevenLabs.testText
+  } catch {}
 })
 
 watch([region, apiKey, testText, testModel, testVoiceId, keyPresets], () => {
@@ -103,6 +209,46 @@ watch([region, apiKey, testText, testModel, testVoiceId, keyPresets], () => {
     keyPresets: keyPresets.value
   }))
 }, { deep: true })
+
+watch([seedTransport, seedCustomProtocol, seedApiKey, seedBaseUrl, seedModel, seedTestText, seedTestMode, seedTestFormat], () => {
+  localStorage.setItem(SEED_AUDIO_CONFIG_KEY, JSON.stringify({
+    transport: seedTransport.value,
+    customProtocol: seedCustomProtocol.value,
+    apiKey: seedApiKey.value,
+    baseUrl: seedBaseUrl.value,
+    model: seedModel.value || 'seed-audio-1.0',
+    testText: seedTestText.value,
+    testMode: seedTestMode.value,
+    testFormat: seedTestFormat.value
+  }))
+})
+
+watch([geminiTransport, geminiProtocol, geminiAuthMode, geminiApiKey, geminiBaseUrl, geminiModel, geminiTestVoice, geminiTestStyle, geminiTestText], () => {
+  localStorage.setItem(GEMINI_VOICE_CONFIG_KEY, JSON.stringify({
+    transport: geminiTransport.value,
+    protocol: geminiProtocol.value,
+    authMode: geminiAuthMode.value,
+    apiKey: geminiApiKey.value,
+    baseUrl: geminiBaseUrl.value,
+    model: geminiModel.value || 'gemini-3.1-flash-tts-preview',
+    testVoice: geminiTestVoice.value,
+    testStyle: geminiTestStyle.value,
+    testText: geminiTestText.value
+  }))
+})
+
+watch([elevenLabsTransport, elevenLabsProtocol, elevenLabsApiKey, elevenLabsBaseUrl, elevenLabsModel, elevenLabsOutputFormat, elevenLabsTestVoiceId, elevenLabsTestText], () => {
+  localStorage.setItem(ELEVENLABS_VOICE_CONFIG_KEY, JSON.stringify({
+    transport: elevenLabsTransport.value,
+    protocol: elevenLabsProtocol.value,
+    apiKey: elevenLabsApiKey.value,
+    baseUrl: elevenLabsBaseUrl.value,
+    model: elevenLabsModel.value || 'eleven_multilingual_v2',
+    outputFormat: elevenLabsOutputFormat.value,
+    testVoiceId: elevenLabsTestVoiceId.value,
+    testText: elevenLabsTestText.value
+  }))
+})
 
 let audioInstance: HTMLAudioElement | null = null
 const testVoiceStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatVoices' })
@@ -293,6 +439,103 @@ const playTest = async () => {
     isLoading.value = false
   }
 }
+
+const playSeedTest = async () => {
+  if (!seedApiKey.value.trim()) { seedErrorMsg.value = '请填写 Seed Audio 接口密钥'; return }
+  if (!seedTestText.value.trim()) { seedErrorMsg.value = '请填写测试文本'; return }
+  if (!seedBaseUrl.value.trim()) { seedErrorMsg.value = '请填写接口地址'; return }
+  seedIsLoading.value = true
+  seedErrorMsg.value = ''
+  if (audioInstance) { audioInstance.pause(); audioInstance = null }
+  try {
+    const prompt = seedTestMode.value === 'speech'
+      ? `使用自然、有表现力的角色声音，只生成干净人声，不要背景音乐或环境音。\n${seedTestText.value}`
+      : seedTestText.value
+    const audio = await generateSeedAudio({
+      transport: seedTransport.value,
+      customProtocol: seedCustomProtocol.value,
+      apiKey: seedApiKey.value,
+      baseUrl: seedBaseUrl.value,
+      model: seedModel.value || 'seed-audio-1.0'
+    }, { text: prompt, format: seedTestFormat.value, multilingual: true })
+    const blobUrl = URL.createObjectURL(audio)
+    audioInstance = new Audio(blobUrl)
+    audioInstance.onended = () => URL.revokeObjectURL(blobUrl)
+    audioInstance.onerror = () => URL.revokeObjectURL(blobUrl)
+    await audioInstance.play()
+  } catch (err: any) {
+    seedErrorMsg.value = err?.message === 'MISSING_SEED_AUDIO_API_KEY' ? '请填写 Seed Audio 接口密钥' : (err?.message || 'Seed Audio 合成失败')
+  } finally {
+    seedIsLoading.value = false
+  }
+}
+
+const playGeminiTest = async () => {
+  if (!geminiApiKey.value.trim()) { geminiErrorMsg.value = '请填写 Gemini TTS 接口密钥'; return }
+  if (!geminiBaseUrl.value.trim()) { geminiErrorMsg.value = '请填写 Gemini TTS 接口地址'; return }
+  if (!geminiTestText.value.trim()) { geminiErrorMsg.value = '请填写测试文本'; return }
+  geminiIsLoading.value = true
+  geminiErrorMsg.value = ''
+  if (audioInstance) { audioInstance.pause(); audioInstance = null }
+  try {
+    const audio = await generateGeminiVoice({
+      transport: geminiTransport.value,
+      protocol: geminiProtocol.value,
+      authMode: geminiAuthMode.value,
+      apiKey: geminiApiKey.value,
+      baseUrl: geminiBaseUrl.value,
+      model: geminiModel.value || 'gemini-3.1-flash-tts-preview'
+    }, {
+      text: geminiTestText.value,
+      voiceName: geminiTestVoice.value,
+      stylePrompt: geminiTestStyle.value
+    })
+    const blobUrl = URL.createObjectURL(audio)
+    audioInstance = new Audio(blobUrl)
+    audioInstance.onended = () => URL.revokeObjectURL(blobUrl)
+    audioInstance.onerror = () => URL.revokeObjectURL(blobUrl)
+    await audioInstance.play()
+  } catch (err: any) {
+    geminiErrorMsg.value = err?.message === 'MISSING_GEMINI_VOICE_API_KEY' ? '请填写 Gemini TTS 接口密钥' : (err?.message || 'Gemini TTS 合成失败')
+  } finally {
+    geminiIsLoading.value = false
+  }
+}
+
+const playElevenLabsTest = async () => {
+  if (!elevenLabsApiKey.value.trim()) { elevenLabsErrorMsg.value = '请填写 ElevenLabs 接口密钥'; return }
+  if (!elevenLabsBaseUrl.value.trim()) { elevenLabsErrorMsg.value = '请填写 ElevenLabs 接口地址'; return }
+  if (!elevenLabsTestVoiceId.value.trim()) { elevenLabsErrorMsg.value = '请填写 ElevenLabs 音色 ID'; return }
+  if (!elevenLabsTestText.value.trim()) { elevenLabsErrorMsg.value = '请填写测试文本'; return }
+  elevenLabsIsLoading.value = true
+  elevenLabsErrorMsg.value = ''
+  if (audioInstance) { audioInstance.pause(); audioInstance = null }
+  try {
+    const audio = await generateElevenLabsVoice({
+      transport: elevenLabsTransport.value,
+      protocol: elevenLabsProtocol.value,
+      apiKey: elevenLabsApiKey.value,
+      baseUrl: elevenLabsBaseUrl.value,
+      model: elevenLabsModel.value || 'eleven_multilingual_v2',
+      outputFormat: elevenLabsOutputFormat.value
+    }, {
+      text: elevenLabsTestText.value,
+      voiceId: elevenLabsTestVoiceId.value,
+      model: elevenLabsModel.value || 'eleven_multilingual_v2'
+    })
+    const blobUrl = URL.createObjectURL(audio)
+    audioInstance = new Audio(blobUrl)
+    audioInstance.onended = () => URL.revokeObjectURL(blobUrl)
+    audioInstance.onerror = () => URL.revokeObjectURL(blobUrl)
+    await audioInstance.play()
+  } catch (err: any) {
+    elevenLabsErrorMsg.value = err?.message === 'MISSING_ELEVENLABS_VOICE_API_KEY'
+      ? '请填写 ElevenLabs 接口密钥'
+      : (err?.message || 'ElevenLabs 合成失败')
+  } finally {
+    elevenLabsIsLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -300,13 +543,13 @@ const playTest = async () => {
     <!-- 极简无界顶栏 -->
     <div class="header-minimal">
       <div class="header-titles">
-        <h1 class="main-title">{{ currentView === 'platforms' ? '语音引擎' : 'MiniMax 接入' }}</h1>
+        <h1 class="main-title">{{ viewTitle() }}</h1>
         <p class="sub-title" v-if="currentView === 'platforms'">选择要接入的语音合成服务</p>
       </div>
       <button class="close-btn" @click="$emit('close')">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
       </button>
-      <button class="back-btn" v-if="currentView === 'minimax'" @click="currentView = 'platforms'">
+      <button class="back-btn" v-if="currentView !== 'platforms'" @click="currentView = 'platforms'">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
       </button>
     </div>
@@ -334,6 +577,9 @@ const playTest = async () => {
               
               <div class="capsule-icon">
                 <svg v-if="item.id === 'minimax'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+                <svg v-else-if="item.id === 'seed_audio'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M4 13v-2"></path><path d="M8 17V7"></path><path d="M12 20V4"></path><path d="M16 17V7"></path><path d="M20 13v-2"></path></svg>
+                <svg v-else-if="item.id === 'gemini'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M12 2c.8 5.4 4.6 9.2 10 10-5.4.8-9.2 4.6-10 10-.8-5.4-4.6-9.2-10-10 5.4-.8 9.2-4.6 10-10Z"></path></svg>
+                <svg v-else-if="item.id === 'elevenlabs'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M6 5v14"></path><path d="M10 5v14"></path><path d="M14 8v8"></path><path d="M18 5v14"></path></svg>
                 <svg v-else viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
               </div>
 
@@ -418,6 +664,206 @@ const playTest = async () => {
           <button class="fluid-action-btn" :disabled="isLoading" @click="playTest">
             <span v-if="isLoading" class="spinner"></span>
             {{ isLoading ? '正在合成...' : '合成并播放' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="currentView === 'seed_audio'" class="va-detail-view">
+      <div class="fluid-form">
+        <div class="form-row column-row seed-provider-row">
+          <div class="row-header"><span class="row-label">接入渠道</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: seedTransport === 'byteplus' }" @click="selectSeedTransport('byteplus')">BytePlus 官方</div>
+            <div class="pill-tab" :class="{ active: seedTransport === 'fal' }" @click="selectSeedTransport('fal')">fal 第三方</div>
+            <div class="pill-tab" :class="{ active: seedTransport === 'custom' }" @click="selectSeedTransport('custom')">自定义中转</div>
+          </div>
+          <div class="provider-hint">{{ seedTransport === 'byteplus' ? '使用 BytePlus Seed Speech 官方同步接口。' : seedTransport === 'fal' ? '使用 fal 异步队列接口，适合快速接入。' : '填写兼容 BytePlus 或 fal 协议的中转地址。' }}</div>
+        </div>
+
+        <div v-if="seedTransport === 'custom'" class="form-row">
+          <span class="row-label">中转协议</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: seedCustomProtocol === 'byteplus' }" @click="seedCustomProtocol = 'byteplus'">BytePlus</div>
+            <div class="pill-tab" :class="{ active: seedCustomProtocol === 'fal' }" @click="seedCustomProtocol = 'fal'">fal</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">接口密钥</span></div>
+          <input type="password" v-model="seedApiKey" placeholder="在此输入独立的 Seed Audio API Key" class="fluid-input" autocomplete="off" />
+        </div>
+
+        <div v-if="seedTransport === 'custom'" class="form-row column-row">
+          <div class="row-header"><span class="row-label">中转地址</span></div>
+          <input type="url" v-model="seedBaseUrl" placeholder="https://your-proxy.example.com" class="fluid-input" />
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">模型名称</span></div>
+          <input type="text" v-model="seedModel" placeholder="seed-audio-1.0" class="fluid-input" />
+        </div>
+
+        <div class="form-section-title">合成测试</div>
+
+        <div class="form-row">
+          <span class="row-label">生成模式</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: seedTestMode === 'speech' }" @click="seedTestMode = 'speech'">干净人声</div>
+            <div class="pill-tab" :class="{ active: seedTestMode === 'scene' }" @click="seedTestMode = 'scene'">场景音频</div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <span class="row-label">音频格式</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: seedTestFormat === 'mp3' }" @click="seedTestFormat = 'mp3'">MP3</div>
+            <div class="pill-tab" :class="{ active: seedTestFormat === 'wav' }" @click="seedTestFormat = 'wav'">WAV</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <textarea v-model="seedTestText" rows="4" maxlength="2048" placeholder="输入要合成的文本或音频场景描述..." class="fluid-textarea"></textarea>
+          <div class="text-counter">{{ seedTestText.length }} / 2048</div>
+          <div v-if="seedErrorMsg" class="error-banner">{{ seedErrorMsg }}</div>
+          <button class="fluid-action-btn" :disabled="seedIsLoading" @click="playSeedTest">
+            <span v-if="seedIsLoading" class="spinner"></span>
+            {{ seedIsLoading ? '正在合成...' : '合成并播放' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="currentView === 'gemini'" class="va-detail-view">
+      <div class="fluid-form">
+        <div class="form-row column-row seed-provider-row">
+          <div class="row-header"><span class="row-label">接入渠道</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: geminiTransport === 'official' }" @click="selectGeminiTransport('official')">Google 官方</div>
+            <div class="pill-tab" :class="{ active: geminiTransport === 'custom' }" @click="selectGeminiTransport('custom')">第三方中转</div>
+          </div>
+          <div class="provider-hint">{{ geminiTransport === 'official' ? '使用 Google Gemini 官方 Interactions API。' : '填写兼容 Gemini 原生协议的中转地址与鉴权方式。' }}</div>
+        </div>
+
+        <div v-if="geminiTransport === 'custom'" class="form-row">
+          <span class="row-label">中转协议</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: geminiProtocol === 'interactions' }" @click="geminiProtocol = 'interactions'">Interactions</div>
+            <div class="pill-tab" :class="{ active: geminiProtocol === 'generate_content' }" @click="geminiProtocol = 'generate_content'">GenerateContent</div>
+          </div>
+        </div>
+
+        <div v-if="geminiTransport === 'custom'" class="form-row">
+          <span class="row-label">鉴权方式</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: geminiAuthMode === 'x_goog_api_key' }" @click="geminiAuthMode = 'x_goog_api_key'">x-goog-api-key</div>
+            <div class="pill-tab" :class="{ active: geminiAuthMode === 'bearer' }" @click="geminiAuthMode = 'bearer'">Bearer</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">接口密钥</span></div>
+          <input type="password" v-model="geminiApiKey" placeholder="在此输入独立的 Gemini TTS API Key" class="fluid-input" autocomplete="off" />
+        </div>
+
+        <div v-if="geminiTransport === 'custom'" class="form-row column-row">
+          <div class="row-header"><span class="row-label">中转地址</span></div>
+          <input type="url" v-model="geminiBaseUrl" placeholder="https://your-proxy.example.com" class="fluid-input" />
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">模型名称</span></div>
+          <input type="text" v-model="geminiModel" placeholder="gemini-3.1-flash-tts-preview" class="fluid-input" />
+        </div>
+
+        <div class="form-section-title">合成测试</div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">预置音色</span></div>
+          <input type="text" v-model="geminiTestVoice" placeholder="Kore" class="fluid-input" />
+          <div class="provider-hint">可填写 Kore、Puck、Charon、Aoede 等 Gemini 预置音色名称。</div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">角色声音指令</span></div>
+          <textarea v-model="geminiTestStyle" rows="3" maxlength="500" placeholder="描述语气、节奏、口音与情绪..." class="fluid-textarea"></textarea>
+        </div>
+
+        <div class="form-row column-row">
+          <textarea v-model="geminiTestText" rows="4" maxlength="2048" placeholder="输入要合成的文本..." class="fluid-textarea"></textarea>
+          <div class="text-counter">{{ geminiTestText.length }} / 2048</div>
+          <div v-if="geminiErrorMsg" class="error-banner">{{ geminiErrorMsg }}</div>
+          <button class="fluid-action-btn" :disabled="geminiIsLoading" @click="playGeminiTest">
+            <span v-if="geminiIsLoading" class="spinner"></span>
+            {{ geminiIsLoading ? '正在合成...' : '合成并播放' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="va-detail-view">
+      <div class="fluid-form">
+        <div class="form-row column-row seed-provider-row">
+          <div class="row-header"><span class="row-label">接入渠道</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: elevenLabsTransport === 'official' }" @click="selectElevenLabsTransport('official')">ElevenLabs 官方</div>
+            <div class="pill-tab" :class="{ active: elevenLabsTransport === 'custom' }" @click="selectElevenLabsTransport('custom')">第三方中转</div>
+          </div>
+          <div class="provider-hint">{{ elevenLabsTransport === 'official' ? '使用 ElevenLabs 官方文本转语音接口。' : '填写第三方中转地址，并选择其兼容的请求协议。' }}</div>
+        </div>
+
+        <div v-if="elevenLabsTransport === 'custom'" class="form-row">
+          <span class="row-label">中转协议</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: elevenLabsProtocol === 'elevenlabs' }" @click="elevenLabsProtocol = 'elevenlabs'">ElevenLabs</div>
+            <div class="pill-tab" :class="{ active: elevenLabsProtocol === 'openai' }" @click="elevenLabsProtocol = 'openai'">OpenAI TTS</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">接口密钥</span></div>
+          <input type="password" v-model="elevenLabsApiKey" placeholder="在此输入独立的 ElevenLabs API Key" class="fluid-input" autocomplete="off" />
+          <div class="provider-hint">官方密钥建议仅开放文本转语音权限，并设置使用额度。</div>
+        </div>
+
+        <div v-if="elevenLabsTransport === 'custom'" class="form-row column-row">
+          <div class="row-header"><span class="row-label">中转地址</span></div>
+          <input type="url" v-model="elevenLabsBaseUrl" placeholder="https://your-proxy.example.com" class="fluid-input" />
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">默认模型</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: elevenLabsModel === 'eleven_multilingual_v2' }" @click="elevenLabsModel = 'eleven_multilingual_v2'">Multilingual v2</div>
+            <div class="pill-tab" :class="{ active: elevenLabsModel === 'eleven_flash_v2_5' }" @click="elevenLabsModel = 'eleven_flash_v2_5'">Flash v2.5</div>
+          </div>
+          <input type="text" v-model="elevenLabsModel" placeholder="eleven_multilingual_v2" class="fluid-input" />
+        </div>
+
+        <div class="form-row">
+          <span class="row-label">音频格式</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: elevenLabsOutputFormat === 'mp3_44100_128' }" @click="elevenLabsOutputFormat = 'mp3_44100_128'">MP3 高品质</div>
+            <div class="pill-tab" :class="{ active: elevenLabsOutputFormat === 'mp3_22050_32' }" @click="elevenLabsOutputFormat = 'mp3_22050_32'">MP3 省流</div>
+            <div class="pill-tab" :class="{ active: elevenLabsOutputFormat === 'wav_44100' }" @click="elevenLabsOutputFormat = 'wav_44100'">WAV</div>
+          </div>
+        </div>
+
+        <div class="form-section-title">合成测试</div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">音色 ID</span></div>
+          <input type="text" v-model="elevenLabsTestVoiceId" placeholder="填写 ElevenLabs Voice ID" class="fluid-input" />
+          <div class="provider-hint">可在 ElevenLabs 音色库或个人音色页面复制 Voice ID。</div>
+        </div>
+
+        <div class="form-row column-row">
+          <textarea v-model="elevenLabsTestText" rows="4" maxlength="2048" placeholder="输入要合成的文本..." class="fluid-textarea"></textarea>
+          <div class="text-counter">{{ elevenLabsTestText.length }} / 2048</div>
+          <div v-if="elevenLabsErrorMsg" class="error-banner">{{ elevenLabsErrorMsg }}</div>
+          <button class="fluid-action-btn" :disabled="elevenLabsIsLoading" @click="playElevenLabsTest">
+            <span v-if="elevenLabsIsLoading" class="spinner"></span>
+            {{ elevenLabsIsLoading ? '正在合成...' : '合成并播放' }}
           </button>
         </div>
       </div>
@@ -644,6 +1090,8 @@ const playTest = async () => {
 /* Detail Form: Borderless layout */
 .va-detail-view {
   flex: 1;
+  width: 100%;
+  box-sizing: border-box;
   overflow-y: auto;
   padding: 10px 24px 60px;
   -webkit-overflow-scrolling: touch;
@@ -687,6 +1135,11 @@ const playTest = async () => {
 .pill-tab.active {
   background: #fff; color: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
 }
+.wide-tabs { width: 100%; box-sizing: border-box; }
+.wide-tabs .pill-tab { flex: 1 1 0; min-width: 0; padding-left: 5px; padding-right: 5px; text-align: center; white-space: nowrap; font-size: 12px; }
+.seed-provider-row { gap: 12px; }
+.provider-hint { padding: 0 4px; color: #999; font-size: 12px; line-height: 1.5; }
+.text-counter { margin-top: -10px; padding-right: 4px; color: #aaa; font-size: 11px; text-align: right; }
 
 .row-header {
   display: flex; justify-content: space-between; align-items: center;

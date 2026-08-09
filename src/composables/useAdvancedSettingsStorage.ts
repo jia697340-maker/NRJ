@@ -51,7 +51,7 @@ const CATEGORY_MAP: Record<string, { name: string, color: string }> = {
   others: { name: '其它可识别数据', color: '#e2e8f0' }
 }
 
-const isSensitiveStorageKey = (key: string) => /(api[_-]?key|apikey|token|secret|password|credential|github_backup_config|webdav_config|clingy_(api|vision_api|summary_api|moment_api|embedding_api)_settings|minimax_voice_config)/i.test(key)
+const isSensitiveStorageKey = (key: string) => /(api[_-]?key|apikey|token|secret|password|credential|github_backup_config|webdav_config|clingy_(api|vision_api|summary_api|moment_api|embedding_api)_settings|minimax_voice_config|seed_audio_config|gemini_voice_config|elevenlabs_voice_config)/i.test(key)
 
 export function useAdvancedSettingsStorage(showConfirm: (message: string, title?: string, showCancel?: boolean, type?: 'normal' | 'danger') => Promise<boolean>) {
   const storageInfo = ref({

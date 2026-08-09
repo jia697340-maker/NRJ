@@ -188,7 +188,7 @@ const handlePlayVoice = async (msgId: number, text: string) => {
   try {
     await playVoice(msgId, text, selectedChat.value)
   } catch (err: any) {
-    if (err.message === 'MISSING_API_KEY') {
+    if (['MISSING_API_KEY', 'MISSING_SEED_AUDIO_API_KEY', 'MISSING_GEMINI_VOICE_API_KEY'].includes(err.message)) {
       showMissingVoiceKeyModal.value = true
     }
   }

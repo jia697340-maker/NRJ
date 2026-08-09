@@ -1,6 +1,9 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
 import localforage from 'localforage'
+import { generateSeedAudio, loadSeedAudioConfig } from './useSeedAudio'
+import { generateGeminiVoice, loadGeminiVoiceConfig } from './useGeminiVoice'
+import { generateElevenLabsVoice, loadElevenLabsVoiceConfig } from './useElevenLabsVoice'
 
 let globalAudioInstance: HTMLAudioElement | null = null
 const isPlaying = ref(false)
@@ -9,12 +12,17 @@ const currentPlayingId = ref<number | null>(null)
 
 interface VoiceTask { msgId: number; text: string; chatSettings: any; resolve: () => void; reject: (err: any) => void }
 interface VoiceProfile {
+  provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs'
   model: string; voiceId: string; speed: number; pitch: number; volume: number
   language: string; emotion: string; format: 'mp3'; sampleRate: number; bitrate: number; channel: number
+  seedAudioMode: 'speech' | 'scene'; seedAudioPromptPrefix: string; seedAudioReferenceUrls: string[]; seedAudioMultilingual: boolean
+  geminiVoiceName: string; geminiVoicePrompt: string; geminiModel: string; geminiEndpoint: string
+  elevenLabsVoiceId: string; elevenLabsModel: string; elevenLabsLanguage: string; elevenLabsStability: number
+  elevenLabsSimilarity: number; elevenLabsStyle: number; elevenLabsSpeakerBoost: boolean; elevenLabsSpeed: number; elevenLabsEndpoint: string
 }
 
 const voiceQueue: VoiceTask[] = []
-const inFlightSynthesis = new Map<string, Promise<string>>()
+const inFlightSynthesis = new Map<string, Promise<string | Blob>>()
 const voiceStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatVoices' })
 const voiceMetaStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatVoiceMeta' })
 const MAX_CACHE_BYTES = 300 * 1024 * 1024
@@ -40,18 +48,44 @@ const hash = (value: string) => {
   for (let i = 0; i < value.length; i++) { h ^= value.charCodeAt(i); h = Math.imul(h, 0x01000193) }
   return (h >>> 0).toString(36)
 }
-const profileFor = (settings: any): VoiceProfile => ({
-  model: settings?.voiceModel || 'speech-2.6-turbo', voiceId: settings?.voiceId || 'female-yujie',
-  speed: settings?.voiceSpeed ?? 1, pitch: settings?.voicePitch ?? 1, volume: settings?.voiceVolume ?? 1,
-  language: languageMap[settings?.voiceLanguage || ''] || 'auto', emotion: settings?.voiceEmotion || '',
-  format: 'mp3', sampleRate: 32000, bitrate: 128000, channel: 1
-})
+const profileFor = (settings: any): VoiceProfile => {
+  const geminiConfig = loadGeminiVoiceConfig()
+  const elevenLabsConfig = loadElevenLabsVoiceConfig()
+  return {
+    provider: settings?.voiceProvider === 'seed_audio' || settings?.voiceProvider === 'gemini' || settings?.voiceProvider === 'elevenlabs'
+      ? settings.voiceProvider
+      : 'minimax',
+    model: settings?.voiceModel || 'speech-2.6-turbo', voiceId: settings?.voiceId || 'female-yujie',
+    speed: settings?.voiceSpeed ?? 1, pitch: settings?.voicePitch ?? 1, volume: settings?.voiceVolume ?? 1,
+    language: languageMap[settings?.voiceLanguage || ''] || 'auto', emotion: settings?.voiceEmotion || '',
+    format: 'mp3', sampleRate: 32000, bitrate: 128000, channel: 1,
+    seedAudioMode: settings?.seedAudioMode === 'scene' ? 'scene' : 'speech',
+    seedAudioPromptPrefix: settings?.seedAudioPromptPrefix || '',
+    seedAudioReferenceUrls: Array.isArray(settings?.seedAudioReferenceUrls) ? settings.seedAudioReferenceUrls.filter(Boolean).slice(0, 3) : [],
+    seedAudioMultilingual: settings?.seedAudioMultilingual ?? true,
+    geminiVoiceName: settings?.geminiVoiceName || 'Kore',
+    geminiVoicePrompt: settings?.geminiVoicePrompt || '',
+    geminiModel: geminiConfig.model,
+    geminiEndpoint: `${geminiConfig.transport}:${geminiConfig.protocol}:${geminiConfig.baseUrl}`,
+    elevenLabsVoiceId: settings?.elevenLabsVoiceId || '',
+    elevenLabsModel: settings?.elevenLabsModel || elevenLabsConfig.model,
+    elevenLabsLanguage: settings?.elevenLabsLanguage || '',
+    elevenLabsStability: settings?.elevenLabsStability ?? 0.5,
+    elevenLabsSimilarity: settings?.elevenLabsSimilarity ?? 0.75,
+    elevenLabsStyle: settings?.elevenLabsStyle ?? 0,
+    elevenLabsSpeakerBoost: settings?.elevenLabsSpeakerBoost ?? true,
+    elevenLabsSpeed: settings?.elevenLabsSpeed ?? 1,
+    elevenLabsEndpoint: `${elevenLabsConfig.transport}:${elevenLabsConfig.protocol}:${elevenLabsConfig.baseUrl}:${elevenLabsConfig.outputFormat}`
+  }
+}
 const cacheKeyFor = (msgId: number, text: string, profile: VoiceProfile) => `voice_v2_${msgId}_${hash(JSON.stringify({ text, profile }))}`
 
 async function trimVoiceCache() {
   const entries: Array<{ key: string; size: number; updatedAt: number }> = []
   await voiceStore.iterate((value: unknown, key: string) => {
-    if (typeof value === 'string' && key.startsWith('voice_')) entries.push({ key, size: value.length / 2, updatedAt: 0 })
+    if (key.startsWith('voice_') && (typeof value === 'string' || value instanceof Blob)) {
+      entries.push({ key, size: typeof value === 'string' ? value.length / 2 : value.size, updatedAt: 0 })
+    }
   })
   await Promise.all(entries.map(async entry => { entry.updatedAt = (await voiceMetaStore.getItem<number>(entry.key)) || 0 }))
   let total = entries.reduce((sum, entry) => sum + entry.size, 0)
@@ -64,9 +98,9 @@ async function trimVoiceCache() {
   }
 }
 
-function playAudioHex(hex: string, msgId: number) {
+function playAudio(audio: string | Blob, msgId: number) {
   return new Promise<void>((resolve) => {
-    const blobUrl = URL.createObjectURL(hexToBlob(hex))
+    const blobUrl = URL.createObjectURL(typeof audio === 'string' ? hexToBlob(audio) : audio)
     globalAudioInstance = new Audio(blobUrl)
     const finish = () => {
       URL.revokeObjectURL(blobUrl)
@@ -77,6 +111,50 @@ function playAudioHex(hex: string, msgId: number) {
     globalAudioInstance.onpause = finish
     globalAudioInstance.onerror = finish
     globalAudioInstance.play().then(() => { isPlaying.value = true }).catch(finish)
+  })
+}
+
+const seedAudioPrompt = (text: string, profile: VoiceProfile) => {
+  const reference = profile.seedAudioReferenceUrls.length ? '@Audio1 ' : ''
+  const prefix = profile.seedAudioPromptPrefix.trim()
+  if (profile.seedAudioMode === 'scene') return [prefix, text].filter(Boolean).join('\n')
+  const direction = prefix || '使用自然、有表现力的角色声音，只生成干净人声，不要背景音乐或环境音。'
+  return `${reference}${direction}\n请朗读：“${text}”`
+}
+
+async function synthesizeSeedAudio(text: string, profile: VoiceProfile) {
+  const config = loadSeedAudioConfig()
+  return generateSeedAudio(config, {
+    text: seedAudioPrompt(text, profile),
+    referenceUrls: profile.seedAudioReferenceUrls,
+    multilingual: profile.seedAudioMultilingual,
+    format: profile.format,
+    sampleRate: 24000,
+    speed: profile.speed,
+    volume: profile.volume,
+    pitch: profile.pitch
+  })
+}
+
+async function synthesizeGeminiVoice(text: string, profile: VoiceProfile) {
+  return generateGeminiVoice(loadGeminiVoiceConfig(), {
+    text,
+    voiceName: profile.geminiVoiceName,
+    stylePrompt: profile.geminiVoicePrompt
+  })
+}
+
+async function synthesizeElevenLabsVoice(text: string, profile: VoiceProfile) {
+  return generateElevenLabsVoice(loadElevenLabsVoiceConfig(), {
+    text,
+    voiceId: profile.elevenLabsVoiceId,
+    model: profile.elevenLabsModel,
+    languageCode: profile.elevenLabsLanguage,
+    stability: profile.elevenLabsStability,
+    similarityBoost: profile.elevenLabsSimilarity,
+    style: profile.elevenLabsStyle,
+    useSpeakerBoost: profile.elevenLabsSpeakerBoost,
+    speed: profile.elevenLabsSpeed
   })
 }
 
@@ -96,17 +174,27 @@ async function synthesize(text: string, profile: VoiceProfile, apiKey: string, r
   return data.data.audio as string
 }
 
-async function getAudioHex(cacheKey: string, text: string, profile: VoiceProfile, settings: any) {
-  const cached = await voiceStore.getItem<string>(cacheKey)
+async function getAudio(cacheKey: string, text: string, profile: VoiceProfile, settings: any) {
+  const cached = await voiceStore.getItem<string | Blob>(cacheKey)
   if (cached) { await voiceMetaStore.setItem(cacheKey, Date.now()); return cached }
   const pending = inFlightSynthesis.get(cacheKey)
   if (pending) return pending
-  const configString = localStorage.getItem('minimax_voice_config_v4')
-  if (!configString) throw new Error('MISSING_API_KEY')
-  let config: any
-  try { config = JSON.parse(configString) } catch { throw new Error('MISSING_API_KEY') }
-  if (!config.apiKey) throw new Error('MISSING_API_KEY')
-  const request = synthesize(text, profile, config.apiKey, config.region || 'global', Boolean(settings?.voiceStream))
+  let request: Promise<string | Blob>
+  if (profile.provider === 'seed_audio') {
+    request = synthesizeSeedAudio(text, profile)
+  } else if (profile.provider === 'gemini') {
+    request = synthesizeGeminiVoice(text, profile)
+  } else if (profile.provider === 'elevenlabs') {
+    request = synthesizeElevenLabsVoice(text, profile)
+  } else {
+    const configString = localStorage.getItem('minimax_voice_config_v4')
+    if (!configString) throw new Error('MISSING_API_KEY')
+    let config: any
+    try { config = JSON.parse(configString) } catch { throw new Error('MISSING_API_KEY') }
+    if (!config.apiKey) throw new Error('MISSING_API_KEY')
+    request = synthesize(text, profile, config.apiKey, config.region || 'global', Boolean(settings?.voiceStream))
+  }
+  request = request
     .then(async audio => {
       await Promise.all([voiceStore.setItem(cacheKey, audio), voiceMetaStore.setItem(cacheKey, Date.now())])
       void trimVoiceCache()
@@ -124,8 +212,8 @@ async function executePlayVoice(msgId: number, rawText: string, settings: any) {
   const cacheKey = cacheKeyFor(msgId, text, profile)
   try {
     isSynthesizing.value = true
-    const audio = await getAudioHex(cacheKey, text, profile, settings)
-    await playAudioHex(audio, msgId)
+    const audio = await getAudio(cacheKey, text, profile, settings)
+    await playAudio(audio, msgId)
   } finally { isSynthesizing.value = false }
 }
 

@@ -27,6 +27,9 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'flux-image-api-key', group: '账号与安全', name: 'FLUX 生图 API 密钥', description: 'Black Forest Labs 的访问密钥', sensitive: true, localKeys: ['app_flux_image_apikey'] },
   { id: 'flux-image-api-settings', group: '账号与安全', name: 'FLUX 生图 API 配置', description: '独立代理地址与模型', localKeys: ['app_flux_image_proxy_url', 'app_flux_image_model'] },
   { id: 'minimax-voice', group: '账号与安全', name: 'MiniMax 语音配置', description: '语音服务配置', sensitive: true, localKeys: ['minimax_voice_config_v4'] },
+  { id: 'seed-audio-voice', group: '账号与安全', name: 'Seed Audio 语音配置', description: '独立的官方、fal 与中转服务配置', sensitive: true, localKeys: ['seed_audio_config_v1'] },
+  { id: 'gemini-voice', group: '账号与安全', name: 'Gemini TTS 语音配置', description: '独立的官方与中转服务配置', sensitive: true, localKeys: ['gemini_voice_config_v1'] },
+  { id: 'elevenlabs-voice', group: '账号与安全', name: 'ElevenLabs 语音配置', description: '独立的官方与中转服务配置', sensitive: true, localKeys: ['elevenlabs_voice_config_v1'] },
   { id: 'llm-presets', group: 'AI 与生成设置', name: 'LLM 预设列表', description: '模型预设与参数', localKeys: ['app_llm_presets'] },
   { id: 'novelai-presets', group: 'AI 与生成设置', name: 'NovelAI 预设列表', description: '图像生成预设', localKeys: ['app_novelai_presets'] },
   { id: 'current-ai-preset', group: 'AI 与生成设置', name: '当前 AI 预设', description: '当前使用的模型与图像预设', localKeys: ['app_novelai_current_preset', 'app_novelai_current_prompt_preset'] },
@@ -147,7 +150,7 @@ const BACKUP_INTERNAL_KEYS = new Set([
   'webdav_config',
   'email_backup_password'
 ])
-const SENSITIVE_KEY_PATTERN = /(api[_-]?key|apikey|token|secret|password|credential|clingy_(api|vision_api|summary_api|moment_api|embedding_api)_settings|minimax_voice_config)/i
+const SENSITIVE_KEY_PATTERN = /(api[_-]?key|apikey|token|secret|password|credential|clingy_(api|vision_api|summary_api|moment_api|embedding_api)_settings|minimax_voice_config|seed_audio_config|gemini_voice_config|elevenlabs_voice_config)/i
 const NESTED_SENSITIVE_PROPERTY_PATTERN = /^(api[_-]?key|apikey|token|secret|password|credential)$/i
 
 const isInfrastructureCredentialKey = (key: string) => BACKUP_INTERNAL_KEYS.has(key) || /github.*config|webdav.*config/i.test(key)
