@@ -65,9 +65,9 @@ const store = localforage.createInstance({
 })
 
 // 文本状态
-const leftName = ref('@yuha')
-const rightName = ref('@bunny')
-const slogan = ref('Limited   heartbeat') // 使用空格占位，展示打字机感
+const leftName = ref('@UserA')
+const rightName = ref('@UserB')
+const slogan = ref('Custom   Slogan') // 使用空格占位，展示打字机感
 
 // 文本弹窗状态
 type TextEditType = 'leftName' | 'rightName' | 'slogan'
@@ -96,11 +96,11 @@ onMounted(async () => {
 // 文本弹窗配置
 const currentTextEditConfig = computed(() => {
   if (editingTextType.value === 'leftName') {
-    return { title: '修改昵称', currentText: leftName.value, defaultText: '@yuha', placeholder: '输入左侧昵称' }
+    return { title: '修改昵称', currentText: leftName.value, defaultText: '@UserA', placeholder: '输入左侧昵称' }
   } else if (editingTextType.value === 'rightName') {
-    return { title: '修改昵称', currentText: rightName.value, defaultText: '@bunny', placeholder: '输入右侧昵称' }
+    return { title: '修改昵称', currentText: rightName.value, defaultText: '@UserB', placeholder: '输入右侧昵称' }
   } else {
-    return { title: '修改文案', currentText: slogan.value, defaultText: 'Limited   heartbeat', placeholder: '输入底部文案' }
+    return { title: '修改文案', currentText: slogan.value, defaultText: 'Custom   Slogan', placeholder: '输入底部文案' }
   }
 })
 

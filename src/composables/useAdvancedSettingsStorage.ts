@@ -261,7 +261,7 @@ export function useAdvancedSettingsStorage(showConfirm: (message: string, title?
 
           const isLegacyImage = typeof value === 'string' && value.startsWith('data:image/')
           const isOrphanAvatar = ks.category === 'avatars'
-            && (key.startsWith('persona_avatar_') || key.startsWith('avatar_content_'))
+            && (key.startsWith('persona_avatar_') || key.startsWith('avatar_content_') || key.startsWith('avatar_st_'))
             && !referencedAssetKeys.has(key)
           results.push({
             id: `idb_${ks.name}_${ks.storeName}_${key}`,
@@ -770,7 +770,7 @@ export function useAdvancedSettingsStorage(showConfirm: (message: string, title?
       }
       const avatarStore = localforage.createInstance({ name: 'nrt-app', storeName: 'avatars' })
       for (const key of await avatarStore.keys()) {
-        if (!(key.startsWith('persona_avatar_') || key.startsWith('avatar_content_')) || referencedAvatars.has(key)) continue
+        if (!(key.startsWith('persona_avatar_') || key.startsWith('avatar_content_') || key.startsWith('avatar_st_')) || referencedAvatars.has(key)) continue
         const value = await avatarStore.getItem<any>(key)
         if (typeof value === 'string') releasedBytes += value.startsWith('data:') ? decodedDataUrlSize(value) : utf8Size(value)
         else if (value instanceof Blob) releasedBytes += value.size

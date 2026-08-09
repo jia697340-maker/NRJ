@@ -165,24 +165,24 @@ const totalSelectedSize = computed(() => {
       <div class="deep-clean-view" v-if="show">
         <div class="view-header">
           <button class="back-btn" @click="emit('close')">
-          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="19" y1="12" x2="5" y2="12"></line>
-            <polyline points="12 19 5 12 12 5"></polyline>
-          </svg>
-        </button>
-        <div class="header-info">
-          <h2>{{ getCategoryName(currentCategory) }}</h2>
-          <span class="header-subtitle">共 {{ filteredResults.length }} 个文件</span>
-        </div>
-        <div class="header-actions">
-          <button v-if="isManageMode" class="text-action-btn" @click="selectAll">
-            {{ selectedItems.size === filterDeletable(filteredResults).length && filterDeletable(filteredResults).length > 0 ? '取消全选' : '全选' }}
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
           </button>
-          <button class="text-action-btn" @click="toggleManageMode">
-            {{ isManageMode ? '完成' : '管理' }}
-          </button>
+          <div class="header-info">
+            <h2>{{ getCategoryName(currentCategory) }}</h2>
+            <span class="header-subtitle">共 {{ filteredResults.length }} 个文件</span>
+          </div>
+          <div class="header-actions">
+            <button v-if="isManageMode" class="text-action-btn" @click="selectAll">
+              {{ selectedItems.size === filterDeletable(filteredResults).length && filterDeletable(filteredResults).length > 0 ? '取消全选' : '全选' }}
+            </button>
+            <button class="text-action-btn" @click="toggleManageMode">
+              {{ isManageMode ? '完成' : '管理' }}
+            </button>
+          </div>
         </div>
-      </div>
 
       <div class="view-content">
         <div class="filter-strip" v-if="!isScanning">
@@ -315,16 +315,21 @@ const totalSelectedSize = computed(() => {
 }
 
 .view-header {
+  position: relative;
   height: 60px;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  justify-content: center;
   background: var(--sys-bg-primary);
   border-bottom: 1px solid var(--sys-bg-tertiary);
   flex-shrink: 0;
 }
 
 .back-btn {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 40px;
   height: 40px;
   display: flex;
@@ -335,6 +340,7 @@ const totalSelectedSize = computed(() => {
   color: var(--text-primary);
   cursor: pointer;
   border-radius: 50%;
+  z-index: 10;
 }
 
 .back-btn:active {
@@ -342,10 +348,10 @@ const totalSelectedSize = computed(() => {
 }
 
 .header-info {
-  flex: 1;
-  margin: 0 16px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .header-info h2 {
@@ -359,6 +365,16 @@ const totalSelectedSize = computed(() => {
   font-size: 12px;
   color: var(--text-tertiary);
   margin-top: 2px;
+}
+
+.header-actions {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 10;
 }
 
 .text-action-btn {

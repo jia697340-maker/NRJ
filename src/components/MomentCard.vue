@@ -183,8 +183,8 @@ const bgMainBlur = ref<number>(0)
 const bgLeftUrl = ref<string | null>(null)
 const bgRightUrl = ref<string | null>(null)
 const avatarUrl = ref<string | null>(null)
-const username = ref('in Mo3ent')
-const contentText = ref('人間の少女が誤って天使の国に入った 3*☆°')
+const username = ref('My Moment')
+const contentText = ref('This is a custom moment description...')
 
 // 持久化存储
 const saveData = async () => {
@@ -258,11 +258,11 @@ const openTextModal = (type: 'username' | 'content') => {
   if (type === 'username') {
     textModalTitle.value = '修改用户名'
     currentEditingText.value = username.value
-    defaultText.value = 'in Mo3ent'
+    defaultText.value = 'My Moment'
   } else {
     textModalTitle.value = '修改内容'
     currentEditingText.value = contentText.value
-    defaultText.value = '人間の少女が誤って天使の国に入った 3*☆°'
+    defaultText.value = 'This is a custom moment description...'
   }
   showTextModal.value = true
 }

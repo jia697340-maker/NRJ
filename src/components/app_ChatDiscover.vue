@@ -4,37 +4,47 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import localforage from 'localforage'
 import TextEditModal from './TextEditModal.vue'
 import DiscoverPublish from './app_DiscoverPublish.vue'
-import { useChatAuth } from '../composables/useChatAuth'
-import { useChatState } from '../composables/useChatState'
+import DiscoverDetailModal from './discover/modals/DiscoverDetailModal.vue'
+import DiscoverBehaviorModal from './discover/modals/DiscoverBehaviorModal.vue'
+import DiscoverBatchDeleteModal from './discover/modals/DiscoverBatchDeleteModal.vue'
+
+import { useChatDiscover } from '../composables/useChatDiscover'
 import { sendChatMessage } from '../services/api'
 import { processMomentTags } from '../composables/useChatRoomMessage'
-import { addMomentNotification, canViewMoment, defaultMomentBehavior, getMomentBehavior } from '../services/moments'
+import { addMomentNotification, canViewMoment } from '../services/moments'
+import { getMomentBehavior } from '../services/moments'
 
-const { currentChatUserId, chatAccounts } = useChatAuth()
-const { mockChats, loadCustomContacts } = useChatState()
-const groups = computed(() => {
-  const key = currentChatUserId.value ? `clingy_chat_groups_${currentChatUserId.value}` : 'clingy_chat_groups'
-  return (JSON.parse(localStorage.getItem(key) || '[]') as string[]).map(name => ({ id: name, name }))
-})
-const getKey = (base: string) => currentChatUserId.value ? `${base}_${currentChatUserId.value}` : base
+const {
+  currentChatUserId,
+  mockMoments,
+  groups,
+  personas,
+  activePersonaIndex,
+  activePersona,
+  activeAvatar,
+  activeSignature,
+  showPlayerControls,
+  resolvedAvatars,
+  availableCharacters,
+  allNotifications,
+  unreadNotificationCount,
+  currentActor,
+  getKey,
+  loadPersonas,
+  loadActiveIndex,
+  loadSignature,
+  loadMoments,
+  saveMoments,
+  refreshData,
+  isLikedByMe,
+  toggleMomentLike,
+  toggleCommentLike,
+  formatTime,
+  discoverStore,
+  loadCustomContacts
+} = useChatDiscover()
 
-const mockMoments = ref<any[]>([])
-
-const discoverStore = localforage.createInstance({
-  name: 'nrt-app',
-  storeName: 'discover_moments'
-})
-
-const avatarStore = localforage.createInstance({
-  name: 'nrt-app',
-  storeName: 'avatars'
-})
-
-const personas = ref<any[]>([])
 const showPublishView = ref(false)
-const activePersonaIndex = ref<number>(0)
-const showPlayerControls = ref(true)
-const activeSignature = ref('写点什么吧...')
 const showActionMenu = ref(false)
 const showSignModal = ref(false)
 const activeActionMomentId = ref<string | null>(null)
@@ -44,174 +54,38 @@ const previewImage = ref('')
 const editingMoment = ref<any | null>(null)
 const showMomentEditModal = ref(false)
 const detailMoment = ref<any | null>(null)
+const showDetailModal = ref(false)
 const showNotifications = ref(false)
 const showCharacterPicker = ref(false)
 const showBehaviorSettings = ref(false)
-const showBehaviorEditor = ref(false)
-const behaviorSection = ref<'schedule' | 'interaction' | 'content'>('schedule')
-const showAudienceGroupPicker = ref(false)
 const activeMomentMenuId = ref<string | null>(null)
 const pendingDeleteMoment = ref<any | null>(null)
 const manualMoment = ref<any | null>(null)
-const selectedBehaviorChatId = ref<string | number | null>(null)
-const behaviorDraft = ref<any>(defaultMomentBehavior())
-watch(() => behaviorDraft.value.audience, value => { if (['部分可见', '不给谁看'].includes(value)) showAudienceGroupPicker.value = true })
 const manualViewLoading = ref(false)
 
-const resolvedAvatars = ref<Record<string, string>>({})
-const resolveAccountAvatar = (avatar: unknown) => {
-  if (typeof avatar !== 'string' || !avatar.startsWith('account-avatar:')) return ''
-  const accountId = avatar.slice('account-avatar:'.length)
-  return chatAccounts.value.find(account => account.id === accountId)?.avatarUrl || ''
-}
-const availableCharacters = computed(() => mockChats.value.filter((chat: any) => chat.id !== 1 && !chat.isCreate))
 const manualEligibleCharacters = computed(() => availableCharacters.value.filter((chat: any) => !manualMoment.value || canViewMoment(manualMoment.value, { id: chat.id, name: chat.name, groups: chat.groups, groupIds: chat.groupIds })))
-const allNotifications = computed(() => mockMoments.value.flatMap(moment => (moment.notifications || []).map((notice: any) => ({ ...notice, momentId: moment.id, momentContent: moment.content }))).sort((a, b) => b.createdAt - a.createdAt))
-const unreadNotificationCount = computed(() => allNotifications.value.filter(n => !n.read).length)
 
 const isSelectionMode = ref(false)
 const selectedIds = ref<string[]>([])
 const showBatchDeleteModal = ref(false)
 
-const enterSelectionMode = () => {
-  isSelectionMode.value = true
-  selectedIds.value = []
-  closeActionMenu()
-}
-
-const exitSelectionMode = () => {
-  isSelectionMode.value = false
-  selectedIds.value = []
-}
-
-const toggleSelection = (id: string) => {
-  if (selectedIds.value.includes(id)) {
-    selectedIds.value = selectedIds.value.filter(i => i !== id)
-  } else {
-    selectedIds.value.push(id)
-  }
-}
-
-const isAllSelected = computed(() => {
-  return mockMoments.value.length > 0 && selectedIds.value.length === mockMoments.value.length
-})
-
-const toggleSelectAll = () => {
-  if (isAllSelected.value) {
-    selectedIds.value = []
-  } else {
-    selectedIds.value = mockMoments.value.map(m => m.id)
-  }
-}
-
-const requestBatchDelete = () => {
-  if (selectedIds.value.length > 0) {
-    showBatchDeleteModal.value = true
-  }
-}
-
-const confirmBatchDelete = async () => {
-  if (selectedIds.value.length === 0) return
-  mockMoments.value = mockMoments.value.filter(m => !selectedIds.value.includes(m.id))
-  try {
-    const plainMoments = JSON.parse(JSON.stringify(mockMoments.value))
-    await discoverStore.setItem(getKey('moments_list'), plainMoments)
-  } catch(e) {
-    console.error('Failed to save after batch delete', e)
-  }
-  showBatchDeleteModal.value = false
-  exitSelectionMode()
-}
-
-const loadPersonas = async () => {
-  const saved = localStorage.getItem(getKey('app_chat_personas'))
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved)
-      if (Array.isArray(parsed)) {
-        personas.value = parsed.filter(p => !p.isCreate)
-        // 解析可能存在 localforage 中的头像
-        for (let i = 0; i < personas.value.length; i++) {
-          const p = personas.value[i]
-          if (p.avatar && p.avatar.startsWith('localforage:')) {
-            const key = p.avatar.split(':')[1]
-            try {
-              const realAvatar = await avatarStore.getItem<string>(key)
-              if (realAvatar) {
-                personas.value[i].avatar = realAvatar
-              }
-            } catch (e) {
-              console.error('Failed to load avatar from localforage', e)
-            }
-          } else if (p.avatar && p.avatar.startsWith('account-avatar:')) {
-            personas.value[i].avatar = resolveAccountAvatar(p.avatar)
-          }
-        }
-      }
-    } catch(e) {}
-  }
-}
-
-const activePersona = computed(() => {
-  return personas.value[activePersonaIndex.value] || personas.value[0]
-})
-
-const activeAvatar = computed(() => activePersona.value?.avatar || '')
-
-const loadSignature = () => {
-  if (activePersona.value) {
-    // 读取该角色身上的 customText（也就是资料卡里的自定义文案）
-    activeSignature.value = activePersona.value.customText || '点击设置自定义文案...'
-  } else {
-    activeSignature.value = '写点什么吧...'
-  }
-}
-
-watch(activePersonaIndex, () => {
-  loadSignature()
-})
-
+watch(activePersonaIndex, () => loadSignature())
 watch(currentChatUserId, () => {
   resolvedAvatars.value = {}
   refreshData()
 })
-
-const loadActiveIndex = () => {
-  const savedIndex = localStorage.getItem(getKey('app_chat_active_persona_index'))
-  if (savedIndex !== null) {
-    const idx = parseInt(savedIndex, 10)
-    if (idx >= 0 && idx < personas.value.length) {
-      activePersonaIndex.value = idx
-    } else {
-      activePersonaIndex.value = 0
-    }
-  } else {
-    activePersonaIndex.value = 0
-  }
-}
-
-const refreshData = async () => {
-  await loadPersonas()
-  loadActiveIndex()
-  
-  const savedShowControls = localStorage.getItem('clingy_discover_show_controls')
-  if (savedShowControls !== null) {
-    showPlayerControls.value = savedShowControls === 'true'
-  }
-  
-  loadSignature()
-  loadMoments()
-}
+watch(detailMoment, (val) => {
+  showDetailModal.value = !!val
+})
+watch(showDetailModal, (val) => {
+  if (!val) detailMoment.value = null
+})
 
 onMounted(() => {
   loadCustomContacts()
   refreshData()
-
-  // 监听来自其他页面 (比如资料卡设置) 对 localStorage 的修改
   window.addEventListener('storage', (e) => {
-    if (e.key === getKey('app_chat_personas')) {
-      loadPersonas().then(() => loadSignature())
-    }
+    if (e.key === getKey('app_chat_personas')) loadPersonas().then(() => loadSignature())
     if (e.key === getKey('app_chat_active_persona_index')) {
       loadActiveIndex()
       loadSignature()
@@ -221,81 +95,23 @@ onMounted(() => {
 })
 onUnmounted(() => window.removeEventListener('clingy:moments-updated', loadMoments))
 
-const loadMoments = async () => {
-  try {
-    // 朋友圈与登录身份隔离；保留旧 key 迁移，避免已有动态丢失。
-    const userKey = getKey('moments_list')
-    let saved = await discoverStore.getItem<any[]>(userKey)
-    if (!saved && currentChatUserId.value) {
-      const migrationOwnerKey = 'clingy_moments_legacy_owner'
-      const migrationOwner = localStorage.getItem(migrationOwnerKey)
-      if (!migrationOwner) {
-        const legacy = await discoverStore.getItem<any[]>('moments_list')
-        if (legacy?.length) {
-          saved = legacy
-          await discoverStore.setItem(userKey, legacy)
-        }
-        localStorage.setItem(migrationOwnerKey, String(currentChatUserId.value))
-      }
-    }
-    if (saved && Array.isArray(saved)) {
-      mockMoments.value = saved.map(m => ({
-        ...m,
-        likes: Array.isArray(m.likes) ? m.likes : [],
-        comments: Array.isArray(m.comments) ? m.comments.map((c: any) => ({
-          id: c.id || `${m.id}_${c.author}_${c.content}`,
-          likes: Array.isArray(c.likes) ? c.likes : [],
-          createdAt: c.createdAt || m.time,
-          ...c
-        })) : []
-      })).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || Number(b.time) - Number(a.time))
-
-      // 解析 localforage 头像
-      for (const m of saved) {
-        if (m.avatar && m.avatar.startsWith('localforage:')) {
-          const key = m.avatar.split(':')[1]
-          avatarStore.getItem<string>(key).then(realAvatar => {
-            if (realAvatar) {
-              resolvedAvatars.value[m.id] = realAvatar
-            }
-          }).catch(() => {})
-        } else {
-          const accountAvatar = resolveAccountAvatar(m.avatar)
-          if (accountAvatar) resolvedAvatars.value[m.id] = accountAvatar
-        }
-      }
-    } else {
-      mockMoments.value = []
-    }
-  } catch(e) {
-    console.error('Failed to load moments', e)
-  }
+const enterSelectionMode = () => { isSelectionMode.value = true; selectedIds.value = []; closeActionMenu() }
+const exitSelectionMode = () => { isSelectionMode.value = false; selectedIds.value = [] }
+const toggleSelection = (id: string) => {
+  if (selectedIds.value.includes(id)) selectedIds.value = selectedIds.value.filter(i => i !== id)
+  else selectedIds.value.push(id)
 }
-
-const saveMoments = async () => {
-  await discoverStore.setItem(getKey('moments_list'), JSON.parse(JSON.stringify(mockMoments.value)))
+const isAllSelected = computed(() => mockMoments.value.length > 0 && selectedIds.value.length === mockMoments.value.length)
+const toggleSelectAll = () => {
+  if (isAllSelected.value) selectedIds.value = []
+  else selectedIds.value = mockMoments.value.map(m => m.id)
 }
-
-const currentActor = computed(() => ({
-  id: activePersona.value?.id || 'me',
-  name: activePersona.value?.name || '我'
-}))
-
-const isLikedByMe = (moment: any) => moment.likes?.includes(currentActor.value.name)
-const toggleMomentLike = async (moment: any) => {
-  moment.likes ||= []
-  const index = moment.likes.indexOf(currentActor.value.name)
-  if (index >= 0) moment.likes.splice(index, 1)
-  else moment.likes.push(currentActor.value.name)
-  await saveMoments()
-}
-
-const toggleCommentLike = async (comment: any) => {
-  comment.likes ||= []
-  const index = comment.likes.indexOf(currentActor.value.name)
-  if (index >= 0) comment.likes.splice(index, 1)
-  else comment.likes.push(currentActor.value.name)
-  await saveMoments()
+const confirmBatchDelete = async () => {
+  if (selectedIds.value.length === 0) return
+  mockMoments.value = mockMoments.value.filter(m => !selectedIds.value.includes(m.id))
+  try { await discoverStore.setItem(getKey('moments_list'), JSON.parse(JSON.stringify(mockMoments.value))) } catch(e) {}
+  showBatchDeleteModal.value = false
+  exitSelectionMode()
 }
 
 const openCommentBox = (moment: any, target: any = null) => {
@@ -321,9 +137,24 @@ const submitComment = async () => {
     createdAt: Date.now()
   })
   await saveMoments()
-  commentDraft.value = ''
-  replyTarget.value = null
-  activeActionMomentId.value = null
+  closeCommentBox()
+}
+
+const handleDetailCommentSubmit = async (momentId: string, content: string, target?: { id: string, author: string }) => {
+  const moment = mockMoments.value.find(m => m.id === momentId)
+  if (!moment) return
+  moment.comments ||= []
+  moment.comments.push({
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    author: currentActor.value.name,
+    authorId: currentActor.value.id,
+    content,
+    replyTo: target?.id || '',
+    replyToAuthor: target?.author || '',
+    likes: [],
+    createdAt: Date.now()
+  })
+  await saveMoments()
 }
 
 const deleteComment = async (moment: any, comment: any) => {
@@ -332,66 +163,35 @@ const deleteComment = async (moment: any, comment: any) => {
   await saveMoments()
 }
 
-const closeCommentBox = () => {
-  activeActionMomentId.value = null
-  replyTarget.value = null
-  commentDraft.value = ''
-}
+const closeCommentBox = () => { activeActionMomentId.value = null; replyTarget.value = null; commentDraft.value = '' }
 
-// 供模板使用的头像提取方法
 const getAvatarUrl = (moment: any) => {
-  if (resolvedAvatars.value[moment.id]) {
-    return resolvedAvatars.value[moment.id]
-  }
+  if (resolvedAvatars.value[moment.id]) return resolvedAvatars.value[moment.id]
   if (!moment.avatar) return ''
   const url = moment.avatar
-  if (url.startsWith('data:image') || url.startsWith('http') || url.startsWith('blob:') || url.startsWith('/') || url.startsWith('./')) {
-    return url
-  }
+  if (url.startsWith('data:image') || url.startsWith('http') || url.startsWith('blob:') || url.startsWith('/') || url.startsWith('./')) return url
   return ''
 }
 
 const getAvatarText = (moment: any) => {
-  if (moment.avatar && !moment.avatar.startsWith('localforage:') && !getAvatarUrl(moment)) {
-    return moment.avatar
-  }
+  if (moment.avatar && !moment.avatar.startsWith('localforage:') && !getAvatarUrl(moment)) return moment.avatar
   return moment.author ? moment.author.charAt(0) : '我'
 }
 
-// 格式化时间戳为“刚刚/x分钟前”的流式文字
-const formatTime = (timestamp: number | string) => {
-  const time = typeof timestamp === 'string' ? parseInt(timestamp) : timestamp
-  if (isNaN(time)) return timestamp // 如果是旧数据存的字面量（如"刚刚"），直接返回
-
-  const now = Date.now()
-  const diff = now - time
-  
-  if (diff < 60000) return '刚刚'
-  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
-  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
-  if (diff < 172800000) return '昨天'
-  
-  const date = new Date(time)
-  return `${date.getMonth() + 1}月${date.getDate()}日`
+const confirmDeleteMoment = async () => {
+  if (!pendingDeleteMoment.value) return
+  mockMoments.value = mockMoments.value.filter(m => m.id !== pendingDeleteMoment.value.id)
+  try { await discoverStore.setItem(getKey('moments_list'), JSON.parse(JSON.stringify(mockMoments.value))) } catch(e) {}
+  if (detailMoment.value?.id === pendingDeleteMoment.value.id) detailMoment.value = null
+  pendingDeleteMoment.value = null
 }
 
-const handleDeleteMoment = async (id: string) => {
-  mockMoments.value = mockMoments.value.filter(m => m.id !== id)
-  try {
-    const plainMoments = JSON.parse(JSON.stringify(mockMoments.value))
-    await discoverStore.setItem(getKey('moments_list'), plainMoments)
-  } catch(e) {
-    console.error('Failed to save after delete', e)
-  }
-}
-const confirmDeleteMoment = async () => { if (!pendingDeleteMoment.value) return; await handleDeleteMoment(pendingDeleteMoment.value.id); if (detailMoment.value?.id === pendingDeleteMoment.value.id) detailMoment.value = null; pendingDeleteMoment.value = null }
 const togglePinned = async (moment: any) => { moment.pinned = !moment.pinned; mockMoments.value.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || Number(b.time) - Number(a.time)); await saveMoments() }
 const openMomentEdit = (moment: any) => { editingMoment.value = moment; showMomentEditModal.value = true }
 const saveMomentEdit = async (content: string) => { if (editingMoment.value) { editingMoment.value.content = content.trim(); editingMoment.value.updatedAt = Date.now(); await saveMoments() }; showMomentEditModal.value = false }
-
 const openDetail = (moment: any) => { activeMomentMenuId.value = null; if (!isSelectionMode.value) detailMoment.value = moment }
-const prepareDetailComment = (moment: any, target: any = null) => { activeActionMomentId.value = moment.id; replyTarget.value = target ? { id: target.id, author: target.author } : null; commentDraft.value = '' }
 const openManualViewer = (moment: any) => { manualMoment.value = moment; showCharacterPicker.value = true }
+
 const requestCharacterView = async (chat: any) => {
   if (!manualMoment.value || manualViewLoading.value) return
   manualViewLoading.value = true
@@ -421,89 +221,33 @@ const requestCharacterView = async (chat: any) => {
     showCharacterPicker.value = false
   }
 }
+
 const markNotificationsRead = async () => { mockMoments.value.forEach(m => (m.notifications || []).forEach((n: any) => n.read = true)); await saveMoments() }
 const openNotificationMoment = async (notice: any) => { const moment = mockMoments.value.find(m => m.id === notice.momentId); if (!moment) return; const original = (moment.notifications || []).find((n: any) => n.id === notice.id); if (original) original.read = true; await saveMoments(); showNotifications.value = false; detailMoment.value = moment }
-const openBehavior = (chat: any) => {
-  selectedBehaviorChatId.value = chat.id
-  behaviorDraft.value = JSON.parse(JSON.stringify(getMomentBehavior(chat)))
-  behaviorSection.value = 'schedule'
-  showBehaviorSettings.value = false
-  showBehaviorEditor.value = true
-}
-const closeBehaviorEditor = () => {
-  showBehaviorEditor.value = false
-  selectedBehaviorChatId.value = null
-}
-const adjustBehaviorNumber = (field: string, delta: number, min = 0, max = 999) => {
-  behaviorDraft.value[field] = Math.min(max, Math.max(min, Number(behaviorDraft.value[field] || 0) + delta))
-}
-const saveBehavior = () => {
-  const chat = availableCharacters.value.find((item: any) => item.id === selectedBehaviorChatId.value)
-  if (!chat) return
-  chat.momentBehavior = JSON.parse(JSON.stringify(behaviorDraft.value))
-  const key = currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
-  const saved = JSON.parse(localStorage.getItem(key) || '[]')
-  const target = saved.find((item: any) => item.id === chat.id)
-  if (target) target.momentBehavior = chat.momentBehavior
-  localStorage.setItem(key, JSON.stringify(saved))
-  closeBehaviorEditor()
-}
 
 const handlePublish = async (data: { text: string, images: {url: string, isBase64: boolean}[], visibility: string, groupIds?: string[], location?: string, mentions?: { id: string | number, name: string }[] }) => {
-  // 如果当前有人设，则使用当前人设的名字和头像
   const currentName = activePersona.value?.name || '我'
   const currentAvatar = activePersona.value?.avatar || ''
-
   const newMoment = {
-    id: Date.now().toString(),
-    author: currentName,
-    avatar: currentAvatar, 
-    content: data.text,
-    images: data.images.map(img => img.url),
-    time: Date.now(), // 存入真实时间戳
-    visibility: data.visibility,
-    visibilityGroups: data.groupIds || [],
-    location: data.location || '',
-    mentions: data.mentions || [],
-    isOwn: true, // 标记是自己发布的动态
-    likes: [] as string[],
-    comments: [] as { author: string, content: string }[]
+    id: Date.now().toString(), author: currentName, avatar: currentAvatar, content: data.text,
+    images: data.images.map(img => img.url), time: Date.now(), visibility: data.visibility,
+    visibilityGroups: data.groupIds || [], location: data.location || '', mentions: data.mentions || [],
+    isOwn: true, likes: [], comments: []
   }
-  
   const firstUnpinned = mockMoments.value.findIndex(m => !m.pinned)
   mockMoments.value.splice(firstUnpinned < 0 ? mockMoments.value.length : firstUnpinned, 0, newMoment)
   showPublishView.value = false
-  
-  try {
-    // 将 Vue 的 Proxy 响应式对象深拷贝解构为普通数组，避免 localforage 的 DataCloneError
-    const plainMoments = JSON.parse(JSON.stringify(mockMoments.value))
-    await discoverStore.setItem(getKey('moments_list'), plainMoments)
-  } catch(e) {
-    console.error('Failed to save moments', e)
-  }
+  try { await discoverStore.setItem(getKey('moments_list'), JSON.parse(JSON.stringify(mockMoments.value))) } catch(e) {}
 }
 
-const toggleActionMenu = () => {
-  showActionMenu.value = !showActionMenu.value
-}
-const closeActionMenu = () => {
-  showActionMenu.value = false
-}
-
-const togglePlayerControls = () => {
-  showPlayerControls.value = !showPlayerControls.value
-  localStorage.setItem('clingy_discover_show_controls', String(showPlayerControls.value))
-  closeActionMenu()
-}
-
-const openSignModal = () => {
-  showSignModal.value = true
-}
+const toggleActionMenu = () => showActionMenu.value = !showActionMenu.value
+const closeActionMenu = () => showActionMenu.value = false
+const togglePlayerControls = () => { showPlayerControls.value = !showPlayerControls.value; localStorage.setItem('clingy_discover_show_controls', String(showPlayerControls.value)); closeActionMenu() }
+const openSignModal = () => showSignModal.value = true
 
 const handleSignSave = (text: string) => {
   activeSignature.value = text
   if (activePersona.value) {
-    // 保存回 app_chat_personas，实现两边同步
     const saved = localStorage.getItem(getKey('app_chat_personas'))
     if (saved) {
       try {
@@ -512,12 +256,8 @@ const handleSignSave = (text: string) => {
         if (target) {
           target.customText = text
           localStorage.setItem(getKey('app_chat_personas'), JSON.stringify(parsed))
-          
-          // 同时更新当前内存中的 activePersona
           const pIndex = personas.value.findIndex(p => p.id === activePersona.value.id)
-          if (pIndex !== -1) {
-            personas.value[pIndex].customText = text
-          }
+          if (pIndex !== -1) personas.value[pIndex].customText = text
         }
       } catch(e) {}
     }
@@ -527,35 +267,22 @@ const handleSignSave = (text: string) => {
 
 <template>
   <div class="view-container with-tabbar discover-view">
-    <!-- 渐变竖条纹背景 -->
     <div class="discover-bg"></div>
 
     <main class="discover-main">
-      <!-- 顶部悬浮操作栏 -->
       <div class="discover-top-actions">
         <template v-if="!isSelectionMode">
           <div style="position: relative;">
-            <!-- 左上角星星 -->
             <svg @click="toggleActionMenu" viewBox="0 0 24 24" width="22" height="22" stroke="#555" stroke-width="2" fill="none" class="top-action-icon"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
             <span v-if="unreadNotificationCount" class="moment-unread-badge">{{ unreadNotificationCount > 99 ? '99+' : unreadNotificationCount }}</span>
-            
             <div v-if="showActionMenu" class="dropdown-overlay" @click.stop="closeActionMenu"></div>
             <div v-if="showActionMenu" class="action-dropdown">
-              <div class="action-item" @click.stop="togglePlayerControls">
-                {{ showPlayerControls ? '隐藏播放条' : '显示播放条' }}
-              </div>
-              <div class="action-item" @click.stop="enterSelectionMode">
-                批量删除
-              </div>
-              <div class="action-item" @click.stop="showNotifications = true; closeActionMenu()">
-                互动消息<span v-if="unreadNotificationCount">（{{ unreadNotificationCount }}）</span>
-              </div>
-              <div class="action-item" @click.stop="showBehaviorSettings = true; closeActionMenu()">
-                角色朋友圈设置
-              </div>
+              <div class="action-item" @click.stop="togglePlayerControls">{{ showPlayerControls ? '隐藏播放条' : '显示播放条' }}</div>
+              <div class="action-item" @click.stop="enterSelectionMode">批量删除</div>
+              <div class="action-item" @click.stop="showNotifications = true; closeActionMenu()">互动消息<span v-if="unreadNotificationCount">（{{ unreadNotificationCount }}）</span></div>
+              <div class="action-item" @click.stop="showBehaviorSettings = true; closeActionMenu()">角色朋友圈设置</div>
             </div>
           </div>
-          <!-- 右上角相机 -->
           <svg @click="showPublishView = true" viewBox="0 0 24 24" width="22" height="22" stroke="#555" stroke-width="2" fill="none" class="top-action-icon"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
         </template>
         <template v-else>
@@ -564,46 +291,31 @@ const handleSignSave = (text: string) => {
         </template>
       </div>
 
-      <!-- 头部区域 (背景之上) -->
       <div class="discover-header-section">
-        <!-- 头像 -->
         <div class="discover-avatar-wrapper">
           <div class="discover-avatar-placeholder" v-if="!activeAvatar"></div>
           <img v-else :src="activeAvatar" class="discover-avatar-img" />
         </div>
-        
-        <!-- 播放器区域 -->
         <div class="discover-player">
           <div class="player-pill" @click="openSignModal">
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="#999" stroke-width="2" fill="none" class="heart-icon"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
             <div class="signature-text">{{ activeSignature }}</div>
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="#555" stroke-width="2" fill="#555" class="heart-icon"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
           </div>
-          
-          <div class="progress-bar-container" v-if="showPlayerControls">
-            <div class="progress-track"><div class="progress-fill"></div></div>
-          </div>
-          
+          <div class="progress-bar-container" v-if="showPlayerControls"><div class="progress-track"><div class="progress-fill"></div></div></div>
           <div class="player-controls" v-if="showPlayerControls">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            <svg viewBox="0 0 24 24" width="20" height="20" stroke="#888" stroke-width="2" fill="#888" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>
-            <div class="play-btn">
-              <svg viewBox="0 0 24 24" width="20" height="20" stroke="#fff" stroke-width="2" fill="#fff" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-            </div>
-            <svg viewBox="0 0 24 24" width="20" height="20" stroke="#888" stroke-width="2" fill="#888" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="#888" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="#888" stroke-width="2" fill="#888"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>
+            <div class="play-btn"><svg viewBox="0 0 24 24" width="20" height="20" stroke="#fff" stroke-width="2" fill="#fff"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg></div>
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="#888" stroke-width="2" fill="#888"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="#888" stroke-width="2" fill="none"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
           </div>
         </div>
       </div>
 
-      <!-- 动态信息流区域 -->
       <div class="discover-moments-section">
         <div v-for="moment in mockMoments" :key="moment.id" class="moment-item" :class="{'is-selection-mode': isSelectionMode}" @click="isSelectionMode ? toggleSelection(moment.id) : openDetail(moment)">
-          <div v-if="isSelectionMode" class="moment-checkbox">
-            <div class="checkbox-circle" :class="{'is-checked': selectedIds.includes(moment.id)}">
-              <svg v-if="selectedIds.includes(moment.id)" viewBox="0 0 24 24" width="14" height="14" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            </div>
-          </div>
+          <div v-if="isSelectionMode" class="moment-checkbox"><div class="checkbox-circle" :class="{'is-checked': selectedIds.includes(moment.id)}"><svg v-if="selectedIds.includes(moment.id)" viewBox="0 0 24 24" width="14" height="14" stroke="#fff" stroke-width="3" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg></div></div>
           <div class="moment-avatar">
             <img v-if="getAvatarUrl(moment)" :src="getAvatarUrl(moment)" style="width: 100%; height: 100%; border-radius: 8px; object-fit: cover;" />
             <span v-else>{{ getAvatarText(moment) }}</span>
@@ -622,44 +334,24 @@ const handleSignSave = (text: string) => {
             <div class="moment-footer">
               <div class="moment-time-wrap">
                 <span class="moment-time">{{ formatTime(moment.time) }}</span>
-                <!-- 仅当非公开时显示人群小图标 -->
                 <svg v-if="moment.visibility && moment.visibility !== '公开'" viewBox="0 0 24 24" width="14" height="14" stroke="#888" stroke-width="2" fill="none" class="visibility-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                 <div v-if="moment.isOwn && !isSelectionMode" class="own-moment-menu-wrap"><button class="own-moment-more" @click.stop="activeMomentMenuId = activeMomentMenuId === moment.id ? null : moment.id">•••</button><div v-if="activeMomentMenuId === moment.id" class="own-moment-menu"><button @click.stop="openMomentEdit(moment); activeMomentMenuId = null">编辑</button><button @click.stop="togglePinned(moment); activeMomentMenuId = null">{{ moment.pinned ? '取消置顶' : '置顶' }}</button><button class="danger" @click.stop="pendingDeleteMoment = moment; activeMomentMenuId = null">删除</button></div></div>
               </div>
               <div class="moment-actions" v-if="!isSelectionMode">
-                <button class="moment-action-btn" title="让角色看看" @click.stop="openManualViewer(moment)">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"></circle><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path></svg>
-                </button>
-                <button class="moment-action-btn" :class="{ active: isLikedByMe(moment) }" :title="isLikedByMe(moment) ? '取消点赞' : '点赞'" @click.stop="toggleMomentLike(moment)">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" :fill="isLikedByMe(moment) ? 'currentColor' : 'none'"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-                </button>
-                <button class="moment-action-btn" title="评论" aria-label="评论" @click.stop="openCommentBox(moment)">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-                </button>
+                <button class="moment-action-btn" title="让角色看看" @click.stop="openManualViewer(moment)"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"></circle><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path></svg></button>
+                <button class="moment-action-btn" :class="{ active: isLikedByMe(moment) }" :title="isLikedByMe(moment) ? '取消点赞' : '点赞'" @click.stop="toggleMomentLike(moment)"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" :fill="isLikedByMe(moment) ? 'currentColor' : 'none'"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg></button>
+                <button class="moment-action-btn" title="评论" @click.stop="openCommentBox(moment)"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg></button>
               </div>
             </div>
 
-            <!-- 点赞和评论展示区 -->
             <div class="moment-interactions" v-if="(moment.likes && moment.likes.length) || (moment.comments && moment.comments.length)">
-              <div class="moment-likes" v-if="moment.likes && moment.likes.length">
-                <svg viewBox="0 0 24 24" width="12" height="12" stroke="#576b95" stroke-width="2" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-                <span class="like-names">{{ moment.likes.join(', ') }}</span>
-              </div>
+              <div class="moment-likes" v-if="moment.likes && moment.likes.length"><svg viewBox="0 0 24 24" width="12" height="12" stroke="#576b95" stroke-width="2" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg><span class="like-names">{{ moment.likes.join(', ') }}</span></div>
               <div class="moment-comments" v-if="moment.comments && moment.comments.length">
                 <div v-for="(comment, cIdx) in moment.comments" :key="comment.id || cIdx" class="comment-item">
-                  <div class="comment-main" @click.stop="openCommentBox(moment, comment)">
-                    <span class="comment-author">{{ comment.author }}</span>
-                    <span v-if="comment.replyToAuthor" class="comment-reply">回复 {{ comment.replyToAuthor }}</span>:
-                    <span class="comment-text">{{ comment.content }}</span>
-                  </div>
+                  <div class="comment-main" @click.stop="openCommentBox(moment, comment)"><span class="comment-author">{{ comment.author }}</span><span v-if="comment.replyToAuthor" class="comment-reply">回复 {{ comment.replyToAuthor }}</span>:<span class="comment-text">{{ comment.content }}</span></div>
                   <div class="comment-tools">
-                    <button title="赞这条评论" aria-label="赞这条评论" @click.stop="toggleCommentLike(comment)" :class="{ active: comment.likes?.includes(currentActor.name) }">
-                      <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-                      <span v-if="comment.likes?.length">{{ comment.likes.length }}</span>
-                    </button>
-                    <button v-if="comment.authorId === currentActor.id || comment.author === currentActor.name" title="删除评论" aria-label="删除评论" @click.stop="deleteComment(moment, comment)">
-                      <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14H6L5 6m3 0V4h8v2"></path></svg>
-                    </button>
+                    <button @click.stop="toggleCommentLike(comment)" :class="{ active: comment.likes?.includes(currentActor.name) }"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg><span v-if="comment.likes?.length">{{ comment.likes.length }}</span></button>
+                    <button v-if="comment.authorId === currentActor.id || comment.author === currentActor.name" @click.stop="deleteComment(moment, comment)"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14H6L5 6m3 0V4h8v2"></path></svg></button>
                   </div>
                 </div>
               </div>
@@ -675,632 +367,63 @@ const handleSignSave = (text: string) => {
       </div>
     </main>
 
-    <!-- 文本编辑弹窗 -->
-    <TextEditModal
-      v-model:visible="showSignModal"
-      title="自定义文案"
-      :current-text="activeSignature"
-      default-text="点击设置自定义文案..."
-      placeholder="输入自定义文案"
-      @saved="handleSignSave"
-    />
+    <TextEditModal v-model:visible="showSignModal" title="自定义文案" :current-text="activeSignature" default-text="点击设置自定义文案..." placeholder="输入自定义文案" @saved="handleSignSave" />
     <TextEditModal v-model:visible="showMomentEditModal" title="编辑朋友圈" :current-text="editingMoment?.content || ''" default-text="" placeholder="这一刻的想法" @saved="saveMomentEdit" />
     
-    <!-- 全屏发布界面 (通过 Teleport 挂载到 body 以遮挡底栏) -->
     <Teleport to="body">
-      <div v-if="detailMoment" class="moment-modal-overlay" @click.self="detailMoment = null">
-        <div class="moment-detail-modal">
-          <header><button @click="detailMoment = null">‹</button><strong>详情</strong><span></span></header>
-          <section><div class="detail-author">{{ detailMoment.author }}</div><p>{{ detailMoment.content }}</p><div class="detail-meta-row"><span>{{ formatTime(detailMoment.time) }}</span><span>{{ detailMoment.visibility || '公开' }}</span><span v-if="detailMoment.updatedAt">已编辑</span></div><div v-if="detailMoment.location" class="moment-meta">⌖ {{ detailMoment.location }}</div><div v-if="detailMoment.mentions?.length" class="moment-meta">@{{ detailMoment.mentions.map((person: any) => person.name).join(' @') }}</div>
-            <div class="detail-grid" :class="`count-${Math.min(detailMoment.images?.length || 0, 9)}`"><img v-for="(img, index) in detailMoment.images || []" :key="index" :src="img" @click="previewImage = img" /></div>
-            <div class="detail-like-list" v-if="detailMoment.likes?.length">♡ {{ detailMoment.likes.join('、') }}</div><div class="detail-like-list" v-if="detailMoment.views?.length">浏览：{{ detailMoment.views.map((person: any) => person.name).join('、') }}</div>
-            <div class="detail-comment-list"><div v-for="comment in detailMoment.comments || []" :key="comment.id" @click="prepareDetailComment(detailMoment, comment)"><b>{{ comment.author }}</b><span v-if="comment.replyToAuthor"> 回复 <b>{{ comment.replyToAuthor }}</b></span>：{{ comment.content }} <button @click.stop="toggleCommentLike(comment)">♡{{ comment.likes?.length || '' }}</button></div></div>
-            <div class="detail-composer"><span v-if="replyTarget">回复 {{ replyTarget.author }}</span><input v-model="commentDraft" :placeholder="replyTarget ? `回复 ${replyTarget.author}` : '写评论…'" @keyup.enter="submitComment"/><button :disabled="!commentDraft.trim()" @click="submitComment">发送</button></div>
-          </section>
-        </div>
-      </div>
+      <!-- 动态详情弹窗 -->
+      <DiscoverDetailModal
+        v-model:visible="showDetailModal"
+        :moment="detailMoment"
+        :formatTime="formatTime"
+        :currentActor="currentActor"
+        @preview="url => previewImage = url"
+        @submit-comment="handleDetailCommentSubmit"
+        @toggle-like="toggleCommentLike"
+      />
+
+      <!-- 图片预览 -->
       <div v-if="previewImage" class="image-preview-overlay" @click="previewImage = ''"><img :src="previewImage" @click.stop /><a :href="previewImage" download="moment-image.png" @click.stop>保存图片</a></div>
+      
+      <!-- 角色查看 -->
       <div v-if="showCharacterPicker" class="moment-modal-overlay" @click.self="showCharacterPicker = false"><div class="moment-sheet"><h3>让谁看看这条</h3><button v-for="chat in manualEligibleCharacters" :key="chat.id" :disabled="manualViewLoading" @click="requestCharacterView(chat)">{{ chat.name }}</button><div v-if="!manualEligibleCharacters.length" class="empty-note">没有角色拥有这条动态的查看权限</div><button @click="showCharacterPicker = false">取消</button></div></div>
+      
+      <!-- 通知消息 -->
       <div v-if="showNotifications" class="moment-modal-overlay" @click.self="showNotifications = false"><div class="moment-sheet notification-sheet"><h3>互动消息</h3><div v-if="!allNotifications.length" class="empty-note">还没有新互动</div><div v-for="notice in allNotifications" :key="notice.id" class="notice-item" :class="{ unread: !notice.read }" @click="openNotificationMoment(notice)"><b>{{ notice.actorName }}</b> {{ notice.type === 'like' ? '赞了你的动态' : notice.type === 'comment' ? `评论：${notice.content}` : notice.type === 'reply' ? `回复：${notice.content}` : notice.type === 'view' ? '查看了这条动态' : '赞了你的评论' }}<small>{{ formatTime(notice.createdAt) }}</small></div><button @click="markNotificationsRead">全部已读</button><button @click="showNotifications = false">关闭</button></div></div>
-      <div v-if="showBehaviorSettings" class="moment-modal-overlay behavior-modal-overlay" @click.self="showBehaviorSettings = false">
-        <div class="custom-modal behavior-picker-modal">
-          <div class="behavior-picker-header">
-            <h3>选择要设置的角色</h3>
-            <p class="behavior-picker-tip">默认由角色像真人一样自主决定；需要时也可为单个角色启用手动规则。</p>
-          </div>
-          <div class="behavior-role-list">
-            <button v-for="chat in availableCharacters" :key="chat.id" class="behavior-role-item" @click="openBehavior(chat)">
-              <span>{{ chat.name }}</span><span class="behavior-role-arrow">›</span>
-            </button>
-            <div v-if="!availableCharacters.length" class="empty-note">暂无可设置的角色</div>
-          </div>
-          <div class="behavior-picker-footer">
-            <button class="behavior-picker-cancel" @click="showBehaviorSettings = false">取消</button>
-          </div>
-        </div>
-      </div>
-      <div v-if="showBehaviorEditor" class="moment-modal-overlay behavior-modal-overlay" @click.self="closeBehaviorEditor">
-        <div class="behavior-panel">
-          <header><button @click="closeBehaviorEditor">‹</button><strong>{{ availableCharacters.find((chat: any) => chat.id === selectedBehaviorChatId)?.name }} 的朋友圈</strong><span></span></header>
-          <div class="behavior-form">
-            <div class="behavior-row behavior-mode-row"><span><b>真人自主模式</b><small>由角色按人设、情境和关系自由决定，不使用下面的概率、冷却或预设文风</small></span><label class="behavior-switch"><input type="checkbox" :checked="behaviorDraft.mode !== 'custom'" @change="behaviorDraft.mode = ($event.target as HTMLInputElement).checked ? 'autonomous' : 'custom'"><i></i></label></div>
-            <div v-if="behaviorDraft.mode !== 'custom'" class="behavior-autonomous-note">已关闭全部行为参数。角色想不想发、发不发图、要不要点赞评论以及怎么说，都由角色自己决定。</div>
-            <template v-else>
-              <div class="behavior-manual-label">高级手动规则</div>
-              <div class="behavior-section-nav"><button :class="{ active: behaviorSection === 'schedule' }" @click="behaviorSection = 'schedule'">频率</button><button :class="{ active: behaviorSection === 'interaction' }" @click="behaviorSection = 'interaction'">互动</button><button :class="{ active: behaviorSection === 'content' }" @click="behaviorSection = 'content'">内容</button></div>
-              <template v-if="behaviorSection === 'schedule'"><div class="behavior-row"><span>活跃开始</span><div class="stepper"><button @click="adjustBehaviorNumber('activeStart', -1, 0, 23)">−</button><b>{{ behaviorDraft.activeStart }}:00</b><button @click="adjustBehaviorNumber('activeStart', 1, 0, 23)">＋</button></div></div><div class="behavior-row"><span>活跃结束</span><div class="stepper"><button @click="adjustBehaviorNumber('activeEnd', -1, 0, 23)">−</button><b>{{ behaviorDraft.activeEnd }}:00</b><button @click="adjustBehaviorNumber('activeEnd', 1, 0, 23)">＋</button></div></div><div class="behavior-row"><span>发帖冷却</span><div class="stepper"><button @click="adjustBehaviorNumber('postCooldownMinutes', -10)">−</button><b>{{ behaviorDraft.postCooldownMinutes }} 分钟</b><button @click="adjustBehaviorNumber('postCooldownMinutes', 10)">＋</button></div></div></template>
-              <template v-else-if="behaviorSection === 'interaction'"><div class="behavior-row"><span>互动冷却</span><div class="stepper"><button @click="adjustBehaviorNumber('interactCooldownMinutes', -5)">−</button><b>{{ behaviorDraft.interactCooldownMinutes }} 分钟</b><button @click="adjustBehaviorNumber('interactCooldownMinutes', 5)">＋</button></div></div><div class="behavior-slider"><div><span>点赞概率</span><b>{{ behaviorDraft.likeProbability }}%</b></div><input type="range" min="0" max="100" v-model.number="behaviorDraft.likeProbability" /></div><div class="behavior-slider"><div><span>评论概率</span><b>{{ behaviorDraft.commentProbability }}%</b></div><input type="range" min="0" max="100" v-model.number="behaviorDraft.commentProbability" /></div></template>
-              <template v-else><div class="behavior-slider"><div><span>发图概率</span><b>{{ behaviorDraft.imageProbability }}%</b></div><input type="range" min="0" max="100" v-model.number="behaviorDraft.imageProbability" /></div><div class="behavior-text"><span>额外表达偏好（可留空）</span><textarea v-model="behaviorDraft.style" placeholder="留空时完全遵循角色自己的人设"></textarea></div><button class="behavior-choice" @click="showAudienceGroupPicker = true"><span>默认受众</span><b>{{ behaviorDraft.audience }} <i>›</i></b></button></template>
-            </template>
-            <button class="behavior-save" @click="saveBehavior">保存设置</button>
-          </div>
-        </div>
-      </div>
-      <div v-if="showAudienceGroupPicker" class="moment-modal-overlay audience-picker-overlay" @click.self="showAudienceGroupPicker = false">
-        <div class="moment-sheet"><h3>默认受众</h3>
-          <button v-for="audience in ['公开', '私密', '部分可见', '不给谁看']" :key="audience" class="audience-option" :class="{ active: behaviorDraft.audience === audience }" @click="behaviorDraft.audience = audience"><span>{{ audience }}</span><span v-if="behaviorDraft.audience === audience">✓</span></button>
-          <template v-if="['部分可见', '不给谁看'].includes(behaviorDraft.audience)"><h3 class="audience-group-title">选择分组</h3><label v-for="group in groups" :key="group.id" class="audience-check"><span>{{ group.name }}</span><input type="checkbox" :value="group.id" v-model="behaviorDraft.audienceGroupIds" /></label><div v-if="!groups.length" class="empty-note">请先在联系人中创建分组</div></template>
-          <button @click="showAudienceGroupPicker = false">确定</button>
-        </div>
-      </div>
+      
+      <!-- 朋友圈行为设置弹窗 -->
+      <DiscoverBehaviorModal
+        v-model:visible="showBehaviorSettings"
+        :availableCharacters="availableCharacters"
+        :groups="groups"
+        :getMomentBehavior="getMomentBehavior"
+        @contacts-updated="loadCustomContacts"
+      />
+      
+      <!-- 删除确认 -->
       <div v-if="pendingDeleteMoment" class="moment-modal-overlay" @click.self="pendingDeleteMoment = null"><div class="moment-sheet"><h3>删除朋友圈</h3><div class="empty-note">删除后无法恢复，确定继续吗？</div><button class="danger-text" @click="confirmDeleteMoment">删除</button><button @click="pendingDeleteMoment = null">取消</button></div></div>
+      
       <Transition name="zoom-fade">
-        <DiscoverPublish 
-          v-if="showPublishView" 
-          @close="showPublishView = false"
-          @publish="handlePublish"
-        />
+        <DiscoverPublish v-if="showPublishView" @close="showPublishView = false" @publish="handlePublish" />
       </Transition>
     </Teleport>
 
-    <!-- 底部批量删除栏 (同样通过 Teleport 覆盖底栏) -->
+    <!-- 底部批量删除栏 -->
     <Teleport to="body">
       <div v-if="isSelectionMode" class="batch-delete-bar">
         <div class="batch-delete-info">已选 {{ selectedIds.length }} 项</div>
-        <button class="batch-delete-btn" :disabled="selectedIds.length === 0" @click="requestBatchDelete">删除</button>
+        <button class="batch-delete-btn" :disabled="selectedIds.length === 0" @click="showBatchDeleteModal = true">删除</button>
       </div>
 
-      <!-- 自定义批量删除确认弹窗 -->
-      <div v-if="showBatchDeleteModal" class="custom-modal-overlay" @click.self="showBatchDeleteModal = false">
-        <div class="custom-modal">
-          <div class="custom-modal-title">提示</div>
-          <div class="custom-modal-content">确定要删除选中的 {{ selectedIds.length }} 条朋友圈吗？</div>
-          <div class="custom-modal-actions">
-            <div class="custom-modal-btn cancel-btn" @click="showBatchDeleteModal = false">取消</div>
-            <div class="custom-modal-btn confirm-btn" @click="confirmBatchDelete">确定</div>
-          </div>
-        </div>
-      </div>
+      <DiscoverBatchDeleteModal
+        v-model:visible="showBatchDeleteModal"
+        :count="selectedIds.length"
+        @confirm="confirmBatchDelete"
+      />
     </Teleport>
   </div>
 </template>
 
 <style scoped>
-.view-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; z-index: 1; }
-.with-tabbar { height: 100%; padding-bottom: 90px; }
-/* ================= 发现页 (Discover) ================= */
-.selection-action-btn {
-  font-size: 15px;
-  color: #555;
-  cursor: pointer;
-  padding: 4px 8px;
-}
-.discover-view {
-  background-color: var(--sys-bg-primary);
-  overflow: hidden;
-}
-
-.discover-bg {
-  position: absolute;
-  top: 0; left: 0; width: 100%; height: 400px;
-  background-color: var(--sys-bg-secondary);
-  background-image: radial-gradient(#e8e8e8 15%, transparent 16%), radial-gradient(#e8e8e8 15%, transparent 16%);
-  background-size: 24px 24px;
-  background-position: 0 0, 12px 12px;
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%);
-  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%);
-  z-index: 0;
-}
-
-.discover-main {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.discover-top-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 20px 0;
-  position: relative;
-  z-index: 2;
-}
-
-.top-action-icon {
-  cursor: pointer;
-}
-.moment-unread-badge{position:absolute;left:14px;top:-8px;min-width:15px;height:15px;padding:0 3px;border-radius:8px;background:#e5484d;color:#fff;font-size:9px;line-height:15px;text-align:center;pointer-events:none}
-
-.discover-header-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 10px 20px 20px;
-  gap: 20px;
-}
-
-.discover-avatar-wrapper {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  padding: 4px;
-  background: var(--sys-bg-secondary);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-}
-
-.discover-avatar-placeholder {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: var(--sys-bg-primary);
-}
-
-.discover-avatar-img {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.signature-text {
-  flex: 1;
-  text-align: center;
-  font-size: 13px;
-  color: #555;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 10px;
-}
-
-.skeleton-text-bar {
-  width: 140px;
-  height: 14px;
-  background: #ebebeb;
-  border-radius: 7px;
-}
-
-.discover-player {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  max-width: 280px;
-  gap: 12px;
-}
-
-.player-pill {
-  background: rgba(235, 235, 235, 0.8);
-  backdrop-filter: blur(4px);
-  border-radius: 20px;
-  padding: 8px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  box-sizing: border-box;
-  cursor: pointer;
-}
-
-.player-text {
-  font-family: monospace, -apple-system, sans-serif;
-  font-size: 13px;
-  color: #777;
-  letter-spacing: 0.5px;
-}
-.player-text .date {
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-left: 4px;
-}
-
-.progress-bar-container {
-  width: 100%;
-  padding: 0 4px;
-}
-
-.progress-track {
-  width: 100%;
-  height: 4px;
-  background: #e0e0e0;
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  width: 35%;
-  height: 100%;
-  background: #888;
-  border-radius: 2px;
-}
-
-.player-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 0 8px;
-}
-
-.play-btn {
-  width: 40px;
-  height: 40px;
-  background: #b0b0b0;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-  cursor: pointer;
-}
-
-.discover-moments-section {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  padding-bottom: 40px;
-}
-
-.moment-item {
-  display: flex;
-  gap: 12px;
-  transition: background-color 0.2s;
-  border-radius: 8px;
-}
-.moment-item.is-selection-mode {
-  cursor: pointer;
-  padding: 8px;
-  margin: -8px; /* 补偿 padding 使得视觉上不偏移 */
-}
-.moment-item.is-selection-mode:active {
-  background-color: rgba(0, 0, 0, 0.05);
-}
-
-.moment-checkbox {
-  display: flex;
-  align-items: flex-start;
-  padding-top: 8px;
-}
-.checkbox-circle {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1.5px solid #ccc;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  transition: all 0.2s;
-}
-.checkbox-circle.is-checked {
-  background-color: var(--sys-color-primary, #07c160);
-  border-color: var(--sys-color-primary, #07c160);
-}
-
-.moment-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: #e8e8e8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.moment-content-wrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.moment-author {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.moment-content {
-  font-size: 14px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-.moment-meta { color: #576b95; font-size: 12px; line-height: 1.4; }
-
-.moment-images {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.moment-img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 4px;
-}
-.pinned-mark { display:inline-block; margin-right:6px; padding:1px 4px; border-radius:3px; background:#576b95; color:#fff; font-size:9px; vertical-align:2px; }
-.moment-modal-overlay { position:fixed; inset:0; z-index:12000; background:rgba(0,0,0,.48); display:flex; align-items:flex-end; justify-content:center; }
-.moment-detail-modal,.behavior-panel { width:min(100%,520px); max-height:92vh; overflow:auto; background:var(--sys-bg-primary,#fff); border-radius:16px 16px 0 0; color:var(--text-primary,#222); }
-.moment-detail-modal header,.behavior-panel header { position:sticky; top:0; z-index:2; display:flex; justify-content:space-between; align-items:center; padding:15px 18px; background:inherit; border-bottom:1px solid var(--border-color,#eee); }
-.moment-detail-modal header button,.behavior-panel header button { border:0; background:none; font-size:28px; color:inherit; }
-.moment-detail-modal section { padding:20px; }.detail-author { color:#576b95;font-weight:600}.detail-meta-row{display:flex;gap:10px;color:#999;font-size:11px;margin:8px 0}.detail-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:14px 0}.detail-grid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px}.detail-like-list,.detail-comment-list{padding:10px;background:var(--sys-bg-secondary,#f6f6f6);font-size:13px}.detail-comment-list div{padding:5px 0}.detail-comment-list b{color:#576b95}.detail-comment-list button{float:right;border:0;background:none;color:#8994a7}.detail-composer{display:flex;gap:7px;align-items:center;margin-top:12px;padding:8px;background:var(--sys-bg-secondary,#f6f6f6);border-radius:7px}.detail-composer span{font-size:11px;color:#576b95}.detail-composer input{flex:1;min-width:0;border:0;outline:0;background:none}.detail-composer button{border:0;background:#576b95;color:#fff;border-radius:5px;padding:5px 9px}.detail-composer button:disabled{opacity:.4}
-.image-preview-overlay{position:fixed;inset:0;z-index:13000;background:#050505;display:flex;align-items:center;justify-content:center}.image-preview-overlay img{max-width:100%;max-height:90%;object-fit:contain}.image-preview-overlay a{position:absolute;right:20px;bottom:28px;color:#fff;text-decoration:none;padding:8px 12px;border:1px solid rgba(255,255,255,.5);border-radius:18px}
-.moment-sheet{width:min(100%,480px);max-height:75vh;overflow:auto;background:var(--sys-bg-primary,#fff);border-radius:16px 16px 0 0;padding:16px;display:flex;flex-direction:column}.moment-sheet h3{text-align:center;margin:0 0 12px}.moment-sheet>button{padding:13px;border:0;border-top:1px solid var(--border-color,#eee);background:none;color:var(--text-primary,#333);font-size:15px}.notice-item{position:relative;padding:12px 4px;border-bottom:1px solid var(--border-color,#eee);font-size:13px;cursor:pointer}.notice-item.unread:before{content:'';position:absolute;left:-8px;top:17px;width:5px;height:5px;border-radius:50%;background:#e5484d}.notice-item small{display:block;color:#999;margin-top:4px}.empty-note{text-align:center;color:#999;padding:30px}
-.behavior-modal-overlay{align-items:center;padding:20px;justify-content:center}
-.behavior-picker-modal{width:min(100%,320px);max-height:85vh;border-radius:14px;display:flex;flex-direction:column;background:var(--sys-bg-primary,#fff);overflow:hidden;}
-.behavior-picker-header{padding:20px 20px 10px;text-align:center;}
-.behavior-picker-header h3{margin:0 0 8px;font-size:17px;color:var(--text-primary,#333);}
-.behavior-picker-tip{margin:0;color:var(--text-secondary,#888);font-size:13px;line-height:1.45;}
-.behavior-role-list{flex:1;overflow-y:auto;padding:0 16px;margin-bottom:10px;}
-.behavior-role-list::-webkit-scrollbar{width:4px;}
-.behavior-role-list::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.1);border-radius:2px;}
-.behavior-role-item{width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 12px;margin-bottom:6px;border:none;border-radius:10px;background:var(--sys-bg-secondary,#f5f6f8);color:var(--text-primary,#333);font-size:15px;cursor:pointer;transition:background 0.2s;}
-.behavior-role-item:active{background:rgba(0,0,0,0.05);}
-.behavior-role-arrow{color:#b2b2b2;font-size:20px;line-height:1;}
-.behavior-picker-footer{padding:10px 16px 16px;}
-.behavior-picker-cancel{width:100%;padding:12px;border:none;border-radius:24px;background:var(--sys-bg-secondary,#f5f6f8);color:var(--text-primary,#333);font-size:16px;font-weight:500;cursor:pointer;transition:background 0.2s;}
-.behavior-picker-cancel:active{background:rgba(0,0,0,0.08);}
-.behavior-panel{width:min(100%,460px);max-height:82vh;border-radius:16px}.behavior-form{padding:0 18px 20px}.behavior-section-nav{display:flex;gap:4px;padding:13px 0 7px;border-bottom:1px solid var(--border-color,#eee)}.behavior-section-nav button{flex:1;border:0;border-radius:7px;background:transparent;padding:8px 0;color:var(--text-secondary,#888);font-size:13px}.behavior-section-nav button.active{background:var(--sys-bg-secondary,#f0f2f5);color:#576b95;font-weight:600}.behavior-row,.behavior-choice{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;border-bottom:1px solid var(--border-color,#eee);font-size:15px}.behavior-row span{display:flex;flex-direction:column;gap:3px}.behavior-row small{color:var(--text-secondary,#888);font-size:12px;line-height:1.35}.behavior-global-note{margin:13px 0 0;padding:10px 12px;border-radius:8px;background:var(--sys-bg-secondary,#f4f5f7);color:var(--text-secondary,#777);font-size:12px;line-height:1.5}.behavior-switch{position:relative;display:block;width:46px;height:28px}.behavior-switch input{position:absolute;opacity:0;pointer-events:none}.behavior-switch i{position:absolute;inset:0;border-radius:20px;background:#d6d9df;transition:.2s}.behavior-switch i:after{content:'';position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18);transition:.2s}.behavior-switch input:checked + i{background:#576b95}.behavior-switch input:checked + i:after{transform:translateX(18px)}.stepper{display:flex;align-items:center;border-radius:8px;background:var(--sys-bg-secondary,#f4f5f7);overflow:hidden}.stepper button{width:31px;height:31px;border:0;background:transparent;color:#576b95;font-size:19px;line-height:1}.stepper b{min-width:64px;text-align:center;font-size:13px;font-weight:500}.behavior-slider{padding:14px 0;border-bottom:1px solid var(--border-color,#eee)}.behavior-slider>div{display:flex;justify-content:space-between;font-size:15px}.behavior-slider b{font-weight:500;color:#576b95}.behavior-slider input{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:13px 0 2px;border-radius:4px;background:#d8dce3;outline:0}.behavior-slider input::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:19px;height:19px;border-radius:50%;background:#576b95;box-shadow:0 1px 3px rgba(0,0,0,.2)}.behavior-text{padding:15px 0;border-bottom:1px solid var(--border-color,#eee);font-size:15px}.behavior-text span{display:block;margin-bottom:10px}.behavior-text textarea{box-sizing:border-box;width:100%;min-height:78px;padding:10px;border:1px solid var(--border-color,#e5e5e5);border-radius:8px;outline:0;resize:vertical;background:var(--sys-bg-secondary,#f6f6f6);color:var(--text-primary,#222);font:inherit;font-size:14px;line-height:1.45}.behavior-choice{width:100%;border-left:0;border-right:0;border-top:0;background:none;color:var(--text-primary,#222);cursor:pointer}.behavior-choice b{font-size:14px;font-weight:400;color:var(--text-secondary,#888)}.behavior-choice i{font-style:normal;font-size:21px;vertical-align:-1px}.behavior-save{width:100%;margin-top:20px;padding:12px;border:0;border-radius:8px;background:#576b95;color:#fff;font-size:15px}
-.behavior-mode-row{padding:8px 0}.behavior-mode-row span{flex:1}.behavior-mode-row b{font-size:15px}.behavior-autonomous-note{margin:14px 0 2px;padding:15px;border-radius:10px;background:var(--sys-bg-secondary,#f4f5f7);color:var(--text-secondary,#777);font-size:13px;line-height:1.65}.behavior-manual-label{padding-top:16px;color:var(--text-secondary,#888);font-size:12px;font-weight:600}.behavior-switch{flex:0 0 46px;cursor:pointer}
-.audience-picker-overlay{z-index:12500}.audience-option{display:flex;align-items:center;justify-content:space-between;padding:13px 4px;border-bottom:1px solid var(--border-color,#eee);font-size:15px}.audience-option.active{color:#576b95;font-weight:600}.audience-check{display:flex;justify-content:space-between;padding:12px 4px;border-bottom:1px solid var(--border-color,#eee)}.audience-check input{appearance:none;width:20px;height:20px;margin:0;border:1px solid #c8cdd5;border-radius:5px;background:transparent}.audience-check input:checked{border-color:#576b95;background:#576b95;box-shadow:inset 0 0 0 4px var(--sys-bg-primary,#fff)}
-.own-moment-menu-wrap{position:relative}.own-moment-more{border:0;background:none;color:#576b95;font-size:12px}.own-moment-menu{position:absolute;left:0;top:20px;z-index:8;display:flex;background:#4b4b4b;border-radius:5px;overflow:hidden;box-shadow:0 3px 10px rgba(0,0,0,.2)}.own-moment-menu button{white-space:nowrap;border:0;border-right:1px solid rgba(255,255,255,.15);background:none;color:#fff;padding:7px 10px;font-size:11px}.own-moment-menu button.danger{color:#ffb4b4}.danger-text{color:#e5484d!important}
-
-.moment-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 8px;
-}
-
-.moment-interactions {
-  margin-top: 10px;
-  background: var(--sys-bg-secondary);
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 13px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.moment-likes {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  color: #576b95;
-  font-weight: 500;
-  border-bottom: 1px solid rgba(0,0,0,0.05);
-  padding-bottom: 6px;
-}
-.moment-likes:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.like-names {
-  flex: 1;
-  line-height: 1.4;
-}
-
-.moment-comments {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.comment-item {
-  line-height: 1.4;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-.moment-image-status { margin-top: 8px; padding: 8px 10px; border-radius: 5px; color: #888; font-size: 12px; background: var(--sys-bg-secondary, #f5f5f5); }
-.moment-image-status.is-error { color: #b07d55; }
-.comment-main { cursor: pointer; min-width: 0; }
-.comment-reply { color: #576b95; margin-left: 3px; }
-.comment-tools { flex-shrink: 0; display: flex; gap: 5px; opacity: .72; }
-.comment-tools button, .moment-action-btn { border: 0; background: transparent; color: #8994a7; padding: 0; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
-.comment-tools button.active, .moment-action-btn.active { color: #576b95; }
-.comment-composer { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding: 8px; background: var(--sys-bg-secondary, #f5f5f5); border-radius: 6px; flex-wrap: wrap; }
-.comment-composer input { flex: 1; min-width: 130px; border: 0; outline: 0; background: transparent; font-size: 13px; color: var(--text-primary, #333); }
-.comment-composer button { border: 0; border-radius: 4px; padding: 4px 8px; color: #fff; background: #576b95; font-size: 12px; cursor: pointer; }
-.comment-composer button:disabled { opacity: .45; cursor: default; }
-.comment-composer .cancel-comment { background: transparent; color: #888; }
-.reply-hint { width: 100%; color: #576b95; font-size: 12px; }
-.comment-author {
-  color: #576b95;
-  font-weight: 500;
-}
-.comment-text {
-  color: var(--text-primary);
-}
-
-.moment-time-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.moment-time {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.visibility-icon {
-  margin-top: -1px;
-}
-
-.delete-moment-btn {
-  font-size: 12px;
-  color: #576b95;
-  cursor: pointer;
-  margin-left: 2px;
-}
-
-.moment-actions {
-  display: flex;
-  gap: 16px;
-  color: var(--text-tertiary);
-}
-.moment-action-btn { width: 18px; height: 18px; justify-content: center; }
-
-/* Dropdown */
-.dropdown-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  z-index: 10;
-}
-.action-dropdown {
-  position: absolute;
-  top: 30px;
-  left: 0;
-  background: var(--sys-bg-primary, #fff);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  z-index: 11;
-  min-width: 120px;
-  overflow: hidden;
-}
-.action-item {
-  padding: 12px 16px;
-  font-size: 14px;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border-color, #eee);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.action-item:last-child {
-  border-bottom: none;
-}
-.action-item:active {
-  background: rgba(0,0,0,0.05);
-}
-
-/* 居中缩放淡入动画 */
-.zoom-fade-enter-active,
-.zoom-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.zoom-fade-enter-from,
-.zoom-fade-leave-to {
-  opacity: 0;
-  transform: scale(0.95);
-}
-
-/* 批量删除栏 */
-.batch-delete-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 90px;
-  padding-bottom: 30px; /* 模拟 tabbar 的高度和安全区 */
-  background: var(--sys-bg-primary, #fff);
-  border-top: 1px solid var(--border-color, #eee);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-left: 20px;
-  padding-right: 20px;
-  z-index: 9999;
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
-  box-sizing: border-box;
-}
-.batch-delete-info {
-  font-size: 15px;
-  color: #333;
-}
-.batch-delete-btn {
-  background: #ff4d4f;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 20px;
-  font-size: 15px;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-.batch-delete-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.batch-delete-btn:not(:disabled):active {
-  opacity: 0.8;
-}
-
-/* 自定义确认弹窗 */
-.custom-modal-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.5);
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.custom-modal {
-  width: 280px;
-  background: var(--sys-bg-primary, #fff);
-  border-radius: 12px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.custom-modal-title {
-  font-size: 17px;
-  font-weight: 600;
-  text-align: center;
-  padding: 20px 20px 10px;
-  color: var(--text-primary, #333);
-}
-.custom-modal-content {
-  font-size: 15px;
-  color: var(--text-secondary, #666);
-  text-align: center;
-  padding: 0 20px 20px;
-}
-.custom-modal-actions {
-  display: flex;
-  border-top: 1px solid var(--border-color, #eee);
-}
-.custom-modal-btn {
-  flex: 1;
-  text-align: center;
-  padding: 14px 0;
-  font-size: 16px;
-  cursor: pointer;
-}
-.custom-modal-btn:active {
-  background: rgba(0,0,0,0.05);
-}
-.cancel-btn {
-  color: var(--text-primary, #333);
-  border-right: 1px solid var(--border-color, #eee);
-}
-.confirm-btn {
-  color: #ff4d4f;
-  font-weight: 600;
-}
+@import './app_ChatDiscover.css';
 </style>

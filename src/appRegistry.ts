@@ -25,8 +25,8 @@ export const appRegistry: AppRegistryItem[] = [
   { id: 'live', name: '直播', icon: '<span class="text-icon">播</span>', color: '#ffffff', available: false, allowCustomFont: true },
   { id: 'voice_access', name: '语音接入', icon: '<span class="text-icon">音</span>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'image_access', name: '图像接入', icon: '<span class="text-icon">图</span>', color: '#ffffff', available: true, allowCustomFont: true },
-  { id: 'wardrobe', name: '衣柜', icon: '<span class="text-icon">衣</span>', color: '#ffffff', available: true, allowCustomFont: true }
+  { id: 'wardrobe', name: '衣柜', icon: '<span class="text-icon">衣</span>', color: '#ffffff', available: true, allowCustomFont: true },
+  { id: 'widget_beautify', name: '小组件美化', icon: '<span class="text-icon">美</span>', color: '#ffffff', available: true, allowCustomFont: true }
 ]
 
 export const availableAppIds = new Set(appRegistry.filter(app => app.available).map(app => app.id))
-

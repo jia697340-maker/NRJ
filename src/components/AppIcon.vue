@@ -9,11 +9,18 @@ defineProps<{
     customImage?: string | null
   }
   badge?: number
+  editing?: boolean
+  hideDelete?: boolean
+}>()
+
+defineEmits<{
+  delete: []
 }>()
 </script>
 
 <template>
-  <div class="app-icon-wrapper">
+  <div class="app-icon-wrapper" :class="{ editing }">
+    <button v-if="editing && !hideDelete" class="delete-app" type="button" aria-label="从桌面移除" @pointerdown.stop @click.stop="$emit('delete')">−</button>
     <div class="icon-box-container">
       <div 
         class="icon-box" 
@@ -38,8 +45,34 @@ defineProps<{
   align-items: center;
   justify-content: center;
   width: 100%; /* 填满由 grid 划分的空间 */
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
   /* 移除 cursor: pointer 和 transition 以作为纯静态 UI */
 }
+
+.app-icon-wrapper.editing { animation: app-wiggle 0.17s ease-in-out infinite alternate; }
+
+.delete-app {
+  position: absolute;
+  z-index: 20;
+  top: -7px;
+  left: calc(50% - 7.25vw - 7px);
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(88, 88, 92, .92);
+  box-shadow: 0 2px 6px rgba(0,0,0,.24);
+  font-size: 20px;
+  line-height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes app-wiggle { from { transform: rotate(-1deg); } to { transform: rotate(1deg); } }
 
 .icon-box-container {
   position: relative;
@@ -113,6 +146,7 @@ defineProps<{
 
 /* PC 端宽屏适配 */
 @media (min-width: 768px) {
+  .delete-app { left: calc(50% - 39px); }
   .icon-box {
     width: 64px; /* 物理固定宽度 */
     border-radius: 14px; /* 固定圆角 */
@@ -127,4 +161,6 @@ defineProps<{
     font-size: 13px; /* 限制应用名字体大小 */
   }
 }
+
+@media (prefers-reduced-motion: reduce) { .app-icon-wrapper.editing { animation: none; } }
 </style>

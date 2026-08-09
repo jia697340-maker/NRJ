@@ -13,6 +13,7 @@ import AppAdvancedSettings from './components/app_AdvancedSettings.vue'
 import AppVoiceAccess from './components/app_VoiceAccess.vue'
 import AppImageAccess from './components/app_ImageAccess.vue'
 import AppWardrobe from './components/app_Wardrobe.vue'
+import AppWidgetBeautify from './components/app_WidgetBeautify.vue'
 import LockScreen from './components/LockScreen.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { globalSettings, appStats } from './store'
@@ -370,6 +371,13 @@ watch(activeApp, appId => {
       <AppWardrobe 
         v-if="activeApp === 'wardrobe'" 
         data-font-app="wardrobe"
+        @close="activeApp = null" 
+      />
+    </Transition>
+    <Transition name="app-fade">
+      <AppWidgetBeautify
+        v-if="activeApp === 'widget_beautify'" 
+        data-font-app="widget_beautify"
         @close="activeApp = null" 
       />
     </Transition>

@@ -1,0 +1,398 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+import localforage from 'localforage'
+import { filterOnlineHistoryByOfflineSessions } from '../../services/offlineSessions'
+import { buildMemoryPacket } from '../../services/memoryEngine'
+import { buildBilingualPrompt } from '../../services/bilingualChat'
+import { getMomentBehavior } from '../../services/moments'
+import { getEffectiveUserProfile } from '../useChatUserProfiles'
+import { myProfile } from './state'
+import { buildSystemPrompt } from './prompt'
+import { buildOfflinePostHistoryPrompt } from '../useOfflineMeetPrompt'
+
+// 将 Blob 转为 Base64
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error('Failed to convert blob to base64'))
+      }
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+// 获取 GIF 第一帧的 Base64
+const extractFirstFrameFromGif = async (urlOrBase64: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'Anonymous'
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.drawImage(img, 0, 0)
+        // 转换为普通的 JPEG/PNG base64
+        resolve(canvas.toDataURL('image/jpeg', 0.9))
+      } else {
+        reject(new Error('Canvas context not available'))
+      }
+    }
+    img.onerror = () => reject(new Error('Failed to load image for frame extraction'))
+    img.src = urlOrBase64
+  })
+}
+
+export const buildChatMessages = async (chat: any, callMode: false | 'voice' | 'video' = false, offlineMeetMode: false | 'mixed' | 'separate' = false) => {
+  const messages: any[] = []
+  const userProfile = getEffectiveUserProfile(chat, myProfile.value)
+  
+  // --- 处理可用表情包 (主动发表情包功能) ---
+  const emojiStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatEmojis' })
+  let roleEmojisStr = '无'
+  const roleEmojiImages: string[] = [] // 如果启用了视觉识别，这里将存放 Base64
+  
+  try {
+    const allEmojis: any[] = []
+    await emojiStore.iterate((value: any, _key: string) => {
+      allEmojis.push(value)
+    })
+    // 过滤出该角色可用的：全局(global) + 专属(role, 且 targetId 匹配)
+    const availableEmojis = allEmojis.filter(e => 
+      e.category === 'global' || 
+      (e.category === 'role' && e.targetId === chat.id)
+    )
+    
+    if (availableEmojis.length > 0) {
+      roleEmojisStr = availableEmojis.map(e => e.name).join('、')
+      
+      // 如果开启了主动发表情包的图形识别
+      if (chat.enableRoleEmojiVision) {
+        for (const e of availableEmojis) {
+          let rawData = ''
+          if (e.type === 'local' && e.data instanceof Blob) {
+             rawData = await blobToBase64(e.data)
+          } else if (e.type === 'url' && typeof e.data === 'string') {
+             rawData = e.data
+          }
+          if (rawData) {
+             try {
+               // 提取第一帧作为静态参考
+               const base64 = await extractFirstFrameFromGif(rawData)
+               roleEmojiImages.push(base64)
+             } catch(err) {
+               roleEmojiImages.push(rawData)
+             }
+          }
+        }
+      }
+    }
+  } catch(err) {
+    console.error('Failed to load available emojis for role', err)
+  }
+
+  // --- 拦截：通话临时总结 ---
+  let callTempSummaryContext = ''
+  if (callMode === 'voice') {
+    const { currentCallTempSummary } = await import('../useVoiceCall').then(m => m.useVoiceCall())
+    if (currentCallTempSummary.value) {
+      callTempSummaryContext = `\n\n【本次通话前半段提要】\n${currentCallTempSummary.value}\n(注：以上是本次通话前半段的总结，请结合它以及下方的最新明细进行回复。)`
+    }
+  } else if (callMode === 'video') {
+    const { currentVideoCallTempSummary } = await import('../useVideoCall').then(m => m.useVideoCall())
+    if (currentVideoCallTempSummary.value) {
+      callTempSummaryContext = `\n\n【本次视频通话前半段提要】\n${currentVideoCallTempSummary.value}\n(注：以上是本次视频通话前半段的总结，请结合它以及下方的最新明细进行回复。)`
+    }
+  }
+
+  // 视频/语音通话模式附加提示
+  let callModePrompt = ''
+  if (callMode === 'voice') {
+    const { taskPromptSettings } = await import('../../store')
+    const voiceItem = taskPromptSettings.items.find((i: any) => i.id === 'task_voice_call_status')
+    if (voiceItem && voiceItem.enabled) {
+      callModePrompt = voiceItem.content
+    } else {
+      callModePrompt = `\n\n【当前模式：语音通话】你们正在进行实时语音通话。请使用口语化表达，不要使用颜文字、表情包标签或动作描写括号。不要发送图片、语音条、表情包或转账。`
+    }
+  } else if (callMode === 'video') {
+    const { taskPromptSettings } = await import('../../store')
+    const videoItem = taskPromptSettings.items.find((i: any) => i.id === 'task_video_call_status')
+    if (videoItem && videoItem.enabled) {
+      callModePrompt = videoItem.content
+    } else {
+      callModePrompt = `\n\n【当前模式：视频通话】你们正在进行实时视频通话。请使用口语化表达，可以自然描述表情、视线和镜头内的动作，但不要使用颜文字、表情包标签或动作描写括号。不要发送图片、语音条、表情包或转账。`
+    }
+  }
+
+  // 组装系统提示词并推送
+  const momentBehavior = getMomentBehavior(chat)
+  const momentBehaviorPrompt = chat.enableCharMoments !== false
+    ? momentBehavior.mode === 'custom'
+      ? `\n\n【朋友圈手动规则】活跃时段：${momentBehavior.activeStart}:00-${momentBehavior.activeEnd}:00；表达偏好：${momentBehavior.style || '遵循你自己的人设'}；默认受众：${momentBehavior.audience}。你仍可根据当下情境决定是否发帖、只看、点赞或评论；系统会执行用户设置的冷却与概率限制。`
+      : `\n\n【朋友圈自主权】把朋友圈当作你真实生活的一部分。你拥有完整自主权：是否查看、发帖、配图、点赞、评论、回复以及何时做，都由你依据自己的人设、当下经历、情绪、关系和具体内容自然决定。不要为了展示功能而行动，也不要机械刷屏；系统不会用概率、固定频率或预设文风替你做决定。`
+    : '\n\n【你的朋友圈习惯】当前不使用朋友圈，不要输出任何朋友圈标签。'
+  const memoryQueryMessages = offlineMeetMode === 'separate'
+    ? (chat.messages || []).filter((item: any) => item.isOfflineMeetMsg)
+    : offlineMeetMode === false
+      ? filterOnlineHistoryByOfflineSessions(chat, (chat.messages || []).filter((item: any) => !item.isOfflineMeetMsg))
+      : (chat.messages || [])
+  const latestMemoryQuery = [...memoryQueryMessages].reverse().find((item: any) =>
+    item?.type === 'left' || item?.type === 'right' || item?.type === 'system'
+  )?.content || ''
+  const memoryPacket = await buildMemoryPacket(chat, String(latestMemoryQuery), chat.memoryTokenBudget)
+  const sysPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode) + buildBilingualPrompt(chat) + memoryPacket + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
+  
+  if (chat.enableRoleEmojiVision && roleEmojiImages.length > 0) {
+    const contentArr: any[] = [{ type: 'text', text: sysPrompt }]
+    for (const imgBase64 of roleEmojiImages) {
+      contentArr.push({ type: 'image_url', image_url: { url: imgBase64 } })
+    }
+    messages.push({ role: 'system', content: contentArr })
+  } else {
+    messages.push({ role: 'system', content: sysPrompt })
+  }
+
+  if (chat.messages && chat.messages.length > 0) {
+    // 截取历史消息，过滤掉 time 类型的本地提示
+    let validHistory = chat.messages.filter((m: any) => m.type === 'left' || m.type === 'right' || m.type === 'system')
+    
+    // 【核心逻辑】：普通文字聊天时过滤掉所有通话内对话，防止挤占文字记忆
+    if (!callMode) {
+      validHistory = validHistory.filter((m: any) => !m.isVoiceCallProcessMsg && !m.isVideoCallProcessMsg)
+      // 独立线下页面只保留线下见面消息
+      if (offlineMeetMode === 'separate') {
+        validHistory = validHistory.filter((m: any) => m.isOfflineMeetMsg)
+      } else if (offlineMeetMode === false) {
+        validHistory = validHistory.filter((m: any) => !m.isOfflineMeetMsg)
+        validHistory = filterOnlineHistoryByOfflineSessions(chat, validHistory)
+      }
+    } else if (callMode === 'voice') {
+      validHistory = validHistory.filter((m: any) => !m.isVideoCallProcessMsg && !m.isOfflineMeetMsg)
+      validHistory = filterOnlineHistoryByOfflineSessions(chat, validHistory)
+    } else if (callMode === 'video') {
+      validHistory = validHistory.filter((m: any) => !m.isVoiceCallProcessMsg && !m.isOfflineMeetMsg)
+      validHistory = filterOnlineHistoryByOfflineSessions(chat, validHistory)
+    }
+    
+    let historyToKeep = validHistory
+    
+    // 根据当前模式使用不同的配置进行切片
+    if (callMode === 'voice' || callMode === 'video') {
+       const globalChatSettingsStr = localStorage.getItem('clingy_chat_settings')
+       let callCount = 15
+       if (globalChatSettingsStr) {
+         try {
+           const settings = JSON.parse(globalChatSettingsStr)
+           callCount = callMode === 'video'
+             ? (settings.videoMsgCount ?? 15)
+             : (settings.voiceMsgCount ?? 15)
+         } catch(e) {}
+       }
+       historyToKeep = validHistory.slice(-callCount)
+    } else {
+       if (chat.memoryType === 'count' && chat.memoryValue > 0) {
+         historyToKeep = validHistory.slice(-chat.memoryValue)
+       } else if (chat.memoryType === 'round' && chat.memoryValue > 0) {
+         const userMessageIndexes = validHistory
+           .map((item: any, index: number) => item.type === 'right' ? index : -1)
+           .filter((index: number) => index >= 0)
+         const firstRoundIndex = userMessageIndexes[Math.max(0, userMessageIndexes.length - Number(chat.memoryValue))]
+         historyToKeep = typeof firstRoundIndex === 'number' ? validHistory.slice(firstRoundIndex) : validHistory
+       }
+    }
+
+    for (const msg of historyToKeep) {
+      let formattedContent = msg.content
+      let isSystemNotice = false
+      
+      if (msg.isRecalled) {
+        const recallerName = msg.type === 'left' ? (chat.name || '对方') : userProfile.name
+        formattedContent = `${recallerName}撤回了一条消息，撤回内容为：${msg.content}`
+        isSystemNotice = true
+      } else if (msg.type === 'system') {
+        // 处理系统旁白（例如领取/退回红包）
+        formattedContent = msg.content
+        isSystemNotice = true
+      }
+
+      // 处理引用 (quote)
+      let quotePrefix = ''
+      if (msg.quote) {
+        quotePrefix = `[引用了 @${msg.quote.sender} 的消息: "${msg.quote.content}"]\n`
+      }
+      
+      let isVoice = false
+      let isImage = false
+      let voiceSeconds = 0
+
+      let isEmojiMessage = false
+      let emojiName = ''
+      let mediaBase64 = '' // 统一用作表情包或真实图片的 Base64 容器
+      let isSummaryReplaced = false
+
+      if (msg.isEmoji) {
+        isEmojiMessage = true
+        emojiName = msg.content === '[表情]' ? '未知名称' : msg.content
+        
+        if (msg.emojiSummary) {
+          formattedContent = `[对方发来一个表情包，表情包内容是：${msg.emojiSummary}]`
+          isSummaryReplaced = true
+        } else {
+          formattedContent = `[对方发来一个名为“${emojiName}”的表情包]`
+        }
+      } else if (msg.imageData) {
+        isImage = true
+        const prefix = msg.type === 'left' ? '我' : '对方'
+        const verb = msg.type === 'left' ? '发送了' : '发来'
+        
+        if (msg.imageData.summary) {
+          formattedContent = `[${prefix}${verb}一张图片，图片内容是：${msg.imageData.summary}]`
+          isSummaryReplaced = true
+        } else {
+          formattedContent = `[${prefix}${verb}图片/视频/GIF，画面描述：${msg.imageData.text}]`
+        }
+      } else if (msg.voiceData) {
+        // 如果是一条语音消息，给AI特殊的XML标签解析
+        isVoice = true
+        voiceSeconds = msg.voiceData.seconds
+        formattedContent = `[对方发来一段语音，转文字内容：${msg.voiceData.text}]`
+      } else if (msg.transferData) {
+        // 对转账红包的特殊解析渲染给AI
+        const td = msg.transferData
+        if (td.type === 'transfer') {
+          formattedContent = `<transfer id="${td.id}" status="${td.status}" amount="${td.amount}" remark="${td.remark}">`
+        } else if (td.type === 'red_packet') {
+          if (msg.type === 'left') {
+             formattedContent = `<red_packet id="${td.id}" status="${td.status}" amount="${td.amount}" remark="${td.remark}">`
+          } else {
+             formattedContent = `<red_packet id="${td.id}" status="${td.status}" remark="${td.remark}">` // 不透露金额
+          }
+        }
+      }
+
+      // 提取图片或表情包的 Base64 供未压缩时的视觉识别使用
+      if (!isSummaryReplaced) {
+        // 拦截：如果这是角色（左侧）发出的，并且开启了角色图片省 Token 选项，则强制跳过提取 Base64
+        import('../../store').then(({ chatSettings }) => {
+          if (msg.type === 'left' && chatSettings.enableRoleImageTokenSaver) {
+            return
+          }
+        })
+        
+        // 注意上述是异步导入，为了不破坏当前同步/异步流程结构，可以直接判断
+        // 但由于 useChatState 是单例且在很多地方调用，最好用一个同步判断
+        // 我们上面可以借用 store 的直接 import
+        const { chatSettings } = await import('../../store')
+        
+        if (!(msg.type === 'left' && chatSettings.enableRoleImageTokenSaver)) {
+          if (isEmojiMessage) {
+            if (chat.enableEmojiVision && msg.emojiId) {
+               const emojiStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatEmojis' })
+             try {
+                const item = await emojiStore.getItem<any>(msg.emojiId)
+                if (item) {
+                   let rawData = ''
+                   if (item.type === 'local' && item.data instanceof Blob) {
+                      rawData = await blobToBase64(item.data)
+                   } else if (item.type === 'url' && typeof item.data === 'string') {
+                      rawData = item.data
+                   }
+                   
+                   if (rawData) {
+                     try {
+                       mediaBase64 = await extractFirstFrameFromGif(rawData)
+                     } catch(err) {
+                       console.warn('提取表情包帧失败，降级发送原图/原链接', err)
+                       mediaBase64 = rawData
+                     }
+                   }
+                }
+             } catch(e) {
+                console.error('Failed to get emoji data for vision', e)
+             }
+            }
+          } else if (isImage && msg.imageData.imageId) {
+            // 当不是已总结状态，且有真实的图片缓存ID，我们需要提取出 Base64 给大模型看
+            const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+            try {
+              const base64Data = await imageStore.getItem<string>(msg.imageData.imageId)
+              if (base64Data) {
+                mediaBase64 = base64Data
+              }
+            } catch(e) {
+              console.error('Failed to get image data for vision', e)
+            }
+          }
+        }
+      }
+
+      if (chat.timePerception) {
+        // 尝试根据 msg.id 获取时间，如果 id 不是有效的时间戳，使用当前时间作为兜底
+        const msgTime = new Date(msg.id > 1000000000000 ? msg.id : Date.now())
+        const timeStr = msgTime.toLocaleString('zh-CN', { 
+          timeZone: msg.type === 'left' ? (chat.timezone || userProfile.timezone) : userProfile.timezone,
+          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+        }).replace(/\//g, '-') // 格式化为 YYYY-MM-DD HH:mm
+        
+        if (isSystemNotice) {
+          formattedContent = `<system_notice time="${timeStr}">${formattedContent}</system_notice>`
+        } else if (isEmojiMessage && msg.type === 'right') {
+          formattedContent = `<user_emoji_msg time="${timeStr}" name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
+        } else if (isVoice) {
+          formattedContent = `<user_voice_msg time="${timeStr}" seconds="${voiceSeconds}">${quotePrefix}${formattedContent}</user_voice_msg>`
+        } else if (isImage) {
+          formattedContent = msg.type === 'right' ? `<user_image_msg time="${timeStr}">${quotePrefix}${formattedContent}</user_image_msg>` : `<msg time="${timeStr}">${quotePrefix}${formattedContent}</msg>`
+        } else if (msg.type === 'right') {
+          formattedContent = `<user_msg time="${timeStr}">${quotePrefix}${formattedContent}</user_msg>`
+        } else if (msg.type === 'left' && chat.sendCharacterTime !== false) {
+          formattedContent = `<msg time="${timeStr}">${quotePrefix}${formattedContent}</msg>`
+        } else {
+          formattedContent = `<msg>${quotePrefix}${formattedContent}</msg>`
+        }
+      } else {
+        if (isSystemNotice) {
+          formattedContent = `<system_notice>${formattedContent}</system_notice>`
+        } else if (isEmojiMessage && msg.type === 'right') {
+          formattedContent = `<user_emoji_msg name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
+        } else if (isVoice) {
+          formattedContent = `<user_voice_msg seconds="${voiceSeconds}">${quotePrefix}${formattedContent}</user_voice_msg>`
+        } else if (isImage) {
+          formattedContent = msg.type === 'right' ? `<user_image_msg>${quotePrefix}${formattedContent}</user_image_msg>` : `<msg>${quotePrefix}${formattedContent}</msg>`
+        } else if (msg.type === 'right') {
+          formattedContent = `<user_msg>${quotePrefix}${formattedContent}</user_msg>`
+        } else {
+          formattedContent = `<msg>${quotePrefix}${formattedContent}</msg>`
+        }
+      }
+
+      // 如果有多模态图片数据且未被压缩为文字，构造数组
+      if (mediaBase64) {
+        messages.push({
+          role: msg.type === 'left' ? 'assistant' : 'user',
+          content: [
+            { type: 'text', text: formattedContent },
+            { type: 'image_url', image_url: { url: mediaBase64 } }
+          ]
+        })
+      } else {
+        messages.push({
+          role: msg.type === 'left' ? 'assistant' : 'user',
+          content: formattedContent
+        })
+      }
+    }
+  }
+
+  if (offlineMeetMode) {
+    const postHistoryPrompt = buildOfflinePostHistoryPrompt(chat, userProfile)
+    if (postHistoryPrompt) messages.push({ role: 'system', content: postHistoryPrompt })
+  }
+
+  return messages
+}

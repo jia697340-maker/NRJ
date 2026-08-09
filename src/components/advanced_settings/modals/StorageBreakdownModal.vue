@@ -147,7 +147,6 @@ const pieChartSegments = computed(() => {
           </svg>
         </button>
         <h2 class="header-title">存储空间详情</h2>
-        <div style="width: 40px"></div>
       </div>
       
       <div class="fullscreen-content">
@@ -297,16 +296,20 @@ const pieChartSegments = computed(() => {
 }
 
 .fullscreen-header {
+  position: relative;
   height: 60px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 0 16px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--sys-bg-tertiary);
 }
 
 .back-btn {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 40px;
   height: 40px;
   display: flex;
@@ -318,6 +321,7 @@ const pieChartSegments = computed(() => {
   cursor: pointer;
   border-radius: 50%;
   transition: background 0.2s;
+  z-index: 10;
 }
 
 .back-btn:active {
@@ -325,6 +329,10 @@ const pieChartSegments = computed(() => {
 }
 
 .header-title {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   margin: 0;
   font-size: 18px;
   font-weight: 600;

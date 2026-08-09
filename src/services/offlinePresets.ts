@@ -18,6 +18,7 @@ export interface OfflinePromptPreset {
   description: string
   version: number
   source: OfflinePresetSource
+  originalPresetId?: string
   mainPrompt: string
   modePrompt: string
   postHistoryPrompt: string
@@ -202,7 +203,8 @@ export const createOfflinePresetCopy = (source: OfflinePromptPreset, name?: stri
   name: name?.trim() || `${source.name} 副本`,
   description: source.description,
   version: 1,
-  source: 'user'
+  source: 'user',
+  originalPresetId: source.source === 'builtin' ? source.id : source.originalPresetId
 })
 
 export const validateImportedOfflinePresets = (raw: unknown): OfflinePromptPreset[] => {
