@@ -6,6 +6,7 @@ import ChatCallRecordsView from '../ChatCallRecordsView.vue'
 const props = defineProps<{
   selectedChat: any
   myProfile: any
+  userCurrentTime: string
   getTimezoneLabel: (tz: string) => string
   matchSearch: (...keywords: (string | undefined | null)[]) => boolean
 }>()
@@ -15,6 +16,9 @@ const emit = defineEmits<{
   (e: 'open-text-modal', title: string, text: string, defaultText: string, placeholder: string, target: string): void
   (e: 'open-long-text-modal', title: string, text: string, defaultText: string, placeholder: string, target: string): void
   (e: 'open-timezone-modal', target: 'user'): void
+  (e: 'open-persona-select'): void
+  (e: 'use-account-persona'): void
+  (e: 'create-user-persona'): void
   (e: 'delete-call-records', ids: (string | number)[]): void
   (e: 'resummarize-call-record', id: string | number): void
 }>()
@@ -24,7 +28,15 @@ const showCallRecordsView = ref(false)
 
 <template>
   <div class="role-edit-section">
-    <div class="user-avatar-action-box" style="margin-bottom: 24px; justify-content: center;" v-show="matchSearch('更换头像', '我')">
+    <div class="user-avatar-action-box" style="margin-bottom: 24px;" v-show="matchSearch('当前时间', '人设库', '账号人设', '新建人设', '更换头像', '我')">
+      <div class="action-column">
+        <div class="action-btn" @click="emit('open-timezone-modal', 'user')">
+          <span class="action-time-label">当前时间</span>
+          <span class="action-time-value">{{ userCurrentTime }}</span>
+        </div>
+        <div class="action-btn" @click="emit('use-account-persona')">账号人设</div>
+      </div>
+
       <div class="role-edit-avatar-box">
         <div class="role-edit-avatar" @click="emit('open-avatar-upload', 'me')" :style="myProfile.avatarUrl ? { backgroundImage: `url(${myProfile.avatarUrl})` } : {}">
           <span v-if="!myProfile.avatarUrl">{{ myProfile.name.charAt(0) || '我' }}</span>
@@ -34,6 +46,16 @@ const showCallRecordsView = ref(false)
         </div>
         <div class="role-edit-avatar-tip">点击更换头像</div>
       </div>
+
+      <div class="action-column">
+        <div class="action-btn" @click="emit('open-persona-select')">人设库选择</div>
+        <div class="action-btn" @click="emit('create-user-persona')">新建人设</div>
+      </div>
+    </div>
+
+    <div class="profile-source-hint" v-if="selectedChat?.userProfileSource">
+      当前使用：{{ selectedChat.userProfileSource.name || '独立人设' }}
+      <span v-if="selectedChat.userProfileSource.hasLocalChanges">（当前聊天已修改）</span>
     </div>
 
     <div class="glass-panel" v-show="matchSearch('真名', '备注', '用户人设')">
@@ -87,4 +109,102 @@ const showCallRecordsView = ref(false)
 
 <style scoped>
 @import './ChatSettingsStyles.css';
+
+.user-avatar-action-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  width: 100%;
+}
+
+.action-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.action-btn {
+  width: 80px;
+  padding: 8px 0;
+  border: 1px solid var(--border-color, #eee);
+  border-radius: 16px;
+  background: var(--sys-bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+}
+
+.role-edit-section {
+  display: flex;
+  width: 100%;
+  margin-top: 24px;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.role-edit-avatar-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.role-edit-avatar {
+  position: relative;
+  display: flex;
+  width: 80px;
+  height: 80px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--sys-bg-primary);
+  background-position: center;
+  background-size: cover;
+  color: var(--text-secondary);
+  font-size: 28px;
+  cursor: pointer;
+}
+
+.avatar-edit-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+}
+
+.role-edit-avatar:hover .avatar-edit-overlay {
+  opacity: 1;
+}
+
+.role-edit-avatar-tip {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.action-time-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.action-time-value {
+  font-family: monospace;
+  font-size: 15px;
+}
+
+.profile-source-hint {
+  margin: -12px 4px 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
 </style>

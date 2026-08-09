@@ -4,6 +4,9 @@ import { sendChatMessage, isMomentApiReady, type ChatApiPurpose } from '../servi
 import { chatSettings } from '../store'
 import localforage from 'localforage'
 import { useNovelAI } from './useNovelAI'
+import { useGptImage } from './useGptImage'
+import { useGeminiImage } from './useGeminiImage'
+import { useFluxImage } from './useFluxImage'
 import { useChatAuth } from './useChatAuth'
 import { appendMissedIncomingCall, isInDoNotDisturb } from './useCallRecords'
 import { parseBilingualMessage } from '../services/bilingualChat'
@@ -29,7 +32,7 @@ export function useChatRoomAPI(
   myProfile: any, 
   buildChatMessages: any, 
   showNotification: any,
-  saveCustomContacts: () => void,
+  saveCustomContacts: (targetChat?: any) => void,
   scrollToBottom: () => Promise<void>,
   isRoomActive: any,
   // 角色主动来电：交给聊天室弹响铃界面，等用户接/拒之后再调 resume 继续剩余动作
@@ -39,7 +42,10 @@ export function useChatRoomAPI(
   const isGenerating = ref(false)
   let abortController: AbortController | null = null
   const typingTimers: ReturnType<typeof setTimeout>[] = []
-  const { generateImage, abortGeneration } = useNovelAI()
+  const { generateImage: generateNovelImage, abortGeneration: abortNovelGeneration } = useNovelAI()
+  const { generateImage: generateGptImage, abortGeneration: abortGptGeneration } = useGptImage()
+  const { generateImage: generateGeminiImage, abortGeneration: abortGeminiGeneration } = useGeminiImage()
+  const { generateImage: generateFluxImage, abortGeneration: abortFluxGeneration } = useFluxImage()
 
   // 1. 初始化错误处理模块
   const {
@@ -64,7 +70,10 @@ export function useChatRoomAPI(
   const { handleAIImageGen } = useChatRoomImageGen(
     selectedChat,
     myProfile,
-    generateImage,
+    generateNovelImage,
+    generateGptImage,
+    generateGeminiImage,
+    generateFluxImage,
     saveCustomContacts,
     scrollToBottom
   )
@@ -74,7 +83,10 @@ export function useChatRoomAPI(
       abortController.abort()
       abortController = null
     }
-    abortGeneration() // 也停止生图
+    abortNovelGeneration()
+    abortGptGeneration()
+    abortGeminiGeneration()
+    abortFluxGeneration()
     
     typingTimers.forEach(clearTimeout)
     typingTimers.length = 0
@@ -218,7 +230,7 @@ export function useChatRoomAPI(
             content: thoughtContent
           })
           
-          if (targetChat.innerThoughts.length > 50) {
+          if (targetChat.innerThoughts.length > chatSettings.innerThoughtLimit) {
             targetChat.innerThoughts.pop()
           }
         }

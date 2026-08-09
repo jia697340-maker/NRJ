@@ -7,6 +7,9 @@ import { useNovelAIHistory } from '../composables/useNovelAIHistory'
 import ImageVibeManageModal from './ImageVibeManageModal.vue'
 import ImageHistoryModal from './ImageHistoryModal.vue'
 import ImageParseModal from './ImageParseModal.vue'
+import GptImageAccessView from './image/GptImageAccessView.vue'
+import GeminiImageAccessView from './image/GeminiImageAccessView.vue'
+import FluxImageAccessView from './image/FluxImageAccessView.vue'
 
 const emit = defineEmits(['close'])
 
@@ -25,12 +28,14 @@ const preciseReferenceFidelity = ref(0.5)
 const baseImageInput = ref<HTMLInputElement | null>(null)
 const refImageInput = ref<HTMLInputElement | null>(null)
 
-const currentView = ref<'platforms' | 'novelai'>('platforms')
+const currentView = ref<'platforms' | 'novelai' | 'gptimage' | 'gemini' | 'flux'>('platforms')
 
 const activeIndex = ref(0)
 const platforms = [
   { id: 'novelai', name: 'NovelAI', desc: '二次元及丰富画风的\n图像生成引擎', action: '进入配置', disabled: false },
-  { id: 'more', name: '更多平台', desc: '敬请期待更多\n优秀生图引擎接入', action: '即将开放', disabled: true }
+  { id: 'gptimage', name: 'GPT Image', desc: '支持最新与兼容模型的\n图像生成与编辑', action: '进入配置', disabled: false },
+  { id: 'gemini', name: 'Gemini Image', desc: 'Nano Banana 2\n原生生图与多图编辑', action: '进入配置', disabled: false },
+  { id: 'flux', name: 'FLUX.2', desc: 'Black Forest Labs\nPro / Max 独立接入', action: '进入配置', disabled: false }
 ]
 
 const handlePrev = () => {
@@ -40,8 +45,8 @@ const handleNext = () => {
   if (activeIndex.value < platforms.length - 1) activeIndex.value++
 }
 const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && id === 'novelai') {
-    currentView.value = 'novelai'
+  if (!disabled && (id === 'novelai' || id === 'gptimage' || id === 'gemini' || id === 'flux')) {
+    currentView.value = id
   }
 }
 
@@ -403,13 +408,13 @@ const resetPrompts = () => {
     <!-- 极简无界顶栏 -->
     <div class="header-minimal">
       <div class="header-titles">
-        <h1 class="main-title">{{ currentView === 'platforms' ? '图像引擎' : 'NovelAI 接入' }}</h1>
+        <h1 class="main-title">{{ currentView === 'platforms' ? '图像引擎' : currentView === 'novelai' ? 'NovelAI 接入' : currentView === 'gptimage' ? 'GPT Image 接入' : currentView === 'gemini' ? 'Gemini Image 接入' : 'FLUX.2 接入' }}</h1>
         <p class="sub-title" v-if="currentView === 'platforms'">选择要接入的图像生成服务</p>
       </div>
       <button class="close-btn" @click="$emit('close')">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
       </button>
-      <button class="back-btn" v-if="currentView === 'novelai'" @click="currentView = 'platforms'">
+      <button class="back-btn" v-if="currentView !== 'platforms'" @click="currentView = 'platforms'">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
       </button>
       <button class="history-btn" v-if="currentView === 'novelai'" @click="showHistoryModal = true" title="历史记录">
@@ -441,8 +446,11 @@ const resetPrompts = () => {
                 <div class="ripple r2"></div>
               </div>
               
-              <div class="capsule-icon" :style="item.id === 'novelai' ? 'background: #111; color: #fff;' : ''">
+              <div class="capsule-icon" :style="item.id === 'novelai' ? 'background: #111; color: #fff;' : item.id === 'gptimage' ? 'background: #555a61; color: #fff;' : item.id === 'gemini' ? 'background: linear-gradient(135deg,#4285f4,#a142f4); color: #fff;' : item.id === 'flux' ? 'background: linear-gradient(135deg,#111,#287a50); color: #fff;' : ''">
                 <span v-if="item.id === 'novelai'" style="font-weight: 800; font-style: italic; font-size: 16px;">NAI</span>
+                <span v-else-if="item.id === 'gptimage'" style="font-weight: 800; font-size: 13px;">GPT</span>
+                <span v-else-if="item.id === 'gemini'" style="font-weight: 800; font-size: 12px;">GEM</span>
+                <span v-else-if="item.id === 'flux'" style="font-weight: 800; font-size: 12px;">FLX</span>
                 <svg v-else viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
               </div>
 
@@ -465,6 +473,10 @@ const resetPrompts = () => {
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
       </button>
     </div>
+
+    <GptImageAccessView v-else-if="currentView === 'gptimage'" />
+    <GeminiImageAccessView v-else-if="currentView === 'gemini'" />
+    <FluxImageAccessView v-else-if="currentView === 'flux'" />
 
     <!-- NovelAI View -->
     <div v-else-if="currentView === 'novelai'" class="ia-page">

@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, cotSettings, appStats, type ApiPreset } from '../store'
+import { apiLogger } from './apiLogger'
 
 export type ChatApiPurpose = 'default' | 'moment-followup'
 
@@ -144,7 +145,7 @@ export async function sendChatMessage(
 
   const startTime = Date.now()
   appStats.apiCalls++
-
+  
   // --- 更新新增的趣味统计 (每日消息/熬夜/连续天数) ---
   const todayStr = new Date().toLocaleDateString() // YYYY/MM/DD
   const currentHour = new Date().getHours()
@@ -198,6 +199,7 @@ export async function sendChatMessage(
   // ----------------------------------------------------
 
   let response: Response
+  let tokensUsage = 0
   try {
     response = await fetch(endpoint, {
       signal,
@@ -219,8 +221,24 @@ export async function sendChatMessage(
   if (!response.ok) {
     appStats.apiFailures++
     const errorData = await response.json().catch(() => ({}))
+    const errorMsg = errorData.error?.message || `API 请求失败 (${response.status})`
     console.error('--- AI 接口请求失败 ---', errorData)
-    throw new Error(errorData.error?.message || `API 请求失败 (${response.status})`)
+    
+    // 记录失败日志
+    let logType = 'Chat'
+    if (isSummary) logType = 'Summary'
+    if (isVision) logType = 'Vision'
+    if (purpose === 'moment-followup') logType = 'Moment'
+
+    apiLogger.addLog({
+      type: logType,
+      model: model,
+      duration: endTime - startTime,
+      success: false,
+      errorMsg: errorMsg
+    }).catch(() => {})
+
+    throw new Error(errorMsg)
   }
 
   let content = ''
@@ -281,7 +299,24 @@ export async function sendChatMessage(
     console.log(data)
     console.log('----------------------------')
     content = data.choices[0].message.content || ''
+    if (data.usage?.total_tokens) {
+      tokensUsage = data.usage.total_tokens
+    }
   }
+
+  // 记录成功日志
+  let logType = 'Chat'
+  if (isSummary) logType = 'Summary'
+  if (isVision) logType = 'Vision'
+  if (purpose === 'moment-followup') logType = 'Moment'
+
+  apiLogger.addLog({
+    type: logType,
+    model: model,
+    duration: endTime - startTime,
+    success: true,
+    tokens: tokensUsage > 0 ? tokensUsage : undefined
+  }).catch(() => {})
 
   // --- COT 响应动态解析逻辑 ---
   if (cotSettings.enabled) {

@@ -2,6 +2,12 @@
 import { ref, type Ref } from 'vue'
 import localforage from 'localforage'
 import { useNovelAI } from './useNovelAI'
+import { useGptImage } from './useGptImage'
+import { useGptImageReference } from './useGptImageReference'
+import { useGeminiImage } from './useGeminiImage'
+import { useGeminiImageReference } from './useGeminiImageReference'
+import { useFluxImage } from './useFluxImage'
+import { useFluxImageReference } from './useFluxImageReference'
 
 export function useChatRoomGalleryUI(
   selectedChat: Ref<any>,
@@ -12,14 +18,195 @@ export function useChatRoomGalleryUI(
   const showImageGalleryModal = ref(false)
   const galleryTargetMessage = ref<any>(null)
 
-  const handleOpenGallery = (msg: any) => {
+  const handleOpenGallery = async (msg: any) => {
     if (isMultiSelectMode.value) return
+    const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+    const historyItems = msg?.imageData?.history || []
+    for (const item of historyItems) {
+      if (!item.imageId) continue
+      const storedImage = await imageStore.getItem<string>(item.imageId)
+      if (!storedImage) continue
+      try {
+        item.url = URL.createObjectURL(await (await fetch(storedImage)).blob())
+      } catch {
+        item.url = storedImage
+      }
+    }
     galleryTargetMessage.value = msg
     showImageGalleryModal.value = true
   }
 
   const handleGalleryRegenerate = async (prompt: string) => {
     if (!galleryTargetMessage.value || !selectedChat.value) return
+
+    const storedProvider = galleryTargetMessage.value.imageData?.provider
+      || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('gemini_img_') ? 'gemini' : '')
+      || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('gpt_img_') ? 'gpt' : '')
+      || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('flux_img_') ? 'flux' : '')
+      || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('nai_img_') ? 'novelai' : '')
+    const provider = storedProvider || selectedChat.value.imageGenProvider || 'novelai'
+    if (provider === 'flux') {
+      const fluxConfig = selectedChat.value.fluxImageConfig || {}
+      showToast('正在使用 FLUX.2 重新生成...')
+      try {
+        const { loadData, referenceGroups, getImagesForGroups } = useFluxImageReference()
+        await loadData()
+        const groupIds: string[] = fluxConfig.referenceGroupIds || []
+        const instructions = referenceGroups.value
+          .filter(group => groupIds.includes(group.id) && group.description?.trim())
+          .map(group => `参考组“${group.name}”：${group.description.trim()}`)
+        const finalPrompt = [fluxConfig.promptPrefix, ...instructions, prompt].filter(Boolean).join('\n')
+        const { generateImage } = useFluxImage()
+        const image = await generateImage({
+          apiKey: fluxConfig.apiKey || localStorage.getItem('app_flux_image_apikey') || '',
+          proxyUrl: fluxConfig.proxyUrl || localStorage.getItem('app_flux_image_proxy_url') || 'https://clingy-flux-proxy.q89028615.workers.dev'
+        }, {
+          model: fluxConfig.model || localStorage.getItem('app_flux_image_model') || 'flux-2-pro-preview',
+          prompt: finalPrompt,
+          width: fluxConfig.width || Number(localStorage.getItem('app_flux_image_width') || 1024),
+          height: fluxConfig.height || Number(localStorage.getItem('app_flux_image_height') || 1536),
+          outputFormat: fluxConfig.outputFormat || localStorage.getItem('app_flux_image_format') || 'png',
+          safetyTolerance: fluxConfig.safetyTolerance ?? Number(localStorage.getItem('app_flux_image_safety') || 2),
+          seed: fluxConfig.seed === '' || fluxConfig.seed === undefined ? null : Number(fluxConfig.seed),
+          disablePromptUpsampling: fluxConfig.disablePromptUpsampling ?? localStorage.getItem('app_flux_image_disable_pup') === 'true',
+          referenceImages: getImagesForGroups(groupIds).map(item => item.dataUrl)
+        })
+        const imageId = `flux_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+        const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+        await imageStore.setItem(imageId, image)
+        const localUrl = URL.createObjectURL(await (await fetch(image)).blob())
+        if (!galleryTargetMessage.value.imageData.history) {
+          galleryTargetMessage.value.imageData.history = []
+          if (galleryTargetMessage.value.imageData.imageId) {
+            galleryTargetMessage.value.imageData.history.push({
+              imageId: galleryTargetMessage.value.imageData.imageId,
+              prompt: galleryTargetMessage.value.imageData.prompt || '',
+              url: galleryTargetMessage.value._localImageUrl || localUrl,
+              provider: 'flux'
+            })
+          }
+        }
+        galleryTargetMessage.value.imageData.history.push({ imageId, prompt, url: localUrl, provider: 'flux' })
+        galleryTargetMessage.value.imageData.imageId = imageId
+        galleryTargetMessage.value.imageData.prompt = finalPrompt
+        galleryTargetMessage.value.imageData.provider = 'flux'
+        galleryTargetMessage.value._localImageUrl = localUrl
+        saveCustomContacts()
+        showToast('FLUX 重新生成成功！')
+      } catch (error: any) {
+        showToast(`FLUX 生成失败: ${error.message}`)
+      }
+      return
+    }
+    if (provider === 'gemini') {
+      const geminiConfig = selectedChat.value.geminiImageConfig || {}
+      showToast('正在使用 Gemini 重新生成...')
+      try {
+        const transport = geminiConfig.transport || localStorage.getItem('app_gemini_image_transport') || 'official'
+        const { loadData, referenceGroups, getImagesForGroups } = useGeminiImageReference()
+        await loadData()
+        const groupIds: string[] = geminiConfig.referenceGroupIds || []
+        const instructions = referenceGroups.value
+          .filter(group => groupIds.includes(group.id))
+          .map(group => `${group.kind === 'character' ? '角色一致性' : group.kind === 'style' ? '画风参考' : group.kind === 'scene' ? '场景参考' : '物体参考'}“${group.name}”：${group.description || '按该组图片进行参考'}。`)
+        const finalPrompt = [geminiConfig.promptPrefix, ...instructions, prompt].filter(Boolean).join('\n')
+        const { generateImage } = useGeminiImage()
+        const image = await generateImage({
+          apiKey: geminiConfig.apiKey || localStorage.getItem('app_gemini_image_apikey') || '',
+          baseUrl: geminiConfig.baseUrl || localStorage.getItem('app_gemini_image_baseurl') || (transport === 'official' ? 'https://generativelanguage.googleapis.com' : 'https://openrouter.ai/api/v1'),
+          transport
+        }, {
+          model: geminiConfig.model || localStorage.getItem('app_gemini_image_model') || (transport === 'official' ? 'gemini-3.1-flash-image' : 'google/gemini-3.1-flash-image'),
+          prompt: finalPrompt,
+          aspectRatio: geminiConfig.aspectRatio || localStorage.getItem('app_gemini_image_aspect_ratio') || '2:3',
+          imageSize: geminiConfig.imageSize || localStorage.getItem('app_gemini_image_size') || '1K',
+          mimeType: geminiConfig.mimeType || localStorage.getItem('app_gemini_image_mime_type') || 'image/png',
+          thinkingLevel: geminiConfig.thinkingLevel || localStorage.getItem('app_gemini_image_thinking_level') || 'minimal',
+          useGoogleSearch: geminiConfig.useGoogleSearch ?? localStorage.getItem('app_gemini_image_google_search') === 'true',
+          useImageSearch: geminiConfig.useImageSearch ?? localStorage.getItem('app_gemini_image_image_search') === 'true',
+          referenceImages: getImagesForGroups(groupIds).map(item => item.dataUrl)
+        })
+        const imageId = `gemini_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+        const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+        await imageStore.setItem(imageId, image)
+        const localUrl = URL.createObjectURL(await (await fetch(image)).blob())
+        if (!galleryTargetMessage.value.imageData.history) {
+          galleryTargetMessage.value.imageData.history = []
+          if (galleryTargetMessage.value.imageData.imageId) {
+            galleryTargetMessage.value.imageData.history.push({
+              imageId: galleryTargetMessage.value.imageData.imageId,
+              prompt: galleryTargetMessage.value.imageData.prompt || '',
+              url: galleryTargetMessage.value._localImageUrl || localUrl,
+              provider: 'gemini'
+            })
+          }
+        }
+        galleryTargetMessage.value.imageData.history.push({ imageId, prompt, url: localUrl, provider: 'gemini' })
+        galleryTargetMessage.value.imageData.imageId = imageId
+        galleryTargetMessage.value.imageData.prompt = finalPrompt
+        galleryTargetMessage.value.imageData.provider = 'gemini'
+        galleryTargetMessage.value._localImageUrl = localUrl
+        saveCustomContacts()
+        showToast('Gemini 重新生成成功！')
+      } catch (error: any) {
+        showToast(`Gemini 生成失败: ${error.message}`)
+      }
+      return
+    }
+    if (provider === 'gpt') {
+      const gptConfig = selectedChat.value.gptImageConfig || {}
+      showToast('正在使用 GPT Image 2 重新生成...')
+      try {
+        const { loadData, referenceGroups, getImagesForGroups } = useGptImageReference()
+        await loadData()
+        const groupIds: string[] = gptConfig.referenceGroupIds || []
+        const instructions = referenceGroups.value
+          .filter(group => groupIds.includes(group.id) && group.description?.trim())
+          .map(group => `参考组“${group.name}”的用途：${group.description.trim()}`)
+        const finalPrompt = [gptConfig.promptPrefix, ...instructions, prompt].filter(Boolean).join('\n')
+        const { generateImage } = useGptImage()
+        const image = await generateImage({
+          apiKey: gptConfig.apiKey || localStorage.getItem('app_gpt_image_apikey') || '',
+          baseUrl: gptConfig.baseUrl || localStorage.getItem('app_gpt_image_baseurl') || 'https://api.openai.com/v1'
+        }, {
+          model: gptConfig.model || localStorage.getItem('app_gpt_image_model') || 'gpt-image-2',
+          prompt: finalPrompt,
+          size: gptConfig.size || localStorage.getItem('app_gpt_image_size') || '1024x1536',
+          quality: gptConfig.quality || localStorage.getItem('app_gpt_image_quality') || 'medium',
+          output_format: gptConfig.outputFormat || localStorage.getItem('app_gpt_image_format') || 'png',
+          output_compression: gptConfig.outputCompression ?? Number(localStorage.getItem('app_gpt_image_compression') || 90),
+          moderation: gptConfig.moderation || localStorage.getItem('app_gpt_image_moderation') || 'auto',
+          referenceImages: getImagesForGroups(groupIds).map(item => item.dataUrl)
+        })
+
+        const imageId = `gpt_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+        const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+        await imageStore.setItem(imageId, image)
+        const response = await fetch(image)
+        const localUrl = URL.createObjectURL(await response.blob())
+
+        if (!galleryTargetMessage.value.imageData.history) {
+          galleryTargetMessage.value.imageData.history = []
+          if (galleryTargetMessage.value.imageData.imageId) {
+            galleryTargetMessage.value.imageData.history.push({
+              imageId: galleryTargetMessage.value.imageData.imageId,
+              prompt: galleryTargetMessage.value.imageData.prompt || '',
+              url: galleryTargetMessage.value._localImageUrl || localUrl
+            })
+          }
+        }
+        galleryTargetMessage.value.imageData.history.push({ imageId, prompt, url: localUrl, provider: 'gpt' })
+        galleryTargetMessage.value.imageData.imageId = imageId
+        galleryTargetMessage.value.imageData.prompt = finalPrompt
+        galleryTargetMessage.value.imageData.provider = 'gpt'
+        galleryTargetMessage.value._localImageUrl = localUrl
+        saveCustomContacts()
+        showToast('GPT 重新生成成功！')
+      } catch (error: any) {
+        showToast(`GPT 生成失败: ${error.message}`)
+      }
+      return
+    }
     
     const naiConfig = selectedChat.value.naiConfig || {}
     const { negativePrompt, presetId, apiKey, baseUrl, useStream, vibe_group_ids, seed, sm, sm_dyn, skip_cfg_above_sigma, ...restConfig } = naiConfig

@@ -84,7 +84,7 @@ const emit = defineEmits<{
               </div>
             </div>
             <div class="polaroid-caption">
-              <span class="pure-name">{{ persona.name || '未命名' }}</span>
+              <span class="pure-name">{{ persona.name || persona.networkName || '未命名' }}</span>
               <div class="pure-status-row" v-if="persona.id === currentPersonaId || persona.boundAccountId">
                 <span v-if="persona.id === currentPersonaId" class="status-current">当前</span>
                 <span v-if="persona.boundAccountId" class="bound-tag">已绑定</span>

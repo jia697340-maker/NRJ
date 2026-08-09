@@ -17,6 +17,8 @@ export function useChatSettingsSave() {
         contacts[idx].name = selectedChat.value.realName
         contacts[idx].remark = selectedChat.value.remark
         contacts[idx].persona = selectedChat.value.persona
+        contacts[idx].userProfile = selectedChat.value.userProfile || null
+        contacts[idx].userProfileSource = selectedChat.value.userProfileSource || null
         contacts[idx].boundWorldBooks = selectedChat.value.boundWorldBooks || []
         contacts[idx].boundWorldBookGroups = selectedChat.value.boundWorldBookGroups || []
         contacts[idx].memoryType = selectedChat.value.memoryType || 'count'
@@ -54,6 +56,7 @@ export function useChatSettingsSave() {
         
         // NAI生图设置持久化
         contacts[idx].enableNAIImageGen = selectedChat.value.enableNAIImageGen ?? false
+        contacts[idx].imageGenProvider = selectedChat.value.imageGenProvider || 'novelai'
         contacts[idx].naiImagePrompt = selectedChat.value.naiImagePrompt || ''
         contacts[idx].naiImageNegativePrompt = selectedChat.value.naiImageNegativePrompt || ''
         contacts[idx].naiImageResolution = selectedChat.value.naiImageResolution || '1024x1024'
@@ -67,6 +70,15 @@ export function useChatSettingsSave() {
           if (cleanNaiConfig.reference_image) delete cleanNaiConfig.reference_image
         }
         contacts[idx].naiConfig = cleanNaiConfig
+        contacts[idx].gptImageConfig = selectedChat.value.gptImageConfig
+          ? JSON.parse(JSON.stringify(selectedChat.value.gptImageConfig))
+          : null
+        contacts[idx].geminiImageConfig = selectedChat.value.geminiImageConfig
+          ? JSON.parse(JSON.stringify(selectedChat.value.geminiImageConfig))
+          : null
+        contacts[idx].fluxImageConfig = selectedChat.value.fluxImageConfig
+          ? JSON.parse(JSON.stringify(selectedChat.value.fluxImageConfig))
+          : null
 
         // 语音设置持久化
         contacts[idx].enableVoiceReply = selectedChat.value.enableVoiceReply ?? false

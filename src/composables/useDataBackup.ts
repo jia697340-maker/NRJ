@@ -18,6 +18,14 @@ export interface BackupCatalogItem {
 export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'novelai-api-key', group: '账号与安全', name: 'NovelAI API 密钥', description: 'NovelAI 的访问密钥', sensitive: true, localKeys: ['app_novelai_apikey'] },
   { id: 'novelai-api-address', group: '账号与安全', name: 'NovelAI API 地址', description: '自定义服务地址', localKeys: ['app_novelai_baseurl'] },
+  { id: 'gpt-image-api-key', group: '账号与安全', name: 'GPT 生图 API 密钥', description: 'GPT Image 2 的访问密钥', sensitive: true, localKeys: ['app_gpt_image_apikey'] },
+  { id: 'gpt-image-api-settings', group: '账号与安全', name: 'GPT 生图 API 配置', description: 'GPT Image 2 的接口地址与模型', localKeys: ['app_gpt_image_baseurl', 'app_gpt_image_model'] },
+  { id: 'gpt-image-api-presets', group: '账号与安全', name: 'GPT 生图 API 预设', description: 'GPT Image 2 的多套接口预设', sensitive: true, localKeys: ['app_gpt_image_presets', 'app_gpt_image_current_preset'] },
+  { id: 'gemini-image-api-key', group: '账号与安全', name: 'Gemini 生图 API 密钥', description: 'Gemini Image 的访问密钥', sensitive: true, localKeys: ['app_gemini_image_apikey'] },
+  { id: 'gemini-image-api-settings', group: '账号与安全', name: 'Gemini 生图 API 配置', description: '官方或 OpenRouter 的接口地址与模型', localKeys: ['app_gemini_image_baseurl', 'app_gemini_image_transport', 'app_gemini_image_model'] },
+  { id: 'gemini-image-api-presets', group: '账号与安全', name: 'Gemini 生图 API 预设', description: 'Gemini Image 的多套接口预设', sensitive: true, localKeys: ['app_gemini_image_presets', 'app_gemini_image_current_preset'] },
+  { id: 'flux-image-api-key', group: '账号与安全', name: 'FLUX 生图 API 密钥', description: 'Black Forest Labs 的访问密钥', sensitive: true, localKeys: ['app_flux_image_apikey'] },
+  { id: 'flux-image-api-settings', group: '账号与安全', name: 'FLUX 生图 API 配置', description: '独立代理地址与模型', localKeys: ['app_flux_image_proxy_url', 'app_flux_image_model'] },
   { id: 'minimax-voice', group: '账号与安全', name: 'MiniMax 语音配置', description: '语音服务配置', sensitive: true, localKeys: ['minimax_voice_config_v4'] },
   { id: 'llm-presets', group: 'AI 与生成设置', name: 'LLM 预设列表', description: '模型预设与参数', localKeys: ['app_llm_presets'] },
   { id: 'novelai-presets', group: 'AI 与生成设置', name: 'NovelAI 预设列表', description: '图像生成预设', localKeys: ['app_novelai_presets'] },
@@ -27,6 +35,12 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'style-tags', group: 'AI 与生成设置', name: '风格标签', description: '常用风格标签', localKeys: ['app_novelai_styletags'] },
   { id: 'vibe-settings', group: 'AI 与生成设置', name: 'Vibe 分组与图片', description: 'Vibe 分组和关联图片', localKeys: ['app_novelai_vibe_groups', 'app_novelai_vibe_images'], stores: [{ dbName: 'app_vibe_storage', storeName: 'keyvaluepairs' }] },
   { id: 'stream-setting', group: 'AI 与生成设置', name: '流式生成开关', description: '生成输出方式', localKeys: ['app_novelai_usestream'] },
+  { id: 'gpt-image-settings', group: 'AI 与生成设置', name: 'GPT 生图设置', description: 'GPT Image 2 的尺寸、质量、格式和当前提示词', localKeys: ['app_gpt_image_size', 'app_gpt_image_quality', 'app_gpt_image_count', 'app_gpt_image_format', 'app_gpt_image_compression', 'app_gpt_image_moderation', 'app_gpt_image_prompt', 'app_gpt_image_selected_groups'] },
+  { id: 'gpt-image-references', group: 'AI 与生成设置', name: 'GPT 参考组', description: 'GPT 生图参考图片与分组', stores: [{ dbName: 'app_gpt_image_references', storeName: 'reference_data' }] },
+  { id: 'gemini-image-settings', group: 'AI 与生成设置', name: 'Gemini 生图设置', description: 'Gemini 的比例、分辨率、思考和搜索设置', localKeys: ['app_gemini_image_aspect_ratio', 'app_gemini_image_size', 'app_gemini_image_mime_type', 'app_gemini_image_thinking_level', 'app_gemini_image_google_search', 'app_gemini_image_image_search', 'app_gemini_image_prompt', 'app_gemini_image_selected_groups'] },
+  { id: 'gemini-image-references', group: 'AI 与生成设置', name: 'Gemini 参考组', description: 'Gemini 生图参考图片与分组', stores: [{ dbName: 'app_gemini_image_references', storeName: 'reference_data' }] },
+  { id: 'flux-image-settings', group: 'AI 与生成设置', name: 'FLUX 生图设置', description: 'FLUX 的尺寸、格式、审核与提示词设置', localKeys: ['app_flux_image_width', 'app_flux_image_height', 'app_flux_image_format', 'app_flux_image_safety', 'app_flux_image_seed', 'app_flux_image_disable_pup', 'app_flux_image_prompt', 'app_flux_image_selected_groups'] },
+  { id: 'flux-image-references', group: 'AI 与生成设置', name: 'FLUX 参考组', description: 'FLUX 独立参考图片与分组', stores: [{ dbName: 'app_flux_image_references', storeName: 'reference_data' }] },
   { id: 'app-theme', group: '外观与系统', name: '应用主题', description: '应用主题与登录页主题', localKeys: ['clingy_auth_theme'] },
   { id: 'app-icons', group: '外观与系统', name: '应用图标', description: '自定义应用图标', stores: [{ dbName: 'nrt-app', storeName: 'appIcons' }] },
   { id: 'custom-fonts', group: '外观与系统', name: '自定义字体', description: '字体文件与作用范围', localKeys: ['clingy_custom_fonts'], stores: [{ dbName: 'nrt-app', storeName: 'customFonts' }] },
@@ -49,6 +63,9 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'avatars', group: '图片与媒体', name: '头像库', description: '角色与用户头像', stores: [{ dbName: 'nrt-app', storeName: 'avatars' }] },
   { id: 'media-thumbs', group: '图片与媒体', name: '媒体缩略图', description: '图片和媒体的缩略图', stores: [{ dbName: 'nrt-app', storeName: 'media-thumbs' }, { dbName: 'nrt-app', storeName: 'mediaThumbs' }] },
   { id: 'image-history', group: '图片与媒体', name: '图片生成历史', description: 'NovelAI 图片生成历史', stores: [{ dbName: 'app_novelai_history', storeName: 'keyvaluepairs' }, { dbName: 'nrt-app', storeName: 'history_items' }] },
+  { id: 'gpt-image-history', group: '图片与媒体', name: 'GPT 图片生成历史', description: 'GPT Image 2 独立生成历史', stores: [{ dbName: 'app_gpt_image_history', storeName: 'history_items' }] },
+  { id: 'gemini-image-history', group: '图片与媒体', name: 'Gemini 图片生成历史', description: 'Gemini Image 独立生成历史', stores: [{ dbName: 'app_gemini_image_history', storeName: 'history_items' }] },
+  { id: 'flux-image-history', group: '图片与媒体', name: 'FLUX 图片生成历史', description: 'FLUX.2 独立生成历史', stores: [{ dbName: 'app_flux_image_history', storeName: 'history_items' }] },
   { id: 'discover-moments', group: '发现与社交', name: '动态广场内容', description: '发布的动态及关联媒体', stores: [{ dbName: 'nrt-app', storeName: 'discover_moments' }] },
   { id: 'ui-preferences', group: '界面偏好', name: '界面位置与显示偏好', description: '页签、发现页控制等界面状态', localKeys: ['clingy_chat_setting_tab', 'clingy_discover_show_controls', 'clingy_last_timezone_tab'] }
 ]
@@ -131,9 +148,18 @@ const BACKUP_INTERNAL_KEYS = new Set([
   'email_backup_password'
 ])
 const SENSITIVE_KEY_PATTERN = /(api[_-]?key|apikey|token|secret|password|credential|clingy_(api|vision_api|summary_api|moment_api|embedding_api)_settings|minimax_voice_config)/i
+const NESTED_SENSITIVE_PROPERTY_PATTERN = /^(api[_-]?key|apikey|token|secret|password|credential)$/i
 
 const isInfrastructureCredentialKey = (key: string) => BACKUP_INTERNAL_KEYS.has(key) || /github.*config|webdav.*config/i.test(key)
 const isSensitiveKey = (key: string) => isInfrastructureCredentialKey(key) || SENSITIVE_KEY_PATTERN.test(key)
+const redactNestedCredentials = (value: any): any => {
+  if (Array.isArray(value)) return value.map(redactNestedCredentials)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value).map(([key, nestedValue]) => [
+    key,
+    NESTED_SENSITIVE_PROPERTY_PATTERN.test(key) ? '' : redactNestedCredentials(nestedValue)
+  ]))
+}
 
 // 核心备份引擎
 export function useDataBackup() {
@@ -195,7 +221,16 @@ export function useDataBackup() {
       }
 
       if (shouldInclude) {
-        data.localStorage[key] = val
+        if (!options.includeSensitive && key.startsWith('clingy_custom_contacts')) {
+          try {
+            data.localStorage[key] = JSON.stringify(redactNestedCredentials(JSON.parse(val)))
+            data.meta.excludedSensitiveKeys?.push(`${key}:嵌套凭据`)
+          } catch {
+            data.localStorage[key] = val
+          }
+        } else {
+          data.localStorage[key] = val
+        }
       }
     }
 

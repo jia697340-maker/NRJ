@@ -104,7 +104,7 @@ const onOfflineToggle = () => {
       </template>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('自动生成心声', '心声附带生图', '心声附带语音')">
+    <div class="glass-panel" v-show="matchSearch('自动生成心声', '心声附带生图', '心声附带语音', '心声存储上限')">
       <div class="glass-list-item" v-show="matchSearch('自动生成心声')">
         <div class="item-label">自动生成心声</div>
         <div class="item-value">
@@ -115,6 +115,13 @@ const onOfflineToggle = () => {
         </div>
       </div>
       <template v-if="selectedChat.enableAutoThought">
+        <div class="glass-list-item" v-show="matchSearch('心声存储上限')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 心声存储上限</div>
+          <div class="item-value" style="display:flex; align-items:center; gap:8px;">
+            <input type="number" v-model="chatSettings.innerThoughtLimit" @change="handleSave" style="width: 50px; text-align: right; background: transparent; border: none; font-size: 15px; color: var(--text-secondary); outline: none;" min="1" max="1000">
+            <span class="item-value-text">条</span>
+          </div>
+        </div>
         <div class="glass-list-item" v-show="matchSearch('心声附带生图')">
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 心声附带生图 (暂未接入)</div>
           <div class="item-value">

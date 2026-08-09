@@ -1,12 +1,18 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { sendChatMessage } from '../services/api'
 import localforage from 'localforage'
+import { useGptImageReference } from './useGptImageReference'
+import { useGeminiImageReference } from './useGeminiImageReference'
+import { useFluxImageReference } from './useFluxImageReference'
 
 export function useChatRoomImageGen(
   selectedChat: any,
   myProfile: any,
-  generateImage: any,
-  saveCustomContacts: () => void,
+  generateNovelImage: any,
+  generateGptImage: any,
+  generateGeminiImage: any,
+  generateFluxImage: any,
+  saveCustomContacts: (targetChat?: any) => void,
   scrollToBottom: () => Promise<void>
 ) {
   const handleAIImageGen = async (
@@ -16,7 +22,11 @@ export function useChatRoomImageGen(
     actionContent: string,
     isRoomActive: boolean
   ) => {
-    const naiConfig = selectedChat.value.naiConfig || {}
+    const provider = chatToUpdate.imageGenProvider || 'novelai'
+    const naiConfig = chatToUpdate.naiConfig || {}
+    const gptConfig = chatToUpdate.gptImageConfig || {}
+    const geminiConfig = chatToUpdate.geminiImageConfig || {}
+    const fluxConfig = chatToUpdate.fluxImageConfig || {}
     const vibeText = naiConfig.vibeText || ''
     const positivePrompt = naiConfig.positivePrompt || ''
     const visualProfile = naiConfig.visualProfile?.enabled ? naiConfig.visualProfile : null
@@ -35,6 +45,249 @@ export function useChatRoomImageGen(
     chatToUpdate.preview = '[正在作画中...]'
     if (isRoomActive && selectedChat.value && selectedChat.value.id === currentChatId) {
       await scrollToBottom()
+    }
+
+    if (provider === 'flux') {
+      let scenePrompt = actionContent.trim()
+      if (fluxConfig.enableLlmAssist) {
+        try {
+          const contextSize = Math.min(50, Math.max(1, Number(fluxConfig.llmContextSize) || 12))
+          const recentMessages = chatToUpdate.messages
+            .filter((message: any) => message.type === 'left' || message.type === 'right')
+            .slice(-contextSize)
+            .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value.name || '用户')}：${message.content}`)
+            .join('\n')
+          const result = await sendChatMessage([
+            {
+              role: 'system',
+              content: '你是 FLUX.2 的画面整理助手。根据角色设定、聊天上下文和本次要求，输出一段明确的中文自然语言生图描述，包含人物外貌、动作、场景、构图、镜头与光线。不要输出 JSON、标签、Negative Prompt 或解释。'
+            },
+            {
+              role: 'user',
+              content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}`
+            }
+          ], undefined, false, true)
+          scenePrompt = (typeof result === 'string' ? result : result.content).trim() || scenePrompt
+        } catch (error) {
+          console.warn('FLUX 生图画面整理失败，改用原始描述', error)
+        }
+      }
+
+      const { loadData, referenceGroups, getImagesForGroups } = useFluxImageReference()
+      await loadData()
+      const groupIds: string[] = fluxConfig.referenceGroupIds || []
+      const instructions = referenceGroups.value
+        .filter(group => groupIds.includes(group.id) && group.description?.trim())
+        .map(group => `参考组“${group.name}”：${group.description.trim()}`)
+      const finalFluxPrompt = [fluxConfig.promptPrefix?.trim(), ...instructions, scenePrompt].filter(Boolean).join('\n')
+      const references = getImagesForGroups(groupIds)
+      const msgRef = chatToUpdate.messages.find((message: any) => message.id === baseMessageId)
+      if (msgRef) {
+        msgRef.content = '正在使用 FLUX.2 绘制图像...'
+        msgRef.imageData.prompt = finalFluxPrompt
+        msgRef.imageData.sourceText = actionContent
+        msgRef.imageData.provider = 'flux'
+        msgRef.imageData.referenceGroupIds = groupIds
+      }
+
+      try {
+        const generatedImage = await generateFluxImage({
+          apiKey: fluxConfig.apiKey || localStorage.getItem('app_flux_image_apikey') || '',
+          proxyUrl: fluxConfig.proxyUrl || localStorage.getItem('app_flux_image_proxy_url') || 'https://clingy-flux-proxy.q89028615.workers.dev'
+        }, {
+          model: fluxConfig.model || localStorage.getItem('app_flux_image_model') || 'flux-2-pro-preview',
+          prompt: finalFluxPrompt,
+          width: fluxConfig.width || Number(localStorage.getItem('app_flux_image_width') || 1024),
+          height: fluxConfig.height || Number(localStorage.getItem('app_flux_image_height') || 1536),
+          outputFormat: fluxConfig.outputFormat || localStorage.getItem('app_flux_image_format') || 'png',
+          safetyTolerance: fluxConfig.safetyTolerance ?? Number(localStorage.getItem('app_flux_image_safety') || 2),
+          seed: fluxConfig.seed === '' || fluxConfig.seed === undefined
+            ? (localStorage.getItem('app_flux_image_seed') || null)
+            : Number(fluxConfig.seed),
+          disablePromptUpsampling: fluxConfig.enableLlmAssist
+            ? true
+            : (fluxConfig.disablePromptUpsampling ?? localStorage.getItem('app_flux_image_disable_pup') === 'true'),
+          referenceImages: references.map(image => image.dataUrl)
+        })
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = '[图片]'
+          const imageId = `flux_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+          const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+          await imageStore.setItem(imageId, generatedImage)
+          message.imageData.imageId = imageId
+          chatToUpdate.preview = '[发来图片/视频]'
+          saveCustomContacts(chatToUpdate)
+          if (isRoomActive && selectedChat.value?.id === currentChatId) await scrollToBottom()
+        }
+      } catch (error: any) {
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = `[FLUX 图片生成失败: ${error.message}]`
+          saveCustomContacts(chatToUpdate)
+        }
+      }
+      return
+    }
+
+    if (provider === 'gemini') {
+      const { loadData, referenceGroups, getImagesForGroups } = useGeminiImageReference()
+      await loadData()
+      const groupIds: string[] = geminiConfig.referenceGroupIds || []
+      const groupInstructions = referenceGroups.value
+        .filter(group => groupIds.includes(group.id))
+        .map(group => `${group.kind === 'character' ? '角色一致性' : group.kind === 'style' ? '画风参考' : group.kind === 'scene' ? '场景参考' : '物体参考'}“${group.name}”：${group.description || '按该组图片进行参考'}。`)
+      const contextSize = Math.min(50, Math.max(1, Number(geminiConfig.contextSize) || 12))
+      const recentMessages = geminiConfig.includeChatContext === false
+        ? ''
+        : chatToUpdate.messages
+          .filter((message: any) => (message.type === 'left' || message.type === 'right') && message.id !== baseMessageId)
+          .slice(-contextSize)
+          .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value.name || '用户')}：${message.content}`)
+          .join('\n')
+      const finalGeminiPrompt = [
+        geminiConfig.promptPrefix?.trim(),
+        ...groupInstructions,
+        recentMessages && `最近聊天上下文：\n${recentMessages}`,
+        `本次需要绘制的画面：${actionContent.trim()}`
+      ].filter(Boolean).join('\n\n')
+      const references = getImagesForGroups(groupIds)
+      const msgRef = chatToUpdate.messages.find((message: any) => message.id === baseMessageId)
+      if (msgRef) {
+        msgRef.content = '正在使用 Gemini 绘制图像...'
+        msgRef.imageData.prompt = finalGeminiPrompt
+        msgRef.imageData.sourceText = actionContent
+        msgRef.imageData.provider = 'gemini'
+        msgRef.imageData.referenceGroupIds = groupIds
+      }
+
+      try {
+        const transport = geminiConfig.transport || localStorage.getItem('app_gemini_image_transport') || 'official'
+        const generatedImage = await generateGeminiImage({
+          apiKey: geminiConfig.apiKey || localStorage.getItem('app_gemini_image_apikey') || '',
+          baseUrl: geminiConfig.baseUrl || localStorage.getItem('app_gemini_image_baseurl') || (transport === 'official' ? 'https://generativelanguage.googleapis.com' : 'https://openrouter.ai/api/v1'),
+          transport
+        }, {
+          model: geminiConfig.model || localStorage.getItem('app_gemini_image_model') || (transport === 'official' ? 'gemini-3.1-flash-image' : 'google/gemini-3.1-flash-image'),
+          prompt: finalGeminiPrompt,
+          aspectRatio: geminiConfig.aspectRatio || localStorage.getItem('app_gemini_image_aspect_ratio') || '2:3',
+          imageSize: geminiConfig.imageSize || localStorage.getItem('app_gemini_image_size') || '1K',
+          mimeType: geminiConfig.mimeType || localStorage.getItem('app_gemini_image_mime_type') || 'image/png',
+          thinkingLevel: geminiConfig.thinkingLevel || localStorage.getItem('app_gemini_image_thinking_level') || 'minimal',
+          useGoogleSearch: geminiConfig.useGoogleSearch ?? localStorage.getItem('app_gemini_image_google_search') === 'true',
+          useImageSearch: geminiConfig.useImageSearch ?? localStorage.getItem('app_gemini_image_image_search') === 'true',
+          referenceImages: references.map(image => image.dataUrl)
+        })
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = '[图片]'
+          const imageId = `gemini_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+          const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+          await imageStore.setItem(imageId, generatedImage)
+          message.imageData.imageId = imageId
+          chatToUpdate.preview = '[发来图片/视频]'
+          saveCustomContacts(chatToUpdate)
+          if (isRoomActive && selectedChat.value?.id === currentChatId) await scrollToBottom()
+        }
+      } catch (error: any) {
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = `[Gemini 图片生成失败: ${error.message}]`
+          saveCustomContacts(chatToUpdate)
+        }
+      }
+      return
+    }
+
+    if (provider === 'gpt') {
+      let gptPrompt = actionContent.trim()
+      if (gptConfig.enableLlmAssist) {
+        try {
+          const contextSize = Math.min(50, Math.max(1, Number(gptConfig.llmContextSize) || 12))
+          const recentMessages = chatToUpdate.messages
+            .filter((message: any) => message.type === 'left' || message.type === 'right')
+            .slice(-contextSize)
+            .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value.name || '用户')}：${message.content}`)
+            .join('\n')
+          const result = await sendChatMessage([
+            {
+              role: 'system',
+              content: '你是 GPT Image 2 的画面整理助手。根据角色设定、聊天上下文和本次画面要求，输出一段完整、明确的中文自然语言生图描述。写清人物外貌、动作、场景、构图、镜头和光线。不要输出 JSON、标签列表、Negative Prompt 或解释。'
+            },
+            {
+              role: 'user',
+              content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}`
+            }
+          ], undefined, false, true)
+          gptPrompt = (typeof result === 'string' ? result : result.content).trim() || gptPrompt
+        } catch (error) {
+          console.warn('GPT 生图画面整理失败，改用原始描述', error)
+        }
+      }
+
+      const { loadData, referenceGroups, getImagesForGroups } = useGptImageReference()
+      await loadData()
+      const groupIds: string[] = gptConfig.referenceGroupIds || []
+      const selectedGroups = referenceGroups.value.filter(group => groupIds.includes(group.id))
+      const groupInstructions = selectedGroups
+        .filter(group => group.description?.trim())
+        .map(group => `参考组“${group.name}”的用途：${group.description.trim()}`)
+      const finalGptPrompt = [
+        gptConfig.promptPrefix?.trim(),
+        ...groupInstructions,
+        gptPrompt
+      ].filter(Boolean).join('\n')
+      const references = getImagesForGroups(groupIds)
+
+      const msgRef = chatToUpdate.messages.find((message: any) => message.id === baseMessageId)
+      if (msgRef) {
+        msgRef.content = '正在使用 GPT Image 2 绘制图像...'
+        msgRef.imageData.prompt = finalGptPrompt
+        msgRef.imageData.sourceText = actionContent
+        msgRef.imageData.provider = 'gpt'
+        msgRef.imageData.referenceGroupIds = groupIds
+      }
+
+      try {
+        const generatedImage = await generateGptImage({
+          apiKey: gptConfig.apiKey || localStorage.getItem('app_gpt_image_apikey') || '',
+          baseUrl: gptConfig.baseUrl || localStorage.getItem('app_gpt_image_baseurl') || 'https://api.openai.com/v1'
+        }, {
+          model: gptConfig.model || localStorage.getItem('app_gpt_image_model') || 'gpt-image-2',
+          prompt: finalGptPrompt,
+          size: gptConfig.size || localStorage.getItem('app_gpt_image_size') || '1024x1536',
+          quality: gptConfig.quality || localStorage.getItem('app_gpt_image_quality') || 'medium',
+          output_format: gptConfig.outputFormat || localStorage.getItem('app_gpt_image_format') || 'png',
+          output_compression: gptConfig.outputCompression ?? Number(localStorage.getItem('app_gpt_image_compression') || 90),
+          moderation: gptConfig.moderation || localStorage.getItem('app_gpt_image_moderation') || 'auto',
+          referenceImages: references.map(image => image.dataUrl)
+        })
+
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = '[图片]'
+          const imageId = `gpt_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+          const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+          await imageStore.setItem(imageId, generatedImage)
+          message.imageData.imageId = imageId
+          chatToUpdate.preview = '[发来图片/视频]'
+          saveCustomContacts(chatToUpdate)
+          if (isRoomActive && selectedChat.value?.id === currentChatId) await scrollToBottom()
+        }
+      } catch (error: any) {
+        const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (message) {
+          message.isGeneratingImage = false
+          message.content = `[GPT 图片生成失败: ${error.message}]`
+          saveCustomContacts(chatToUpdate)
+        }
+      }
+      return
     }
 
     let finalPrompt = ''
@@ -221,7 +474,7 @@ export function useChatRoomImageGen(
       useStream: useStream !== false
     }
 
-    generateImage(finalConfig, genParams)
+    generateNovelImage(finalConfig, genParams)
       .then(async (base64Img: string) => {
         const msgToUpdate = chatToUpdate.messages.find((m: any) => m.id === baseMessageId)
         if (msgToUpdate) {
@@ -234,7 +487,7 @@ export function useChatRoomImageGen(
           msgToUpdate.imageData.imageId = imageId
           
           chatToUpdate.preview = '[发来图片/视频]'
-          saveCustomContacts()
+          saveCustomContacts(chatToUpdate)
           if (isRoomActive && selectedChat.value && selectedChat.value.id === currentChatId) {
              await scrollToBottom()
           }
@@ -245,7 +498,7 @@ export function useChatRoomImageGen(
         if (msgToUpdate) {
           msgToUpdate.isGeneratingImage = false
           msgToUpdate.content = `[图片生成失败: ${err.message}]`
-          saveCustomContacts()
+          saveCustomContacts(chatToUpdate)
         }
       })
   }

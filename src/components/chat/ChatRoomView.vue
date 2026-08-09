@@ -63,9 +63,10 @@ async function scrollToBottom() {
   }
 }
 
-function saveCustomContacts() {
-  if (selectedChat.value.id === 1) {
-    localStorage.setItem('clingy_system_messages', JSON.stringify(selectedChat.value.messages))
+function saveCustomContacts(targetChat: any = selectedChat.value) {
+  if (!targetChat) return
+  if (targetChat.id === 1) {
+    localStorage.setItem('clingy_system_messages', JSON.stringify(targetChat.messages))
     return
   }
   const { currentChatUserId } = useChatAuth()
@@ -73,16 +74,16 @@ function saveCustomContacts() {
   const savedStr = localStorage.getItem(contactsKey)
   if (savedStr) {
     const contacts = JSON.parse(savedStr)
-    const index = contacts.findIndex((c: any) => c.id === selectedChat.value.id)
+    const index = contacts.findIndex((c: any) => c.id === targetChat.id)
     if (index !== -1) {
-      contacts[index].messages = selectedChat.value.messages
-      contacts[index].innerThoughts = selectedChat.value.innerThoughts || []
-      contacts[index].memoryBook = selectedChat.value.memoryBook || []
-      contacts[index].memoryState = selectedChat.value.memoryState || null
-      contacts[index].lastSummaryMsgId = selectedChat.value.lastSummaryMsgId || 0
-      contacts[index].callSummaries = selectedChat.value.callSummaries || []
-      contacts[index].preview = selectedChat.value.preview
-      contacts[index].time = selectedChat.value.time
+      contacts[index].messages = targetChat.messages
+      contacts[index].innerThoughts = targetChat.innerThoughts || []
+      contacts[index].memoryBook = targetChat.memoryBook || []
+      contacts[index].memoryState = targetChat.memoryState || null
+      contacts[index].lastSummaryMsgId = targetChat.lastSummaryMsgId || 0
+      contacts[index].callSummaries = targetChat.callSummaries || []
+      contacts[index].preview = targetChat.preview
+      contacts[index].time = targetChat.time
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
     }
   }
@@ -115,7 +116,7 @@ const emit = defineEmits<{
   }): void
 }>()
 
-const { mockChats, selectedChat, myProfile, buildChatMessages, totalUnreadCount, showNotification, checkTransfersExpired } = useChatState()
+const { mockChats, selectedChat, effectiveMyProfile: myProfile, buildChatMessages, totalUnreadCount, showNotification, checkTransfersExpired } = useChatState()
 
 const showExtensionPanel = ref(false)
 const showEmojiPanel = ref(false)

@@ -7,6 +7,7 @@ const props = defineProps<{
   newUserAvatar: string
   newUserDetail: string
   isBoundToAccount?: boolean
+  isEditingPersona?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -23,10 +24,6 @@ const emit = defineEmits<{
 
 const updateNetworkName = (e: Event) => {
   emit('update:newNetworkName', (e.target as HTMLInputElement).value)
-}
-
-const updateId = (e: Event) => {
-  emit('update:newUserId', (e.target as HTMLInputElement).value)
 }
 
 const updateName = (e: Event) => {
@@ -90,12 +87,12 @@ const updateDetail = (e: Event) => {
               <div class="signature-line"></div>
             </div>
             
-            <!-- 专属 ID 输入框 & 账号绑定 -->
+            <!-- 聊天账号 ID 仅作展示；人设内部 ID 不暴露给用户 -->
             <div style="margin-top: 12px; position: relative;">
               <div class="card-label" style="margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
-                <span>ID / 专属编号</span>
+                <span>CHAT ID / 聊天账号</span>
                 <!-- 账号绑定操作区移到这里 -->
-                <div class="bind-action-inline">
+                <div v-if="isEditingPersona" class="bind-action-inline">
                   <div v-if="isBoundToAccount" class="bind-badge bound" @click="emit('unbindAccount')">
                     <svg viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
                     <span>已绑定</span>
@@ -109,10 +106,11 @@ const updateDetail = (e: Event) => {
               <input 
                 type="text" 
                 :value="newUserId"
-                @input="updateId"
                 class="id-input" 
-                placeholder="在此输入您的专属ID号" 
+                placeholder="当前聊天账号 ID"
                 maxlength="20"
+                readonly
+                aria-readonly="true"
               />
               <div class="signature-line" style="height: 1px; opacity: 0.5;"></div>
             </div>

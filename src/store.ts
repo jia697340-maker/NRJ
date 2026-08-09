@@ -154,6 +154,7 @@ export interface ApiPreset {
   enablePresencePenalty?: boolean
   presencePenalty?: number
   enableStream?: boolean
+  batchSize?: number
 }
 
 export const apiSettings = reactive({
@@ -177,7 +178,9 @@ export const apiSettings = reactive({
   presencePenalty: savedApiSettings.presencePenalty ?? 0,
   enableStream: savedApiSettings.enableStream ?? false,
   presets: (savedApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedApiSettings.currentPresetId ?? ''
+  currentPresetId: savedApiSettings.currentPresetId ?? '',
+  enableApiLogging: savedApiSettings.enableApiLogging ?? false,
+  apiLogMaxCount: savedApiSettings.apiLogMaxCount ?? 1000
 })
 
 watch(apiSettings, (newVal) => {
@@ -259,7 +262,9 @@ export const embeddingApiSettings = reactive({
   availableModels: savedEmbeddingApiSettings.availableModels || [],
   customUrl: savedEmbeddingApiSettings.customUrl ?? '',
   customKey: savedEmbeddingApiSettings.customKey ?? '',
-  batchSize: savedEmbeddingApiSettings.batchSize ?? 20
+  batchSize: savedEmbeddingApiSettings.batchSize ?? 20,
+  presets: (savedEmbeddingApiSettings.presets || []) as ApiPreset[],
+  currentPresetId: savedEmbeddingApiSettings.currentPresetId ?? ''
 })
 
 watch(embeddingApiSettings, (newVal) => {
@@ -330,6 +335,7 @@ export const chatSettings = reactive({
   disableThoughtInCall: savedChatSettings.disableThoughtInCall ?? true, // 通话时禁用心声机制
   disableSpecialTagsInOffline: savedChatSettings.disableSpecialTagsInOffline ?? true, // 线下模式禁用媒体与互动功能
   disableThoughtInOffline: savedChatSettings.disableThoughtInOffline ?? true, // 线下模式禁用心声机制
+  innerThoughtLimit: savedChatSettings.innerThoughtLimit ?? 50, // 心声存储上限
   enableCharMomentImages: savedChatSettings.enableCharMomentImages ?? false, // 允许角色朋友圈消耗图像额度
   momentReadCount: savedChatSettings.momentReadCount ?? 5 // 角色每次获取朋友圈的最大条数
 })

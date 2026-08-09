@@ -10,7 +10,7 @@ const emit = defineEmits<{
   (e: 'back'): void
 }>()
 
-const { selectedChat, myProfile, mockChats, buildChatMessages, showNotification } = useChatState()
+const { selectedChat, effectiveMyProfile: myProfile, mockChats, buildChatMessages, showNotification } = useChatState()
 
 const isRoomActive = ref(true)
 const inputMessage = ref('')
@@ -35,18 +35,18 @@ function updatePreviewAndTime(content: string) {
   selectedChat.value.time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
-function saveCustomContacts() {
-  if (!selectedChat.value || selectedChat.value.id === 1) return
+function saveCustomContacts(targetChat: any = selectedChat.value) {
+  if (!targetChat || targetChat.id === 1) return
   const { currentChatUserId } = useChatAuth()
   const contactsKey = currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
   const savedStr = localStorage.getItem(contactsKey)
   if (savedStr) {
     const contacts = JSON.parse(savedStr)
-    const index = contacts.findIndex((c: any) => c.id === selectedChat.value.id)
+    const index = contacts.findIndex((c: any) => c.id === targetChat.id)
     if (index !== -1) {
-      contacts[index].messages = selectedChat.value.messages
-      contacts[index].preview = selectedChat.value.preview
-      contacts[index].time = selectedChat.value.time
+      contacts[index].messages = targetChat.messages
+      contacts[index].preview = targetChat.preview
+      contacts[index].time = targetChat.time
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
     }
   }

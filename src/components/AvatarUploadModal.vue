@@ -49,11 +49,12 @@ import { ref, watch, computed } from 'vue'
 
 const props = withDefaults(defineProps<{
   visible: boolean
-  currentAvatar: string | null
+  currentAvatar?: string | null
   shape?: 'avatar' | 'bg-left' | 'bg-right' | 'circle' | 'portrait' | 'wallpaper' | 'square'
   title?: string
 }>(), {
-  shape: 'circle'
+  shape: 'circle',
+  currentAvatar: null
 })
 
 const shapeClass = computed(() => {

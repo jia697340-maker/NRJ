@@ -20,6 +20,10 @@ const emit = defineEmits<{
   (e: 'open-long-text-modal', title: string, text: string, defaultText: string, placeholder: string, target: string): void
   (e: 'show-voice-detail-modal'): void
   (e: 'show-nai-image-detail-modal'): void
+  (e: 'show-gpt-image-detail-modal'): void
+  (e: 'show-gemini-image-detail-modal'): void
+  (e: 'show-flux-image-detail-modal'): void
+  (e: 'show-image-provider-modal'): void
   (e: 'show-world-book-bind-selector'): void
   (e: 'show-bilingual-option-modal', kind: 'mode' | 'display'): void
   (e: 'show-bilingual-language-modal', kind: 'output' | 'translation'): void
@@ -216,9 +220,9 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </template>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('开启角色接入NAI生图', 'NAI生图详细配置')">
-      <div class="glass-list-item" v-show="matchSearch('开启角色接入NAI生图')">
-        <div class="item-label">开启角色接入NAI生图</div>
+    <div class="glass-panel" v-show="matchSearch('开启角色生图', '生图引擎', 'NAI生图详细配置', 'GPT生图详细配置', 'Gemini生图详细配置', 'FLUX生图详细配置')">
+      <div class="glass-list-item" v-show="matchSearch('开启角色生图')">
+        <div class="item-label">开启角色生图</div>
         <div class="item-value">
           <label class="switch" @click.stop>
             <input type="checkbox" :checked="!!selectedChat.enableNAIImageGen" @change="(e) => { selectedChat.enableNAIImageGen = (e.target as HTMLInputElement).checked; handleSave(); }">
@@ -227,10 +231,38 @@ watch(() => props.selectedChat, calculateMomentTokens)
         </div>
       </div>
       <template v-if="selectedChat.enableNAIImageGen">
-        <div class="glass-list-item" v-show="matchSearch('NAI生图详细配置')" @click="emit('show-nai-image-detail-modal')">
-          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ NAI生图详细配置</div>
+        <div class="glass-list-item" v-show="matchSearch('生图引擎', 'NovelAI', 'GPT Image', 'Gemini Image', 'FLUX.2')" @click="emit('show-image-provider-modal')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 生图引擎</div>
+          <div class="item-value">
+            <span class="item-value-text">{{ (selectedChat.imageGenProvider || 'novelai') === 'novelai' ? 'NovelAI' : selectedChat.imageGenProvider === 'gemini' ? 'Gemini Image' : selectedChat.imageGenProvider === 'flux' ? 'FLUX.2' : 'GPT Image' }}</span>
+            <span class="arrow">></span>
+          </div>
+        </div>
+        <div v-if="(selectedChat.imageGenProvider || 'novelai') === 'novelai'" class="glass-list-item" v-show="matchSearch('NAI生图详细配置')" @click="emit('show-nai-image-detail-modal')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ NAI 生图详细配置</div>
           <div class="item-value">
             <span class="item-value-text">绑定画师串与参数</span>
+            <span class="arrow">></span>
+          </div>
+        </div>
+        <div v-else-if="selectedChat.imageGenProvider === 'gpt'" class="glass-list-item" v-show="matchSearch('GPT生图详细配置')" @click="emit('show-gpt-image-detail-modal')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ GPT 生图详细配置</div>
+          <div class="item-value">
+            <span class="item-value-text">设置自然语言提示词与参考组</span>
+            <span class="arrow">></span>
+          </div>
+        </div>
+        <div v-else-if="selectedChat.imageGenProvider === 'gemini'" class="glass-list-item" v-show="matchSearch('Gemini生图详细配置')" @click="emit('show-gemini-image-detail-modal')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ Gemini 生图详细配置</div>
+          <div class="item-value">
+            <span class="item-value-text">设置原生模型、上下文与参考组</span>
+            <span class="arrow">></span>
+          </div>
+        </div>
+        <div v-else class="glass-list-item" v-show="matchSearch('FLUX生图详细配置')" @click="emit('show-flux-image-detail-modal')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ FLUX 生图详细配置</div>
+          <div class="item-value">
+            <span class="item-value-text">设置 Pro / Max、尺寸与独立参考组</span>
             <span class="arrow">></span>
           </div>
         </div>

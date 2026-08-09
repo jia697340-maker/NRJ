@@ -7,6 +7,7 @@ import { useChatAuth } from './useChatAuth'
 import { getMomentBehavior } from '../services/moments'
 import { buildMemoryPacket } from '../services/memoryEngine'
 import { buildBilingualPrompt } from '../services/bilingualChat'
+import { getEffectiveUserProfile } from './useChatUserProfiles'
 
 // 全局共享状态（单例外置）
 const mockChats = ref<any[]>([])
@@ -19,6 +20,7 @@ const myProfile = ref({
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   statusText: ''
 })
+const effectiveMyProfile = computed(() => getEffectiveUserProfile(selectedChat.value, myProfile.value))
 
 const savedGroupsStr = localStorage.getItem('clingy_chat_groups')
 const customGroups = ref<string[]>(savedGroupsStr ? JSON.parse(savedGroupsStr) : [])
@@ -180,6 +182,8 @@ export function useChatState() {
         realName: c.name,
         remark: c.remark,
         persona: c.persona,
+        userProfile: c.userProfile || null,
+        userProfileSource: c.userProfileSource || null,
         preview: previewText,
         time: timeText,
         unread: c.unread || 0,
@@ -219,7 +223,11 @@ export function useChatState() {
         thoughtWithImage: c.thoughtWithImage ?? false,
         thoughtWithAudio: c.thoughtWithAudio ?? false,
         enableNAIImageGen: c.enableNAIImageGen ?? false,
+        imageGenProvider: c.imageGenProvider || 'novelai',
         naiConfig: c.naiConfig || null,
+        gptImageConfig: c.gptImageConfig || null,
+        geminiImageConfig: c.geminiImageConfig || null,
+        fluxImageConfig: c.fluxImageConfig || null,
         naiImagePrompt: c.naiImagePrompt || '',
         naiImageNegativePrompt: c.naiImageNegativePrompt || '',
         naiImageResolution: c.naiImageResolution || '1024x1024',
@@ -361,7 +369,8 @@ export function useChatState() {
 
   const buildSystemPrompt = (chat: any, roleEmojisStr: string = '无', callMode: false | 'voice' | 'video' = false, offlineMeetMode: false | 'mixed' | 'separate' = false) => {
     const charName = chat.name || '角色'
-    const userName = myProfile.value.name || '我'
+    const userProfile = getEffectiveUserProfile(chat, myProfile.value)
+    const userName = userProfile.name || '我'
     
     // 构建世界书内容
     let worldBookContent = ''
@@ -391,9 +400,9 @@ export function useChatState() {
 
     if (chat.timePerception) {
       const now = new Date()
-      const userTime = now.toLocaleString('zh-CN', { timeZone: myProfile.value.timezone })
-      const charTime = now.toLocaleString('zh-CN', { timeZone: chat.timezone || myProfile.value.timezone })
-      timeContext = `\n【当前时间】\n你：${chat.timezone || myProfile.value.timezone} ${charTime}\n对方：${myProfile.value.timezone} ${userTime}`
+      const userTime = now.toLocaleString('zh-CN', { timeZone: userProfile.timezone })
+      const charTime = now.toLocaleString('zh-CN', { timeZone: chat.timezone || userProfile.timezone })
+      timeContext = `\n【当前时间】\n你：${chat.timezone || userProfile.timezone} ${charTime}\n对方：${userProfile.timezone} ${userTime}`
       
       const charTimeRule = chat.sendCharacterTime !== false
         ? '- 你的历史消息也会用 <msg time="YYYY-MM-DD HH:mm"> 包裹，供你参考自己过去回复的时间。\n'
@@ -440,8 +449,8 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
       if (chat.statusText && chat.statusText !== 'none') {
         statusMsg += `你的公开状态：【${chat.statusText}】。`
       }
-      if (myProfile.value.statusText) {
-        statusMsg += `对方的公开状态：【${myProfile.value.statusText}】。`
+      if (userProfile.statusText) {
+        statusMsg += `对方的公开状态：【${userProfile.statusText}】。`
       }
       if (statusMsg) {
         statusPanelContent = `\n[当前状态面板]\n${statusMsg}\n(注：这是你自己/对方当前公开的状态，请根据你的角色人设互动。)`
@@ -453,7 +462,7 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
       '{{char_name}}': charName,
       '{{user_name}}': userName,
       '{{char_persona}}': chat.persona || '（无具体人设）',
-      '{{user_persona}}': myProfile.value.persona || '（无具体人设）',
+      '{{user_persona}}': userProfile.persona || '（无具体人设）',
       '{{world_book}}': worldBookContent || '（无世界设定）',
       '{{time_context}}': timeContext,
       '{{role_emojis}}': roleEmojisStr,
@@ -637,6 +646,7 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
 
   const buildChatMessages = async (chat: any, callMode: false | 'voice' | 'video' = false, offlineMeetMode: false | 'mixed' | 'separate' = false) => {
     const messages: any[] = []
+    const userProfile = getEffectiveUserProfile(chat, myProfile.value)
     
     // --- 处理可用表情包 (主动发表情包功能) ---
     const emojiStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatEmojis' })
@@ -782,7 +792,7 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
         let isSystemNotice = false
         
         if (msg.isRecalled) {
-          const recallerName = msg.type === 'left' ? (chat.name || '对方') : myProfile.value.name
+          const recallerName = msg.type === 'left' ? (chat.name || '对方') : userProfile.name
           formattedContent = `${recallerName}撤回了一条消息，撤回内容为：${msg.content}`
           isSystemNotice = true
         } else if (msg.type === 'system') {
@@ -906,7 +916,7 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
           // 尝试根据 msg.id 获取时间，如果 id 不是有效的时间戳，使用当前时间作为兜底
           const msgTime = new Date(msg.id > 1000000000000 ? msg.id : Date.now())
           const timeStr = msgTime.toLocaleString('zh-CN', { 
-            timeZone: msg.type === 'left' ? (chat.timezone || myProfile.value.timezone) : myProfile.value.timezone,
+            timeZone: msg.type === 'left' ? (chat.timezone || userProfile.timezone) : userProfile.timezone,
             year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
           }).replace(/\//g, '-') // 格式化为 YYYY-MM-DD HH:mm
           
@@ -1022,6 +1032,7 @@ ${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间
     switchChat,
     checkTransfersExpired,
     myProfile,
+    effectiveMyProfile,
     customGroups,
     activeGroup,
     isSidebarOpen,

@@ -36,6 +36,8 @@ const CATEGORY_MAP: Record<string, { name: string, color: string }> = {
   prompts: { name: '提示词 (Prompt) 模板', color: '#d9f99d' },
   ai_history: { name: 'AI 生图历史记录', color: '#d8b4fe' },
   nai_vibe: { name: 'NAI Vibe 缓存', color: '#f0abfc' },
+  gpt_references: { name: 'GPT 参考组缓存', color: '#a5b4fc' },
+  gemini_references: { name: 'Gemini 参考组缓存', color: '#93c5fd' },
   theme_appearance: { name: '主题与外观配色', color: '#fdba74' },
   voice_data: { name: '语音合成缓存', color: '#67e8f9' },
   cot_logs: { name: '思维链 (CoT) 日志', color: '#fef08a' },
@@ -189,6 +191,10 @@ export function useAdvancedSettingsStorage(showConfirm: (message: string, title?
       { name: 'nrt-app', storeName: 'chatVoiceMeta', label: '语音缓存索引', category: 'voice_data' },
       { name: 'app_vibe_storage', storeName: 'keyvaluepairs', label: 'NAI Vibe', category: 'nai_vibe' },
       { name: 'app_novelai_history', storeName: 'keyvaluepairs', label: '生成历史', category: 'ai_history' },
+      { name: 'app_gpt_image_references', storeName: 'reference_data', label: 'GPT 参考组', category: 'gpt_references' },
+      { name: 'app_gpt_image_history', storeName: 'history_items', label: 'GPT 生成历史', category: 'ai_history' },
+      { name: 'app_gemini_image_references', storeName: 'reference_data', label: 'Gemini 参考组', category: 'gemini_references' },
+      { name: 'app_gemini_image_history', storeName: 'history_items', label: 'Gemini 生成历史', category: 'ai_history' },
       { name: 'nrt-backup-manager', storeName: 'snapshots', label: '本机恢复点', category: 'backup_data' },
       { name: 'nrt-backup-manager', storeName: 'pending-email', label: '待发送备份', category: 'backup_data' }
     ]
@@ -655,7 +661,7 @@ export function useAdvancedSettingsStorage(showConfirm: (message: string, title?
           await caches.delete(name)
         }
       }
-      const knownDBs = ['nrt-app', 'app_vibe_storage', 'app_novelai_history', 'nrt-backup-manager']
+      const knownDBs = ['nrt-app', 'app_vibe_storage', 'app_novelai_history', 'app_gpt_image_references', 'app_gpt_image_history', 'nrt-backup-manager']
       let databaseNames = knownDBs
       if (indexedDB.databases) {
         try {

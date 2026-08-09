@@ -9,7 +9,7 @@ import CreatePersonaView from './profile/CreatePersonaView.vue'
 import PersonaLibraryView from './profile/PersonaLibraryView.vue'
 import ChatAppearanceView from './profile/ChatAppearanceView.vue'
 import NotificationSettingsView from './profile/NotificationSettingsView.vue'
-import { useChatAuth } from '../composables/useChatAuth'
+import { useChatAuth, type ChatAccount } from '../composables/useChatAuth'
 
 const props = defineProps<{
   currentView: 'profile' | 'createUserPersona' | 'personaLibrary' | 'chatAppearance' | 'notificationSettings'
@@ -40,14 +40,6 @@ interface Persona {
 }
 
 const defaultPersonas: Persona[] = [
-  { 
-    id: 1, 
-    name: '你的名字', 
-    signature: '',
-    customText: '点击设置自定义文案...',
-    mood: '',
-    isCreate: false 
-  },
   { 
     id: 2, 
     name: '', 
@@ -91,6 +83,25 @@ const getAvatarContentKey = async (avatar: string) => {
     return `avatar_content_${avatar.length}_${(hash >>> 0).toString(16)}`
   }
 }
+
+const createPersonaId = () => {
+  let id = Date.now()
+  while (personas.value.some(persona => persona.id === id)) id += 1
+  return id
+}
+
+const createAccountPersona = (account: ChatAccount): Persona => ({
+  // 人设 ID 只用于内部索引；聊天账号 ID 始终来自 account.accountId。
+  id: createPersonaId(),
+  name: account.realName || '',
+  signature: account.persona || '',
+  customText: '点击设置自定义文案...',
+  mood: '',
+  isCreate: false,
+  networkName: account.name || '',
+  avatar: account.avatarUrl || '',
+  boundAccountId: account.id
+})
 
 // localStorage 容量很小，Base64 头像放进人设数组后很容易触发 QuotaExceededError。
 // 头像正文保存到 IndexedDB，localStorage 中只保留一个轻量引用。
@@ -142,6 +153,14 @@ onMounted(async () => {
           }
         }))
 
+        const globalAccount = useChatAuth().currentAccount.value
+        if (globalAccount && !loadedPersonas.some((p: Persona) => !p.isCreate)) {
+          loadedPersonas.unshift(createAccountPersona(globalAccount))
+        }
+        if (!loadedPersonas.some((p: Persona) => p.isCreate)) {
+          loadedPersonas.push({ ...defaultPersonas[0] })
+        }
+
         // 排序逻辑：将当前账号绑定的人设前置到第一位，新建占位符置底
         if (currentChatUserId.value) {
           const bound = loadedPersonas.filter((p: any) => p.boundAccountId === currentChatUserId.value && !p.isCreate)
@@ -165,13 +184,10 @@ onMounted(async () => {
       console.error('Failed to load personas', e)
     }
   } else {
-    // 初次进入，没有任何本地人设缓存，强制继承全局注册账号的信息
+    // 初次进入时，用注册资料创建唯一的账号人设，不再生成 ID 为 1 的假默认人设。
     const globalAccount = useChatAuth().currentAccount.value
     if (globalAccount) {
-      personas.value[0].networkName = globalAccount.name || ''
-      personas.value[0].avatar = globalAccount.avatarUrl || ''
-      // 这里不覆盖 name（真名），保留默认的“你的名字”或为空，严格区分网名与真名
-       personas.value[0].boundAccountId = currentChatUserId.value ?? undefined
+      personas.value = [createAccountPersona(globalAccount), { ...defaultPersonas[0] }]
       syncPersonasToStorage()
     }
   }
@@ -458,15 +474,15 @@ const handleManualCreate = () => {
   createActionSheetVisible.value = false
   editingPersonaId.value = null
   
-  // 继承全局账号信息作为默认值
+  // 新人设归属于当前聊天账号，但不复制现有人设资料。
   const globalAccount = useChatAuth().currentAccount.value
   if (globalAccount) {
     newUserId.value = globalAccount.accountId || ''
-    newNetworkName.value = globalAccount.name || ''
-    newUserName.value = '' // 真名留空，让用户自己填写
-    newUserDetail.value = globalAccount.persona || ''
-    
-    newUserAvatar.value = globalAccount.avatarUrl || ''
+    // 新档案只标明所属聊天账号，其他人设资料保持空白，避免看起来像重复默认人设。
+    newNetworkName.value = ''
+    newUserName.value = ''
+    newUserDetail.value = ''
+    newUserAvatar.value = ''
   } else {
     newUserId.value = ''
     newNetworkName.value = ''
@@ -496,7 +512,8 @@ const openEditUserPersona = (persona: any) => {
     return
   }
   editingPersonaId.value = persona.id
-  newUserId.value = String(persona.id) // 绑定编辑时的 ID
+  // 表单展示聊天账号 ID；persona.id 是内部索引，不能暴露或写回账号。
+  newUserId.value = useChatAuth().currentAccount.value?.accountId || ''
   newNetworkName.value = persona.networkName || useChatAuth().currentAccount.value?.name || ''
   newUserAvatar.value = persona.avatar || useChatAuth().currentAccount.value?.avatarUrl || ''
   newUserName.value = persona.name || ''
@@ -512,15 +529,10 @@ const { updateAccount } = useChatAuth()
 
 const saveUserPersona = () => {
   if (!newUserName.value.trim() && !newNetworkName.value.trim()) return
-  
-  // 使用用户输入的 ID，如果为空则降级为时间戳
-  const finalId = Number(newUserId.value.trim()) || Date.now()
-  
+
   if (editingPersonaId.value !== null) {
     const index = personas.value.findIndex(p => p.id === editingPersonaId.value)
     if (index > -1) {
-      // 允许在编辑时修改 ID
-      personas.value[index].id = finalId
       personas.value[index].networkName = newNetworkName.value
       personas.value[index].name = newUserName.value
       personas.value[index].signature = newUserDetail.value
@@ -529,7 +541,6 @@ const saveUserPersona = () => {
       // 同步检查：如果这个被编辑的人设正好是绑定了当前账号的
       if (personas.value[index].boundAccountId === currentChatUserId.value) {
         updateAccount(currentChatUserId.value, {
-          accountId: String(finalId),
           name: newNetworkName.value || useChatAuth().currentAccount.value?.name || '',
           realName: newUserName.value,
           avatarUrl: newUserAvatar.value,
@@ -539,8 +550,8 @@ const saveUserPersona = () => {
     }
   } else {
     const newPersona = {
-      // 使用用户填写的自定义 ID
-      id: finalId,
+      // 人设使用独立内部 ID，不复用聊天账号 ID。
+      id: createPersonaId(),
       networkName: newNetworkName.value,
       name: newUserName.value,
       signature: newUserDetail.value,
@@ -549,15 +560,10 @@ const saveUserPersona = () => {
       isCreate: false,
       avatar: newUserAvatar.value
     }
-    // 如果已经存在同 accountId 的人设，则覆盖，避免列表出现多条一样的数据
-    const existingIndex = personas.value.findIndex(p => p.id === newPersona.id && !p.isCreate)
-    if (existingIndex > -1) {
-       personas.value[existingIndex] = newPersona
-       activePersonaIndex.value = existingIndex
-    } else {
-       personas.value.splice(personas.value.length - 1, 0, newPersona)
-       activePersonaIndex.value = personas.value.length - 2
-    }
+    const createPlaceholderIndex = personas.value.findIndex(p => p.isCreate)
+    const insertIndex = createPlaceholderIndex === -1 ? personas.value.length : createPlaceholderIndex
+    personas.value.splice(insertIndex, 0, newPersona)
+    activePersonaIndex.value = insertIndex
   }
   
   // 强制同步写入 localStorage
@@ -610,7 +616,6 @@ const handleBindPersonaToAccount = (personaId: number) => {
     const acc = useChatAuth().currentAccount.value
     if (acc) {
       updateAccount(currentChatUserId.value, {
-        accountId: String(personas.value[index].id),
         name: personas.value[index].networkName || acc.name,
         realName: personas.value[index].name || '',
         avatarUrl: personas.value[index].avatar || '',
@@ -621,7 +626,7 @@ const handleBindPersonaToAccount = (personaId: number) => {
       
       // 立即更新表单，让用户立刻在界面上看到填入的信息
       newNetworkName.value = personas.value[index].networkName || personas.value[index].name || ''
-      newUserId.value = String(personas.value[index].id)
+      newUserId.value = acc.accountId || ''
     }
     
     // 重排数组：绑定的提至首位，新建人设保留在末尾
@@ -645,7 +650,7 @@ const handleUnbindPersonaFromAccount = (personaId: string | number) => {
     // 取消绑定时，也立即在表单中清空继承的账号信息
     newNetworkName.value = ''
     newUserAvatar.value = ''
-    newUserId.value = Date.now().toString()
+    newUserId.value = useChatAuth().currentAccount.value?.accountId || ''
     
     syncPersonasToStorage()
   }
@@ -691,6 +696,7 @@ const handleUnbindPersonaFromAccount = (personaId: string | number) => {
       v-model:newUserDetail="newUserDetail"
       :newUserAvatar="newUserAvatar"
       :isBoundToAccount="editingPersonaId !== null && personas.find(p => p.id === editingPersonaId)?.boundAccountId === currentChatUserId"
+      :isEditingPersona="editingPersonaId !== null"
       @back="backFromPersonaCreate"
       @save="saveUserPersona"
       @openUploadModal="uploadModalVisible = true"

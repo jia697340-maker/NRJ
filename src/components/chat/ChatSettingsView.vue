@@ -20,6 +20,11 @@ import ChatBubbleBeautifyModal from './modals/ChatBubbleBeautifyModal.vue'
 import ChatAvatarDisplayModal from './modals/ChatAvatarDisplayModal.vue'
 import ChatNameDisplayModal from './modals/ChatNameDisplayModal.vue'
 import ChatTimeDisplayModal from './modals/ChatTimeDisplayModal.vue'
+import {
+  applyUserProfileToChat,
+  updateStoredPersona,
+  type ChatUserProfileSnapshot
+} from '../../composables/useChatUserProfiles'
 
 import { useChatSettingsSave } from '../../composables/useChatSettingsSave'
 import { useChatSummary } from '../../composables/useChatSummary'
@@ -42,6 +47,10 @@ import ChatBilingualOptionModal from './modals/ChatBilingualOptionModal.vue'
 import ChatDialogueLanguageModal from './modals/ChatDialogueLanguageModal.vue'
 import ChatClearHistoryModal from './modals/ChatClearHistoryModal.vue'
 import ChatNAIImageDetailModal from './modals/ChatNAIImageDetailModal.vue'
+import ChatGptImageDetailModal from './modals/ChatGptImageDetailModal.vue'
+import ChatGeminiImageDetailModal from './modals/ChatGeminiImageDetailModal.vue'
+import ChatFluxImageDetailModal from './modals/ChatFluxImageDetailModal.vue'
+import ChatImageProviderModal from './modals/ChatImageProviderModal.vue'
 
 const searchQuery = ref('')
 const matchSearch = (...keywords: (string | undefined | null)[]) => {
@@ -65,11 +74,12 @@ const emit = defineEmits<{
   (e: 'back'): void
   (e: 'open-avatar-upload', target: 'contact' | 'me'): void
   (e: 'open-persona-select'): void
+  (e: 'use-account-persona'): void
   (e: 'create-user-persona'): void
   (e: 'open-offline-meet'): void
 }>()
 
-const { selectedChat, myProfile, mockChats, saveMyProfile } = useChatState()
+const { selectedChat, myProfile, effectiveMyProfile, mockChats, saveMyProfile } = useChatState()
 const { saveCurrentChat } = useChatSettingsSave()
 const { tokenStats } = useChatTokenStats()
 const { getTimezoneLabel } = useTimezone()
@@ -87,6 +97,7 @@ const handleSelectTimezone = (tzId: string) => {
   if (currentSelectingTarget.value === 'user') {
     myProfile.value.timezone = tzId
     saveMyProfile()
+    updateCharacterTime()
   } else {
     if (selectedChat.value) {
       selectedChat.value.timezone = tzId
@@ -98,6 +109,7 @@ const handleSelectTimezone = (tzId: string) => {
 
 // 实时计算角色当前时间
 const characterCurrentTime = ref('')
+const userCurrentTime = ref('')
 let characterTimer: any = null
 
 const updateCharacterTime = () => {
@@ -113,6 +125,18 @@ const updateCharacterTime = () => {
     characterCurrentTime.value = dtf.format(new Date())
   } catch (e) {
     characterCurrentTime.value = '--:--'
+  }
+
+  const userTimezone = myProfile.value.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+  try {
+    userCurrentTime.value = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: userTimezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(new Date())
+  } catch {
+    userCurrentTime.value = '--:--'
   }
 }
 
@@ -163,6 +187,10 @@ const modelOptions = [
 
 const showVoiceDetailModal = ref(false)
 const showNAIImageDetailModal = ref(false)
+const showGptImageDetailModal = ref(false)
+const showGeminiImageDetailModal = ref(false)
+const showFluxImageDetailModal = ref(false)
+const showImageProviderModal = ref(false)
 
 const presetVoices = [
   { id: 'female-yujie', name: '温柔御姐' },
@@ -269,6 +297,14 @@ const selectVoice = (id: string) => {
     saveCurrentChat()
   }
   showVoiceModal.value = false
+}
+
+const selectImageProvider = (provider: string) => {
+  if (selectedChat.value) {
+    selectedChat.value.imageGenProvider = provider
+    saveCurrentChat()
+  }
+  showImageProviderModal.value = false
 }
 
 const fetchCustomVoices = async () => {
@@ -540,6 +576,79 @@ const openLongTextModal = (title: string, text: string, defaultText: string, pla
   }
 }
 
+const showUserProfileSyncModal = ref(false)
+const pendingUserProfile = ref<ChatUserProfileSnapshot | null>(null)
+
+const saveUserProfileToCurrentChat = async (
+  snapshot: ChatUserProfileSnapshot,
+  updateSource = false
+) => {
+  if (!selectedChat.value) return
+  const source = selectedChat.value.userProfileSource || {
+    type: 'custom',
+    name: '独立人设'
+  }
+
+  if (updateSource && source.personaId) {
+    const updated = await updateStoredPersona(source.personaId, snapshot)
+    if (updated) {
+      applyUserProfileToChat(selectedChat.value, snapshot, {
+        ...source,
+        name: updated.name || source.name,
+        hasLocalChanges: false
+      })
+    } else {
+      applyUserProfileToChat(selectedChat.value, snapshot, {
+        type: 'custom',
+        name: '独立人设',
+        hasLocalChanges: false
+      })
+    }
+  } else {
+    applyUserProfileToChat(selectedChat.value, snapshot, {
+      ...source,
+      hasLocalChanges: source.type !== 'custom'
+    })
+  }
+
+  await saveCurrentChat()
+  pendingUserProfile.value = null
+  showUserProfileSyncModal.value = false
+}
+
+const requestUserProfileSave = (snapshot: ChatUserProfileSnapshot) => {
+  const source = selectedChat.value?.userProfileSource
+  if (source?.personaId && source.type !== 'custom') {
+    pendingUserProfile.value = snapshot
+    showUserProfileSyncModal.value = true
+    return
+  }
+  void saveUserProfileToCurrentChat(snapshot)
+}
+
+const createIndependentUserPersona = () => {
+  if (!selectedChat.value) return
+  const snapshot: ChatUserProfileSnapshot = {
+    name: '',
+    remark: '',
+    persona: '',
+    avatarUrl: ''
+  }
+  applyUserProfileToChat(selectedChat.value, snapshot, {
+    type: 'custom',
+    name: '独立人设',
+    hasLocalChanges: false
+  })
+  void saveCurrentChat()
+  openLongTextModal(
+    '新建独立用户人设',
+    '',
+    '',
+    '请详细描述用户的性格、背景、身份等设定...',
+    'myPersona'
+  )
+}
+
 const handleTextSave = (newText: string, target: string) => {
   if (!selectedChat.value) return
 
@@ -549,12 +658,18 @@ const handleTextSave = (newText: string, target: string) => {
     selectedChat.value.remark = newText
   } else if (target === 'persona') {
     selectedChat.value.persona = newText
-  } else if (target === 'myRealName') {
-    myProfile.value.name = newText
-  } else if (target === 'myRemark') {
-    myProfile.value.remark = newText
-  } else if (target === 'myPersona') {
-    myProfile.value.persona = newText
+  } else if (target === 'myRealName' || target === 'myRemark' || target === 'myPersona') {
+    const snapshot: ChatUserProfileSnapshot = {
+      name: effectiveMyProfile.value.name || '',
+      remark: effectiveMyProfile.value.remark || '',
+      persona: effectiveMyProfile.value.persona || '',
+      avatarUrl: effectiveMyProfile.value.avatarUrl || ''
+    }
+    if (target === 'myRealName') snapshot.name = newText
+    if (target === 'myRemark') snapshot.remark = newText
+    if (target === 'myPersona') snapshot.persona = newText
+    requestUserProfileSave(snapshot)
+    return
   } else if (target === 'summaryPrompt') {
     selectedChat.value.summaryPrompt = newText
   } else if (target === 'autoSummaryThreshold') {
@@ -563,11 +678,7 @@ const handleTextSave = (newText: string, target: string) => {
     selectedChat.value.memoryValue = parseInt(newText) || null
   }
   
-  if (target.startsWith('my')) {
-    saveMyProfile()
-  } else {
-    saveCurrentChat()
-  }
+  saveCurrentChat()
 }
 
 const onTextModalSaved = (newText: string) => {
@@ -672,6 +783,10 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @open-long-text-modal="openLongTextModal"
         @show-voice-detail-modal="showVoiceDetailModal = true"
         @show-nai-image-detail-modal="showNAIImageDetailModal = true"
+        @show-gpt-image-detail-modal="showGptImageDetailModal = true"
+        @show-gemini-image-detail-modal="showGeminiImageDetailModal = true"
+        @show-flux-image-detail-modal="showFluxImageDetailModal = true"
+        @show-image-provider-modal="showImageProviderModal = true"
         @show-world-book-bind-selector="showWorldBookBindSelector = true"
         @show-bilingual-option-modal="openBilingualOptionModal"
         @show-bilingual-language-modal="openBilingualLanguageModal"
@@ -712,11 +827,13 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
       <ChatSettingsPanelUser
         v-show="activeChatSettingCategory === '用户' || searchQuery"
         :selected-chat="selectedChat"
-        :my-profile="myProfile"
+        :my-profile="effectiveMyProfile"
+        :user-current-time="userCurrentTime"
         :get-timezone-label="getTimezoneLabel"
         :match-search="matchSearch"
         @open-persona-select="emit('open-persona-select')"
-        @create-user-persona="emit('create-user-persona')"
+        @use-account-persona="emit('use-account-persona')"
+        @create-user-persona="createIndependentUserPersona"
         @open-avatar-upload="t => emit('open-avatar-upload', t)"
         @open-text-modal="openTextModal"
         @open-long-text-modal="openLongTextModal"
@@ -806,6 +923,32 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         v-model:visible="showNAIImageDetailModal"
         :chat="selectedChat"
         @save="saveCurrentChat"
+      />
+
+      <!-- GPT 生图详细配置弹窗 -->
+      <ChatGptImageDetailModal
+        v-model:visible="showGptImageDetailModal"
+        :chat="selectedChat"
+        @save="saveCurrentChat"
+      />
+
+      <ChatGeminiImageDetailModal
+        v-model:visible="showGeminiImageDetailModal"
+        :chat="selectedChat"
+        @save="saveCurrentChat"
+      />
+
+      <ChatFluxImageDetailModal
+        v-model:visible="showFluxImageDetailModal"
+        :chat="selectedChat"
+        @save="saveCurrentChat"
+      />
+
+      <!-- 生图引擎选择弹窗 -->
+      <ChatImageProviderModal
+        v-model:visible="showImageProviderModal"
+        :current-provider="selectedChat.imageGenProvider || 'novelai'"
+        @select="selectImageProvider"
       />
 
       <!-- 语音详细配置弹窗 -->
@@ -929,6 +1072,39 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
           @saved="onLongTextModalSaved"
         />
 
+        <div
+          v-if="showUserProfileSyncModal"
+          class="wb-modal-overlay"
+          @click.self="showUserProfileSyncModal = false"
+        >
+          <div class="custom-confirm-modal">
+            <div class="confirm-title">保存用户人设修改</div>
+            <div class="confirm-desc">
+              当前资料来自「{{ selectedChat?.userProfileSource?.name || '人设库' }}」，请选择此次修改的保存位置。
+            </div>
+            <div class="user-profile-sync-actions">
+              <button
+                class="user-profile-sync-btn"
+                @click="pendingUserProfile && saveUserProfileToCurrentChat(pendingUserProfile, false)"
+              >
+                仅保存到当前聊天
+              </button>
+              <button
+                class="user-profile-sync-btn primary"
+                @click="pendingUserProfile && saveUserProfileToCurrentChat(pendingUserProfile, true)"
+              >
+                同时更新原人设
+              </button>
+              <button
+                class="user-profile-sync-btn cancel"
+                @click="showUserProfileSyncModal = false; pendingUserProfile = null"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+
         <transition name="zoom-fade">
           <ChatEmojiView
             v-if="showEmojiView"
@@ -948,4 +1124,30 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
 <style scoped>
 @import '../app_ChatPreview.css';
 @import './settings/ChatSettingsStyles.css';
+
+.user-profile-sync-actions {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-color);
+}
+
+.user-profile-sync-btn {
+  height: 48px;
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.user-profile-sync-btn.primary {
+  color: #3478f6;
+  font-weight: 600;
+}
+
+.user-profile-sync-btn.cancel {
+  color: var(--text-secondary);
+  border-bottom: 0;
+}
 </style>

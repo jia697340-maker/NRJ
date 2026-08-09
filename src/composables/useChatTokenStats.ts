@@ -4,7 +4,7 @@ import { worldBooks } from '../store'
 import { useChatState } from './useChatState'
 
 export function useChatTokenStats() {
-  const { selectedChat, myProfile } = useChatState()
+  const { selectedChat, effectiveMyProfile: myProfile } = useChatState()
 
   const estimateToken = (text: string) => Math.ceil((text || '').length * 1.2)
 

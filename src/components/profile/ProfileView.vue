@@ -57,7 +57,7 @@ const emit = defineEmits<{
               >
               </div>
             </div>
-            <div class="profile-name-custom">{{ activePersona.name || '未命名' }}</div>
+            <div class="profile-name-custom">{{ activePersona.name || activePersona.networkName || '未命名' }}</div>
             <div class="profile-signature" @click="emit('openCustomTextEdit')" style="cursor: pointer;">
               <div class="sig-icon">#</div>
               <div class="sig-text">{{ activePersona.customText || '点击设置自定义文案...' }}</div>

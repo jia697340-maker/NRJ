@@ -12,6 +12,12 @@ import ChatOfflineMeetView from './chat/ChatOfflineMeetView.vue'
 import ChatAuthView from './chat/ChatAuthView.vue'
 import { useChatState } from '../composables/useChatState'
 import { useChatAuth } from '../composables/useChatAuth'
+import { useChatSettingsSave } from '../composables/useChatSettingsSave'
+import {
+  applyUserProfileToChat,
+  loadUserPersonas,
+  personaToSnapshot
+} from '../composables/useChatUserProfiles'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -21,6 +27,7 @@ const emit = defineEmits<{
 const {
   selectedChat,
   myProfile,
+  effectiveMyProfile,
   avatarStore,
   activeGroup,
   totalUnreadCount,
@@ -56,6 +63,7 @@ const voiceCallState = ref<VoiceCallState>({
 })
 
 const { currentChatUserId } = useChatAuth()
+const { saveCurrentChat } = useChatSettingsSave()
 
 const isGlobalCallWidgetVisible = computed(() => {
   return !!currentChatUserId.value && voiceCallState.value.active && currentView.value !== 'chat'
@@ -171,7 +179,7 @@ const savedPersonas = ref<any[]>([])
 
 const currentAvatarForModal = computed(() => {
   if (currentView.value === 'chatSettings') {
-    return avatarTarget.value === 'me' ? myProfile.value.avatarUrl : selectedChat.value?.avatarUrl
+    return avatarTarget.value === 'me' ? effectiveMyProfile.value.avatarUrl : selectedChat.value?.avatarUrl
   }
   return newContactAvatarUrl.value
 })
@@ -267,9 +275,20 @@ const saveContact = async () => {
 const handleAvatarSaved = async (url: string | null) => {
   if (currentView.value === 'chatSettings') {
     if (avatarTarget.value === 'me') {
-      myProfile.value.avatarUrl = url || ''
-      // myProfile 的修改在退出或者调用 saveMyProfile 时会自动保存
-      // 也可以在这里直接持久化，但原逻辑没写，暂且保留
+      if (selectedChat.value) {
+        const snapshot = {
+          name: effectiveMyProfile.value.name || '',
+          remark: effectiveMyProfile.value.remark || '',
+          persona: effectiveMyProfile.value.persona || '',
+          avatarUrl: url || ''
+        }
+        const source = selectedChat.value.userProfileSource || { type: 'custom', name: '独立人设' }
+        applyUserProfileToChat(selectedChat.value, snapshot, {
+          ...source,
+          hasLocalChanges: source.type !== 'custom'
+        })
+        await saveCurrentChat()
+      }
     } else if (avatarTarget.value === 'contact' && selectedChat.value) {
       selectedChat.value.avatarUrl = url || ''
       selectedChat.value.avatarText = url ? '' : ((selectedChat.value.realName || selectedChat.value.name).charAt(0) || '伴')
@@ -308,36 +327,31 @@ const openAvatarUpload = (target: 'contact' | 'me') => {
   avatarModalVisible.value = true
 }
 
-const openPersonaSelect = () => {
-  const personasStr = localStorage.getItem('app_chat_personas')
-  if (personasStr) {
-    try {
-      let personas = JSON.parse(personasStr)
-      savedPersonas.value = personas.filter((p: any) => !p.isCreate)
-    } catch(e) {
-      savedPersonas.value = []
-    }
-  }
+const openPersonaSelect = async () => {
+  savedPersonas.value = await loadUserPersonas()
   personaSelectVisible.value = true
 }
 
-const selectPersona = (p: any) => {
-  myProfile.value.name = p.name || '我'
-  myProfile.value.avatarUrl = p.avatar || ''
-  myProfile.value.persona = p.signature || ''
-  myProfile.value.remark = p.customText || ''
+const selectPersona = async (p: any) => {
+  if (!selectedChat.value) return
+  const isAccountPersona = p.boundAccountId === currentChatUserId.value
+  applyUserProfileToChat(selectedChat.value, personaToSnapshot(p), {
+    type: isAccountPersona ? 'account' : 'library',
+    personaId: p.id,
+    name: p.name || p.networkName || '未命名人设'
+  })
+  await saveCurrentChat()
   personaSelectVisible.value = false
-  
-  const personasStr = localStorage.getItem('app_chat_personas')
-  if (personasStr) {
-    try {
-      const personas = JSON.parse(personasStr)
-      const idx = personas.findIndex((x: any) => x.id === p.id)
-      if (idx !== -1) {
-        localStorage.setItem('app_chat_active_persona_index', idx.toString())
-      }
-    } catch (e) {}
+}
+
+const useAccountPersona = async () => {
+  const personas = await loadUserPersonas()
+  const boundPersona = personas.find(item => item.boundAccountId === currentChatUserId.value)
+  if (!boundPersona) {
+    window.alert('当前账号还没有绑定人设，请先在“我的－人设库”中绑定。')
+    return
   }
+  await selectPersona(boundPersona)
 }
 
 const handleCreateUserPersona = () => {
@@ -416,6 +430,7 @@ onUnmounted(() => {
       @back="currentView = 'chat'"
       @open-avatar-upload="openAvatarUpload"
       @open-persona-select="openPersonaSelect"
+      @use-account-persona="useAccountPersona"
       @create-user-persona="handleCreateUserPersona"
       @open-offline-meet="openOfflineMeet"
     />

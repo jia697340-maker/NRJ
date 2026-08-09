@@ -23,7 +23,20 @@ const props = defineProps<{
   isVoiceSynthesizing: boolean
 }>()
 
-const emit = defineEmits()
+const emit = defineEmits([
+  'click-message',
+  'toggle-selection',
+  'touch-start',
+  'touch-end',
+  'touch-move',
+  'toggle-image-text',
+  'toggle-voice-text',
+  'play-voice',
+  'handle-left-transfer-click',
+  'handle-emoji-click',
+  'view-recalled-message',
+  'cancel-image-generation'
+])
 const translationExpanded = ref(false)
 const translationDisplay = computed(() => props.selectedChat?.translationDisplay || 'tap')
 const hasTranslation = computed(() => typeof props.msg?.translation === 'string' && props.msg.translation.trim().length > 0)

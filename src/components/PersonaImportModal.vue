@@ -141,15 +141,13 @@ const processPngBuffer = async (buffer: ArrayBuffer, fileName: string, fileIndex
     
     const name = stData.data?.name || stData.name || '未命名'
     const signature = stData.data?.description || stData.description || ''
-    const firstMes = stData.data?.first_mes || stData.first_mes || ''
-    const fullDesc = signature + (firstMes ? '\n\n' + firstMes : '')
     
     const wbResult = extractWorldBook(stData, name)
     
     list.push({
       id: Date.now() + Math.random() + fileIndex,
       name: name,
-      signature: fullDesc,
+      signature,
       avatar: avatarKey, // 使用 IndexedDB Key
       avatarObjUrl: URL.createObjectURL(blob), // 仅供预览
       boundWorldBooks: wbResult.ids,
@@ -193,15 +191,13 @@ const processJsonString = (content: string, fileIndex: number | string, list: an
   if (data.spec === 'chara_card_v2' || data.spec === 'chara_card_v3' || data.name) {
     const name = data.data?.name || data.name || '未命名'
     const signature = data.data?.description || data.description || ''
-    const firstMes = data.data?.first_mes || data.first_mes || ''
-    const fullDesc = signature + (firstMes ? '\n\n' + firstMes : '')
     
     const wbResult = extractWorldBook(data, name)
     
     list.push({
       id: Date.now() + Math.random() + (typeof fileIndex === 'number' ? fileIndex : 0),
       name: name,
-      signature: fullDesc,
+      signature,
       avatar: '',
       boundWorldBooks: wbResult.ids,
       pendingWorldBooks: wbResult.books,

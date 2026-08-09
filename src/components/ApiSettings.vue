@@ -1,8 +1,10 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, embeddingApiSettings, cotSettings, type CotItem } from '../store'
+import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, embeddingApiSettings, cotSettings, type CotItem, type ApiPreset } from '../store'
 import SearchableSelect from './SearchableSelect.vue'
+import TextEditModal from './TextEditModal.vue'
+import ApiPresetManageModal from './ApiPresetManageModal.vue'
 
 const currentTab = ref<'global' | 'summary' | 'vision' | 'moment' | 'embedding'>('global')
 
@@ -47,6 +49,99 @@ const onProviderChange = () => {
     activeSettings.value.url = activeSettings.value.customUrl
   }
   activeSettings.value.key = ''
+}
+
+// --- 预设方案管理逻辑 ---
+const showSavePresetModal = ref(false)
+const showManagePresetModal = ref(false)
+
+const presetOptions = computed(() => {
+  return [
+    { value: '', label: '未选择预设 (当前临时配置)' },
+    ...(activeSettings.value.presets || []).map((p: ApiPreset) => ({
+      value: p.id,
+      label: p.name
+    }))
+  ]
+})
+
+const applyPreset = (presetId: string) => {
+  activeSettings.value.currentPresetId = presetId
+  if (!presetId) return
+  
+  const preset = (activeSettings.value.presets || []).find((p: ApiPreset) => p.id === presetId)
+  if (!preset) return
+
+  activeSettings.value.provider = preset.provider
+  activeSettings.value.url = preset.url
+  activeSettings.value.key = preset.key
+  activeSettings.value.model = preset.model
+  activeSettings.value.customUrl = preset.customUrl || ''
+  activeSettings.value.customKey = preset.customKey || ''
+  
+  if (preset.enableTemperature !== undefined) activeSettings.value.enableTemperature = preset.enableTemperature
+  if (preset.temperature !== undefined) activeSettings.value.temperature = preset.temperature
+  if (preset.enableMaxTokens !== undefined) activeSettings.value.enableMaxTokens = preset.enableMaxTokens
+  if (preset.maxTokens !== undefined) activeSettings.value.maxTokens = preset.maxTokens
+  if (preset.enableTopP !== undefined) activeSettings.value.enableTopP = preset.enableTopP
+  if (preset.topP !== undefined) activeSettings.value.topP = preset.topP
+  if (preset.enableFrequencyPenalty !== undefined) activeSettings.value.enableFrequencyPenalty = preset.enableFrequencyPenalty
+  if (preset.frequencyPenalty !== undefined) activeSettings.value.frequencyPenalty = preset.frequencyPenalty
+  if (preset.enablePresencePenalty !== undefined) activeSettings.value.enablePresencePenalty = preset.enablePresencePenalty
+  if (preset.presencePenalty !== undefined) activeSettings.value.presencePenalty = preset.presencePenalty
+  if (preset.enableStream !== undefined) activeSettings.value.enableStream = preset.enableStream
+  
+  // Embedding 特有属性
+  if (currentTab.value === 'embedding' && preset.batchSize !== undefined) {
+    activeSettings.value.batchSize = preset.batchSize
+  }
+}
+
+const handleSavePreset = (name: string) => {
+  if (!name.trim()) return
+  
+  const newPreset: ApiPreset = {
+    id: 'preset_' + Date.now().toString(),
+    name: name.trim(),
+    provider: activeSettings.value.provider,
+    url: activeSettings.value.url,
+    key: activeSettings.value.key,
+    model: activeSettings.value.model,
+    customUrl: activeSettings.value.customUrl || '',
+    customKey: activeSettings.value.customKey || '',
+    enableTemperature: activeSettings.value.enableTemperature,
+    temperature: activeSettings.value.temperature,
+    enableMaxTokens: activeSettings.value.enableMaxTokens,
+    maxTokens: activeSettings.value.maxTokens,
+    enableTopP: activeSettings.value.enableTopP,
+    topP: activeSettings.value.topP,
+    enableFrequencyPenalty: activeSettings.value.enableFrequencyPenalty,
+    frequencyPenalty: activeSettings.value.frequencyPenalty,
+    enablePresencePenalty: activeSettings.value.enablePresencePenalty,
+    presencePenalty: activeSettings.value.presencePenalty,
+    enableStream: activeSettings.value.enableStream
+  }
+  
+  if (currentTab.value === 'embedding') {
+    newPreset.batchSize = activeSettings.value.batchSize
+  }
+  
+  if (!activeSettings.value.presets) {
+    activeSettings.value.presets = []
+  }
+  
+  activeSettings.value.presets.push(newPreset)
+  activeSettings.value.currentPresetId = newPreset.id
+  showSavePresetModal.value = false
+}
+
+const handleDeletePresets = (ids: string[]) => {
+  if (!activeSettings.value.presets) return
+  activeSettings.value.presets = activeSettings.value.presets.filter((p: ApiPreset) => !ids.includes(p.id))
+  
+  if (ids.includes(activeSettings.value.currentPresetId)) {
+    activeSettings.value.currentPresetId = ''
+  }
 }
 
 const showResetModal = ref(false)
@@ -421,6 +516,44 @@ const confirmTest = async () => {
 
         <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled) || (currentTab === 'moment' && momentApiSettings.enabled) || (currentTab === 'embedding' && embeddingApiSettings.enabled)">
           
+          <!-- 预设方案区域 -->
+          <div class="settings-section" v-show="isMatch('预设 方案 管理')">
+            <div class="red-dot"></div>
+            <div class="section-title">
+              <span class="cn">预设方案</span>
+              <span class="en">PRESETS</span>
+            </div>
+            <div class="form-grid">
+              <div class="form-row">
+                <div class="form-label">切换预设</div>
+                <div class="form-value full-width">
+                  <SearchableSelect
+                    v-model="activeSettings.currentPresetId"
+                    :options="presetOptions"
+                    @change="applyPreset(activeSettings.currentPresetId)"
+                    placeholder="请选择预设方案"
+                    :is-dark="globalSettings.darkMode"
+                    currentStyle="editorial"
+                  />
+                </div>
+              </div>
+
+              <div class="form-row form-row-footer border-none">
+                <div class="footer-actions">
+                  <button class="text-action-btn" @click="showSavePresetModal = true">
+                    <span class="cn-text">保存当前配置</span>
+                    <span class="en-text">SAVE PRESET</span>
+                  </button>
+                  <button class="text-action-btn" @click="showManagePresetModal = true">
+                    <span class="cn-text">管理预设</span>
+                    <span class="en-text">MANAGE</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="section-desc">每个节点的预设方案相互独立，可保存常用的配置组合以便快速切换。</div>
+          </div>
+
           <div class="settings-section" v-show="isMatch('服务商 接口地址 api密钥 测试 重置')">
             <div class="red-dot"></div>
             <div class="section-title">
@@ -689,6 +822,27 @@ const confirmTest = async () => {
         </div>
       </div>
     </div>
+
+    <!-- 保存预设名称输入弹窗 -->
+    <TextEditModal
+      v-if="showSavePresetModal"
+      :visible="showSavePresetModal"
+      title="保存预设方案"
+      currentText=""
+      defaultText=""
+      placeholder="请输入预设名称，例如：深度思考(慢)"
+      @saved="handleSavePreset"
+      @update:visible="showSavePresetModal = $event"
+    />
+
+    <!-- 预设方案管理弹窗 -->
+    <ApiPresetManageModal
+      v-if="showManagePresetModal"
+      :presets="activeSettings.presets || []"
+      :currentPresetId="activeSettings.currentPresetId"
+      @delete="handleDeletePresets"
+      @close="showManagePresetModal = false"
+    />
 
     <!-- 极简排版风格的测试连通性弹窗 -->
     <div class="editorial-modal-overlay" v-if="showTestModal">
