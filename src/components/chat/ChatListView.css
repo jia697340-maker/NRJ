@@ -1602,56 +1602,85 @@
   transform: scale(0.95);
 }
 
-.sidebar-contacts-wrapper {
+.sidebar-shortcuts {
   flex: 1;
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 14px;
 }
-.sidebar-contacts {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  align-items: center;
-  width: 100%;
-}
-.sidebar-contact-item {
+.sidebar-shortcut {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   cursor: pointer;
+  color: #8f96a0;
+  user-select: none;
 }
-.sidebar-contact-item:active {
+.sidebar-shortcut:active {
   opacity: 0.7;
 }
-.sidebar-c-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background-size: cover;
-  background-position: center;
-  background-color: var(--sys-bg-secondary);
+.sidebar-shortcut-icon {
+  position: relative;
+  width: 46px;
+  height: 42px;
+  border-radius: 12px;
+  background: #f0f2f5;
+  color: #8f96a0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-color);
   box-sizing: border-box;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
 }
-.sidebar-c-avatar.add-btn {
-  border: 1px dashed var(--text-tertiary);
-  background-color: transparent;
-  color: var(--text-secondary);
+.sidebar-shortcut.active .sidebar-shortcut-icon {
+  background: #22262d;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(24, 29, 36, 0.08);
 }
-.sidebar-c-name {
+.sidebar-shortcut-name {
   font-size: 11px;
-  font-weight: 500;
-  color: var(--text-primary);
+  line-height: 15px;
+  font-weight: 600;
+  color: inherit;
   max-width: 64px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.sidebar-shortcut.active {
+  color: #22262d;
+}
+.sidebar-shortcut-badge,
+.sidebar-shortcut-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ff3b30;
+  color: #fff;
+  border: 2px solid #fbfbfc;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 600;
+}
+.sidebar-shortcut-count {
+  background: #8f96a0;
+}
+.chat-list-empty {
+  padding: 30px 0;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  text-align: center;
 }
 
 .chat-main-content {

@@ -33,12 +33,47 @@ const {
 } = useChatState()
 
 const groups = computed(() => ['全部', ...customGroups.value])
-const filteredChats = computed(() => {
+type SidebarFilter = 'all' | 'unread' | 'pinned' | 'recent'
+const activeSidebarFilter = ref<SidebarFilter>('all')
+
+const groupFilteredChats = computed(() => {
   if (activeGroup.value === '全部') return mockChats.value
   return mockChats.value.filter(c => c.groups && c.groups.includes(activeGroup.value))
 })
-const pinnedChats = computed(() => mockChats.value.filter(c => c.isPinned))
-const regularChats = computed(() => filteredChats.value.filter(c => !c.isPinned))
+
+const lastInteractionTime = (chat: any) => {
+  const messages = Array.isArray(chat.messages) ? chat.messages : []
+  const lastMessage = messages[messages.length - 1]
+  return typeof lastMessage?.id === 'number' ? lastMessage.id : 0
+}
+
+const filteredChats = computed(() => {
+  const chats = groupFilteredChats.value
+  if (activeSidebarFilter.value === 'unread') return chats.filter(c => c.unread > 0)
+  if (activeSidebarFilter.value === 'pinned') return chats.filter(c => c.isPinned)
+  if (activeSidebarFilter.value === 'recent') {
+    return chats
+      .filter(c => Array.isArray(c.messages) && c.messages.length > 0)
+      .slice()
+      .sort((a, b) => lastInteractionTime(b) - lastInteractionTime(a))
+  }
+  return chats
+})
+const pinnedChats = computed(() => activeSidebarFilter.value === 'all' ? groupFilteredChats.value.filter(c => c.isPinned) : [])
+const regularChats = computed(() => activeSidebarFilter.value === 'all' ? filteredChats.value.filter(c => !c.isPinned) : filteredChats.value)
+const unreadChatCount = computed(() => mockChats.value.filter(c => c.unread > 0).length)
+const pinnedChatCount = computed(() => mockChats.value.filter(c => c.isPinned).length)
+const filterEmptyText = computed(() => ({
+  unread: '暂无未读消息',
+  pinned: '暂无置顶消息',
+  recent: '暂无最近互动',
+  all: '暂无消息'
+}[activeSidebarFilter.value]))
+
+const handleSidebarFilter = (filter: SidebarFilter) => {
+  activeSidebarFilter.value = filter
+  activeGroup.value = '全部'
+}
 
 // === 全局 Dialog ===
 const customDialog = ref({
@@ -203,6 +238,7 @@ const clearGroupLongPress = (e?: MouseEvent | TouchEvent) => {
 }
 const handleGroupClick = (g: string) => {
   if (isGLongPress) { isGLongPress = false; return }
+  activeSidebarFilter.value = 'all'
   activeGroup.value = g
 }
 
@@ -286,28 +322,32 @@ const handleImportComplete = (personas: any[]) => {
           <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line></svg>
         </div>
 
-        <div class="sidebar-contacts-wrapper">
-          <div class="sidebar-contacts">
-            <div class="sidebar-contact-item">
-              <div class="sidebar-c-avatar add-btn"><svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></div>
-              <span class="sidebar-c-name">新建</span>
+        <div class="sidebar-shortcuts" aria-label="消息筛选">
+          <div class="sidebar-shortcut" :class="{ active: activeSidebarFilter === 'all' }" @click="handleSidebarFilter('all')">
+            <div class="sidebar-shortcut-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.8" fill="none"><path d="M4 5h16v11H8l-4 3V5Z"></path><line x1="8" y1="9" x2="16" y2="9"></line><line x1="8" y1="13" x2="13" y2="13"></line></svg>
             </div>
-            <div class="sidebar-contact-item">
-              <div class="sidebar-c-avatar" style="background-image: url('/bird_header.jpg')"></div>
-              <span class="sidebar-c-name">mint</span>
+            <span class="sidebar-shortcut-name">全部</span>
+          </div>
+          <div class="sidebar-shortcut" :class="{ active: activeSidebarFilter === 'unread' }" @click="handleSidebarFilter('unread')">
+            <div class="sidebar-shortcut-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.8" fill="none"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>
+              <span v-if="unreadChatCount > 0" class="sidebar-shortcut-badge">{{ unreadChatCount > 99 ? '99+' : unreadChatCount }}</span>
             </div>
-            <div class="sidebar-contact-item">
-              <div class="sidebar-c-avatar" style="background-image: url('/dove_bg.jpg')"></div>
-              <span class="sidebar-c-name">Agony</span>
+            <span class="sidebar-shortcut-name">未读</span>
+          </div>
+          <div class="sidebar-shortcut" :class="{ active: activeSidebarFilter === 'pinned' }" @click="handleSidebarFilter('pinned')">
+            <div class="sidebar-shortcut-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.8" fill="none"><line x1="12" y1="17" x2="12" y2="22"></line><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.68V6a3 3 0 0 0-6 0v4.68a2 2 0 0 1-1.11 1.87l-1.78.9A2 2 0 0 0 5 15.24Z"></path></svg>
+              <span v-if="pinnedChatCount > 0" class="sidebar-shortcut-count">{{ pinnedChatCount }}</span>
             </div>
-            <div class="sidebar-contact-item">
-              <div class="sidebar-c-avatar" style="background-image: url('/dove.jpg')"></div>
-              <span class="sidebar-c-name">cheat</span>
+            <span class="sidebar-shortcut-name">置顶</span>
+          </div>
+          <div class="sidebar-shortcut" :class="{ active: activeSidebarFilter === 'recent' }" @click="handleSidebarFilter('recent')">
+            <div class="sidebar-shortcut-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.8" fill="none"><circle cx="12" cy="12" r="8"></circle><polyline points="12 8 12 12 15 14"></polyline></svg>
             </div>
-            <div class="sidebar-contact-item">
-              <div class="sidebar-c-avatar" style="background-color: #ddd"></div>
-              <span class="sidebar-c-name">Alone</span>
-            </div>
+            <span class="sidebar-shortcut-name">最近</span>
           </div>
         </div>
       </aside>
@@ -374,6 +414,7 @@ const handleImportComplete = (personas: any[]) => {
       </div>
 
       <div class="chat-list">
+        <div v-if="!isMultiSelectMode && regularChats.length === 0 && pinnedChats.length === 0" class="chat-list-empty">{{ filterEmptyText }}</div>
         <div v-for="chat in (isMultiSelectMode ? filteredChats : regularChats)" :key="chat.id" class="chat-item-wrapper" :id="`chat-item-${chat.id}`">
           <div v-if="isMultiSelectMode" class="checkbox-container" @click="toggleSelectChat(chat.id)">
             <div class="checkbox" :class="{ checked: selectedChatIds.has(chat.id) }">
