@@ -28,6 +28,7 @@ export interface ParsedAdapterResponse {
   content: string
   thinking: string
   tokens?: number
+  stopReason?: string
 }
 
 const trimSlash = (value: string) => value.replace(/\/+$/, '')
@@ -217,7 +218,8 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
     return {
       content: blocks.filter((item: any) => item.type === 'text').map((item: any) => item.text || '').join(''),
       thinking: blocks.filter((item: any) => item.type === 'thinking').map((item: any) => item.thinking || '').join('\n'),
-      tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0) || undefined
+      tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0) || undefined,
+      stopReason: data.stop_reason
     }
   }
   if (profile === 'gemini') {
@@ -225,34 +227,38 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
     return {
       content: parts.filter((item: any) => !item.thought).map((item: any) => item.text || '').join(''),
       thinking: parts.filter((item: any) => item.thought).map((item: any) => item.text || '').join('\n'),
-      tokens: data.usageMetadata?.totalTokenCount
+      tokens: data.usageMetadata?.totalTokenCount,
+      stopReason: data.candidates?.[0]?.finishReason
     }
   }
   const message = data.choices?.[0]?.message || {}
   return {
     content: message.content || '',
     thinking: message.reasoning_content || '',
-    tokens: data.usage?.total_tokens
+    tokens: data.usage?.total_tokens,
+    stopReason: data.choices?.[0]?.finish_reason
   }
 }
 
 export const consumeAdapterStreamEvent = (
   profile: PreparedAdapterRequest['profile'],
   data: any
-): { content?: string; thinking?: string } => {
+): { content?: string; thinking?: string; stopReason?: string } => {
   if (profile === 'claude') {
     const delta = data.delta || {}
     if (delta.type === 'text_delta') return { content: delta.text || '' }
     if (delta.type === 'thinking_delta') return { thinking: delta.thinking || '' }
+    if (delta.stop_reason) return { stopReason: delta.stop_reason }
     return {}
   }
   if (profile === 'gemini') {
     const parts = data.candidates?.[0]?.content?.parts || []
     return {
       content: parts.filter((item: any) => !item.thought).map((item: any) => item.text || '').join(''),
-      thinking: parts.filter((item: any) => item.thought).map((item: any) => item.text || '').join('')
+      thinking: parts.filter((item: any) => item.thought).map((item: any) => item.text || '').join(''),
+      stopReason: data.candidates?.[0]?.finishReason
     }
   }
   const delta = data.choices?.[0]?.delta || {}
-  return { content: delta.content || '', thinking: delta.reasoning_content || '' }
+  return { content: delta.content || '', thinking: delta.reasoning_content || '', stopReason: data.choices?.[0]?.finish_reason }
 }

@@ -1,16 +1,23 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, cotSettings, appStats, type ApiPreset } from '../store'
+import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, characterApiSettings, cotSettings, appStats, type ApiPreset } from '../store'
 import { apiLogger } from './apiLogger'
 import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest } from './modelAdapters'
 import type { ModelAdapterProfile } from './modelAdapters'
 
-export type ChatApiPurpose = 'default' | 'moment-followup'
+export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global'
 
 export const isMomentApiReady = () => {
   if (!momentApiSettings.enabled) return false
   const url = momentApiSettings.provider === 'custom' ? momentApiSettings.customUrl : momentApiSettings.url
   const key = momentApiSettings.provider === 'custom' ? momentApiSettings.customKey : momentApiSettings.key
   return Boolean(url && key && momentApiSettings.model)
+}
+
+export const isCharacterApiReady = () => {
+  if (!characterApiSettings.enabled) return false
+  const url = characterApiSettings.provider === 'custom' ? characterApiSettings.customUrl : characterApiSettings.url
+  const key = characterApiSettings.provider === 'custom' ? characterApiSettings.customKey : characterApiSettings.key
+  return Boolean(url && key && characterApiSettings.model)
 }
 
 export async function sendChatMessage(
@@ -54,6 +61,8 @@ export async function sendChatMessage(
     activeSettings = visionApiSettings
   } else if (purpose === 'moment-followup' && isMomentApiReady()) {
     activeSettings = momentApiSettings
+  } else if (purpose === 'character-generation' && isCharacterApiReady()) {
+    activeSettings = characterApiSettings
   }
 
   const url = activeSettings.provider === 'custom' ? activeSettings.customUrl : activeSettings.url
@@ -68,7 +77,7 @@ export async function sendChatMessage(
   let payloadMessages = JSON.parse(JSON.stringify(messages)) // 深拷贝避免污染原数组
 
   // 总结/结构化记忆要求稳定的 JSON 或纯摘要，不能被聊天思维链模板污染。
-  if (!isSummary && cotSettings.enabled) {
+  if (!isSummary && !purpose.startsWith('character-') && cotSettings.enabled) {
     if (cotSettings.mode === 'skip') {
       // 模式 A：跳过思考 (Skip)
       payloadMessages.push({
@@ -204,6 +213,8 @@ export async function sendChatMessage(
     if (isSummary) logType = 'Summary'
     if (isVision) logType = 'Vision'
     if (purpose === 'moment-followup') logType = 'Moment'
+    if (purpose === 'character-generation') logType = 'CharacterGeneration'
+    if (purpose === 'character-review-global') logType = 'CharacterReview'
 
     apiLogger.addLog({
       type: logType,
@@ -218,6 +229,7 @@ export async function sendChatMessage(
 
   let content = ''
   let thinking = ''
+  let stopReason = ''
 
   if (activeSettings.enableStream) {
     if (!response.body) throw new Error('流式请求失败：无法读取响应体')
@@ -246,6 +258,7 @@ export async function sendChatMessage(
             const delta = consumeAdapterStreamEvent(preparedRequest.profile, dataObj)
             if (delta.content) content += delta.content
             if (delta.thinking) thinking += delta.thinking
+            if (delta.stopReason) stopReason = delta.stopReason
           } catch (e) {
             // 忽略解析失败的非标准块
           }
@@ -259,6 +272,7 @@ export async function sendChatMessage(
         const delta = consumeAdapterStreamEvent(preparedRequest.profile, dataObj)
         if (delta.content) content += delta.content
         if (delta.thinking) thinking += delta.thinking
+        if (delta.stopReason) stopReason = delta.stopReason
       } catch (e) {}
     }
     
@@ -274,6 +288,7 @@ export async function sendChatMessage(
     content = parsed.content
     thinking = parsed.thinking
     if (parsed.tokens) tokensUsage = parsed.tokens
+    stopReason = parsed.stopReason || ''
   }
 
   // 记录成功日志
@@ -281,6 +296,8 @@ export async function sendChatMessage(
   if (isSummary) logType = 'Summary'
   if (isVision) logType = 'Vision'
   if (purpose === 'moment-followup') logType = 'Moment'
+  if (purpose === 'character-generation') logType = 'CharacterGeneration'
+  if (purpose === 'character-review-global') logType = 'CharacterReview'
 
   apiLogger.addLog({
     type: logType,
@@ -309,6 +326,8 @@ export async function sendChatMessage(
   // 返回对象格式以支持 thinking
   return {
     content,
-    thinking
+    thinking,
+    stopReason,
+    truncated: ['length', 'max_tokens', 'MAX_TOKENS'].includes(stopReason)
   }
 }

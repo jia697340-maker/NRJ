@@ -54,7 +54,8 @@ const createDefaultLayout = (appIds: string[]): DesktopLayoutState => ({
   dock: appIds.slice(0, 4).map(id => ({ type: 'app', id })),
   pages: [
     appIds.slice(4, 8).map(id => ({ type: 'app', id })),
-    appIds.slice(8).map(id => ({ type: 'app', id }))
+    appIds.slice(8).filter(id => id !== 'character_workshop').map(id => ({ type: 'app', id })),
+    appIds.includes('character_workshop') ? [{ type: 'app', id: 'character_workshop' }] : []
   ],
   hiddenAppIds: []
 })
@@ -101,10 +102,13 @@ const normalize = (raw: Partial<DesktopLayoutState>, appIds: string[]): DesktopL
 
   const dock = normalizeEntries(Array.isArray(raw.dock) ? raw.dock.slice(0, DOCK_CAPACITY) : raw.dock)
   const rawPages = Array.isArray(raw.pages) ? raw.pages : []
-  const pages = [normalizeEntries(rawPages[0]), normalizeEntries(rawPages[1])]
+  const pages = [normalizeEntries(rawPages[0]), normalizeEntries(rawPages[1]), normalizeEntries(rawPages[2])]
 
   for (const id of appIds) {
-    if (!used.has(id) && !hidden.has(id)) pages[1].push({ type: 'app', id })
+    if (!used.has(id) && !hidden.has(id)) {
+      const targetPage = id === 'character_workshop' ? 2 : 1
+      pages[targetPage].push({ type: 'app', id })
+    }
   }
 
   return { version: 1, dock, pages, hiddenAppIds: [...hidden] }
@@ -114,7 +118,7 @@ const assignLayout = (layout: DesktopLayoutState) => {
   state.version = 1
   state.dock.splice(0, state.dock.length, ...layout.dock.map(cloneEntry))
   state.pages.splice(0, state.pages.length, ...layout.pages.map(page => page.map(cloneEntry)))
-  while (state.pages.length < 2) state.pages.push([])
+  while (state.pages.length < 3) state.pages.push([])
   state.hiddenAppIds.splice(0, state.hiddenAppIds.length, ...layout.hiddenAppIds)
 }
 

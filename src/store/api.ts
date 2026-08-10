@@ -174,3 +174,35 @@ export const momentApiSettings = reactive({
 watch(momentApiSettings, (newVal) => {
   localStorage.setItem(MOMENT_API_STORAGE_KEY, JSON.stringify(newVal))
 }, { deep: true })
+
+const CHARACTER_API_STORAGE_KEY = 'clingy_character_api_settings'
+const savedCharacterApiSettings = readStoredJSON<Record<string, any>>(CHARACTER_API_STORAGE_KEY, {})
+
+// 角色工坊的长文本与结构化生成可使用独立模型；未开启或配置不完整时回退全局节点。
+export const characterApiSettings = reactive({
+  enabled: savedCharacterApiSettings.enabled ?? false,
+  provider: savedCharacterApiSettings.provider || 'deepseek',
+  url: savedCharacterApiSettings.url ?? 'https://api.deepseek.com',
+  key: savedCharacterApiSettings.key ?? '',
+  model: savedCharacterApiSettings.model ?? '',
+  availableModels: savedCharacterApiSettings.availableModels || [],
+  customUrl: savedCharacterApiSettings.customUrl ?? '',
+  customKey: savedCharacterApiSettings.customKey ?? '',
+  enableTemperature: savedCharacterApiSettings.enableTemperature ?? true,
+  temperature: savedCharacterApiSettings.temperature ?? 0.85,
+  enableMaxTokens: savedCharacterApiSettings.enableMaxTokens ?? true,
+  maxTokens: savedCharacterApiSettings.maxTokens ?? 2400,
+  enableTopP: savedCharacterApiSettings.enableTopP ?? false,
+  topP: savedCharacterApiSettings.topP ?? 1,
+  enableFrequencyPenalty: savedCharacterApiSettings.enableFrequencyPenalty ?? true,
+  frequencyPenalty: savedCharacterApiSettings.frequencyPenalty ?? 0.15,
+  enablePresencePenalty: savedCharacterApiSettings.enablePresencePenalty ?? false,
+  presencePenalty: savedCharacterApiSettings.presencePenalty ?? 0,
+  enableStream: savedCharacterApiSettings.enableStream ?? false,
+  presets: (savedCharacterApiSettings.presets || []) as ApiPreset[],
+  currentPresetId: savedCharacterApiSettings.currentPresetId ?? ''
+})
+
+watch(characterApiSettings, value => {
+  localStorage.setItem(CHARACTER_API_STORAGE_KEY, JSON.stringify(value))
+}, { deep: true })

@@ -218,7 +218,7 @@ const maybeTurnPage = (x: number) => {
   if (!desktopRect) return
   const edge = Math.min(42, desktopRect.width * .12)
   const direction = x < desktopRect.left + edge ? -1 : x > desktopRect.right - edge ? 1 : 0
-  if (!direction || currentPage.value + direction < 0 || currentPage.value + direction > 1) {
+  if (!direction || currentPage.value + direction < 0 || currentPage.value + direction >= layout.pages.length) {
     clearEdgeTimer()
     return
   }
@@ -430,9 +430,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="page">
-        <div class="page-two-grid drop-container" data-drop-area="page" data-drop-page="1" :data-drop-index="layout.pages[1]?.length ?? 0">
-          <div v-for="(entry, index) in layout.pages[1]" :key="entryKey(entry)" class="desktop-entry desktop-drop-slot" :class="{ 'dragging-source': dragKey === entryKey(entry), 'folder-target': folderCandidateKey === entryKey(entry) }" :data-entry-key="entryKey(entry)" data-drop-area="page" data-drop-page="1" :data-drop-index="index" @pointerdown="handleItemPointerDown($event, { area: 'page', page: 1, index })" @click="activateApp(entry)">
+      <div v-for="pageIndex in Math.max(layout.pages.length - 1, 0)" :key="`desktop-page-${pageIndex}`" class="page">
+        <div class="page-two-grid drop-container" data-drop-area="page" :data-drop-page="pageIndex" :data-drop-index="layout.pages[pageIndex]?.length ?? 0">
+          <div v-for="(entry, index) in layout.pages[pageIndex]" :key="entryKey(entry)" class="desktop-entry desktop-drop-slot" :class="{ 'dragging-source': dragKey === entryKey(entry), 'folder-target': folderCandidateKey === entryKey(entry) }" :data-entry-key="entryKey(entry)" data-drop-area="page" :data-drop-page="pageIndex" :data-drop-index="index" @pointerdown="handleItemPointerDown($event, { area: 'page', page: pageIndex, index })" @click="activateApp(entry)">
             <AppIcon v-if="entry.type === 'app' && getApp(entry.id)" :app="getApp(entry.id)" :badge="badgeForEntry(entry)" :editing="editing" @delete="removeApp({ area: 'page', page: 1, index })" />
             <DesktopFolderIcon v-else-if="entry.type === 'folder'" :folder="entry" :apps-by-id="appsById" :badge="badgeForEntry(entry)" :editing="editing" />
           </div>
@@ -440,7 +440,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="page-indicator"><div class="dot" :class="{ active: currentPage === 0 }"></div><div class="dot" :class="{ active: currentPage === 1 }"></div></div>
+    <div class="page-indicator" aria-label="桌面分页"><div v-for="(_, index) in layout.pages" :key="index" class="dot" :class="{ active: currentPage === index }"></div></div>
 
     <div class="dock-container">
       <div class="dock drop-container" data-drop-area="dock" :data-drop-index="layout.dock.length">
@@ -487,7 +487,7 @@ onBeforeUnmount(() => {
 .desktop.is-editing { padding-top: calc(6vh + 42px); }
 .pages-container { flex: 1; display: flex; width: 100%; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; -ms-overflow-style: none; }
 .pages-container::-webkit-scrollbar { display: none; }
-.page { flex: 0 0 100%; width: 100%; height: 100%; scroll-snap-align: start; display: flex; flex-direction: column; }
+.page { flex: 0 0 100%; width: 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; display: flex; flex-direction: column; }
 .top-widget-area { margin: 1.5vh 5vw; display: flex; justify-content: center; }
 .middle-content { flex: 1; display: flex; padding: 0 5vw; gap: 4vw; box-sizing: border-box; }
 .app-grid { flex: 1; display: grid; grid-template-columns: repeat(2, auto); grid-template-rows: repeat(2, auto); gap: 2.5vh 5vw; justify-content: center; justify-items: center; align-content: center; width: 100%; }

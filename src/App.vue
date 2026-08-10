@@ -14,6 +14,7 @@ import AppVoiceAccess from './components/app_VoiceAccess.vue'
 import AppImageAccess from './components/app_ImageAccess.vue'
 import AppWardrobe from './components/app_Wardrobe.vue'
 import AppWidgetBeautify from './components/app_WidgetBeautify.vue'
+import AppCharacterWorkshop from './components/app_CharacterWorkshop.vue'
 import LockScreen from './components/LockScreen.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { globalSettings, appStats } from './store'
@@ -188,6 +189,17 @@ const handleOpenApp = (appId: string) => {
 
 const handlePhoneVoiceCallStateChange = (state: VoiceCallState) => {
   phoneVoiceCallState.value = state
+}
+
+const openCharacterWorkshopApi = () => {
+  activeApp.value = 'api_settings'
+}
+
+const openGeneratedCharacterChat = async (contactId: string) => {
+  hasOpenedChatApp.value = true
+  activeApp.value = 'chat'
+  await nextTick()
+  await chatAppRef.value?.openChatFromOutside?.(contactId)
 }
 
 const onPhoneWidgetPointerStart = (e: TouchEvent | MouseEvent) => {
@@ -379,6 +391,15 @@ watch(activeApp, appId => {
         v-if="activeApp === 'widget_beautify'" 
         data-font-app="widget_beautify"
         @close="activeApp = null" 
+      />
+    </Transition>
+    <Transition name="app-fade">
+      <AppCharacterWorkshop
+        v-if="activeApp === 'character_workshop'"
+        data-font-app="character_workshop"
+        @close="activeApp = null"
+        @open-api="openCharacterWorkshopApi"
+        @open-chat="openGeneratedCharacterChat"
       />
     </Transition>
 

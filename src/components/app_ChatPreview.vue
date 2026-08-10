@@ -32,6 +32,7 @@ const emit = defineEmits<{
 
 const {
   selectedChat,
+  mockChats,
   myProfile,
   effectiveMyProfile,
   avatarStore,
@@ -171,6 +172,17 @@ const endGlobalVoiceCall = () => {
   chatRoomRef.value?.endVoiceCall?.()
 }
 
+const openChatFromOutside = async (contactId: string | number) => {
+  await loadCustomContacts()
+  const chat = mockChats.value.find((item: any) => String(item.id) === String(contactId))
+  if (!chat) return false
+  hasOpenedChat.value = true
+  selectedChat.value = chat
+  activeTab.value = '消息'
+  currentView.value = 'chat'
+  return true
+}
+
 const handleVoiceCallStateChange = (state: VoiceCallState) => {
   voiceCallState.value = state
   emit('voice-call-state-change', state)
@@ -178,7 +190,8 @@ const handleVoiceCallStateChange = (state: VoiceCallState) => {
 
 defineExpose({
   restoreVoiceCallFromOutside: restoreGlobalVoiceCall,
-  endVoiceCallFromOutside: endGlobalVoiceCall
+  endVoiceCallFromOutside: endGlobalVoiceCall,
+  openChatFromOutside
 })
 
 // 新建联系人状态

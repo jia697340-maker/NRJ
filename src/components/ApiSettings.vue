@@ -1,19 +1,20 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, embeddingApiSettings, cotSettings, type CotItem, type ApiPreset } from '../store'
+import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, embeddingApiSettings, characterApiSettings, cotSettings, type CotItem, type ApiPreset } from '../store'
 import SearchableSelect from './SearchableSelect.vue'
 import TextEditModal from './TextEditModal.vue'
 import ApiPresetManageModal from './ApiPresetManageModal.vue'
 import { parseAdapterResponse, prepareAdapterRequest } from '../services/modelAdapters'
 
-const currentTab = ref<'global' | 'summary' | 'vision' | 'moment' | 'embedding'>('global')
+const currentTab = ref<'global' | 'summary' | 'vision' | 'moment' | 'embedding' | 'character'>('global')
 
 const activeSettings = computed<any>(() => {
   if (currentTab.value === 'embedding') return embeddingApiSettings
   if (currentTab.value === 'summary') return summaryApiSettings
   if (currentTab.value === 'vision') return visionApiSettings
   if (currentTab.value === 'moment') return momentApiSettings
+  if (currentTab.value === 'character') return characterApiSettings
   return apiSettings
 })
 
@@ -211,6 +212,14 @@ watch(() => momentApiSettings.key, (newKey) => {
   if (momentApiSettings.provider === 'custom') {
     momentApiSettings.customKey = newKey
   }
+})
+
+watch(() => characterApiSettings.url, newUrl => {
+  if (characterApiSettings.provider === 'custom') characterApiSettings.customUrl = newUrl
+})
+
+watch(() => characterApiSettings.key, newKey => {
+  if (characterApiSettings.provider === 'custom') characterApiSettings.customKey = newKey
 })
 
 watch(() => embeddingApiSettings.url, (newUrl) => {
@@ -441,6 +450,10 @@ const confirmTest = async () => {
           <span>向量节点</span>
           <div class="tab-line"></div>
         </div>
+        <div class="tab-item" :class="{ active: currentTab === 'character' }" @click="currentTab = 'character'">
+          <span>角色生成</span>
+          <div class="tab-line"></div>
+        </div>
       </div>
 
       <!-- 线程主容器，用于绘制贯穿红线 -->
@@ -526,6 +539,23 @@ const confirmTest = async () => {
           <div class="section-desc" v-else>
             需要支持 OpenAI 风格 /v1/embeddings 的节点。聊天与总结模型不会因此改变。
           </div>
+        </div>
+
+        <div class="settings-section" v-if="currentTab === 'character'">
+          <div class="red-dot"></div>
+          <div class="form-grid">
+            <div class="form-row">
+              <div class="form-label space-between">
+                <span class="cn-text">启用独立的角色生成节点</span>
+                <label class="editorial-switch">
+                  <input type="checkbox" v-model="characterApiSettings.enabled">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="section-desc" v-if="!characterApiSettings.enabled">当前角色工坊使用全局节点。开启后可单独配置更擅长长文本规划与结构化输出的模型。</div>
+          <div class="section-desc" v-else>仅接管角色创建、补全与试演。配置不完整时自动回退全局节点，不影响日常聊天。</div>
         </div>
 
         <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled) || (currentTab === 'moment' && momentApiSettings.enabled) || (currentTab === 'embedding' && embeddingApiSettings.enabled)">
