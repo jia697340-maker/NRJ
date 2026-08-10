@@ -19,6 +19,8 @@ import ChatVideoCallView from './ChatVideoCallView.vue'
 import ChatCallRecordsView from './ChatCallRecordsView.vue'
 import localforage from 'localforage'
 import { chatSettings } from '../../store'
+import { addUndeliveredUserMessage, ensureRelationship } from '../../composables/useChatRelationship'
+import { useRelationshipAdvance } from '../../composables/useRelationshipAdvance'
 import { useChatRoomAPI } from '../../composables/useChatRoomAPI'
 import { useBubbleBeautify } from '../../composables/useBubbleBeautify'
 import { useChatAuth } from '../../composables/useChatAuth'
@@ -116,6 +118,7 @@ const mediaThumbStore = localforage.createInstance({
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'open-settings'): void
+  (e: 'open-relationship'): void
   (e: 'open-offline-meet'): void
   (e: 'voice-call-state-change', state: {
     active: boolean
@@ -455,7 +458,8 @@ const handleAddMessage = async (text: string) => {
     content: text,
     quote: quote,
     isVoiceCallProcessMsg: isCallPanelActive.value,
-    isVideoCallProcessMsg: isVideoCallPanelActive.value
+    isVideoCallProcessMsg: isVideoCallPanelActive.value,
+    isUndelivered: ensureRelationship(selectedChat.value).blockedBy === 'character'
   }
   if (!isCallPanelActive.value && !isVideoCallPanelActive.value && isMixedOfflineSessionActive.value) {
     attachActiveOfflineSession(selectedChat.value, newMessage)
@@ -474,6 +478,12 @@ const handleAddMessage = async (text: string) => {
   }
   saveCustomContacts()
   await scrollToBottom()
+
+  if (newMessage.isUndelivered) {
+    addUndeliveredUserMessage(selectedChat.value, text)
+    showToast('消息未送达，对方当前看不到')
+    return
+  }
   
   if (selectedChat.value.id === 1) {
     selectedChat.value.isTyping = true
@@ -522,6 +532,11 @@ const {
     return false
   }
 )
+
+const { isAdvancing: isRelationshipAdvancing, advanceRelationship } = useRelationshipAdvance()
+const handleRelationshipAdvance = async () => {
+  try { await advanceRelationship(selectedChat.value, 'manual_advance') } catch (_) {}
+}
 
 const toggleMixedOfflineSession = () => {
   if (!selectedChat.value?.offlineMeetEnabled || selectedChat.value.offlineMeetMode !== 'mixed') return
@@ -1132,7 +1147,7 @@ onUnmounted(() => {
       :showExtensionPanel="showExtensionPanel"
       :showEmojiPanel="showEmojiPanel"
       :panelEmojis="panelEmojis"
-      :isGenerating="isGenerating"
+      :isGenerating="isGenerating || isRelationshipAdvancing"
       :selectedChat="selectedChat"
       :isMixedOfflineActive="isMixedOfflineSessionActive"
       @exit-multi-select-mode="exitMultiSelectMode"
@@ -1155,6 +1170,8 @@ onUnmounted(() => {
       @show-voice-call-modal="startVoiceCall"
       @show-video-call-modal="startVideoCall"
       @toggle-mixed-offline="toggleMixedOfflineSession"
+      @open-relationship="emit('open-relationship')"
+      @advance-relationship="handleRelationshipAdvance"
       @update:showExtensionPanel="showExtensionPanel = $event"
       @update:showEmojiPanel="showEmojiPanel = $event"
     />

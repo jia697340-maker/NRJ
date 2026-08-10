@@ -145,7 +145,7 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
       ? filterOnlineHistoryByOfflineSessions(chat, (chat.messages || []).filter((item: any) => !item.isOfflineMeetMsg))
       : (chat.messages || [])
   const latestMemoryQuery = [...memoryQueryMessages].reverse().find((item: any) =>
-    item?.type === 'left' || item?.type === 'right' || item?.type === 'system'
+      (item?.type === 'left' || item?.type === 'right' || item?.type === 'system' || item?.type === 'narration') && !item?.isUndelivered
   )?.content || ''
   const memoryPacket = await buildMemoryPacket(chat, String(latestMemoryQuery), chat.memoryTokenBudget)
   const sysPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode) + buildBilingualPrompt(chat) + memoryPacket + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
@@ -162,7 +162,7 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
 
   if (chat.messages && chat.messages.length > 0) {
     // 截取历史消息，过滤掉 time 类型的本地提示
-    let validHistory = chat.messages.filter((m: any) => m.type === 'left' || m.type === 'right' || m.type === 'system')
+  let validHistory = chat.messages.filter((m: any) => (m.type === 'left' || m.type === 'right' || m.type === 'system' || m.type === 'narration') && !m.isUndelivered)
     
     // 【核心逻辑】：普通文字聊天时过滤掉所有通话内对话，防止挤占文字记忆
     if (!callMode) {
@@ -221,6 +221,9 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
         // 处理系统旁白（例如领取/退回红包）
         formattedContent = msg.content
         isSystemNotice = true
+      } else if (msg.type === 'narration') {
+        const kind = msg.narrationKind === 'scene' || msg.narrationKind === 'thought' ? msg.narrationKind : 'action'
+        formattedContent = `<narration kind="${kind}">${msg.content}</narration>`
       }
 
       // 处理引用 (quote)
@@ -342,7 +345,9 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
           year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
         }).replace(/\//g, '-') // 格式化为 YYYY-MM-DD HH:mm
         
-        if (isSystemNotice) {
+        if (msg.type === 'narration') {
+          formattedContent = formattedContent.replace('<narration ', `<narration time="${timeStr}" `)
+        } else if (isSystemNotice) {
           formattedContent = `<system_notice time="${timeStr}">${formattedContent}</system_notice>`
         } else if (isEmojiMessage && msg.type === 'right') {
           formattedContent = `<user_emoji_msg time="${timeStr}" name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
@@ -358,7 +363,9 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
           formattedContent = `<msg>${quotePrefix}${formattedContent}</msg>`
         }
       } else {
-        if (isSystemNotice) {
+        if (msg.type === 'narration') {
+          // 已在上方恢复为结构化叙述标签，保持原样进入上下文。
+        } else if (isSystemNotice) {
           formattedContent = `<system_notice>${formattedContent}</system_notice>`
         } else if (isEmojiMessage && msg.type === 'right') {
           formattedContent = `<user_emoji_msg name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
@@ -376,7 +383,7 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
       // 如果有多模态图片数据且未被压缩为文字，构造数组
       if (mediaBase64) {
         messages.push({
-          role: msg.type === 'left' ? 'assistant' : 'user',
+          role: msg.type === 'left' || msg.type === 'narration' ? 'assistant' : 'user',
           content: [
             { type: 'text', text: formattedContent },
             { type: 'image_url', image_url: { url: mediaBase64 } }
@@ -384,7 +391,7 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
         })
       } else {
         messages.push({
-          role: msg.type === 'left' ? 'assistant' : 'user',
+          role: msg.type === 'left' || msg.type === 'narration' ? 'assistant' : 'user',
           content: formattedContent
         })
       }

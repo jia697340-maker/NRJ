@@ -136,6 +136,7 @@ export function useChatSettingsSave() {
         contacts[idx].enableMsgCountLimit = selectedChat.value.enableMsgCountLimit ?? false
         contacts[idx].minMsgCount = selectedChat.value.minMsgCount || 1
         contacts[idx].maxMsgCount = selectedChat.value.maxMsgCount || 3
+        contacts[idx].bubbleNarrationEnabled = selectedChat.value.bubbleNarrationEnabled ?? false
 
         // 线下见面设置持久化
         contacts[idx].offlineMeetEnabled = selectedChat.value.offlineMeetEnabled ?? false
@@ -145,6 +146,17 @@ export function useChatSettingsSave() {
         contacts[idx].offlineMeetLocationMode = selectedChat.value.offlineMeetLocationMode || 'vague'
         contacts[idx].offlineMeetSessions = selectedChat.value.offlineMeetSessions || []
         contacts[idx].activeOfflineSessionId = selectedChat.value.activeOfflineSessionId || null
+        contacts[idx].relationship = selectedChat.value.relationship || null
+        contacts[idx].autonomyEnabled = selectedChat.value.autonomyEnabled ?? false
+        contacts[idx].autonomyAllowMessages = selectedChat.value.autonomyAllowMessages ?? true
+        contacts[idx].autonomyAllowMoments = selectedChat.value.autonomyAllowMoments ?? true
+        contacts[idx].autonomyAllowStatus = selectedChat.value.autonomyAllowStatus ?? true
+        contacts[idx].autonomyCatchup = selectedChat.value.autonomyCatchup ?? true
+        contacts[idx].autonomyActiveStart = selectedChat.value.autonomyActiveStart ?? 8
+        contacts[idx].autonomyActiveEnd = selectedChat.value.autonomyActiveEnd ?? 24
+        contacts[idx].autonomyMinIntervalMinutes = selectedChat.value.autonomyMinIntervalMinutes ?? 45
+        contacts[idx].autonomyHistory = selectedChat.value.autonomyHistory || []
+        contacts[idx].autonomyState = selectedChat.value.autonomyState || null
         
         selectedChat.value.name = selectedChat.value.remark || selectedChat.value.realName
         selectedChat.value.avatarText = selectedChat.value.avatarUrl ? '' : ((selectedChat.value.realName || selectedChat.value.name).charAt(0) || '伴')

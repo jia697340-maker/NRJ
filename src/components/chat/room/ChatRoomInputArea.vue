@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { ensureRelationship, formatRelationshipPlan } from '../../../composables/useChatRelationship'
 
 const props = defineProps<{
   selectionMode: 'recall' | 'mark' | 'general' | null
@@ -36,11 +37,21 @@ const emit = defineEmits<{
   (e: 'show-voice-call-modal'): void
   (e: 'show-video-call-modal'): void
   (e: 'toggle-mixed-offline'): void
+  (e: 'open-relationship'): void
+  (e: 'advance-relationship'): void
   (e: 'update:showExtensionPanel', val: boolean): void
   (e: 'update:showEmojiPanel', val: boolean): void
 }>()
 
 const inputMessage = ref('')
+const relationship = computed(() => ensureRelationship(props.selectedChat || {}))
+const relationshipBlocksInput = computed(() => relationship.value.blockedBy === 'user' || relationship.value.friendship !== 'friends')
+const relationshipTitle = computed(() => {
+  if (relationship.value.blockedBy === 'user') return '你已拉黑对方'
+  if (relationship.value.friendship === 'deleted_by_user') return '你已删除好友'
+  if (relationship.value.friendship === 'deleted_by_character') return '对方已删除你'
+  return '关系状态已改变'
+})
 
 const handleAddMessage = () => {
   emit('add-message', inputMessage.value)
@@ -121,7 +132,23 @@ const onFocusInput = () => {
       </div>
     </div>
 
+    <div v-else-if="relationshipBlocksInput" class="relationship-input-state">
+      <button type="button" class="relationship-summary" @click="emit('open-relationship')">
+        <span class="relationship-summary-icon"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 3a6 6 0 0 0-6 6v3l-2 3h16l-2-3V9a6 6 0 0 0-6-6Z"/><path d="M10 19h4"/></svg></span>
+        <span><b>{{ relationshipTitle }}</b><small>{{ formatRelationshipPlan(relationship) }}</small></span>
+        <svg class="relationship-chevron" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+      <button type="button" class="relationship-advance" :disabled="isGenerating" @click="emit('advance-relationship')">
+        <span v-if="isGenerating" class="relationship-spinner"></span>
+        <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 0 0-15-2M4 5v4h4"/><path d="M4 13a8 8 0 0 0 15 2m1 4v-4h-4"/></svg>
+        {{ isGenerating ? '推进中' : '继续推进' }}
+      </button>
+    </div>
+
     <div v-else class="input-flat-bar-wrapper" style="width: 100%;">
+      <button v-if="relationship.blockedBy === 'character'" type="button" class="undelivered-notice" @click="emit('open-relationship')">
+        对方已拉黑你 · 发送的消息不会送达 <span>查看动向</span>
+      </button>
       <div v-if="isMixedOfflineActive" class="offline-context-indicator">
         <span class="offline-context-dot"></span>
         <span>当前为线下见面</span>
@@ -329,4 +356,6 @@ const onFocusInput = () => {
   background: var(--text-primary);
   color: var(--bg-primary);
 }
+
+.relationship-input-state{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:transparent}.relationship-summary{min-width:0;height:52px;padding:7px 10px;border:1px solid var(--border-color);border-radius:14px;background:var(--sys-bg-secondary);color:var(--text-primary);display:grid;grid-template-columns:34px minmax(0,1fr) 17px;align-items:center;gap:8px;text-align:left;cursor:pointer}.relationship-summary-icon{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:var(--sys-bg-tertiary);color:var(--text-secondary)}.relationship-summary span:nth-child(2){min-width:0;display:flex;flex-direction:column;gap:3px}.relationship-summary b{font-size:12px}.relationship-summary small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--text-tertiary)}.relationship-chevron{color:var(--text-tertiary)}.relationship-advance{height:52px;padding:0 14px;border:0;border-radius:14px;background:var(--text-primary);color:var(--sys-bg-secondary);display:flex;align-items:center;gap:6px;font:inherit;font-size:12px;font-weight:650;cursor:pointer}.relationship-advance:disabled{opacity:.55;cursor:not-allowed}.relationship-advance:focus-visible,.relationship-summary:focus-visible,.undelivered-notice:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}.relationship-spinner{width:16px;height:16px;border:2px solid rgba(128,128,128,.35);border-top-color:currentColor;border-radius:50%;animation:relationship-spin .7s linear infinite}.undelivered-notice{width:100%;padding:6px 12px 2px;border:0;background:transparent;color:var(--text-tertiary);font:inherit;font-size:10px;text-align:center;cursor:pointer}.undelivered-notice span{color:#3478c8;margin-left:5px}@keyframes relationship-spin{to{transform:rotate(360deg)}}@media(max-width:420px){.relationship-input-state{grid-template-columns:minmax(0,1fr) 82px;gap:7px;padding-left:8px;padding-right:8px}.relationship-advance{padding:0 9px}.relationship-summary{padding-left:8px}.relationship-summary-icon{width:30px;height:30px}}
 </style>

@@ -107,6 +107,14 @@
   width: 0;
   height: 0;
 }
+.switch input:focus-visible + .slider {
+  outline: 2px solid color-mix(in srgb, var(--text-primary) 35%, transparent);
+  outline-offset: 3px;
+}
+.switch input:disabled + .slider {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .slider {
   position: absolute;
   cursor: pointer;
@@ -135,6 +143,15 @@ input:checked + .slider {
 }
 input:checked + .slider:before {
   transform: translateX(16px);
+}
+
+@media (hover: hover) {
+  .glass-list-item:hover {
+    background: rgba(0, 0, 0, 0.025);
+  }
+  .is-dark .glass-list-item:hover {
+    background: rgba(255, 255, 255, 0.035);
+  }
 }
 
 /* 禁用状态灰态样式 */

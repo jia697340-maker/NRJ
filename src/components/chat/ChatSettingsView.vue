@@ -79,6 +79,8 @@ const emit = defineEmits<{
   (e: 'use-account-persona'): void
   (e: 'create-user-persona'): void
   (e: 'open-offline-meet'): void
+  (e: 'open-relationship'): void
+  (e: 'open-autonomy'): void
 }>()
 
 const { selectedChat, myProfile, effectiveMyProfile, mockChats, saveMyProfile } = useChatState()
@@ -828,6 +830,8 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @clear-media-thumb="clearMediaThumb"
         @handle-clear-history-click="handleClearHistoryClick"
         @open-offline-meet="emit('open-offline-meet')"
+        @open-relationship="emit('open-relationship')"
+        @open-autonomy="emit('open-autonomy')"
       />
 
       <ChatSettingsPanelUser

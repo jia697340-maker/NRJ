@@ -9,10 +9,16 @@ import ChatListView from './chat/ChatListView.vue'
 import ChatRoomView from './chat/ChatRoomView.vue'
 import ChatSettingsView from './chat/ChatSettingsView.vue'
 import ChatOfflineMeetView from './chat/ChatOfflineMeetView.vue'
+import ChatFriendRequestsView from './chat/ChatFriendRequestsView.vue'
+import ChatRelationshipView from './chat/ChatRelationshipView.vue'
+import CharacterAutonomyView from './chat/CharacterAutonomyView.vue'
 import ChatAuthView from './chat/ChatAuthView.vue'
 import { useChatState } from '../composables/useChatState'
 import { useChatAuth } from '../composables/useChatAuth'
 import { useChatSettingsSave } from '../composables/useChatSettingsSave'
+import { processDueRelationshipTimers } from '../composables/useChatRelationship'
+import { useRelationshipAdvance } from '../composables/useRelationshipAdvance'
+import { runDueAutonomyChecks } from '../services/characterAutonomy'
 import {
   applyUserProfileToChat,
   loadUserPersonas,
@@ -35,7 +41,7 @@ const {
   loadMyProfile
 } = useChatState()
 
-type ViewType = 'list' | 'chat' | 'profile' | 'discover' | 'contacts' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
+type ViewType = 'list' | 'chat' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'relationship' | 'autonomy' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
 type VoiceCallState = {
   active: boolean
   minimized: boolean
@@ -51,6 +57,7 @@ const activeTab = ref('消息')
 const tabs = ['消息', '联系人', '发现', '我的']
 
 const previousView = ref<ViewType>('list')
+const relationshipBackView = ref<ViewType>('chatSettings')
 const hasOpenedChat = ref(false)
 const chatRoomRef = ref<any>(null)
 const voiceCallState = ref<VoiceCallState>({
@@ -64,6 +71,20 @@ const voiceCallState = ref<VoiceCallState>({
 
 const { currentChatUserId } = useChatAuth()
 const { saveCurrentChat } = useChatSettingsSave()
+const { advanceRelationship: advanceScheduledRelationship } = useRelationshipAdvance()
+let relationshipTimer: number | null = null
+let autonomyTimer: number | null = null
+
+const reconcileRelationshipTimers = () => {
+  const due = processDueRelationshipTimers()
+  const next = due[0]
+  if (next) advanceScheduledRelationship(next, 'scheduled_review').catch(() => {})
+}
+
+const reconcileAutonomy = () => {
+  if (document.visibilityState !== 'visible') return
+  void runDueAutonomyChecks('resume')
+}
 
 const isGlobalCallWidgetVisible = computed(() => {
   return !!currentChatUserId.value && voiceCallState.value.active && currentView.value !== 'chat'
@@ -200,6 +221,13 @@ const switchTab = (tab: string) => {
 const openOfflineMeet = () => {
   if (!selectedChat.value?.offlineMeetEnabled) return
   currentView.value = 'offlineMeet'
+}
+
+const openRelationship = (chat = selectedChat.value, backView: ViewType = currentView.value) => {
+  if (!chat) return
+  selectedChat.value = chat
+  relationshipBackView.value = backView
+  currentView.value = 'relationship'
 }
 
 const handleOfflineMeetBack = () => {
@@ -362,19 +390,30 @@ const handleCreateUserPersona = () => {
 const handleLoginSuccess = () => {
   loadCustomContacts()
   loadMyProfile()
+  setTimeout(reconcileAutonomy, 800)
 }
 
-onMounted(() => {
+onMounted(async () => {
   initGlobalCallWidgetPosition()
   window.addEventListener('resize', initGlobalCallWidgetPosition)
   if (currentChatUserId.value) {
-    loadCustomContacts()
+    await loadCustomContacts()
     loadMyProfile()
   }
+  reconcileRelationshipTimers()
+  relationshipTimer = window.setInterval(reconcileRelationshipTimers, 30000)
+  document.addEventListener('visibilitychange', reconcileRelationshipTimers)
+  autonomyTimer = window.setInterval(() => void runDueAutonomyChecks('scheduled'), 60000)
+  document.addEventListener('visibilitychange', reconcileAutonomy)
+  setTimeout(reconcileAutonomy, 500)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', initGlobalCallWidgetPosition)
+  if (relationshipTimer) window.clearInterval(relationshipTimer)
+  document.removeEventListener('visibilitychange', reconcileRelationshipTimers)
+  if (autonomyTimer) window.clearInterval(autonomyTimer)
+  document.removeEventListener('visibilitychange', reconcileAutonomy)
 })
 </script>
 
@@ -391,7 +430,7 @@ onUnmounted(() => {
 
     <template v-else>
       <!-- 底部 TabBar -->
-    <footer v-show="!['chat', 'personaLibrary', 'createUserPersona', 'chatSettings', 'offlineMeet'].includes(currentView)" class="floating-tabbar glass">
+    <footer v-show="!['chat', 'personaLibrary', 'createUserPersona', 'chatSettings', 'offlineMeet', 'friendRequests', 'relationship', 'autonomy'].includes(currentView)" class="floating-tabbar glass">
       <div 
         v-for="tab in tabs" 
         :key="tab"
@@ -420,6 +459,7 @@ onUnmounted(() => {
       ref="chatRoomRef"
       @back="currentView = 'list'"
       @open-settings="currentView = 'chatSettings'"
+      @open-relationship="openRelationship(selectedChat, 'chat')"
       @open-offline-meet="openOfflineMeet"
       @voice-call-state-change="handleVoiceCallStateChange"
     />
@@ -433,6 +473,15 @@ onUnmounted(() => {
       @use-account-persona="useAccountPersona"
       @create-user-persona="handleCreateUserPersona"
       @open-offline-meet="openOfflineMeet"
+      @open-relationship="openRelationship(selectedChat, 'chatSettings')"
+      @open-autonomy="currentView = 'autonomy'"
+    />
+
+    <CharacterAutonomyView
+      v-if="currentView === 'autonomy' && selectedChat"
+      :chat="selectedChat"
+      @back="currentView = 'chatSettings'"
+      @save="saveCurrentChat"
     />
 
     <ChatOfflineMeetView
@@ -444,7 +493,19 @@ onUnmounted(() => {
     <AppChatDiscover v-if="currentView === 'discover'" />
 
     <!-- 5. 联系人视图 -->
-    <AppChatContacts v-if="currentView === 'contacts'" @close="emit('close')" />
+    <AppChatContacts v-if="currentView === 'contacts'" @close="emit('close')" @open-friend-requests="currentView = 'friendRequests'" />
+
+    <ChatFriendRequestsView
+      v-if="currentView === 'friendRequests'"
+      @back="currentView = 'contacts'"
+      @open-relationship="chat => openRelationship(chat, 'friendRequests')"
+    />
+
+    <ChatRelationshipView
+      v-if="currentView === 'relationship' && selectedChat"
+      :chat="selectedChat"
+      @back="currentView = relationshipBackView"
+    />
 
     <!-- 6. 我的及人设视图 -->
     <AppChatProfile 

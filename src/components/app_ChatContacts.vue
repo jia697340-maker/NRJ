@@ -5,6 +5,7 @@ import { useChatState } from '../composables/useChatState'
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'open-friend-requests'): void
 }>()
 
 const { mockChats, switchChat } = useChatState()
@@ -57,7 +58,7 @@ const handleContactClick = (contact: any) => {
       </div>
 
       <div class="contacts-actions">
-        <div class="contact-action-item">
+        <div class="contact-action-item" role="button" tabindex="0" @click="emit('open-friend-requests')" @keyup.enter="emit('open-friend-requests')">
           <div class="action-icon-wrap" style="background: var(--sys-bg-primary);">
             <svg viewBox="0 0 24 24" width="20" height="20" stroke="#555555" stroke-width="2" fill="none"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle></svg>
           </div>

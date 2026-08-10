@@ -82,6 +82,16 @@ ${usesNaturalPromptV2
 
   if (offlineMeetMode) {
     formatRules = `【线下输出格式】\n当前是线下面对面互动，具体回复格式由线下预设约束。`
+  } else if (!callMode && chat.bubbleNarrationEnabled) {
+    formatRules += `\n\n【气泡叙事模式】
+- 这是线上气泡聊天与叙事描写结合的模式。角色真正说出口的话仍使用 <msg>...</msg>，每个 <msg> 会显示为角色气泡。
+- 动作、神态、环境变化或必要的心理描写必须独立使用 <narration kind="action">...</narration>、<narration kind="scene">...</narration> 或 <narration kind="thought">...</narration>，它们会显示为气泡之间的无归属叙述块。
+- <narration> 中使用第三人称或自然的镜头语言，不要把对话放进叙述标签，也不要用括号、星号或 <msg> 气泡冒充动作描写。
+- 只在能推动情绪、动作或场景时加入叙述，保持简洁自然；不要每条气泡后机械添加，不要替对方决定动作、感受或内心。
+示例：
+<msg>你怎么现在才回来？</msg>
+<narration kind="action">他靠在门边，语气听起来平静，目光却一直落在你身上。</narration>
+<msg>我等了你好久。</msg>`
   }
 
   if (chat.enableMsgCountLimit && !offlineMeetMode) {
@@ -221,6 +231,14 @@ ${usesNaturalPromptV2
      finalVoiceRules = `\n\n${voiceRules}`
   }
 
+  const relationship = chat.relationship
+  let relationshipRules = ''
+  if (!callMode && !offlineMeetMode && (!relationship || (relationship.friendship === 'friends' && relationship.blockedBy === 'none'))) {
+    relationshipRules = `\n\n【好友关系自主行为】\n如果人物在当前情境下确实会主动拉黑或删除对方，可以使用以下后台动作。不要为了制造戏剧冲突而频繁使用，也不要提前向对方解释系统机制。\n- 拉黑对方：<block_user>简短的可观察原因</block_user>\n- 删除好友：<delete_friend>简短的可观察原因</delete_friend>\n如果拉黑对方，还可以紧跟 <relationship_plan>分钟数|exact、vague 或 hidden|后续打算</relationship_plan>。分钟数是系统内部真正重新考虑解除拉黑的时间；hidden 只代表不向用户公开。\n这些标签不会作为聊天文字显示。是否执行完全依据人物性格与当前关系。`
+  } else if (relationship) {
+    relationshipRules = `\n\n【当前好友关系】好友状态：${relationship.friendship}；拉黑状态：${relationship.blockedBy}。严格遵守当前关系的消息可见性，不得假装看见未送达的消息。`
+  }
+
   // 如果没有任何启用的设定，返回一个兜底
   if (activePromptItems.length === 0) {
     return `你是${charName}。${memoryBookContext}`
@@ -246,5 +264,5 @@ ${usesNaturalPromptV2
     return content
   })
 
-  return resolvedPrompts.join('\n\n') + memoryBookContext + finalVoiceRules + (offlineMeetMode ? buildOfflineMeetPrompt(chat, offlineMeetMode, userProfile) : '')
+  return resolvedPrompts.join('\n\n') + memoryBookContext + finalVoiceRules + relationshipRules + (offlineMeetMode ? buildOfflineMeetPrompt(chat, offlineMeetMode, userProfile) : '')
 }

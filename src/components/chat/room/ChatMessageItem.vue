@@ -111,7 +111,7 @@ const formatMsgTime = (timestamp: number) => {
 
     <!-- 多选框 -->
     <transition name="slide-checkbox">
-      <div v-if="selectionMode !== null && (msg.type === 'left' || msg.type === 'right' || msg.type === 'system')" class="msg-checkbox" @click.stop="emit('toggle-selection', msg.id)">
+      <div v-if="selectionMode !== null && (msg.type === 'left' || msg.type === 'right' || msg.type === 'system' || msg.type === 'narration')" class="msg-checkbox" @click.stop="emit('toggle-selection', msg.id)">
         <div class="checkbox-circle" :class="{ checked: isSelected }">
           <svg v-if="isSelected" viewBox="0 0 24 24" width="14" height="14" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
         </div>
@@ -119,6 +119,24 @@ const formatMsgTime = (timestamp: number) => {
     </transition>
 
     <div v-if="msg.type === 'time'" class="msg-time">{{ msg.content }}</div>
+
+    <template v-else-if="msg.type === 'narration'">
+      <div
+        class="bubble-narration-block"
+        :class="`is-${msg.narrationKind || 'action'}`"
+        @touchstart="emit('touch-start', msg.id)"
+        @touchend="emit('touch-end')"
+        @touchmove="emit('touch-move', $event)"
+        @contextmenu.prevent
+      >
+        <span class="bubble-narration-rule" aria-hidden="true"></span>
+        <div class="bubble-narration-content">
+          <span class="bubble-narration-kind">{{ msg.narrationKind === 'thought' ? '心绪' : msg.narrationKind === 'scene' ? '场景' : '此刻' }}</span>
+          <span class="bubble-narration-text">{{ msg.content }}</span>
+        </div>
+        <span class="bubble-narration-rule" aria-hidden="true"></span>
+      </div>
+    </template>
     
     <template v-else-if="msg.type === 'system'">
        <div class="msg-recalled-container"
@@ -369,6 +387,7 @@ const formatMsgTime = (timestamp: number) => {
               {{ msg.content }}
             </div>
           </div>
+          <div v-if="msg.isUndelivered" class="undelivered-label">未送达 · 对方不可见</div>
 
         </div>
         <div class="msg-avatar-col" v-if="shouldShowAvatar(msg)">
@@ -541,4 +560,12 @@ const formatMsgTime = (timestamp: number) => {
 .thinking-standalone .thinking-summary {
   color: var(--text-tertiary);
 }
+.undelivered-label {
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  text-align: right;
+}
+
+.message-row.narration{width:100%;justify-content:center;padding:2px 4px;box-sizing:border-box;cursor:default}.bubble-narration-block{width:min(82%,520px);display:grid;grid-template-columns:minmax(16px,1fr) auto minmax(16px,1fr);align-items:center;gap:11px;padding:7px 0;color:var(--text-tertiary);animation:narration-arrive .28s cubic-bezier(.2,.8,.2,1)}.bubble-narration-rule{height:1px;background:color-mix(in srgb,var(--text-primary) 9%,transparent)}.bubble-narration-content{max-width:390px;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center}.bubble-narration-kind{font-size:9px;font-style:normal;font-weight:600;letter-spacing:.1em;color:color-mix(in srgb,var(--text-secondary) 78%,transparent)}.bubble-narration-text{font-size:12px;font-style:italic;line-height:1.7;white-space:pre-wrap;word-break:break-word;text-wrap:pretty}.bubble-narration-block.is-thought .bubble-narration-text{color:color-mix(in srgb,var(--text-secondary) 78%,transparent)}.message-row.narration.is-multi-select{cursor:pointer}.message-row.narration.is-marked .bubble-narration-content{filter:drop-shadow(0 0 4px rgba(251,191,36,.26))}@keyframes narration-arrive{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}@media (max-width:420px){.bubble-narration-block{width:90%;gap:8px}.bubble-narration-content{max-width:270px}.bubble-narration-text{font-size:11.5px}}@media (prefers-reduced-motion:reduce){.bubble-narration-block{animation:none}}
 </style>

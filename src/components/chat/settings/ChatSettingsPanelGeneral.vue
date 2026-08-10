@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { chatSettings, offlinePresetSettings } from '../../../store'
 import ChatOfflinePresetModal from '../modals/ChatOfflinePresetModal.vue'
 import { getOfflineModelProfileLabel } from '../../../services/offlinePresets'
@@ -21,6 +21,8 @@ const emit = defineEmits<{
   (e: 'clear-media-thumb'): void
   (e: 'handle-clear-history-click'): void
   (e: 'open-offline-meet'): void
+  (e: 'open-relationship'): void
+  (e: 'open-autonomy'): void
 }>()
 
 const handleSave = () => {
@@ -58,10 +60,116 @@ const onOfflineToggle = () => {
   ensureOfflineDefaults()
   handleSave()
 }
+
+const narrationSaveState = ref<'idle' | 'saving' | 'saved'>('idle')
+let narrationSaveTimer: ReturnType<typeof setTimeout> | null = null
+const narrationUnavailable = computed(() => !props.selectedChat || props.selectedChat.id === 1)
+
+const onBubbleNarrationToggle = () => {
+  if (narrationUnavailable.value) return
+  narrationSaveState.value = 'saving'
+  handleSave()
+  if (narrationSaveTimer) clearTimeout(narrationSaveTimer)
+  narrationSaveTimer = setTimeout(() => {
+    narrationSaveState.value = 'saved'
+    narrationSaveTimer = setTimeout(() => {
+      narrationSaveState.value = 'idle'
+    }, 1600)
+  }, 260)
+}
+
+onBeforeUnmount(() => {
+  if (narrationSaveTimer) clearTimeout(narrationSaveTimer)
+})
 </script>
 
 <template>
   <div class="role-edit-section">
+    <div class="glass-panel" v-show="matchSearch('角色自主活动', '主动消息', '朋友圈', '上线', '下线', '活动历史')">
+      <div class="glass-list-item autonomy-entry" @click="emit('open-autonomy')">
+        <div class="autonomy-entry-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.64 5.64l2.12 2.12m8.48 8.48 2.12 2.12m0-12.72-2.12 2.12m-8.48 8.48-2.12 2.12"/></svg>
+        </div>
+        <div class="autonomy-entry-copy">
+          <div class="item-label">角色自主活动</div>
+          <div>主动消息、朋友圈与上线状态由角色自行决定</div>
+        </div>
+        <div class="item-value">
+          <span class="autonomy-entry-state" :class="{ active: selectedChat.autonomyEnabled }">{{ selectedChat.autonomyEnabled ? '运行中' : '未开启' }}</span>
+          <span class="arrow">›</span>
+        </div>
+      </div>
+    </div>
+    <div class="glass-panel" v-show="matchSearch('关系状态', '拉黑', '删除好友', '好友申请')">
+      <div class="glass-list-item" @click="emit('open-relationship')">
+        <div>
+          <div class="item-label">关系状态</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;">拉黑、删除好友与申请动态</div>
+        </div>
+        <div class="item-value"><span style="width:7px;height:7px;border-radius:50%;background:#52a575;"></span><span class="item-value-text">查看</span><span class="arrow">></span></div>
+      </div>
+    </div>
+
+    <section
+      v-show="matchSearch('气泡叙事', '旁白', '动作描写', '心理描写', '环境描写', '混合叙事')"
+      class="glass-panel narration-setting-card"
+      :class="{ 'is-enabled': selectedChat.bubbleNarrationEnabled, 'is-disabled': narrationUnavailable }"
+      aria-labelledby="bubble-narration-title"
+    >
+      <div class="narration-setting-head">
+        <div class="narration-setting-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M6.5 7.5h7M6.5 11h4.5M15.5 15.5l1.3 2.2 2.2 1.3-2.2 1.3-1.3 2.2-1.3-2.2-2.2-1.3 2.2-1.3 1.3-2.2Z" />
+            <path d="M17.5 13V5.8A2.8 2.8 0 0 0 14.7 3H5.8A2.8 2.8 0 0 0 3 5.8v7.4A2.8 2.8 0 0 0 5.8 16H9l3.5 2.8" />
+          </svg>
+        </div>
+        <div class="narration-setting-copy">
+          <div class="narration-title-row">
+            <h3 id="bubble-narration-title">气泡叙事</h3>
+            <span class="narration-new-badge">新功能</span>
+          </div>
+          <p id="bubble-narration-description">保留线上聊天气泡，在对话之间自然穿插动作、心理与环境描写。</p>
+        </div>
+        <div class="narration-setting-control">
+          <span class="narration-save-state" role="status" aria-live="polite">
+            <span v-if="narrationSaveState === 'saving'" class="narration-saving-dot" aria-hidden="true"></span>
+            {{ narrationSaveState === 'saving' ? '保存中' : narrationSaveState === 'saved' ? '已保存' : selectedChat.bubbleNarrationEnabled ? '已开启' : '未开启' }}
+          </span>
+          <label class="switch narration-switch" :class="{ disabled: narrationUnavailable }">
+            <input
+              v-model="selectedChat.bubbleNarrationEnabled"
+              type="checkbox"
+              :disabled="narrationUnavailable"
+              aria-label="气泡叙事"
+              aria-describedby="bubble-narration-description"
+              @change="onBubbleNarrationToggle"
+            >
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <p v-if="narrationUnavailable" class="narration-unavailable" role="note">
+        系统通知不支持聊天叙事，请在角色聊天中设置。
+      </p>
+      <div v-else-if="selectedChat.bubbleNarrationEnabled" class="narration-preview">
+        <div class="narration-preview-label">效果预览</div>
+        <div class="narration-preview-chat">
+          <div class="preview-bubble">你怎么现在才回来？</div>
+          <div class="preview-narration">
+            <span class="preview-narration-line"></span>
+            <span>他靠在门边，目光安静地落在你身上。</span>
+            <span class="preview-narration-line"></span>
+          </div>
+          <div class="preview-bubble preview-bubble-self">临时有点事情。</div>
+        </div>
+        <div class="narration-preview-foot">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+          叙述内容独立展示，不会被误认为任何一方发送的消息
+        </div>
+      </div>
+    </section>
+
     <div class="glass-panel" v-show="matchSearch('线下', '见面', '独立', '模式')">
       <div class="glass-list-item" v-show="matchSearch('线下', '见面')" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
         <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
@@ -482,6 +590,12 @@ const onOfflineToggle = () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.autonomy-entry{min-height:58px}.autonomy-entry-icon{width:32px;height:32px;border-radius:10px;background:var(--sys-bg-primary);display:grid;place-items:center;color:var(--text-secondary);flex:none;margin-right:11px}.autonomy-entry-icon svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round}.autonomy-entry-copy{min-width:0;flex:1}.autonomy-entry-copy>div:last-child{font-size:10.5px;color:var(--text-tertiary);margin-top:4px;white-space:normal;line-height:1.4}.autonomy-entry-state{font-size:11px;color:var(--text-tertiary);white-space:nowrap}.autonomy-entry-state.active{color:#438262}.autonomy-entry .arrow{font-family:inherit;font-size:20px;font-weight:400}
+
+.narration-setting-card{overflow:hidden;transition:border-color .24s ease,box-shadow .24s ease,background .24s ease}.narration-setting-card.is-enabled{border-color:color-mix(in srgb,var(--text-primary) 16%,transparent);box-shadow:0 6px 18px rgba(0,0,0,.035)}.narration-setting-card.is-disabled{opacity:.68}.narration-setting-head{display:flex;align-items:center;gap:12px;padding:16px}.narration-setting-icon{width:38px;height:38px;display:grid;place-items:center;flex:none;border-radius:12px;color:var(--text-secondary);background:var(--sys-bg-primary);border:1px solid color-mix(in srgb,var(--text-primary) 7%,transparent);transition:color .24s ease,transform .24s ease}.is-enabled .narration-setting-icon{color:var(--text-primary);transform:translateY(-1px)}.narration-setting-icon svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.narration-setting-copy{min-width:0;flex:1}.narration-title-row{display:flex;align-items:center;gap:7px}.narration-title-row h3{margin:0;color:var(--text-primary);font-size:15px;font-weight:600;letter-spacing:.01em}.narration-new-badge{padding:2px 6px;border-radius:999px;background:color-mix(in srgb,var(--text-primary) 7%,transparent);color:var(--text-secondary);font-size:9px;font-weight:600;line-height:1.4}.narration-setting-copy p{margin:5px 0 0;color:var(--text-tertiary);font-size:11px;line-height:1.55}.narration-setting-control{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none}.narration-save-state{min-height:14px;color:var(--text-tertiary);font-size:9px;display:flex;align-items:center;gap:4px}.is-enabled .narration-save-state{color:var(--text-secondary)}.narration-saving-dot{width:8px;height:8px;border:1.5px solid color-mix(in srgb,var(--text-primary) 20%,transparent);border-top-color:var(--text-primary);border-radius:50%;animation:narration-spin .7s linear infinite}.narration-switch:focus-within .slider{outline:2px solid color-mix(in srgb,var(--text-primary) 32%,transparent);outline-offset:3px}.narration-switch.disabled{cursor:not-allowed}.narration-switch.disabled .slider{cursor:not-allowed}.narration-preview{padding:0 16px 15px;animation:narration-expand .28s cubic-bezier(.2,.8,.2,1)}.narration-preview-label{padding-top:12px;border-top:1px solid color-mix(in srgb,var(--text-primary) 7%,transparent);color:var(--text-tertiary);font-size:9px;font-weight:600;letter-spacing:.08em}.narration-preview-chat{display:flex;flex-direction:column;gap:8px;padding:11px 10px;margin-top:8px;border-radius:11px;background:color-mix(in srgb,var(--sys-bg-primary) 72%,transparent);overflow:hidden}.preview-bubble{align-self:flex-start;max-width:74%;padding:7px 10px;border-radius:10px 10px 10px 3px;background:var(--sys-bg-secondary);color:var(--text-primary);font-size:10px;line-height:1.45;border:1px solid color-mix(in srgb,var(--text-primary) 5%,transparent)}.preview-bubble-self{align-self:flex-end;border-radius:10px 10px 3px 10px;background:color-mix(in srgb,var(--text-primary) 10%,var(--sys-bg-secondary));}.preview-narration{display:flex;align-items:center;justify-content:center;gap:8px;padding:1px 4px;color:var(--text-tertiary);font-size:9px;font-style:italic;line-height:1.5;text-align:center}.preview-narration-line{height:1px;max-width:30px;flex:1;background:color-mix(in srgb,var(--text-primary) 9%,transparent)}.narration-preview-foot,.narration-unavailable{margin:9px 2px 0;color:var(--text-tertiary);font-size:9.5px;line-height:1.45}.narration-preview-foot{display:flex;align-items:flex-start;gap:5px}.narration-preview-foot svg{width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.narration-unavailable{padding:0 16px 14px}.is-dark .narration-setting-card.is-enabled{box-shadow:0 6px 18px rgba(0,0,0,.14)}@keyframes narration-spin{to{transform:rotate(360deg)}}@keyframes narration-expand{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}@media (hover:hover){.narration-setting-card:not(.is-disabled):hover{background:color-mix(in srgb,var(--sys-bg-secondary) 70%,transparent)}.narration-switch:hover .slider{filter:brightness(.97)}}@media (max-width:420px){.narration-setting-head{align-items:flex-start;padding:15px 14px;gap:10px}.narration-setting-icon{width:34px;height:34px;border-radius:10px}.narration-setting-copy p{max-width:220px}.narration-setting-control{gap:7px}.narration-preview{padding-left:14px;padding-right:14px}.narration-preview-chat{padding:10px 8px}.preview-narration-line{max-width:18px}}@media (prefers-reduced-motion:reduce){.narration-setting-card,.narration-setting-icon,.narration-preview,.slider{transition:none}.narration-saving-dot{animation-duration:1.4s}.narration-preview{animation:none}}
+</style>
 
 <style scoped>
 @import './ChatSettingsStyles.css';

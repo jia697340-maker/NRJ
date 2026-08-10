@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { sendChatMessage, isMomentApiReady, type ChatApiPurpose } from '../services/api'
 import { chatSettings } from '../store'
+import { characterBlocksUser, deleteFriendByCharacter, setRelationshipPlan } from './useChatRelationship'
 import localforage from 'localforage'
 import { useNovelAI } from './useNovelAI'
 import { useGptImage } from './useGptImage'
@@ -284,8 +285,8 @@ export function useChatRoomAPI(
       }
 
       // 修改解析逻辑：按原文顺序提取标签
-      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|voice_call_user|video_call_user|offline|status|narration)(\s+[^>]*)?>([\s\S]*?)<\/\1>/g
-      const extractedActions: { type: string, content: string, amount?: number, quote?: { sender: string, content: string }, contentLanguage?: string, translation?: string, translationLanguage?: string }[] = []
+      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|voice_call_user|video_call_user|offline|status|narration|block_user|delete_friend|relationship_plan)(\s+[^>]*)?>([\s\S]*?)<\/\1>/g
+      const extractedActions: { type: string, content: string, amount?: number, quote?: { sender: string, content: string }, contentLanguage?: string, translation?: string, translationLanguage?: string, narrationKind?: 'action' | 'scene' | 'thought' }[] = []
       let match
       
       while ((match = tokenRegex.exec(replyText)) !== null) {
@@ -297,6 +298,7 @@ export function useChatRoomAPI(
         let contentLanguage = undefined
         let translation = undefined
         let translationLanguage = undefined
+        let narrationKind: 'action' | 'scene' | 'thought' | undefined = undefined
         
         if (type === 'msg') {
           const parsedMessage = parseBilingualMessage(content, attrs)
@@ -315,9 +317,14 @@ export function useChatRoomAPI(
           }
         }
 
+        if (type === 'narration') {
+          const requestedKind = attrs.match(/\bkind\s*=\s*["']?(action|scene|thought)["']?/i)?.[1]?.toLowerCase()
+          narrationKind = requestedKind === 'scene' || requestedKind === 'thought' ? requestedKind : 'action'
+        }
+
         if (content || quote || type === 'send_transfer' || type === 'send_red_packet' || type === 'send_voice' || type === 'send_image' || type === 'send_emoji' || type === 'voice_call_user' || type === 'video_call_user' || type === 'offline' || type === 'status' || type === 'narration') {
           const amount = amountStr ? parseFloat(amountStr) : undefined
-          extractedActions.push({ type, content, amount, quote, contentLanguage, translation, translationLanguage })
+          extractedActions.push({ type, content, amount, quote, contentLanguage, translation, translationLanguage, narrationKind })
         }
       }
       
@@ -385,6 +392,30 @@ export function useChatRoomAPI(
           if (isRoomActive.value && selectedChat.value && selectedChat.value.id === currentChatId) await scrollToBottom()
           
           const action = extractedActions[index]
+
+          if (action.type === 'block_user' || action.type === 'delete_friend') {
+            if (chatToUpdate) {
+              if (action.type === 'block_user') {
+                characterBlocksUser(chatToUpdate, action.content)
+                const hasExplicitPlan = extractedActions.slice(index + 1).some(item => item.type === 'relationship_plan')
+                if (!hasExplicitPlan) setRelationshipPlan(chatToUpdate, { action: 'reconsider', summary: '对方暂时不愿透露后续打算', reviewAt: Date.now() + 60 * 60000, visibility: 'hidden' })
+              }
+              else deleteFriendByCharacter(chatToUpdate, action.content)
+            }
+            processNextAction(index + 1)
+            return
+          }
+
+          if (action.type === 'relationship_plan') {
+            if (chatToUpdate) {
+              const [minutesRaw, visibilityRaw, ...summaryParts] = action.content.split('|')
+              const minutes = Math.max(1, Number(minutesRaw) || 60)
+              const visibility = ['exact', 'vague', 'hidden'].includes(visibilityRaw) ? visibilityRaw as 'exact' | 'vague' | 'hidden' : 'exact'
+              setRelationshipPlan(chatToUpdate, { action: 'unblock_user', summary: summaryParts.join('|').trim() || '准备解除拉黑', executeAt: Date.now() + minutes * 60000, visibility })
+            }
+            processNextAction(index + 1)
+            return
+          }
           
           if (callMode && CALL_BLOCKED_ACTIONS.has(action.type)) {
             console.log(`[拦截] 通话中角色尝试执行「${action.type}」，已静默拦截以免穿帮。`)
@@ -401,10 +432,12 @@ export function useChatRoomAPI(
           // 处理视频通话中的旁白标签
           if (action.type === 'narration') {
             if (chatToUpdate) {
+              const isBubbleNarration = !callMode && !offlineMeetMode && chatToUpdate.bubbleNarrationEnabled === true
               pushMsg(chatToUpdate,{
                 id: Date.now() + index,
-                type: 'system',
+                type: isBubbleNarration ? 'narration' : 'system',
                 content: action.content,
+                narrationKind: isBubbleNarration ? (action.narrationKind || 'action') : undefined,
                 isVoiceCallProcessMsg: callMode === 'voice',
                 isVideoCallProcessMsg: callMode === 'video'
               })

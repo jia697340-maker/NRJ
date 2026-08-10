@@ -163,6 +163,7 @@ export const loadCustomContacts = async () => {
       enableMsgCountLimit: c.enableMsgCountLimit ?? false,
       minMsgCount: c.minMsgCount || 1,
       maxMsgCount: c.maxMsgCount || 3,
+      bubbleNarrationEnabled: c.bubbleNarrationEnabled ?? false,
       offlineMeetEnabled: c.offlineMeetEnabled ?? false,
       offlineMeetMode: c.offlineMeetMode || 'mixed',
       offlinePresetId: c.offlinePresetId && c.offlinePresetId !== 'offline_preset_daily' ? c.offlinePresetId : 'offline_default',
@@ -170,9 +171,20 @@ export const loadCustomContacts = async () => {
       offlineMeetLocationMode: c.offlineMeetLocationMode || 'vague',
       offlineMeetSessions: Array.isArray(c.offlineMeetSessions) ? c.offlineMeetSessions : [],
       activeOfflineSessionId: c.activeOfflineSessionId || null,
+      relationship: c.relationship || null,
       enableImmersiveStatus: c.enableImmersiveStatus ?? false,
       statusText: c.statusText || '',
       offlineUntil: c.offlineUntil || 0,
+      autonomyEnabled: c.autonomyEnabled ?? false,
+      autonomyAllowMessages: c.autonomyAllowMessages ?? true,
+      autonomyAllowMoments: c.autonomyAllowMoments ?? true,
+      autonomyAllowStatus: c.autonomyAllowStatus ?? true,
+      autonomyCatchup: c.autonomyCatchup ?? true,
+      autonomyActiveStart: c.autonomyActiveStart ?? 8,
+      autonomyActiveEnd: c.autonomyActiveEnd ?? 24,
+      autonomyMinIntervalMinutes: c.autonomyMinIntervalMinutes ?? 45,
+      autonomyHistory: Array.isArray(c.autonomyHistory) ? c.autonomyHistory : [],
+      autonomyState: c.autonomyState || null,
       isTyping: currentTypingState.get(c.id) || false
     })
   }
