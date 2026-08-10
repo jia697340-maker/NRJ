@@ -1,7 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref } from 'vue'
-import './app_ImageAccess.css'
 
 import NovelAIImageAccessView from './image/NovelAIImageAccessView.vue'
 import GptImageAccessView from './image/GptImageAccessView.vue'
@@ -111,3 +110,5 @@ const handleSelect = (id: string, disabled: boolean) => {
 
   </div>
 </template>
+
+<style scoped src="./app_ImageAccess.css"></style>
