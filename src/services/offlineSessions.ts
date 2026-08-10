@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { sendChatMessage } from './api'
+import { globalPromptSettings } from '../store'
 
 export type OfflineCarryoverMode = 'summary' | 'summary_recent' | 'full' | 'none'
 
@@ -96,7 +97,9 @@ export const generateOfflineSessionSummary = async (
   customInstruction = ''
 ) => {
   const transcript = formatSessionTranscript(chat, messages, userName)
-  const prompt = `你是线下见面档案整理助手。请根据原文生成一段可供后续线上聊天承接的客观摘要，不得补写原文没有的事实。\n\n要求：\n1. 保留关键事件、双方行动、情绪变化、关系变化、承诺、决定和未完成事项。\n2. 明确区分已经发生的事实与尚未完成的计划。\n3. 地点未明确时不要自行补充。\n4. 使用第三人称，控制在150至350字。\n5. 只输出摘要正文，不要标题、标签、项目符号或解释。${customInstruction.trim() ? `\n6. 用户补充要求：${customInstruction.trim()}` : ''}\n\n线下见面原文：\n${transcript}`
+  const prompt = globalPromptSettings.language === 'en'
+    ? `You organize archives of in-person meetings. From the source transcript, produce an objective summary that later online conversation can continue from. Never add facts absent from the source.\n\nRequirements:\n1. Preserve key events, both parties' actions, emotional and relationship changes, promises, decisions, and unfinished matters.\n2. Clearly distinguish completed facts from unfinished plans.\n3. Do not invent a location when none is established.\n4. Write in the third person and, for Chinese source text, keep the summary within 150–350 Chinese characters.\n5. Output only the summary body in the source conversation's primary language—no title, tags, bullets, or explanation.${customInstruction.trim() ? `\n6. Additional user requirement: ${customInstruction.trim()}` : ''}\n\nIn-person meeting transcript:\n${transcript}`
+    : `你是线下见面档案整理助手。请根据原文生成一段可供后续线上聊天承接的客观摘要，不得补写原文没有的事实。\n\n要求：\n1. 保留关键事件、双方行动、情绪变化、关系变化、承诺、决定和未完成事项。\n2. 明确区分已经发生的事实与尚未完成的计划。\n3. 地点未明确时不要自行补充。\n4. 使用第三人称，控制在150至350字。\n5. 只输出摘要正文，不要标题、标签、项目符号或解释。${customInstruction.trim() ? `\n6. 用户补充要求：${customInstruction.trim()}` : ''}\n\n线下见面原文：\n${transcript}`
   const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
   const raw = typeof result === 'string' ? result : result.content
   const summary = String(raw || '')

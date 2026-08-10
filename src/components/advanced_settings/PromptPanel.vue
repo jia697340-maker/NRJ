@@ -1,8 +1,22 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { globalPromptSettings, promptPresetOptions, taskPromptSettings } from '../../store'
+import {
+  activateTaskPromptLanguage,
+  getDefaultPromptItemsByPreset,
+  getPromptVariantKey,
+  globalPromptSettings,
+  promptLanguageOptions,
+  promptPresetOptions,
+  systemPromptItemIds,
+  taskPromptSettings,
+  taskSystemPromptItemIds,
+  type PromptLanguage,
+  type PromptPresetId
+} from '../../store'
 import { useAdvancedSettingsPrompt } from '../../composables/useAdvancedSettingsPrompt'
+import { estimateTextTokens, formatEstimatedTokens } from '../../utils/tokenEstimate'
+import { chineseRuntimeEstimateCorpus, englishRuntimeEstimateCorpus } from '../../services/promptRuntimeEnglish'
 
 const props = defineProps<{
   showConfirm: any
@@ -19,13 +33,43 @@ const {
   savePromptItem,
   deletePromptItem,
   resetPromptItems,
-  switchPromptPreset
+  switchPromptPreset,
+  switchPromptLanguage
 } = useAdvancedSettingsPrompt(props.showConfirm)
 
 const activePromptTab = ref<'normal' | 'task'>('normal')
 const activePresetDescription = computed(() =>
   promptPresetOptions.find(option => option.id === globalPromptSettings.activePresetId)?.description || ''
 )
+const activeLanguageDescription = computed(() =>
+  promptLanguageOptions.find(option => option.id === globalPromptSettings.language)?.description || ''
+)
+
+const estimateItems = (items: any[], systemIds: Set<string>, language?: PromptLanguage) => estimateTextTokens([
+  items.filter(item => item.enabled && systemIds.has(item.id)).map(item => `${item.name}\n${item.content}`).join('\n\n'),
+  language ? (language === 'en' ? englishRuntimeEstimateCorpus : chineseRuntimeEstimateCorpus) : ''
+].filter(Boolean).join('\n\n'))
+
+const getVariantItems = (presetId: PromptPresetId, language: PromptLanguage) => (
+  globalPromptSettings.variants[getPromptVariantKey(presetId, language)]
+  || getDefaultPromptItemsByPreset(presetId, language)
+)
+
+const presetTokenLabel = (presetId: PromptPresetId) => formatEstimatedTokens(
+  estimateItems(getVariantItems(presetId, globalPromptSettings.language), systemPromptItemIds, globalPromptSettings.language)
+)
+
+const languageTokenLabel = (language: PromptLanguage) => formatEstimatedTokens(
+  estimateItems(getVariantItems(globalPromptSettings.activePresetId, language), systemPromptItemIds, language)
+)
+
+const activePromptTokenLabel = computed(() => formatEstimatedTokens(
+  estimateItems(globalPromptSettings.items, systemPromptItemIds, globalPromptSettings.language)
+))
+
+const activeTaskTokenLabel = computed(() => formatEstimatedTokens(
+  estimateItems(taskPromptSettings.items, taskSystemPromptItemIds)
+))
 
 const dragTaskPromptIndex = ref<number | null>(null)
 
@@ -97,11 +141,9 @@ const deleteTaskPromptItem = (id: string) => {
 const resetTaskPromptItems = () => {
   props.showConfirm({
     title: '确认恢复',
-    content: '这将会丢失您自定义的任务提示词配置，恢复为系统默认状态。确定要继续吗？',
+    content: '这将恢复当前语言下的系统任务提示词，并保留您自己新增的任务条目。确定要继续吗？',
     onConfirm: () => {
-      import('../../store').then(module => {
-        taskPromptSettings.items = JSON.parse(JSON.stringify(module.defaultTaskPromptItems))
-      })
+      activateTaskPromptLanguage(globalPromptSettings.language, true)
     }
   })
 }
@@ -152,7 +194,27 @@ const resetTaskPromptItems = () => {
           :class="{ active: globalPromptSettings.activePresetId === option.id }"
           @click="switchPromptPreset(option.id)"
         >
-          {{ option.name }}
+          <span>{{ option.name }}</span>
+          <small>{{ presetTokenLabel(option.id) }}</small>
+        </button>
+      </div>
+    </div>
+
+    <div class="prompt-version-card prompt-language-card">
+      <div class="prompt-version-copy">
+        <span class="mag-list-label">内置指令语言</span>
+        <span class="prompt-version-desc">{{ activeLanguageDescription }}</span>
+      </div>
+      <div class="mag-tabs prompt-version-tabs">
+        <button
+          v-for="option in promptLanguageOptions"
+          :key="option.id"
+          class="mag-tab-btn"
+          :class="{ active: globalPromptSettings.language === option.id }"
+          @click="switchPromptLanguage(option.id)"
+        >
+          <span>{{ option.name }}</span>
+          <small>{{ languageTokenLabel(option.id) }}</small>
         </button>
       </div>
     </div>
@@ -160,7 +222,10 @@ const resetTaskPromptItems = () => {
     <div class="mag-settings-card" v-if="activePromptTab === 'normal'">
       <div class="mag-list-container">
         <div class="mag-list-header">
-          <span class="mag-list-label">可视条目列表</span>
+          <div class="list-heading-copy">
+            <span class="mag-list-label">可视条目列表</span>
+            <span class="prompt-token-note">内置条目与常用运行时规则 {{ activePromptTokenLabel }} · 不含人设、世界书、记忆与聊天记录</span>
+          </div>
           <div class="header-actions">
             <button class="mag-icon-text-btn" @click="resetPromptItems()" title="重置为最新默认配置">↺ 恢复默认</button>
             <button class="mag-btn primary" @click="openPromptModal()">+ 新增</button>
@@ -212,7 +277,10 @@ const resetTaskPromptItems = () => {
     <div class="mag-settings-card" v-else-if="activePromptTab === 'task'">
       <div class="mag-list-container">
         <div class="mag-list-header">
-          <span class="mag-list-label">任务条目列表 (通话决策/总结等)</span>
+          <div class="list-heading-copy">
+            <span class="mag-list-label">任务条目列表 (通话决策/总结等)</span>
+            <span class="prompt-token-note">当前启用的任务条目 {{ activeTaskTokenLabel }} · 仅在对应任务触发时使用</span>
+          </div>
           <div class="header-actions">
             <button class="mag-icon-text-btn" @click="resetTaskPromptItems()" title="重置为最新默认配置">↺ 恢复默认</button>
             <button class="mag-btn primary" @click="openTaskPromptModal()">+ 新增</button>
@@ -434,13 +502,49 @@ const resetTaskPromptItems = () => {
 }
 
 .prompt-version-tabs .mag-tab-btn {
-  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 88px;
+  padding: 7px 12px;
+}
+
+.prompt-version-tabs .mag-tab-btn small {
+  color: #B3AAA3;
+  font-family: Georgia, serif;
+  font-size: 9px;
+  font-style: italic;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.prompt-version-tabs .mag-tab-btn.active small {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.prompt-language-card {
+  margin-top: -6px;
 }
 
 @media (max-width: 520px) {
   .prompt-version-card {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .mag-list-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .list-heading-copy {
+    width: 100%;
+  }
+
+  .header-actions {
+    margin-left: auto;
   }
 }
 
@@ -488,6 +592,21 @@ const resetTaskPromptItems = () => {
   font-weight: 600;
   color: #4A4643;
   letter-spacing: 0.5px;
+}
+
+.list-heading-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.prompt-token-note {
+  color: #A49C96;
+  font-family: Georgia, serif;
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.4;
 }
 
 .header-actions {

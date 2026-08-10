@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import localforage from 'localforage'
-import { embeddingApiSettings } from '../store'
+import { embeddingApiSettings, globalPromptSettings } from '../store'
 
 export type MemoryMode = 'narrative' | 'subjective' | 'event' | 'variable' | 'table' | 'hybrid'
 
@@ -342,17 +342,42 @@ export const applyMemoryExtraction = (chat: any, result: MemoryExtractionResult,
 }
 
 export const formatMessagesForMemory = (messages: any[]) => messages.map(message => {
-  const speaker = message.type === 'left' ? '角色' : message.type === 'right' ? '用户' : '系统'
-  const marked = message.isMarked ? '【重要标记】' : ''
+  const english = globalPromptSettings.language === 'en'
+  const speaker = message.type === 'left' ? (english ? 'Character' : '角色') : message.type === 'right' ? (english ? 'User' : '用户') : (english ? 'System' : '系统')
+  const marked = message.isMarked ? (english ? '[Important] ' : '【重要标记】') : ''
   const time = message.timestamp || message.time || ''
-  const media = message.imageData?.summary ? ` [图片：${message.imageData.summary}]`
-    : message.voiceData?.text ? ` [语音：${message.voiceData.text}]`
-      : message.emojiSummary ? ` [表情：${message.emojiSummary}]`
-        : message.isCallRecord ? ` [通话记录：${message.content || ''}]` : ''
-  return `[消息ID:${message.id}${time ? ` 时间:${time}` : ''}] ${speaker}: ${marked}${String(message.content || '')}${media}`
+  const media = message.imageData?.summary ? ` [${english ? 'Image' : '图片'}: ${message.imageData.summary}]`
+    : message.voiceData?.text ? ` [${english ? 'Voice' : '语音'}: ${message.voiceData.text}]`
+      : message.emojiSummary ? ` [${english ? 'Sticker' : '表情'}: ${message.emojiSummary}]`
+        : message.isCallRecord ? ` [${english ? 'Call record' : '通话记录'}: ${message.content || ''}]` : ''
+  return `[${english ? 'Message ID' : '消息ID'}:${message.id}${time ? ` ${english ? 'Time' : '时间'}:${time}` : ''}] ${speaker}: ${marked}${String(message.content || '')}${media}`
 }).join('\n')
 
 export const buildExtractionPrompt = (messages: any[], mode: MemoryMode, customPrompt = '') => {
+  if (globalPromptSettings.language === 'en') {
+    const modeInstruction: Record<MemoryMode, string> = {
+      narrative: 'Prioritize an objective narrative summary. Extract events, variables, and table rows only when explicit and important.',
+      subjective: 'Prioritize the character’s first-person subjective memory. Never present subjective feelings as objective facts.',
+      event: 'Prioritize separate event cards with time, participants, causality, result, unresolved matters, and evidence.',
+      variable: 'Prioritize updatable user/character profile variables, preferences, boundaries, relationship states, and commitments.',
+      table: 'Prioritize records suitable for table management and assign the specified table category.',
+      hybrid: 'Produce a short narrative, character-subjective memory, event cards, variable updates, and table rows together.'
+    }
+    return `You are a long-term memory organization engine. Build memory only from the original conversation and never add facts absent from the source.\n${modeInstruction[mode]}\n${customPrompt ? `Additional user requirements:\n${customPrompt}\n` : ''}
+Requirements:
+1. Leave unclear times blank. Any uncertain fact must have confidence below 0.7.
+2. Never turn a temporary emotion into a permanent personality trait.
+3. Preserve evidence.messageIds for every item.
+4. Output valid JSON only—no Markdown, explanation, or reasoning.
+5. Return [] for empty arrays and an empty string for absent text.
+6. Write natural-language memory content in Simplified Chinese when the source conversation is Chinese; preserve the source language otherwise.
+
+JSON schema:
+{"narrative":"100–300 Chinese characters of objective summary","subjective":"character's first-person subjective memory","events":[{"title":"","summary":"","startTime":"","endTime":"","participants":[],"location":"","result":"","decisions":[],"unresolved":[],"tags":[],"importance":1,"emotionBefore":"","emotionAfter":"","relationshipChange":"","evidence":{"messageIds":[],"excerpt":""}}],"variables":[{"category":"身份/称呼/日期/喜好/禁忌/习惯/人物/工作学校/位置/关系/计划/承诺/矛盾/状态/其他","key":"","value":"","confidence":0.8,"validFrom":"","validTo":"","evidence":{"messageIds":[],"excerpt":""}}],"tableRows":[{"table":"people/preferences/events/commitments/gifts/relationships/timeline/conflicts/places","title":"","value":"","status":"有效","time":"","tags":[],"importance":1,"evidence":{"messageIds":[],"excerpt":""}}],"relations":[{"source":"person or entity","target":"person or entity","relation":"relationship or effect","startTime":"","endTime":"","confidence":0.8,"evidence":{"messageIds":[],"excerpt":""}}]}
+
+Conversation:
+${formatMessagesForMemory(messages)}`
+  }
   const modeInstruction: Record<MemoryMode, string> = {
     narrative: '重点生成客观叙事摘要；事件、变量和表格只提取明确且重要的内容。',
     subjective: '重点生成角色第一人称的主观记忆；主观感受不得冒充客观事实。',
@@ -538,7 +563,9 @@ export const buildMemoryPacket = async (chat: any, query: string, tokenBudget?: 
     if (selected.length >= 16) break
   }
   if (!selected.length) return ''
-  return `\n\n【按需长期记忆】\n以下记忆由系统按当前话题、重要度和时间筛选；若与最新对话冲突，以最新明确表达为准。\n${selected.map(item => `- [${item.type}] ${item.text}`).join('\n')}`
+  return globalPromptSettings.language === 'en'
+    ? `\n\n[Relevant long-term memory]\nThe system selected these memories by current topic, importance, and recency. If they conflict with the latest conversation, follow the latest explicit statement.\n${selected.map(item => `- [${item.type}] ${item.text}`).join('\n')}`
+    : `\n\n【按需长期记忆】\n以下记忆由系统按当前话题、重要度和时间筛选；若与最新对话冲突，以最新明确表达为准。\n${selected.map(item => `- [${item.type}] ${item.text}`).join('\n')}`
 }
 
 export const clearChatVectors = async (chatId: string | number) => {

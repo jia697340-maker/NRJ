@@ -13,6 +13,7 @@ import { sendChatMessage } from '../services/api'
 import { processMomentTags } from '../composables/useChatRoomMessage'
 import { addMomentNotification, canViewMoment } from '../services/moments'
 import { getMomentBehavior } from '../services/moments'
+import { globalPromptSettings } from '../store'
 
 const {
   currentChatUserId,
@@ -197,9 +198,13 @@ const requestCharacterView = async (chat: any) => {
   manualViewLoading.value = true
   try {
     const moment = manualMoment.value
+    const comments = (moment.comments || []).map((c: any) => `[${c.id}]${c.author}:${c.content}`).join('；') || '无'
+    const systemPrompt = globalPromptSettings.language === 'en'
+      ? `You are ${chat.name}. Persona: ${chat.persona || 'Act according to the personality and relationship established in prior conversation'}. View this Moments post as a real person would. Based only on your personality, current feelings, relationship with the author, and the specific content, independently decide whether to only view, like, comment, reply to a comment, or combine relevant interactions. You do not need to interact merely to complete a task. Output only the Moments interaction tags you genuinely choose; do not output chat messages. Moment ID: ${moment.id}; author: ${moment.author}; content: ${moment.content}; comments: ${comments}`
+      : `你是${chat.name}。你的人设是：${chat.persona || '按照你在既有对话中形成的性格与关系行事'}。请像真人刷到动态一样，只依据你自己的性格、当下感受、与作者的关系和内容，自主决定只看、点赞、评论、回复评论或组合互动；不必为了完成任务而互动。只输出你确实想做的朋友圈互动标签，不要输出聊天消息。动态ID：${moment.id}；作者：${moment.author}；内容：${moment.content}；评论：${comments}`
     const request = [
-      { role: 'system', content: `你是${chat.name}。你的人设是：${chat.persona || '按照你在既有对话中形成的性格与关系行事'}。请像真人刷到动态一样，只依据你自己的性格、当下感受、与作者的关系和内容，自主决定只看、点赞、评论、回复评论或组合互动；不必为了完成任务而互动。只输出你确实想做的朋友圈互动标签，不要输出聊天消息。动态ID：${moment.id}；作者：${moment.author}；内容：${moment.content}；评论：${(moment.comments || []).map((c: any) => `[${c.id}]${c.author}:${c.content}`).join('；') || '无'}` },
-      { role: 'user', content: '请看看这条朋友圈。' }
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: globalPromptSettings.language === 'en' ? 'View this Moments post.' : '请看看这条朋友圈。' }
     ]
     let result
     try { result = await sendChatMessage(request, undefined, false, false, 'moment-followup') }

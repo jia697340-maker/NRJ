@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { sendChatMessage } from './api'
 import type { CharacterDraft, CharacterGenerationInput } from '../types/characterWorkshop'
+import { globalPromptSettings } from '../store'
 
 const extractJson = (text: string) => {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim()
@@ -24,6 +25,10 @@ const stageSystem = `你是角色设计师，任务是设计可长期稳定演�
 只返回一个合法 JSON 对象，不要 Markdown、解释或思考过程。所有字段使用自然中文。
 避免万能式温柔、无条件讨好、每件事都上升感情、机械口语词、固定反问、标签堆砌。资料不足时合理留白。`
 
+const englishStageSystem = `You are a character designer. Design a person who can be portrayed consistently over the long term and has an independent life; do not write an ornate profile essay.
+Return exactly one valid JSON object with no Markdown, explanation, or reasoning. Write every natural-language field in idiomatic Simplified Chinese.
+Avoid universally gentle personalities, unconditional appeasement, turning every event into romance, mechanical filler words, fixed follow-up questions, and piles of labels. Leave reasonable unknowns when information is insufficient.`
+
 const mergeUnlocked = (draft: CharacterDraft, patch: Record<string, any>) => {
   for (const [key, value] of Object.entries(patch)) {
     if (draft.lockedFields.includes(key) || value === undefined || value === null) continue
@@ -35,7 +40,7 @@ const mergeUnlocked = (draft: CharacterDraft, patch: Record<string, any>) => {
 
 export const runCharacterJson = async (instruction: string, purpose: 'character-generation' | 'character-review-global' = 'character-generation') => {
   const response = await sendChatMessage([
-    { role: 'system', content: stageSystem },
+    { role: 'system', content: globalPromptSettings.language === 'en' ? englishStageSystem : stageSystem },
     { role: 'user', content: instruction }
   ], undefined, false, false, purpose)
   if (response.truncated) throw new Error('模型达到输出上限，已保留前面完成的阶段。请重试当前阶段，或提高角色生成节点的最大输出。')
@@ -51,7 +56,24 @@ export async function generateCharacterByStages(
   const resumeStage = draft.status !== 'ready' && draft.sourcePrompt === brief ? draft.completedGenerationStage : 0
   if (resumeStage === 0) draft.completedGenerationStage = 0
   draft.sourcePrompt = brief
-  const stages = [
+  const stages = globalPromptSettings.language === 'en' ? [
+    {
+      label: '建立人物骨架',
+      prompt: `Build the character's foundation from these requirements: ${brief}\nReturn fields: name, tagline, age, identity, world, core, desire, fear, contradiction, lifestyle. Keep every field concise but concrete.`
+    },
+    {
+      label: '塑造表达与边界',
+      prompt: () => `Character foundation: ${JSON.stringify({ name: draft.name, age: draft.age, identity: draft.identity, core: draft.core, contradiction: draft.contradiction })}\nReturn fields: voice, verbalHabits, antiPatterns, boundaries, knowledgeLimits. voice describes speech rhythm and information density; antiPatterns explicitly prohibit canned machine-like phrases.`
+    },
+    {
+      label: '建立关系行为',
+      prompt: () => `Character: ${JSON.stringify({ name: draft.name, core: draft.core, desire: draft.desire, fear: draft.fear, boundaries: draft.boundaries })}\nReturn fields: relationship, conflictStyle, careStyle, independence. The relationship must be able to develop slowly; care appears through concrete behavior; preserve the character's own life.`
+    },
+    {
+      label: '完成对白试演',
+      prompt: () => `Write natural dialogue samples for this character: ${JSON.stringify({ name: draft.name, identity: draft.identity, voice: draft.voice, relationship: draft.relationship, antiPatterns: draft.antiPatterns })}\nReturn openingLine and samples. samples is an array of 6 objects with scene, user, and character fields, covering casual conversation, silence, disagreement, comfort, a long reply delay, and discussion of a third party. Vary line length; do not end every sample with a question or elevate every topic into the relationship.`
+    }
+  ] : [
     {
       label: '建立人物骨架',
       prompt: `根据需求建立人物骨架：${brief}\n返回字段：name, tagline, age, identity, world, core, desire, fear, contradiction, lifestyle。每个字段简洁但具体。`
@@ -88,7 +110,10 @@ export async function generateCharacterByStages(
 
 export async function refineCharacter(draft: CharacterDraft, instruction: string) {
   const current = { ...draft, versions: undefined, lockedFields: undefined }
-  const patch = await runCharacterJson(`这是当前角色档案：${JSON.stringify(current)}\n用户要求：${instruction}\n只返回需要修改的顶层字段。不得修改用户锁定字段；不要把修改说明混进字段内容。`)
+  const prompt = globalPromptSettings.language === 'en'
+    ? `Current character profile: ${JSON.stringify(current)}\nUser request: ${instruction}\nReturn only top-level fields that need modification. Do not modify user-locked fields or mix change explanations into field content. Keep natural-language field values in Simplified Chinese.`
+    : `这是当前角色档案：${JSON.stringify(current)}\n用户要求：${instruction}\n只返回需要修改的顶层字段。不得修改用户锁定字段；不要把修改说明混进字段内容。`
+  const patch = await runCharacterJson(prompt)
   mergeUnlocked(draft, patch)
   return draft
 }

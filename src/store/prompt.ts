@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { reactive, watch } from 'vue'
 import { readStoredJSON } from './utils'
+import { buildEnglishPromptItems } from './promptEnglish'
 
 const PROMPT_STORAGE_KEY = 'clingy_global_prompt_settings'
 const savedPromptSettings = readStoredJSON<Record<string, any>>(PROMPT_STORAGE_KEY, {})
@@ -327,173 +328,101 @@ export const defaultPromptItemsV2: PromptItem[] = [
 ]
 
 export type PromptPresetId = 'v1' | 'v2'
+export type PromptLanguage = 'zh' | 'en'
+
+export const defaultPromptItemsV1En = buildEnglishPromptItems(defaultPromptItemsV1, 'v1')
+export const defaultPromptItemsV2En = buildEnglishPromptItems(defaultPromptItemsV2, 'v2')
 
 export const promptPresetOptions: Array<{ id: PromptPresetId; name: string; description: string }> = [
   { id: 'v1', name: '版本1', description: '原始经典提示词，保持现有演绎逻辑' },
   { id: 'v2', name: '版本2', description: '长期陪伴自然演绎，强化人设、防敷衍与去模板' }
 ]
 
-export const getDefaultPromptItemsByPreset = (presetId: PromptPresetId): PromptItem[] => {
-  const source = presetId === 'v2' ? defaultPromptItemsV2 : defaultPromptItemsV1
+export const promptLanguageOptions: Array<{ id: PromptLanguage; name: string; description: string }> = [
+  { id: 'zh', name: '中文', description: '使用中文编写内置系统指令' },
+  { id: 'en', name: 'English', description: '使用英文编写内置系统指令，对白语言仍由对话设置决定' }
+]
+
+export const getDefaultPromptItemsByPreset = (presetId: PromptPresetId, language: PromptLanguage = 'zh'): PromptItem[] => {
+  const source = language === 'en'
+    ? (presetId === 'v2' ? defaultPromptItemsV2En : defaultPromptItemsV1En)
+    : (presetId === 'v2' ? defaultPromptItemsV2 : defaultPromptItemsV1)
   return JSON.parse(JSON.stringify(source))
 }
 
 export const systemPromptItemIds = new Set(
-  [...defaultPromptItemsV1, ...defaultPromptItemsV2].map(item => item.id)
+  [...defaultPromptItemsV1, ...defaultPromptItemsV2, ...defaultPromptItemsV1En, ...defaultPromptItemsV2En].map(item => item.id)
 )
 
 export const defaultPromptItems = defaultPromptItemsV1
 
-let initialPromptItems = savedPromptSettings.items || []
-const initialPromptPresetItems = savedPromptSettings.activePresetId === 'v2'
-  ? defaultPromptItemsV2
-  : defaultPromptItemsV1
+type PromptVariantMap = Record<string, PromptItem[]>
 
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_core_identity')) {
-  initialPromptItems = [...initialPromptPresetItems, ...initialPromptItems]
-  localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-}
+const cloneItems = (items: PromptItem[]) => JSON.parse(JSON.stringify(items)) as PromptItem[]
+export const getPromptVariantKey = (presetId: PromptPresetId, language: PromptLanguage) => `${presetId}:${language}`
 
-// 检查是否缺少系统通知设定
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_system_notice')) {
-  const noticeItem = initialPromptPresetItems.find(i => i.id === 'prompt_system_notice')
-  if (noticeItem) {
-    initialPromptItems.push(noticeItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
+const activePresetId = (savedPromptSettings.activePresetId === 'v2' ? 'v2' : 'v1') as PromptPresetId
+const activeLanguage = (savedPromptSettings.language === 'en' ? 'en' : 'zh') as PromptLanguage
+const legacyItems = Array.isArray(savedPromptSettings.items) ? savedPromptSettings.items as PromptItem[] : []
+const sharedCustomItems = legacyItems.filter(item => item && !systemPromptItemIds.has(item.id) && item.id !== 'prompt_call_user_rules')
+const savedVariants = savedPromptSettings.variants && typeof savedPromptSettings.variants === 'object'
+  ? savedPromptSettings.variants as PromptVariantMap
+  : {}
+
+const hydrateVariant = (presetId: PromptPresetId, language: PromptLanguage, stored?: PromptItem[]) => {
+  const defaults = getDefaultPromptItemsByPreset(presetId, language)
+  const source = Array.isArray(stored) ? cloneItems(stored).filter(item => item?.id !== 'prompt_call_user_rules') : []
+  const result = source.length ? source : defaults
+  for (const item of defaults) {
+    if (!result.some(existing => existing.id === item.id)) result.push(item)
   }
-}
-
-// 检查是否缺少撤回机制设定
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_recall_mechanism')) {
-  const recallItem = initialPromptPresetItems.find(i => i.id === 'prompt_recall_mechanism')
-  if (recallItem) {
-    initialPromptItems.push(recallItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
+  for (const item of sharedCustomItems) {
+    if (!result.some(existing => existing.id === item.id)) result.push(cloneItems([item])[0])
   }
+  return result.filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index)
 }
 
-// 检查是否缺少主动引用机制设定
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_quote_mechanism')) {
-  const quoteItem = initialPromptPresetItems.find(i => i.id === 'prompt_quote_mechanism')
-  if (quoteItem) {
-    initialPromptItems.push(quoteItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 检查是否缺少红包转账机制设定
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_transfer_mechanism')) {
-  const transferItem = initialPromptPresetItems.find(i => i.id === 'prompt_transfer_mechanism')
-  if (transferItem) {
-    initialPromptItems.push(transferItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 检查是否缺少主动发红包转账规则
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_send_transfer_rules')) {
-  const sendTransferItem = initialPromptPresetItems.find(i => i.id === 'prompt_send_transfer_rules')
-  if (sendTransferItem) {
-    initialPromptItems.push(sendTransferItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 检查是否缺少主动发语音规则
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_send_voice_rules')) {
-  const sendVoiceItem = initialPromptPresetItems.find(i => i.id === 'prompt_send_voice_rules')
-  if (sendVoiceItem) {
-    initialPromptItems.push(sendVoiceItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 检查是否缺少主动拨打语音规则
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_voice_call_user_rules')) {
-  const voiceCallUserItem = initialPromptPresetItems.find(i => i.id === 'prompt_voice_call_user_rules')
-  if (voiceCallUserItem) {
-    initialPromptItems.push(voiceCallUserItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 检查是否缺少主动拨打视频规则
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_video_call_user_rules')) {
-  const videoCallUserItem = initialPromptPresetItems.find(i => i.id === 'prompt_video_call_user_rules')
-  if (videoCallUserItem) {
-    initialPromptItems.push(videoCallUserItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 移除旧版 prompt_call_user_rules
-initialPromptItems = initialPromptItems.filter((i: PromptItem) => i.id !== 'prompt_call_user_rules')
-
-// 检查是否缺少主动发媒体规则
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_send_media_rules')) {
-  const sendMediaItem = initialPromptPresetItems.find(i => i.id === 'prompt_send_media_rules')
-  if (sendMediaItem) {
-    initialPromptItems.push(sendMediaItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 检查是否缺少主动发表情包规则
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_send_emoji_rules')) {
-  const sendEmojiItem = initialPromptPresetItems.find(i => i.id === 'prompt_send_emoji_rules')
-  if (sendEmojiItem) {
-    initialPromptItems.push(sendEmojiItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 检查是否缺少强制心声机制
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_inner_thought_rules')) {
-  const innerThoughtItem = initialPromptPresetItems.find(i => i.id === 'prompt_inner_thought_rules')
-  if (innerThoughtItem) {
-    initialPromptItems.push(innerThoughtItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 去重逻辑
-const uniquePromptItems = initialPromptItems.reduce((acc: PromptItem[], current: PromptItem) => {
-  const x = acc.find(item => item.id === current.id);
-  if (!x) {
-    return acc.concat([current]);
-  } else {
-    return acc;
-  }
-}, []);
-
-if (uniquePromptItems.length !== initialPromptItems.length) {
-  initialPromptItems = uniquePromptItems;
-  localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }));
-}
-
-// 检查是否缺少沉浸式状态设定
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_immersive_status')) {
-  const immersiveItem = initialPromptPresetItems.find(i => i.id === 'prompt_immersive_status')
-  if (immersiveItem) {
-    initialPromptItems.push(immersiveItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
-  }
-}
-
-// 检查是否缺少朋友圈机制设定
-if (!initialPromptItems.some((i: PromptItem) => i.id === 'prompt_moment_rules')) {
-  const momentItem = initialPromptPresetItems.find(i => i.id === 'prompt_moment_rules')
-  if (momentItem) {
-    initialPromptItems.push(momentItem)
-    localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify({ items: initialPromptItems }))
+const variants: PromptVariantMap = {}
+for (const presetId of ['v1', 'v2'] as PromptPresetId[]) {
+  for (const language of ['zh', 'en'] as PromptLanguage[]) {
+    const key = getPromptVariantKey(presetId, language)
+    const fallback = key === getPromptVariantKey(activePresetId, activeLanguage) ? legacyItems : undefined
+    variants[key] = hydrateVariant(presetId, language, savedVariants[key] || fallback)
   }
 }
 
 export const globalPromptSettings = reactive({
-  items: initialPromptItems as PromptItem[],
-  activePresetId: (savedPromptSettings.activePresetId === 'v2' ? 'v2' : 'v1') as PromptPresetId
+  items: cloneItems(variants[getPromptVariantKey(activePresetId, activeLanguage)]),
+  activePresetId,
+  language: activeLanguage,
+  variants
 })
 
+const currentCustomItems = () => globalPromptSettings.items.filter(item => !systemPromptItemIds.has(item.id))
+
+export const activatePromptVariant = (
+  presetId: PromptPresetId,
+  language: PromptLanguage,
+  resetSystemItems = false
+) => {
+  const previousKey = getPromptVariantKey(globalPromptSettings.activePresetId, globalPromptSettings.language)
+  globalPromptSettings.variants[previousKey] = cloneItems(globalPromptSettings.items)
+  const customItems = cloneItems(currentCustomItems())
+  const nextKey = getPromptVariantKey(presetId, language)
+  const storedTarget = globalPromptSettings.variants[nextKey]
+  const systemItems = resetSystemItems || !storedTarget
+    ? getDefaultPromptItemsByPreset(presetId, language)
+    : cloneItems(storedTarget).filter(item => systemPromptItemIds.has(item.id))
+
+  globalPromptSettings.activePresetId = presetId
+  globalPromptSettings.language = language
+  globalPromptSettings.items = [...systemItems, ...customItems]
+  globalPromptSettings.variants[nextKey] = cloneItems(globalPromptSettings.items)
+}
+
 watch(globalPromptSettings, (newVal) => {
-  localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify(newVal))
+  const key = getPromptVariantKey(newVal.activePresetId, newVal.language)
+  const persisted = JSON.parse(JSON.stringify(newVal))
+  persisted.variants[key] = cloneItems(newVal.items)
+  localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify(persisted))
 }, { deep: true })

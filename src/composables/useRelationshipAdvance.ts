@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
 import { sendChatMessage } from '../services/api'
+import { globalPromptSettings } from '../store'
 import {
   acceptFriendRequest,
   addBlockedCharacterMessage,
@@ -69,7 +70,7 @@ export function useRelationshipAdvance() {
     const relationship = ensureRelationship(chat)
     const elapsedMinutes = Math.max(0, Math.floor((Date.now() - relationship.changedAt) / 60000))
 
-    const prompt = `你正在扮演“${chat.realName || chat.name}”，人物设定如下：\n${chat.persona || '无额外设定'}\n\n` +
+    const chinesePrompt = `你正在扮演“${chat.realName || chat.name}”，人物设定如下：\n${chat.persona || '无额外设定'}\n\n` +
       `这是一次好友关系事件，不是普通聊天续写。请按照人物性格自主决定下一步，不要讨好用户，也不要默认一定会复合。\n` +
       `当前好友关系：${relationship.friendship}；拉黑状态：${relationship.blockedBy}；当前状态已经持续约 ${elapsedMinutes} 分钟。\n` +
       `本次触发：${trigger}。\n` +
@@ -83,6 +84,9 @@ export function useRelationshipAdvance() {
       `delayMinutes：计划多少分钟后执行 action，0 表示立即；\n` +
       `reconsiderMinutes：如果暂不行动，多少分钟后重新考虑；\n` +
       `visibility：exact、vague、hidden；planSummary：一句话描述后续打算。`
+    const prompt = globalPromptSettings.language === 'en'
+      ? `You are portraying “${chat.realName || chat.name}”. Persona:\n${chat.persona || 'No additional persona provided'}\n\nThis is a friendship-state event, not an ordinary chat continuation. Independently choose the next step according to the persona. Do not appease the user or assume reconciliation is inevitable.\nCurrent friendship: ${relationship.friendship}; blocked by: ${relationship.blockedBy}; this state has lasted about ${elapsedMinutes} minutes.\nTrigger: ${trigger}.\n${relatedRequest ? `Related request: ${relatedRequest.message}; status: ${relatedRequest.status}; rejection reason: ${relatedRequest.rejectionReason || 'none'}.\n` : ''}Recent conversation:\n${recentChatText(chat) || 'None'}\n\nOutput exactly one JSON object with no Markdown. Natural-language fields must use the conversation's primary language. Fields:\nobservableReaction: a brief externally observable reaction, never analysis;\nmessage: a message the character genuinely attempts to send now, or an empty string;\naction: one of none, send_request, block_user, unblock_user, delete_friend, accept_request, reject_request;\nrequestMessage; rejectionReason;\ndelayMinutes: minutes before executing action, where 0 means immediate;\nreconsiderMinutes: minutes before reconsidering when taking no action now;\nvisibility: exact, vague, or hidden; planSummary: one sentence describing the later intention.`
+      : chinesePrompt
 
     try {
       const result = await sendChatMessage([{ role: 'system', content: prompt }])

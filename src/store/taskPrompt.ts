@@ -1,7 +1,8 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { reactive, watch } from 'vue'
 import { readStoredJSON } from './utils'
-import type { PromptItem } from './prompt'
+import { globalPromptSettings, type PromptItem, type PromptLanguage } from './prompt'
+import { buildEnglishTaskPromptItems } from './taskPromptEnglish'
 
 const TASK_PROMPT_STORAGE_KEY = 'clingy_task_prompt_settings'
 const savedTaskPromptSettings = readStoredJSON<Record<string, any>>(TASK_PROMPT_STORAGE_KEY, {})
@@ -45,34 +46,60 @@ export const defaultTaskPromptItems: PromptItem[] = [
   }
 ]
 
-let initialTaskPromptItems = savedTaskPromptSettings.items || []
-if (initialTaskPromptItems.length === 0) {
-  initialTaskPromptItems = [...defaultTaskPromptItems]
-} else {
-  let needsSave = false
-  // 补全缺失的任务提示词
-  defaultTaskPromptItems.forEach(defaultItem => {
-    const existing = initialTaskPromptItems.find((i: PromptItem) => i.id === defaultItem.id)
-    if (!existing) {
-      initialTaskPromptItems.push(defaultItem)
-      needsSave = true
-    } else {
-      // 兼容性清理：如果旧用户的设定里包含了“不要发送图片...”这句话，自动帮他们抹除掉，防止触发白象效应
-      if (existing.content.includes('不要发送图片、语音条、表情包或转账。')) {
-        existing.content = existing.content.replace(/不要发送图片、语音条、表情包或转账。/g, '').trim()
-        needsSave = true
-      }
+export const defaultTaskPromptItemsEn = buildEnglishTaskPromptItems(defaultTaskPromptItems)
+export const taskSystemPromptItemIds = new Set(defaultTaskPromptItems.map(item => item.id))
+
+const cloneItems = (items: PromptItem[]) => JSON.parse(JSON.stringify(items)) as PromptItem[]
+const defaultsForLanguage = (language: PromptLanguage) => cloneItems(language === 'en' ? defaultTaskPromptItemsEn : defaultTaskPromptItems)
+const legacyItems = Array.isArray(savedTaskPromptSettings.items) ? savedTaskPromptSettings.items as PromptItem[] : []
+const customItems = legacyItems.filter(item => !taskSystemPromptItemIds.has(item.id))
+const savedLanguageItems = savedTaskPromptSettings.itemsByLanguage && typeof savedTaskPromptSettings.itemsByLanguage === 'object'
+  ? savedTaskPromptSettings.itemsByLanguage as Record<PromptLanguage, PromptItem[]>
+  : {} as Record<PromptLanguage, PromptItem[]>
+
+const hydrate = (language: PromptLanguage, stored?: PromptItem[]) => {
+  const defaults = defaultsForLanguage(language)
+  const result = Array.isArray(stored) && stored.length ? cloneItems(stored) : defaults
+  for (const item of result) {
+    if (typeof item.content === 'string') {
+      item.content = item.content.replace(/不要发送图片、语音条、表情包或转账。/g, '').trim()
     }
-  })
-  if (needsSave) {
-    localStorage.setItem(TASK_PROMPT_STORAGE_KEY, JSON.stringify({ items: initialTaskPromptItems }))
   }
+  for (const item of defaults) if (!result.some(existing => existing.id === item.id)) result.push(item)
+  for (const item of customItems) if (!result.some(existing => existing.id === item.id)) result.push(cloneItems([item])[0])
+  return result
+}
+
+const initialLanguage = globalPromptSettings.language
+const itemsByLanguage: Record<PromptLanguage, PromptItem[]> = {
+  zh: hydrate('zh', savedLanguageItems.zh || (initialLanguage === 'zh' ? legacyItems : undefined)),
+  en: hydrate('en', savedLanguageItems.en || (initialLanguage === 'en' ? legacyItems : undefined))
 }
 
 export const taskPromptSettings = reactive({
-  items: initialTaskPromptItems as PromptItem[]
+  items: cloneItems(itemsByLanguage[initialLanguage]),
+  language: initialLanguage,
+  itemsByLanguage
+})
+
+export const activateTaskPromptLanguage = (language: PromptLanguage, resetSystemItems = false) => {
+  taskPromptSettings.itemsByLanguage[taskPromptSettings.language] = cloneItems(taskPromptSettings.items)
+  const sharedCustom = cloneItems(taskPromptSettings.items.filter(item => !taskSystemPromptItemIds.has(item.id)))
+  const stored = taskPromptSettings.itemsByLanguage[language]
+  const systemItems = resetSystemItems || !stored
+    ? defaultsForLanguage(language)
+    : cloneItems(stored).filter(item => taskSystemPromptItemIds.has(item.id))
+  taskPromptSettings.language = language
+  taskPromptSettings.items = [...systemItems, ...sharedCustom]
+  taskPromptSettings.itemsByLanguage[language] = cloneItems(taskPromptSettings.items)
+}
+
+watch(() => globalPromptSettings.language, language => {
+  if (language !== taskPromptSettings.language) activateTaskPromptLanguage(language)
 })
 
 watch(taskPromptSettings, (newVal) => {
-  localStorage.setItem(TASK_PROMPT_STORAGE_KEY, JSON.stringify(newVal))
+  const persisted = JSON.parse(JSON.stringify(newVal))
+  persisted.itemsByLanguage[newVal.language] = cloneItems(newVal.items)
+  localStorage.setItem(TASK_PROMPT_STORAGE_KEY, JSON.stringify(persisted))
 }, { deep: true })

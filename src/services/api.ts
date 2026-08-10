@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, characterApiSettings, cotSettings, appStats, type ApiPreset } from '../store'
+import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, characterApiSettings, cotSettings, globalPromptSettings, appStats, type ApiPreset } from '../store'
 import { apiLogger } from './apiLogger'
 import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest } from './modelAdapters'
 import type { ModelAdapterProfile } from './modelAdapters'
@@ -82,11 +82,22 @@ export async function sendChatMessage(
       // 模式 A：跳过思考 (Skip)
       payloadMessages.push({
         role: 'assistant',
-        content: '[incipere]\n<thinking>\n跳过ECoT，专注回复。\n</thinking>\n[finire]\n'
+        content: globalPromptSettings.language === 'en'
+          ? '[incipere]\n<thinking>\nSkip ECoT and focus on the reply.\n</thinking>\n[finire]\n'
+          : '[incipere]\n<thinking>\n跳过ECoT，专注回复。\n</thinking>\n[finire]\n'
       })
     } else if (cotSettings.mode === 'custom' && cotSettings.items) {
       // 模式 B：自定义思考 (Custom)
-      const enabledItems = cotSettings.items.filter(i => i.enabled)
+      const englishCotContent: Record<string, string> = {
+        cot_default_1: '[Required reasoning and response format]\nBefore each response, reason and output strictly with this nested structure:\n[incipere]\n<thinking>\n',
+        cot_default_3: '</thinking>\n[finire]\n<msg>\nYour final visible reply\n</msg>',
+        cot_default_4: '[incipere]\n<thinking>\n'
+      }
+      const enabledItems = cotSettings.items.filter(i => i.enabled).map(item => (
+        globalPromptSettings.language === 'en' && englishCotContent[item.id]
+          ? { ...item, content: englishCotContent[item.id] }
+          : item
+      ))
       
       // 1. 处理 System 相关的条目
       const systemTop = enabledItems.filter(i => i.position === 'system_top').map(i => i.content).join('\n')
