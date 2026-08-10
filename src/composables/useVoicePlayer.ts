@@ -4,6 +4,8 @@ import localforage from 'localforage'
 import { generateSeedAudio, loadSeedAudioConfig } from './useSeedAudio'
 import { generateGeminiVoice, loadGeminiVoiceConfig } from './useGeminiVoice'
 import { generateElevenLabsVoice, loadElevenLabsVoiceConfig } from './useElevenLabsVoice'
+import { generateMicrosoftMaiVoice, loadMicrosoftMaiVoiceConfig } from './useMicrosoftMaiVoice'
+import { generateAliyunTts, loadAliyunTtsConfig } from './useAliyunTts'
 
 let globalAudioInstance: HTMLAudioElement | null = null
 const isPlaying = ref(false)
@@ -12,13 +14,15 @@ const currentPlayingId = ref<number | null>(null)
 
 interface VoiceTask { msgId: number; text: string; chatSettings: any; resolve: () => void; reject: (err: any) => void }
 interface VoiceProfile {
-  provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs'
+  provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts'
   model: string; voiceId: string; speed: number; pitch: number; volume: number
   language: string; emotion: string; format: 'mp3'; sampleRate: number; bitrate: number; channel: number
   seedAudioMode: 'speech' | 'scene'; seedAudioPromptPrefix: string; seedAudioReferenceUrls: string[]; seedAudioMultilingual: boolean
   geminiVoiceName: string; geminiVoicePrompt: string; geminiModel: string; geminiEndpoint: string
   elevenLabsVoiceId: string; elevenLabsModel: string; elevenLabsLanguage: string; elevenLabsStability: number
   elevenLabsSimilarity: number; elevenLabsStyle: number; elevenLabsSpeakerBoost: boolean; elevenLabsSpeed: number; elevenLabsEndpoint: string
+  microsoftMaiVoiceName: string; microsoftMaiVoiceStyle: string; microsoftMaiStyleDegree: number; microsoftMaiEndpoint: string
+  aliyunVoice: string; aliyunModel: string; aliyunLanguage: string; aliyunInstructions: string; aliyunOptimizeInstructions: boolean; aliyunEndpoint: string
 }
 
 const voiceQueue: VoiceTask[] = []
@@ -51,8 +55,10 @@ const hash = (value: string) => {
 const profileFor = (settings: any): VoiceProfile => {
   const geminiConfig = loadGeminiVoiceConfig()
   const elevenLabsConfig = loadElevenLabsVoiceConfig()
+  const microsoftMaiConfig = loadMicrosoftMaiVoiceConfig()
+  const aliyunConfig = loadAliyunTtsConfig()
   return {
-    provider: settings?.voiceProvider === 'seed_audio' || settings?.voiceProvider === 'gemini' || settings?.voiceProvider === 'elevenlabs'
+    provider: settings?.voiceProvider === 'seed_audio' || settings?.voiceProvider === 'gemini' || settings?.voiceProvider === 'elevenlabs' || settings?.voiceProvider === 'microsoft_mai' || settings?.voiceProvider === 'aliyun_tts'
       ? settings.voiceProvider
       : 'minimax',
     model: settings?.voiceModel || 'speech-2.6-turbo', voiceId: settings?.voiceId || 'female-yujie',
@@ -75,7 +81,17 @@ const profileFor = (settings: any): VoiceProfile => {
     elevenLabsStyle: settings?.elevenLabsStyle ?? 0,
     elevenLabsSpeakerBoost: settings?.elevenLabsSpeakerBoost ?? true,
     elevenLabsSpeed: settings?.elevenLabsSpeed ?? 1,
-    elevenLabsEndpoint: `${elevenLabsConfig.transport}:${elevenLabsConfig.protocol}:${elevenLabsConfig.baseUrl}:${elevenLabsConfig.outputFormat}`
+    elevenLabsEndpoint: `${elevenLabsConfig.transport}:${elevenLabsConfig.protocol}:${elevenLabsConfig.baseUrl}:${elevenLabsConfig.outputFormat}`,
+    microsoftMaiVoiceName: settings?.microsoftMaiVoiceName || 'zh-CN-Mei:MAI-Voice-2',
+    microsoftMaiVoiceStyle: settings?.microsoftMaiVoiceStyle || '',
+    microsoftMaiStyleDegree: settings?.microsoftMaiStyleDegree ?? 1,
+    microsoftMaiEndpoint: `${microsoftMaiConfig.transport}:${microsoftMaiConfig.protocol}:${microsoftMaiConfig.region}:${microsoftMaiConfig.baseUrl}:${microsoftMaiConfig.model}`,
+    aliyunVoice: settings?.aliyunVoice || 'Cherry',
+    aliyunModel: settings?.aliyunModel || aliyunConfig.model,
+    aliyunLanguage: settings?.aliyunLanguage || 'Auto',
+    aliyunInstructions: settings?.aliyunInstructions || '',
+    aliyunOptimizeInstructions: settings?.aliyunOptimizeInstructions ?? true,
+    aliyunEndpoint: `${aliyunConfig.transport}:${aliyunConfig.protocol}:${aliyunConfig.region}:${aliyunConfig.baseUrl}:${aliyunConfig.model}`
   }
 }
 const cacheKeyFor = (msgId: number, text: string, profile: VoiceProfile) => `voice_v2_${msgId}_${hash(JSON.stringify({ text, profile }))}`
@@ -158,6 +174,26 @@ async function synthesizeElevenLabsVoice(text: string, profile: VoiceProfile) {
   })
 }
 
+async function synthesizeMicrosoftMaiVoice(text: string, profile: VoiceProfile) {
+  return generateMicrosoftMaiVoice(loadMicrosoftMaiVoiceConfig(), {
+    text,
+    voiceName: profile.microsoftMaiVoiceName,
+    style: profile.microsoftMaiVoiceStyle,
+    styleDegree: profile.microsoftMaiStyleDegree
+  })
+}
+
+async function synthesizeAliyunTts(text: string, profile: VoiceProfile) {
+  const config = loadAliyunTtsConfig()
+  return generateAliyunTts({ ...config, model: profile.aliyunModel || config.model }, {
+    text,
+    voice: profile.aliyunVoice,
+    languageType: profile.aliyunLanguage,
+    instructions: profile.aliyunInstructions,
+    optimizeInstructions: profile.aliyunOptimizeInstructions
+  })
+}
+
 async function synthesize(text: string, profile: VoiceProfile, apiKey: string, region: string, stream: boolean) {
   const baseUrl = region === 'china' ? 'https://api.minimaxi.com' : 'https://api.minimax.io'
   const voiceSetting: Record<string, unknown> = { voice_id: profile.voiceId, speed: profile.speed, pitch: profile.pitch, vol: profile.volume }
@@ -186,6 +222,10 @@ async function getAudio(cacheKey: string, text: string, profile: VoiceProfile, s
     request = synthesizeGeminiVoice(text, profile)
   } else if (profile.provider === 'elevenlabs') {
     request = synthesizeElevenLabsVoice(text, profile)
+  } else if (profile.provider === 'microsoft_mai') {
+    request = synthesizeMicrosoftMaiVoice(text, profile)
+  } else if (profile.provider === 'aliyun_tts') {
+    request = synthesizeAliyunTts(text, profile)
   } else {
     const configString = localStorage.getItem('minimax_voice_config_v4')
     if (!configString) throw new Error('MISSING_API_KEY')

@@ -82,7 +82,7 @@ const handleSave = () => {
   emit('save')
 }
 
-const selectProvider = (provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs') => {
+const selectProvider = (provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts') => {
   props.selectedChat.voiceProvider = provider
   if (provider === 'elevenlabs') {
     props.selectedChat.elevenLabsStability ??= 0.5
@@ -90,6 +90,15 @@ const selectProvider = (provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenl
     props.selectedChat.elevenLabsStyle ??= 0
     props.selectedChat.elevenLabsSpeed ??= 1
     props.selectedChat.elevenLabsSpeakerBoost ??= true
+  }
+  if (provider === 'microsoft_mai') {
+    props.selectedChat.microsoftMaiVoiceName ||= 'zh-CN-Mei:MAI-Voice-2'
+    props.selectedChat.microsoftMaiStyleDegree ??= 1
+  }
+  if (provider === 'aliyun_tts') {
+    props.selectedChat.aliyunVoice ||= 'Cherry'
+    props.selectedChat.aliyunLanguage ||= 'Auto'
+    props.selectedChat.aliyunOptimizeInstructions ??= true
   }
   handleSave()
 }
@@ -132,6 +141,14 @@ const setSeedAudioReferences = (event: Event) => {
             <div class="memory-type-item" :class="{ active: selectedChat.voiceProvider === 'elevenlabs' }" style="margin-bottom: 0;" @click="selectProvider('elevenlabs')">
               <div class="type-name" style="margin-bottom: 4px;">ElevenLabs</div>
               <div class="type-desc">细腻自然多语种语音</div>
+            </div>
+            <div class="memory-type-item" :class="{ active: selectedChat.voiceProvider === 'microsoft_mai' }" style="margin-bottom: 0;" @click="selectProvider('microsoft_mai')">
+              <div class="type-name" style="margin-bottom: 4px;">Microsoft MAI</div>
+              <div class="type-desc">自然丰富多语言语音</div>
+            </div>
+            <div class="memory-type-item" :class="{ active: selectedChat.voiceProvider === 'aliyun_tts' }" style="margin-bottom: 0;" @click="selectProvider('aliyun_tts')">
+              <div class="type-name" style="margin-bottom: 4px;">阿里云 TTS</div>
+              <div class="type-desc">自然可控的角色语音</div>
             </div>
           </div>
         </div>
@@ -241,7 +258,7 @@ const setSeedAudioReferences = (event: Event) => {
           </div>
         </div>
 
-        <div v-else style="display: flex; flex-direction: column; gap: 12px;">
+        <div v-else-if="selectedChat.voiceProvider === 'elevenlabs'" style="display: flex; flex-direction: column; gap: 12px;">
           <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">ElevenLabs 选项</div>
 
           <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
@@ -310,6 +327,95 @@ const setSeedAudioReferences = (event: Event) => {
           </div>
         </div>
 
+        <div v-else-if="selectedChat.voiceProvider === 'microsoft_mai'" style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">Microsoft MAI Voice 选项</div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">预置音色</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">选择常用中文音色，或填写 Azure Speech 已发布的完整 MAI Voice 音色名称。</div>
+            </div>
+            <div class="voice-mode-tabs" style="margin-bottom: 8px; width: 100%; box-sizing: border-box;">
+              <div class="voice-mode-tab" :class="{ active: selectedChat.microsoftMaiVoiceName === 'zh-CN-Bo:MAI-Voice-2' }" style="flex: 1; text-align: center; padding-left: 4px; padding-right: 4px;" @click="selectedChat.microsoftMaiVoiceName = 'zh-CN-Bo:MAI-Voice-2'; handleSave()">Bo 男声</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.microsoftMaiVoiceName === 'zh-CN-Lan:MAI-Voice-2' }" style="flex: 1; text-align: center; padding-left: 4px; padding-right: 4px;" @click="selectedChat.microsoftMaiVoiceName = 'zh-CN-Lan:MAI-Voice-2'; handleSave()">Lan 女声</div>
+              <div class="voice-mode-tab" :class="{ active: (selectedChat.microsoftMaiVoiceName || 'zh-CN-Mei:MAI-Voice-2') === 'zh-CN-Mei:MAI-Voice-2' }" style="flex: 1; text-align: center; padding-left: 4px; padding-right: 4px;" @click="selectedChat.microsoftMaiVoiceName = 'zh-CN-Mei:MAI-Voice-2'; handleSave()">Mei 女声</div>
+            </div>
+            <input type="text" v-model="selectedChat.microsoftMaiVoiceName" @change="handleSave" placeholder="zh-CN-Mei:MAI-Voice-2" class="voice-input" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">情绪风格</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">填写当前音色支持的 SSML style；留空时使用音色默认表达。</div>
+            </div>
+            <input type="text" v-model="selectedChat.microsoftMaiVoiceStyle" @change="handleSave" placeholder="留空使用默认风格" class="voice-input" />
+          </div>
+
+          <div v-if="selectedChat.microsoftMaiVoiceStyle" style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px;">
+            <div style="font-size: 14px; color: var(--text-primary);">风格强度（{{ (selectedChat.microsoftMaiStyleDegree ?? 1).toFixed(2) }}）</div>
+            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">控制情绪风格的表现强度，标准值为 1.00。</div>
+            <input type="range" v-model.number="selectedChat.microsoftMaiStyleDegree" min="0.01" max="2" step="0.05" @change="handleSave" class="elegant-slider" style="margin-top: 8px;" />
+          </div>
+        </div>
+
+        <div v-else style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">阿里云 TTS 选项</div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">预置音色</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">选择常用音色，或填写当前模型支持的完整音色名称。</div>
+            </div>
+            <div class="voice-mode-tabs" style="margin-bottom: 8px; width: 100%; box-sizing: border-box;">
+              <div class="voice-mode-tab" :class="{ active: (selectedChat.aliyunVoice || 'Cherry') === 'Cherry' }" style="flex: 1; text-align: center;" @click="selectedChat.aliyunVoice = 'Cherry'; handleSave()">Cherry</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.aliyunVoice === 'Serena' }" style="flex: 1; text-align: center;" @click="selectedChat.aliyunVoice = 'Serena'; handleSave()">Serena</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.aliyunVoice === 'Ethan' }" style="flex: 1; text-align: center;" @click="selectedChat.aliyunVoice = 'Ethan'; handleSave()">Ethan</div>
+            </div>
+            <input type="text" v-model="selectedChat.aliyunVoice" @change="handleSave" placeholder="Cherry" class="voice-input" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">模型</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">留空使用接入页的默认模型；Instruct 模型支持声音指令。</div>
+            </div>
+            <input type="text" v-model="selectedChat.aliyunModel" @change="handleSave" placeholder="留空使用默认模型" class="voice-input" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">合成语言</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">单一语种时明确指定通常更稳定；中英混合可保持自动。</div>
+            </div>
+            <div class="voice-mode-tabs" style="width: 100%; box-sizing: border-box;">
+              <div class="voice-mode-tab" :class="{ active: (selectedChat.aliyunLanguage || 'Auto') === 'Auto' }" style="flex: 1; text-align: center;" @click="selectedChat.aliyunLanguage = 'Auto'; handleSave()">自动</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.aliyunLanguage === 'Chinese' }" style="flex: 1; text-align: center;" @click="selectedChat.aliyunLanguage = 'Chinese'; handleSave()">中文</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.aliyunLanguage === 'English' }" style="flex: 1; text-align: center;" @click="selectedChat.aliyunLanguage = 'English'; handleSave()">英文</div>
+            </div>
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">角色声音指令</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">描述语气、节奏和情绪；仅支持指令的模型会应用此项。</div>
+            </div>
+            <textarea v-model="selectedChat.aliyunInstructions" @change="handleSave" rows="4" class="voice-textarea" placeholder="例如：年轻温柔的女声，亲密自然，语速舒缓。"></textarea>
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <div style="font-size: 14px; color: var(--text-primary);">优化声音指令</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">由模型优化表达指令，提升自然度和表现力。</div>
+              </div>
+              <label class="switch" @click.stop>
+                <input type="checkbox" :checked="selectedChat.aliyunOptimizeInstructions ?? true" @change="(e) => { selectedChat.aliyunOptimizeInstructions = (e.target as HTMLInputElement).checked; handleSave(); }">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
         <!-- 播放体验 -->
         <div v-if="(selectedChat.voiceProvider || 'minimax') === 'minimax'" style="display: flex; flex-direction: column; gap: 12px;">
           <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">播放体验</div>
@@ -329,7 +435,7 @@ const setSeedAudioReferences = (event: Event) => {
         </div>
 
         <!-- 高级调参 -->
-        <div v-if="selectedChat.voiceProvider !== 'gemini' && selectedChat.voiceProvider !== 'elevenlabs'" style="display: flex; flex-direction: column; gap: 12px;">
+        <div v-if="selectedChat.voiceProvider !== 'gemini' && selectedChat.voiceProvider !== 'elevenlabs' && selectedChat.voiceProvider !== 'microsoft_mai' && selectedChat.voiceProvider !== 'aliyun_tts'" style="display: flex; flex-direction: column; gap: 12px;">
           <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">高级调参</div>
           
           <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px;">

@@ -90,7 +90,7 @@ export function useChatSettingsSave() {
         contacts[idx].enableVoiceReply = selectedChat.value.enableVoiceReply ?? false
         contacts[idx].enableVoiceCall = selectedChat.value.enableVoiceCall ?? false
         contacts[idx].enableVideoCall = selectedChat.value.enableVideoCall ?? false
-        contacts[idx].voiceProvider = selectedChat.value.voiceProvider === 'seed_audio' || selectedChat.value.voiceProvider === 'gemini' || selectedChat.value.voiceProvider === 'elevenlabs'
+        contacts[idx].voiceProvider = selectedChat.value.voiceProvider === 'seed_audio' || selectedChat.value.voiceProvider === 'gemini' || selectedChat.value.voiceProvider === 'elevenlabs' || selectedChat.value.voiceProvider === 'microsoft_mai' || selectedChat.value.voiceProvider === 'aliyun_tts'
           ? selectedChat.value.voiceProvider
           : 'minimax'
         contacts[idx].voiceModel = selectedChat.value.voiceModel || 'speech-2.6-turbo'
@@ -115,6 +115,14 @@ export function useChatSettingsSave() {
         contacts[idx].elevenLabsStyle = selectedChat.value.elevenLabsStyle ?? 0
         contacts[idx].elevenLabsSpeakerBoost = selectedChat.value.elevenLabsSpeakerBoost ?? true
         contacts[idx].elevenLabsSpeed = selectedChat.value.elevenLabsSpeed ?? 1
+        contacts[idx].microsoftMaiVoiceName = selectedChat.value.microsoftMaiVoiceName || 'zh-CN-Mei:MAI-Voice-2'
+        contacts[idx].microsoftMaiVoiceStyle = selectedChat.value.microsoftMaiVoiceStyle || ''
+        contacts[idx].microsoftMaiStyleDegree = selectedChat.value.microsoftMaiStyleDegree ?? 1
+        contacts[idx].aliyunVoice = selectedChat.value.aliyunVoice || 'Cherry'
+        contacts[idx].aliyunModel = selectedChat.value.aliyunModel || ''
+        contacts[idx].aliyunLanguage = selectedChat.value.aliyunLanguage || 'Auto'
+        contacts[idx].aliyunInstructions = selectedChat.value.aliyunInstructions || ''
+        contacts[idx].aliyunOptimizeInstructions = selectedChat.value.aliyunOptimizeInstructions ?? true
         contacts[idx].bilingualEnabled = selectedChat.value.bilingualEnabled ?? false
         contacts[idx].bilingualMode = selectedChat.value.bilingualMode || 'auto'
         contacts[idx].dialogueLanguage = selectedChat.value.dialogueLanguage || 'auto'

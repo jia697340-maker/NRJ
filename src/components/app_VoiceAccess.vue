@@ -5,10 +5,12 @@ import localforage from 'localforage'
 import { defaultSeedAudioBaseUrl, generateSeedAudio, loadSeedAudioConfig, SEED_AUDIO_CONFIG_KEY, type SeedAudioProtocol, type SeedAudioTransport } from '../composables/useSeedAudio'
 import { defaultGeminiVoiceBaseUrl, generateGeminiVoice, loadGeminiVoiceConfig, GEMINI_VOICE_CONFIG_KEY, type GeminiVoiceAuthMode, type GeminiVoiceProtocol, type GeminiVoiceTransport } from '../composables/useGeminiVoice'
 import { defaultElevenLabsVoiceBaseUrl, generateElevenLabsVoice, loadElevenLabsVoiceConfig, ELEVENLABS_VOICE_CONFIG_KEY, type ElevenLabsVoiceOutputFormat, type ElevenLabsVoiceProtocol, type ElevenLabsVoiceTransport } from '../composables/useElevenLabsVoice'
+import { defaultMicrosoftMaiVoiceBaseUrl, generateMicrosoftMaiVoice, loadMicrosoftMaiVoiceConfig, MICROSOFT_MAI_VOICE_CONFIG_KEY, type MicrosoftMaiVoiceProtocol, type MicrosoftMaiVoiceTransport } from '../composables/useMicrosoftMaiVoice'
+import { defaultAliyunTtsBaseUrl, generateAliyunTts, loadAliyunTtsConfig, ALIYUN_TTS_CONFIG_KEY, type AliyunTtsProtocol, type AliyunTtsRegion, type AliyunTtsTransport } from '../composables/useAliyunTts'
 
 defineEmits(['close'])
 
-const currentView = ref<'platforms' | 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs'>('platforms')
+const currentView = ref<'platforms' | 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts'>('platforms')
 
 const activeIndex = ref(0)
 const platforms = [
@@ -16,6 +18,8 @@ const platforms = [
   { id: 'seed_audio', name: 'Seed Audio 1.0', desc: '高表现力角色语音与\n完整场景音频生成', action: '进入配置', disabled: false },
   { id: 'gemini', name: 'Google Gemini', desc: '自然可控、富有表现力的\n角色语音合成', action: '进入配置', disabled: false },
   { id: 'elevenlabs', name: 'ElevenLabs', desc: '自然细腻、支持多语种的\n高表现力角色语音', action: '进入配置', disabled: false },
+  { id: 'microsoft_mai', name: 'Microsoft MAI Voice', desc: '自然流畅、情绪丰富的\n多语言角色语音', action: '进入配置', disabled: false },
+  { id: 'aliyun_tts', name: '阿里云 TTS', desc: '千问新一代自然可控的\n多语言角色语音', action: '进入配置', disabled: false },
   { id: 'more', name: '更多平台', desc: '敬请期待更多\n优秀语音引擎接入', action: '即将开放', disabled: true }
 ]
 
@@ -26,7 +30,7 @@ const handleNext = () => {
   if (activeIndex.value < platforms.length - 1) activeIndex.value++
 }
 const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && (id === 'minimax' || id === 'seed_audio' || id === 'gemini' || id === 'elevenlabs')) currentView.value = id
+  if (!disabled && (id === 'minimax' || id === 'seed_audio' || id === 'gemini' || id === 'elevenlabs' || id === 'microsoft_mai' || id === 'aliyun_tts')) currentView.value = id
 }
 
 const viewTitle = () => {
@@ -34,6 +38,8 @@ const viewTitle = () => {
   if (currentView.value === 'seed_audio') return 'Seed Audio 接入'
   if (currentView.value === 'gemini') return 'Gemini TTS 接入'
   if (currentView.value === 'elevenlabs') return 'ElevenLabs 接入'
+  if (currentView.value === 'microsoft_mai') return 'Microsoft MAI Voice 接入'
+  if (currentView.value === 'aliyun_tts') return '阿里云 TTS 接入'
   return '语音引擎'
 }
 
@@ -91,6 +97,57 @@ const selectElevenLabsTransport = (transport: ElevenLabsVoiceTransport) => {
   if (transport === 'official') {
     elevenLabsBaseUrl.value = defaultElevenLabsVoiceBaseUrl()
     elevenLabsProtocol.value = 'elevenlabs'
+  }
+}
+
+const microsoftMaiTransport = ref<MicrosoftMaiVoiceTransport>('official')
+const microsoftMaiProtocol = ref<MicrosoftMaiVoiceProtocol>('azure')
+const microsoftMaiApiKey = ref('')
+const microsoftMaiRegion = ref('eastus')
+const microsoftMaiBaseUrl = ref(defaultMicrosoftMaiVoiceBaseUrl())
+const microsoftMaiModel = ref('microsoft/mai-voice-2')
+const microsoftMaiTestVoice = ref('zh-CN-Mei:MAI-Voice-2')
+const microsoftMaiTestStyle = ref('')
+const microsoftMaiTestStyleDegree = ref(1)
+const microsoftMaiTestText = ref('今天也很想你。')
+const microsoftMaiIsLoading = ref(false)
+const microsoftMaiErrorMsg = ref('')
+
+const selectMicrosoftMaiTransport = (transport: MicrosoftMaiVoiceTransport) => {
+  microsoftMaiTransport.value = transport
+  if (transport === 'official') {
+    microsoftMaiProtocol.value = 'azure'
+    microsoftMaiBaseUrl.value = defaultMicrosoftMaiVoiceBaseUrl(microsoftMaiRegion.value)
+  }
+}
+
+const aliyunTransport = ref<AliyunTtsTransport>('official')
+const aliyunProtocol = ref<AliyunTtsProtocol>('dashscope')
+const aliyunRegion = ref<AliyunTtsRegion>('china')
+const aliyunApiKey = ref('')
+const aliyunBaseUrl = ref(defaultAliyunTtsBaseUrl())
+const aliyunModel = ref('qwen3-tts-instruct-flash')
+const aliyunTestVoice = ref('Cherry')
+const aliyunTestLanguage = ref('Chinese')
+const aliyunTestInstructions = ref('年轻温柔的声音，亲密自然，语速舒缓。')
+const aliyunOptimizeInstructions = ref(true)
+const aliyunTestText = ref('今天也很想你。')
+const aliyunIsLoading = ref(false)
+const aliyunErrorMsg = ref('')
+
+const selectAliyunTransport = (transport: AliyunTtsTransport) => {
+  aliyunTransport.value = transport
+  if (transport === 'official') {
+    aliyunProtocol.value = 'dashscope'
+    aliyunBaseUrl.value = defaultAliyunTtsBaseUrl(aliyunRegion.value)
+  }
+}
+
+const selectAliyunRegion = (regionValue: AliyunTtsRegion) => {
+  const previousDefault = defaultAliyunTtsBaseUrl(aliyunRegion.value)
+  aliyunRegion.value = regionValue
+  if (aliyunTransport.value === 'official' || !aliyunBaseUrl.value || aliyunBaseUrl.value === previousDefault) {
+    aliyunBaseUrl.value = defaultAliyunTtsBaseUrl(regionValue)
   }
 }
 
@@ -192,6 +249,35 @@ onMounted(() => {
     if (savedElevenLabs.testVoiceId) elevenLabsTestVoiceId.value = savedElevenLabs.testVoiceId
     if (savedElevenLabs.testText) elevenLabsTestText.value = savedElevenLabs.testText
   } catch {}
+  const microsoftMaiConfig = loadMicrosoftMaiVoiceConfig()
+  microsoftMaiTransport.value = microsoftMaiConfig.transport
+  microsoftMaiProtocol.value = microsoftMaiConfig.protocol
+  microsoftMaiApiKey.value = microsoftMaiConfig.apiKey
+  microsoftMaiRegion.value = microsoftMaiConfig.region
+  microsoftMaiBaseUrl.value = microsoftMaiConfig.baseUrl
+  microsoftMaiModel.value = microsoftMaiConfig.model
+  try {
+    const savedMicrosoftMai = JSON.parse(localStorage.getItem(MICROSOFT_MAI_VOICE_CONFIG_KEY) || '{}')
+    if (savedMicrosoftMai.testVoice) microsoftMaiTestVoice.value = savedMicrosoftMai.testVoice
+    if (typeof savedMicrosoftMai.testStyle === 'string') microsoftMaiTestStyle.value = savedMicrosoftMai.testStyle
+    if (Number.isFinite(savedMicrosoftMai.testStyleDegree)) microsoftMaiTestStyleDegree.value = savedMicrosoftMai.testStyleDegree
+    if (savedMicrosoftMai.testText) microsoftMaiTestText.value = savedMicrosoftMai.testText
+  } catch {}
+  const aliyunConfig = loadAliyunTtsConfig()
+  aliyunTransport.value = aliyunConfig.transport
+  aliyunProtocol.value = aliyunConfig.protocol
+  aliyunRegion.value = aliyunConfig.region
+  aliyunApiKey.value = aliyunConfig.apiKey
+  aliyunBaseUrl.value = aliyunConfig.baseUrl
+  aliyunModel.value = aliyunConfig.model
+  try {
+    const savedAliyun = JSON.parse(localStorage.getItem(ALIYUN_TTS_CONFIG_KEY) || '{}')
+    if (savedAliyun.testVoice) aliyunTestVoice.value = savedAliyun.testVoice
+    if (savedAliyun.testLanguage) aliyunTestLanguage.value = savedAliyun.testLanguage
+    if (typeof savedAliyun.testInstructions === 'string') aliyunTestInstructions.value = savedAliyun.testInstructions
+    if (typeof savedAliyun.optimizeInstructions === 'boolean') aliyunOptimizeInstructions.value = savedAliyun.optimizeInstructions
+    if (savedAliyun.testText) aliyunTestText.value = savedAliyun.testText
+  } catch {}
 })
 
 watch([region, apiKey, testText, testModel, testVoiceId, keyPresets], () => {
@@ -247,6 +333,37 @@ watch([elevenLabsTransport, elevenLabsProtocol, elevenLabsApiKey, elevenLabsBase
     outputFormat: elevenLabsOutputFormat.value,
     testVoiceId: elevenLabsTestVoiceId.value,
     testText: elevenLabsTestText.value
+  }))
+})
+
+watch([microsoftMaiTransport, microsoftMaiProtocol, microsoftMaiApiKey, microsoftMaiRegion, microsoftMaiBaseUrl, microsoftMaiModel, microsoftMaiTestVoice, microsoftMaiTestStyle, microsoftMaiTestStyleDegree, microsoftMaiTestText], () => {
+  localStorage.setItem(MICROSOFT_MAI_VOICE_CONFIG_KEY, JSON.stringify({
+    transport: microsoftMaiTransport.value,
+    protocol: microsoftMaiProtocol.value,
+    apiKey: microsoftMaiApiKey.value,
+    region: microsoftMaiRegion.value || 'eastus',
+    baseUrl: microsoftMaiBaseUrl.value,
+    model: microsoftMaiModel.value || 'microsoft/mai-voice-2',
+    testVoice: microsoftMaiTestVoice.value,
+    testStyle: microsoftMaiTestStyle.value,
+    testStyleDegree: microsoftMaiTestStyleDegree.value,
+    testText: microsoftMaiTestText.value
+  }))
+})
+
+watch([aliyunTransport, aliyunProtocol, aliyunRegion, aliyunApiKey, aliyunBaseUrl, aliyunModel, aliyunTestVoice, aliyunTestLanguage, aliyunTestInstructions, aliyunOptimizeInstructions, aliyunTestText], () => {
+  localStorage.setItem(ALIYUN_TTS_CONFIG_KEY, JSON.stringify({
+    transport: aliyunTransport.value,
+    protocol: aliyunProtocol.value,
+    region: aliyunRegion.value,
+    apiKey: aliyunApiKey.value,
+    baseUrl: aliyunBaseUrl.value,
+    model: aliyunModel.value || 'qwen3-tts-instruct-flash',
+    testVoice: aliyunTestVoice.value,
+    testLanguage: aliyunTestLanguage.value,
+    testInstructions: aliyunTestInstructions.value,
+    optimizeInstructions: aliyunOptimizeInstructions.value,
+    testText: aliyunTestText.value
   }))
 })
 
@@ -536,6 +653,80 @@ const playElevenLabsTest = async () => {
     elevenLabsIsLoading.value = false
   }
 }
+
+const playMicrosoftMaiTest = async () => {
+  if (!microsoftMaiApiKey.value.trim()) { microsoftMaiErrorMsg.value = '请填写 Microsoft MAI Voice 接口密钥'; return }
+  if (microsoftMaiTransport.value === 'official' && !microsoftMaiRegion.value.trim()) { microsoftMaiErrorMsg.value = '请填写 Azure Speech 区域'; return }
+  if (microsoftMaiTransport.value === 'custom' && !microsoftMaiBaseUrl.value.trim()) { microsoftMaiErrorMsg.value = '请填写中转地址'; return }
+  if (!microsoftMaiTestVoice.value.trim()) { microsoftMaiErrorMsg.value = '请填写 MAI Voice 音色名称'; return }
+  if (!microsoftMaiTestText.value.trim()) { microsoftMaiErrorMsg.value = '请填写测试文本'; return }
+  microsoftMaiIsLoading.value = true
+  microsoftMaiErrorMsg.value = ''
+  if (audioInstance) { audioInstance.pause(); audioInstance = null }
+  try {
+    const audio = await generateMicrosoftMaiVoice({
+      transport: microsoftMaiTransport.value,
+      protocol: microsoftMaiProtocol.value,
+      apiKey: microsoftMaiApiKey.value,
+      region: microsoftMaiRegion.value || 'eastus',
+      baseUrl: microsoftMaiBaseUrl.value,
+      model: microsoftMaiModel.value || 'microsoft/mai-voice-2'
+    }, {
+      text: microsoftMaiTestText.value,
+      voiceName: microsoftMaiTestVoice.value,
+      style: microsoftMaiTestStyle.value,
+      styleDegree: microsoftMaiTestStyleDegree.value
+    })
+    const blobUrl = URL.createObjectURL(audio)
+    audioInstance = new Audio(blobUrl)
+    audioInstance.onended = () => URL.revokeObjectURL(blobUrl)
+    audioInstance.onerror = () => URL.revokeObjectURL(blobUrl)
+    await audioInstance.play()
+  } catch (err: any) {
+    microsoftMaiErrorMsg.value = err?.message === 'MISSING_MICROSOFT_MAI_VOICE_API_KEY'
+      ? '请填写 Microsoft MAI Voice 接口密钥'
+      : (err?.message || 'Microsoft MAI Voice 合成失败')
+  } finally {
+    microsoftMaiIsLoading.value = false
+  }
+}
+
+const playAliyunTest = async () => {
+  if (!aliyunApiKey.value.trim()) { aliyunErrorMsg.value = '请填写阿里云 TTS 接口密钥'; return }
+  if (aliyunTransport.value === 'custom' && !aliyunBaseUrl.value.trim()) { aliyunErrorMsg.value = '请填写阿里云 TTS 中转地址'; return }
+  if (!aliyunTestVoice.value.trim()) { aliyunErrorMsg.value = '请填写阿里云 TTS 音色名称'; return }
+  if (!aliyunTestText.value.trim()) { aliyunErrorMsg.value = '请填写测试文本'; return }
+  aliyunIsLoading.value = true
+  aliyunErrorMsg.value = ''
+  if (audioInstance) { audioInstance.pause(); audioInstance = null }
+  try {
+    const audio = await generateAliyunTts({
+      transport: aliyunTransport.value,
+      protocol: aliyunProtocol.value,
+      region: aliyunRegion.value,
+      apiKey: aliyunApiKey.value,
+      baseUrl: aliyunBaseUrl.value,
+      model: aliyunModel.value || 'qwen3-tts-instruct-flash'
+    }, {
+      text: aliyunTestText.value,
+      voice: aliyunTestVoice.value,
+      languageType: aliyunTestLanguage.value,
+      instructions: aliyunTestInstructions.value,
+      optimizeInstructions: aliyunOptimizeInstructions.value
+    })
+    const blobUrl = URL.createObjectURL(audio)
+    audioInstance = new Audio(blobUrl)
+    audioInstance.onended = () => URL.revokeObjectURL(blobUrl)
+    audioInstance.onerror = () => URL.revokeObjectURL(blobUrl)
+    await audioInstance.play()
+  } catch (err: any) {
+    aliyunErrorMsg.value = err?.message === 'MISSING_ALIYUN_TTS_API_KEY'
+      ? '请填写阿里云 TTS 接口密钥'
+      : (err?.message || '阿里云 TTS 合成失败')
+  } finally {
+    aliyunIsLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -580,6 +771,8 @@ const playElevenLabsTest = async () => {
                 <svg v-else-if="item.id === 'seed_audio'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M4 13v-2"></path><path d="M8 17V7"></path><path d="M12 20V4"></path><path d="M16 17V7"></path><path d="M20 13v-2"></path></svg>
                 <svg v-else-if="item.id === 'gemini'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M12 2c.8 5.4 4.6 9.2 10 10-5.4.8-9.2 4.6-10 10-.8-5.4-4.6-9.2-10-10 5.4-.8 9.2-4.6 10-10Z"></path></svg>
                 <svg v-else-if="item.id === 'elevenlabs'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M6 5v14"></path><path d="M10 5v14"></path><path d="M14 8v8"></path><path d="M18 5v14"></path></svg>
+                <svg v-else-if="item.id === 'microsoft_mai'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M4 12h2"></path><path d="M8 8v8"></path><path d="M12 4v16"></path><path d="M16 7v10"></path><path d="M20 10v4"></path></svg>
+                <svg v-else-if="item.id === 'aliyun_tts'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M4 13v-2"></path><path d="M8 16V8"></path><path d="M12 19V5"></path><path d="M16 16V8"></path><path d="M20 13v-2"></path><path d="M6 4h12"></path></svg>
                 <svg v-else viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
               </div>
 
@@ -801,7 +994,7 @@ const playElevenLabsTest = async () => {
       </div>
     </div>
 
-    <div v-else class="va-detail-view">
+    <div v-else-if="currentView === 'elevenlabs'" class="va-detail-view">
       <div class="fluid-form">
         <div class="form-row column-row seed-provider-row">
           <div class="row-header"><span class="row-label">接入渠道</span></div>
@@ -864,6 +1057,183 @@ const playElevenLabsTest = async () => {
           <button class="fluid-action-btn" :disabled="elevenLabsIsLoading" @click="playElevenLabsTest">
             <span v-if="elevenLabsIsLoading" class="spinner"></span>
             {{ elevenLabsIsLoading ? '正在合成...' : '合成并播放' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="currentView === 'microsoft_mai'" class="va-detail-view">
+      <div class="fluid-form">
+        <div class="form-row column-row seed-provider-row">
+          <div class="row-header"><span class="row-label">接入渠道</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: microsoftMaiTransport === 'official' }" @click="selectMicrosoftMaiTransport('official')">Microsoft 官方</div>
+            <div class="pill-tab" :class="{ active: microsoftMaiTransport === 'custom' }" @click="selectMicrosoftMaiTransport('custom')">第三方中转</div>
+          </div>
+          <div class="provider-hint">{{ microsoftMaiTransport === 'official' ? '使用 Azure Speech 官方 SSML 接口与独立资源密钥。' : '填写中转地址，并选择 Azure Speech 或 OpenAI TTS 兼容协议。' }}</div>
+        </div>
+
+        <div v-if="microsoftMaiTransport === 'custom'" class="form-row">
+          <span class="row-label">中转协议</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: microsoftMaiProtocol === 'azure' }" @click="microsoftMaiProtocol = 'azure'">Azure Speech</div>
+            <div class="pill-tab" :class="{ active: microsoftMaiProtocol === 'openai' }" @click="microsoftMaiProtocol = 'openai'">OpenAI TTS</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">接口密钥</span></div>
+          <input type="password" v-model="microsoftMaiApiKey" placeholder="在此输入独立的 Azure Speech 或中转 API Key" class="fluid-input" autocomplete="off" />
+          <div class="provider-hint">公开部署时建议使用中转服务，避免在浏览器中暴露 Azure Speech 资源密钥。</div>
+        </div>
+
+        <div v-if="microsoftMaiTransport === 'official'" class="form-row column-row">
+          <div class="row-header"><span class="row-label">Azure Speech 区域</span></div>
+          <input type="text" v-model="microsoftMaiRegion" placeholder="eastus" class="fluid-input" autocomplete="off" />
+          <div class="provider-hint">填写 Speech 资源所在区域，例如 eastus、swedencentral 或 southeastasia。</div>
+        </div>
+
+        <div v-else class="form-row column-row">
+          <div class="row-header"><span class="row-label">中转地址</span></div>
+          <input type="url" v-model="microsoftMaiBaseUrl" placeholder="https://your-proxy.example.com" class="fluid-input" />
+        </div>
+
+        <div v-if="microsoftMaiTransport === 'custom' && microsoftMaiProtocol === 'openai'" class="form-row column-row">
+          <div class="row-header"><span class="row-label">模型名称</span></div>
+          <input type="text" v-model="microsoftMaiModel" placeholder="microsoft/mai-voice-2" class="fluid-input" />
+        </div>
+
+        <div class="form-section-title">合成测试</div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">预置音色</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: microsoftMaiTestVoice === 'zh-CN-Bo:MAI-Voice-2' }" @click="microsoftMaiTestVoice = 'zh-CN-Bo:MAI-Voice-2'">Bo 男声</div>
+            <div class="pill-tab" :class="{ active: microsoftMaiTestVoice === 'zh-CN-Lan:MAI-Voice-2' }" @click="microsoftMaiTestVoice = 'zh-CN-Lan:MAI-Voice-2'">Lan 女声</div>
+            <div class="pill-tab" :class="{ active: microsoftMaiTestVoice === 'zh-CN-Mei:MAI-Voice-2' }" @click="microsoftMaiTestVoice = 'zh-CN-Mei:MAI-Voice-2'">Mei 女声</div>
+          </div>
+          <input type="text" v-model="microsoftMaiTestVoice" placeholder="zh-CN-Mei:MAI-Voice-2" class="fluid-input" />
+          <div class="provider-hint">也可填写 MAI-Voice-2-Flash 或其他已在当前 Azure 区域发布的完整音色名称。</div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">情绪风格</span></div>
+          <input type="text" v-model="microsoftMaiTestStyle" placeholder="留空使用音色默认风格" class="fluid-input" />
+          <div class="provider-hint">填写该音色支持的 style；不同音色支持范围可能不同。</div>
+        </div>
+
+        <div v-if="microsoftMaiTestStyle.trim()" class="form-row">
+          <span class="row-label">风格强度</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: microsoftMaiTestStyleDegree === 0.8 }" @click="microsoftMaiTestStyleDegree = 0.8">柔和</div>
+            <div class="pill-tab" :class="{ active: microsoftMaiTestStyleDegree === 1 }" @click="microsoftMaiTestStyleDegree = 1">标准</div>
+            <div class="pill-tab" :class="{ active: microsoftMaiTestStyleDegree === 1.2 }" @click="microsoftMaiTestStyleDegree = 1.2">鲜明</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <textarea v-model="microsoftMaiTestText" rows="4" maxlength="2048" placeholder="输入要合成的文本..." class="fluid-textarea"></textarea>
+          <div class="text-counter">{{ microsoftMaiTestText.length }} / 2048</div>
+          <div v-if="microsoftMaiErrorMsg" class="error-banner">{{ microsoftMaiErrorMsg }}</div>
+          <button class="fluid-action-btn" :disabled="microsoftMaiIsLoading" @click="playMicrosoftMaiTest">
+            <span v-if="microsoftMaiIsLoading" class="spinner"></span>
+            {{ microsoftMaiIsLoading ? '正在合成...' : '合成并播放' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="va-detail-view">
+      <div class="fluid-form">
+        <div class="form-row column-row seed-provider-row">
+          <div class="row-header"><span class="row-label">接入渠道</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: aliyunTransport === 'official' }" @click="selectAliyunTransport('official')">阿里云官方</div>
+            <div class="pill-tab" :class="{ active: aliyunTransport === 'custom' }" @click="selectAliyunTransport('custom')">第三方中转</div>
+          </div>
+          <div class="provider-hint">{{ aliyunTransport === 'official' ? '使用阿里云百炼 DashScope 原生接口；公开部署建议通过自己的服务端转发。' : '填写第三方中转地址，并选择其兼容的请求协议。' }}</div>
+        </div>
+
+        <div v-if="aliyunTransport === 'custom'" class="form-row">
+          <span class="row-label">中转协议</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: aliyunProtocol === 'dashscope' }" @click="aliyunProtocol = 'dashscope'">DashScope</div>
+            <div class="pill-tab" :class="{ active: aliyunProtocol === 'openai' }" @click="aliyunProtocol = 'openai'">OpenAI TTS</div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <span class="row-label">服务地域</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: aliyunRegion === 'china' }" @click="selectAliyunRegion('china')">北京</div>
+            <div class="pill-tab" :class="{ active: aliyunRegion === 'international' }" @click="selectAliyunRegion('international')">新加坡</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">接口密钥</span></div>
+          <input type="password" v-model="aliyunApiKey" placeholder="在此输入独立的百炼或中转 API Key" class="fluid-input" autocomplete="off" />
+          <div class="provider-hint">北京与新加坡地域的 API Key 不通用，请与所选地域保持一致。</div>
+        </div>
+
+        <div v-if="aliyunTransport === 'custom'" class="form-row column-row">
+          <div class="row-header"><span class="row-label">中转地址</span></div>
+          <input type="url" v-model="aliyunBaseUrl" placeholder="https://your-proxy.example.com" class="fluid-input" />
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">默认模型</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: aliyunModel === 'qwen3-tts-instruct-flash' }" @click="aliyunModel = 'qwen3-tts-instruct-flash'">Instruct Flash</div>
+            <div class="pill-tab" :class="{ active: aliyunModel === 'qwen3-tts-flash' }" @click="aliyunModel = 'qwen3-tts-flash'">Flash</div>
+          </div>
+          <input type="text" v-model="aliyunModel" placeholder="qwen3-tts-instruct-flash" class="fluid-input" />
+          <div class="provider-hint">Instruct Flash 支持自然语言声音指令；普通 Flash 使用音色默认表达。</div>
+        </div>
+
+        <div class="form-section-title">合成测试</div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">预置音色</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: aliyunTestVoice === 'Cherry' }" @click="aliyunTestVoice = 'Cherry'">Cherry</div>
+            <div class="pill-tab" :class="{ active: aliyunTestVoice === 'Serena' }" @click="aliyunTestVoice = 'Serena'">Serena</div>
+            <div class="pill-tab" :class="{ active: aliyunTestVoice === 'Ethan' }" @click="aliyunTestVoice = 'Ethan'">Ethan</div>
+          </div>
+          <input type="text" v-model="aliyunTestVoice" placeholder="Cherry" class="fluid-input" />
+          <div class="provider-hint">也可填写当前模型支持的其他系统音色或已创建的音色 ID。</div>
+        </div>
+
+        <div class="form-row">
+          <span class="row-label">合成语言</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: aliyunTestLanguage === 'Auto' }" @click="aliyunTestLanguage = 'Auto'">自动</div>
+            <div class="pill-tab" :class="{ active: aliyunTestLanguage === 'Chinese' }" @click="aliyunTestLanguage = 'Chinese'">中文</div>
+            <div class="pill-tab" :class="{ active: aliyunTestLanguage === 'English' }" @click="aliyunTestLanguage = 'English'">英文</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">声音指令</span></div>
+          <textarea v-model="aliyunTestInstructions" rows="3" maxlength="1200" placeholder="描述语气、节奏与情绪..." class="fluid-textarea"></textarea>
+          <div class="provider-hint">仅支持指令控制的模型会应用此项。</div>
+        </div>
+
+        <div class="form-row">
+          <span class="row-label">优化声音指令</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: aliyunOptimizeInstructions }" @click="aliyunOptimizeInstructions = true">开启</div>
+            <div class="pill-tab" :class="{ active: !aliyunOptimizeInstructions }" @click="aliyunOptimizeInstructions = false">关闭</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <textarea v-model="aliyunTestText" rows="4" maxlength="1200" placeholder="输入要合成的文本..." class="fluid-textarea"></textarea>
+          <div class="text-counter">{{ aliyunTestText.length }} / 1200</div>
+          <div v-if="aliyunErrorMsg" class="error-banner">{{ aliyunErrorMsg }}</div>
+          <button class="fluid-action-btn" :disabled="aliyunIsLoading" @click="playAliyunTest">
+            <span v-if="aliyunIsLoading" class="spinner"></span>
+            {{ aliyunIsLoading ? '正在合成...' : '合成并播放' }}
           </button>
         </div>
       </div>

@@ -183,7 +183,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </template>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('开启角色语音接入', '开启角色语音通话接入', '开启角色视频通话接入', '语音详细配置', '语音引擎', 'Seed Audio', 'Gemini TTS', 'ElevenLabs', '语音模型', '发音语言', '音色 ID', '合成音量', '合成语速', '合成语调', '情感风格')">
+    <div class="glass-panel" v-show="matchSearch('开启角色语音接入', '开启角色语音通话接入', '开启角色视频通话接入', '语音详细配置', '语音引擎', 'Seed Audio', 'Gemini TTS', 'ElevenLabs', 'Microsoft MAI Voice', '语音模型', '发音语言', '音色 ID', '合成音量', '合成语速', '合成语调', '情感风格')">
       <div class="glass-list-item" v-show="matchSearch('开启角色语音接入')">
         <div class="item-label">开启角色语音接入</div>
         <div class="item-value">
@@ -215,7 +215,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
         <div class="glass-list-item" v-show="matchSearch('语音详细配置', '通话语音详细配置')" @click="emit('show-voice-detail-modal')">
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 通话语音详细配置</div>
           <div class="item-value">
-            <span class="item-value-text">{{ selectedChat.voiceProvider === 'seed_audio' ? 'Seed Audio 1.0 · 独立配置' : selectedChat.voiceProvider === 'gemini' ? 'Gemini TTS · 音色与声音指令' : selectedChat.voiceProvider === 'elevenlabs' ? 'ElevenLabs · 音色与表现参数' : 'MiniMax · 语言、音色与参数' }}</span>
+            <span class="item-value-text">{{ selectedChat.voiceProvider === 'seed_audio' ? 'Seed Audio 1.0 · 独立配置' : selectedChat.voiceProvider === 'gemini' ? 'Gemini TTS · 音色与声音指令' : selectedChat.voiceProvider === 'elevenlabs' ? 'ElevenLabs · 音色与表现参数' : selectedChat.voiceProvider === 'microsoft_mai' ? 'Microsoft MAI · 音色与情绪风格' : selectedChat.voiceProvider === 'aliyun_tts' ? '阿里云 TTS · 音色与声音指令' : 'MiniMax · 语言、音色与参数' }}</span>
             <span class="arrow">></span>
           </div>
         </div>
