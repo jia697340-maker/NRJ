@@ -85,7 +85,7 @@ const emit = defineEmits<{
 
 const { selectedChat, myProfile, effectiveMyProfile, mockChats, saveMyProfile } = useChatState()
 const { saveCurrentChat } = useChatSettingsSave()
-const { tokenStats } = useChatTokenStats()
+const { tokenStats, refreshTokenStats } = useChatTokenStats()
 const { getTimezoneLabel } = useTimezone()
 
 // --- 时区相关逻辑 ---
@@ -146,6 +146,7 @@ const updateCharacterTime = () => {
 
 onMounted(() => {
   updateCharacterTime()
+  refreshTokenStats()
   characterTimer = setInterval(updateCharacterTime, 10000) // 每10秒更新一次
 })
 

@@ -51,7 +51,16 @@ const extractFirstFrameFromGif = async (urlOrBase64: string): Promise<string> =>
   })
 }
 
-export const buildChatMessages = async (chat: any, callMode: false | 'voice' | 'video' = false, offlineMeetMode: false | 'mixed' | 'separate' = false) => {
+type BuildChatMessagesOptions = {
+  includeMedia?: boolean
+}
+
+export const buildChatMessages = async (
+  chat: any,
+  callMode: false | 'voice' | 'video' = false,
+  offlineMeetMode: false | 'mixed' | 'separate' = false,
+  options: BuildChatMessagesOptions = {}
+) => {
   const messages: any[] = []
   const userProfile = getEffectiveUserProfile(chat, myProfile.value)
   const usesEnglishPrompt = globalPromptSettings.language === 'en'
@@ -76,7 +85,7 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
       roleEmojisStr = availableEmojis.map(e => e.name).join('、')
       
       // 如果开启了主动发表情包的图形识别
-      if (chat.enableRoleEmojiVision) {
+      if (chat.enableRoleEmojiVision && options.includeMedia !== false) {
         for (const e of availableEmojis) {
           let rawData = ''
           if (e.type === 'local' && e.data instanceof Blob) {
@@ -311,7 +320,7 @@ export const buildChatMessages = async (chat: any, callMode: false | 'voice' | '
         // 我们上面可以借用 store 的直接 import
         const { chatSettings } = await import('../../store')
         
-        if (!(msg.type === 'left' && chatSettings.enableRoleImageTokenSaver)) {
+        if (options.includeMedia !== false && !(msg.type === 'left' && chatSettings.enableRoleImageTokenSaver)) {
           if (isEmojiMessage) {
             if (chat.enableEmojiVision && msg.emojiId) {
                const emojiStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatEmojis' })
