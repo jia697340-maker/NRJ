@@ -3,9 +3,44 @@ import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, 
 import { apiLogger } from './apiLogger'
 import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest } from './modelAdapters'
 import type { ModelAdapterProfile } from './modelAdapters'
+import { saveTokenUsageSnapshot } from './tokenUsageSnapshot'
 import { commitDiagnosticTrace, createDiagnosticDraft, type DiagnosticContextMeta } from './diagnosticTrace'
 
 export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global'
+
+export const decorateChatPayload = (
+  messages: { role: string; content: string | any[] }[],
+  isSummary = false,
+  purpose: ChatApiPurpose = 'default'
+) => {
+  const payloadMessages = JSON.parse(JSON.stringify(messages))
+  if (isSummary || purpose.startsWith('character-') || !cotSettings.enabled) return payloadMessages
+  if (cotSettings.mode === 'skip') {
+    payloadMessages.push({
+      role: 'assistant',
+      content: globalPromptSettings.language === 'en'
+        ? '[incipere]\n<thinking>\nSkip ECoT and focus on the reply.\n</thinking>\n[finire]\n'
+        : '[incipere]\n<thinking>\n跳过ECoT，专注回复。\n</thinking>\n[finire]\n'
+    })
+    return payloadMessages
+  }
+  if (cotSettings.mode !== 'custom' || !cotSettings.items) return payloadMessages
+  const englishCotContent: Record<string, string> = {
+    cot_default_1: '[Required reasoning and response format]\nBefore each response, reason and output strictly with this nested structure:\n[incipere]\n<thinking>\n',
+    cot_default_3: '</thinking>\n[finire]\n<msg>\nYour final visible reply\n</msg>',
+    cot_default_4: '[incipere]\n<thinking>\n'
+  }
+  const enabledItems = cotSettings.items.filter(item => item.enabled).map(item => (
+    globalPromptSettings.language === 'en' && englishCotContent[item.id] ? { ...item, content: englishCotContent[item.id] } : item
+  ))
+  const systemContent = ['system_top', 'system_middle', 'system_bottom']
+    .flatMap(position => enabledItems.filter(item => item.position === position).map(item => item.content))
+    .filter(Boolean).join('\n')
+  if (systemContent && payloadMessages[0]?.role === 'system') payloadMessages[0].content += `\n\n${systemContent}`
+  const prefillContent = enabledItems.filter(item => item.position === 'assistant_prefill').map(item => item.content).join('\n')
+  if (prefillContent) payloadMessages.push({ role: 'assistant', content: prefillContent })
+  return payloadMessages
+}
 
 export const isMomentApiReady = () => {
   if (!momentApiSettings.enabled) return false
@@ -76,55 +111,8 @@ export async function sendChatMessage(
     throw new Error('API 设置不完整，请先在设置中配置 API。')
   }
 
-  // --- COT 控制动态注入逻辑 ---
-  let payloadMessages = JSON.parse(JSON.stringify(messages)) // 深拷贝避免污染原数组
-
-  // 总结/结构化记忆要求稳定的 JSON 或纯摘要，不能被聊天思维链模板污染。
-  if (!payloadReady && !isSummary && !purpose.startsWith('character-') && cotSettings.enabled) {
-    if (cotSettings.mode === 'skip') {
-      // 模式 A：跳过思考 (Skip)
-      payloadMessages.push({
-        role: 'assistant',
-        content: globalPromptSettings.language === 'en'
-          ? '[incipere]\n<thinking>\nSkip ECoT and focus on the reply.\n</thinking>\n[finire]\n'
-          : '[incipere]\n<thinking>\n跳过ECoT，专注回复。\n</thinking>\n[finire]\n'
-      })
-    } else if (cotSettings.mode === 'custom' && cotSettings.items) {
-      // 模式 B：自定义思考 (Custom)
-      const englishCotContent: Record<string, string> = {
-        cot_default_1: '[Required reasoning and response format]\nBefore each response, reason and output strictly with this nested structure:\n[incipere]\n<thinking>\n',
-        cot_default_3: '</thinking>\n[finire]\n<msg>\nYour final visible reply\n</msg>',
-        cot_default_4: '[incipere]\n<thinking>\n'
-      }
-      const enabledItems = cotSettings.items.filter(i => i.enabled).map(item => (
-        globalPromptSettings.language === 'en' && englishCotContent[item.id]
-          ? { ...item, content: englishCotContent[item.id] }
-          : item
-      ))
-      
-      // 1. 处理 System 相关的条目
-      const systemTop = enabledItems.filter(i => i.position === 'system_top').map(i => i.content).join('\n')
-      const systemMiddle = enabledItems.filter(i => i.position === 'system_middle').map(i => i.content).join('\n')
-      const systemBottom = enabledItems.filter(i => i.position === 'system_bottom').map(i => i.content).join('\n')
-      
-      if (systemTop || systemMiddle || systemBottom) {
-        const combinedSystemStr = [systemTop, systemMiddle, systemBottom].filter(Boolean).join('\n')
-        // 找到第一条 system 消息附加进去
-        if (payloadMessages.length > 0 && payloadMessages[0].role === 'system') {
-          payloadMessages[0].content += `\n\n${combinedSystemStr}`
-        }
-      }
-      
-      // 2. 处理 Prefill (Assistant) 触发器
-      const prefillItems = enabledItems.filter(i => i.position === 'assistant_prefill')
-      if (prefillItems.length > 0) {
-        let prefillContent = prefillItems.map(i => i.content).join('\n')
-        // 如果用户自定义的预填充结尾带了 <msg>\n，为了防止它干扰多条生成，建议过滤掉，或者我们就不强行加 stop 了
-        payloadMessages.push({ role: 'assistant', content: prefillContent })
-      }
-    }
-  }
-  // --- 结束 COT 注入 ---
+  // payloadReady 表示调用方已完成相同装饰，避免二次注入。
+  const payloadMessages = payloadReady ? JSON.parse(JSON.stringify(messages)) : decorateChatPayload(messages, isSummary, purpose)
 
   console.log('--- 发送给 AI 的请求数据 ---')
   console.log('Messages:', payloadMessages)
@@ -226,6 +214,8 @@ export async function sendChatMessage(
 
   let response: Response
   let tokensUsage = 0
+  let inputTokensUsage = 0
+  let outputTokensUsage = 0
   try {
     response = await fetch(preparedRequest.endpoint, {
       signal,
@@ -307,6 +297,9 @@ export async function sendChatMessage(
             if (delta.content) content += delta.content
             if (delta.thinking) thinking += delta.thinking
             if (delta.stopReason) stopReason = delta.stopReason
+            if (delta.tokens) tokensUsage = delta.tokens
+            if (delta.inputTokens) inputTokensUsage = delta.inputTokens
+            if (delta.outputTokens) outputTokensUsage = delta.outputTokens
           } catch (e) {
             // 忽略解析失败的非标准块
           }
@@ -321,6 +314,9 @@ export async function sendChatMessage(
         if (delta.content) content += delta.content
         if (delta.thinking) thinking += delta.thinking
         if (delta.stopReason) stopReason = delta.stopReason
+        if (delta.tokens) tokensUsage = delta.tokens
+        if (delta.inputTokens) inputTokensUsage = delta.inputTokens
+        if (delta.outputTokens) outputTokensUsage = delta.outputTokens
       } catch (e) {}
     }
     
@@ -336,7 +332,13 @@ export async function sendChatMessage(
     content = parsed.content
     thinking = parsed.thinking
     if (parsed.tokens) tokensUsage = parsed.tokens
+    if (parsed.inputTokens) inputTokensUsage = parsed.inputTokens
+    if (parsed.outputTokens) outputTokensUsage = parsed.outputTokens
     stopReason = parsed.stopReason || ''
+  }
+
+  if (inputTokensUsage > 0 || outputTokensUsage > 0) {
+    tokensUsage = inputTokensUsage + outputTokensUsage
   }
 
   // 记录成功日志
@@ -379,6 +381,18 @@ export async function sendChatMessage(
     stopReason,
     truncated: ['length', 'max_tokens', 'MAX_TOKENS'].includes(stopReason)
   }).catch(() => {})
+
+  if (tokensUsage > 0) {
+    saveTokenUsageSnapshot({
+      chatId: diagnosticContext?.chatId,
+      model,
+      provider: activeSettings.provider,
+      inputTokens: inputTokensUsage,
+      outputTokens: outputTokensUsage,
+      totalTokens: tokensUsage,
+      createdAt: Date.now()
+    })
+  }
 
   // 返回对象格式以支持 thinking
   return {

@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import localforage from 'localforage'
 import { embeddingApiSettings, globalPromptSettings } from '../store'
+import { estimateTextTokens } from '../utils/tokenEstimate'
 
 export type MemoryMode = 'narrative' | 'subjective' | 'event' | 'variable' | 'table' | 'hybrid'
 
@@ -525,12 +526,17 @@ const collectCandidates = (chat: any) => {
   ]
 }
 
-export const buildMemoryPacket = async (chat: any, query: string, tokenBudget?: number) => {
+export const buildMemoryPacket = async (
+  chat: any,
+  query: string,
+  tokenBudget?: number,
+  options: { allowEmbedding?: boolean } = {}
+) => {
   const candidates = collectCandidates(chat)
   if (candidates.length === 0) return ''
   const now = Date.now()
   const vectorScores = new Map<string, number>()
-  if (isEmbeddingReady() && query.trim()) {
+  if (options.allowEmbedding !== false && isEmbeddingReady() && query.trim()) {
     try {
       const [queryVector] = await createEmbeddings([query])
       await vectorStore.iterate<VectorRecord, void>((record) => {
@@ -552,12 +558,11 @@ export const buildMemoryPacket = async (chat: any, query: string, tokenBudget?: 
   }).sort((a, b) => b.score - a.score)
 
   const budget = Math.max(200, Number(tokenBudget || chat.memoryTokenBudget || 1200))
-  const maxChars = budget * 2
   const selected: typeof ranked = []
   let used = 0
   for (const item of ranked) {
-    const lineSize = item.text.length + 16
-    if (selected.length > 0 && used + lineSize > maxChars) continue
+    const lineSize = estimateTextTokens(`- [${item.type}] ${item.text}\n`)
+    if (selected.length > 0 && used + lineSize > budget) continue
     selected.push(item)
     used += lineSize
     if (selected.length >= 16) break

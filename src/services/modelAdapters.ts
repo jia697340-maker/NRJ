@@ -28,6 +28,8 @@ export interface ParsedAdapterResponse {
   content: string
   thinking: string
   tokens?: number
+  inputTokens?: number
+  outputTokens?: number
   stopReason?: string
 }
 
@@ -219,6 +221,8 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       content: blocks.filter((item: any) => item.type === 'text').map((item: any) => item.text || '').join(''),
       thinking: blocks.filter((item: any) => item.type === 'thinking').map((item: any) => item.thinking || '').join('\n'),
       tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0) || undefined,
+      inputTokens: data.usage?.input_tokens,
+      outputTokens: data.usage?.output_tokens,
       stopReason: data.stop_reason
     }
   }
@@ -228,6 +232,8 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       content: parts.filter((item: any) => !item.thought).map((item: any) => item.text || '').join(''),
       thinking: parts.filter((item: any) => item.thought).map((item: any) => item.text || '').join('\n'),
       tokens: data.usageMetadata?.totalTokenCount,
+      inputTokens: data.usageMetadata?.promptTokenCount,
+      outputTokens: data.usageMetadata?.candidatesTokenCount,
       stopReason: data.candidates?.[0]?.finishReason
     }
   }
@@ -236,6 +242,8 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
     content: message.content || '',
     thinking: message.reasoning_content || '',
     tokens: data.usage?.total_tokens,
+    inputTokens: data.usage?.prompt_tokens,
+    outputTokens: data.usage?.completion_tokens,
     stopReason: data.choices?.[0]?.finish_reason
   }
 }
@@ -243,9 +251,15 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
 export const consumeAdapterStreamEvent = (
   profile: PreparedAdapterRequest['profile'],
   data: any
-): { content?: string; thinking?: string; stopReason?: string } => {
+): { content?: string; thinking?: string; stopReason?: string; inputTokens?: number; outputTokens?: number; tokens?: number } => {
   if (profile === 'claude') {
     const delta = data.delta || {}
+    if (data.usage) return {
+      inputTokens: data.usage.input_tokens,
+      outputTokens: data.usage.output_tokens,
+      tokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
+      stopReason: delta.stop_reason
+    }
     if (delta.type === 'text_delta') return { content: delta.text || '' }
     if (delta.type === 'thinking_delta') return { thinking: delta.thinking || '' }
     if (delta.stop_reason) return { stopReason: delta.stop_reason }
@@ -256,9 +270,13 @@ export const consumeAdapterStreamEvent = (
     return {
       content: parts.filter((item: any) => !item.thought).map((item: any) => item.text || '').join(''),
       thinking: parts.filter((item: any) => item.thought).map((item: any) => item.text || '').join(''),
-      stopReason: data.candidates?.[0]?.finishReason
+      stopReason: data.candidates?.[0]?.finishReason,
+      inputTokens: data.usageMetadata?.promptTokenCount,
+      outputTokens: data.usageMetadata?.candidatesTokenCount,
+      tokens: data.usageMetadata?.totalTokenCount
     }
   }
   const delta = data.choices?.[0]?.delta || {}
+  if (data.usage) return { inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens, tokens: data.usage.total_tokens }
   return { content: delta.content || '', thinking: delta.reasoning_content || '', stopReason: data.choices?.[0]?.finish_reason }
 }

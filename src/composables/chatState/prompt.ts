@@ -3,6 +3,7 @@ import { worldBooks, globalPromptSettings, chatSettings } from '../../store'
 import { getEffectiveUserProfile } from '../useChatUserProfiles'
 import { myProfile } from './state'
 import { buildOfflineMeetPrompt } from '../useOfflineMeetPrompt'
+import { pushContextTrace, type ContextTraceCollector } from '../../services/contextTrace'
 import {
   buildEnglishCallFormatRules,
   buildEnglishFormatRules,
@@ -17,7 +18,13 @@ import {
   englishOfflineFormatRules
 } from '../../services/promptRuntimeEnglish'
 
-export const buildSystemPrompt = (chat: any, roleEmojisStr: string = '无', callMode: false | 'voice' | 'video' = false, offlineMeetMode: false | 'mixed' | 'separate' = false) => {
+export const buildSystemPrompt = (
+  chat: any,
+  roleEmojisStr: string = '无',
+  callMode: false | 'voice' | 'video' = false,
+  offlineMeetMode: false | 'mixed' | 'separate' = false,
+  trace?: ContextTraceCollector
+) => {
   const charName = chat.name || '角色'
   const userProfile = getEffectiveUserProfile(chat, myProfile.value)
   const userName = userProfile.name || '我'
@@ -306,5 +313,70 @@ ${usesNaturalPromptV2
     return content
   })
 
-  return resolvedPrompts.join('\n\n') + memoryBookContext + finalVoiceRules + relationshipRules + (offlineMeetMode ? buildOfflineMeetPrompt(chat, offlineMeetMode, userProfile) : '') + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
+  const groupForPrompt = (id: string) => {
+    if (id === 'prompt_core_identity' || id === 'prompt_finalize') return '身份与收束'
+    if (id === 'prompt_format_rules') return '输出格式与协议'
+    if (id.includes('moment')) return '朋友圈能力'
+    if (id.includes('voice_call') || id.includes('video_call')) return '通话能力'
+    if (id.includes('voice')) return '语音能力'
+    if (id.includes('emoji')) return '表情包能力'
+    if (id.includes('transfer')) return '红包与转账'
+    if (id.includes('recall') || id.includes('quote')) return '撤回与引用'
+    if (id.includes('media')) return '图片与媒体'
+    if (id.includes('thought')) return '心声规则'
+    if (id.includes('status')) return '状态与离线'
+    if (!id.startsWith('prompt_')) return '自定义提示词'
+    return '行为与演绎规则'
+  }
+
+  resolvedPrompts.forEach((content, index) => {
+    const item = activePromptItems[index]
+    const base = { sourceId: item.id, reason: `已启用底层提示词「${item.name}」` }
+    if (item.id === 'prompt_char_persona') {
+      pushContextTrace(trace, { ...base, id: `${item.id}:persona`, category: 'system', group: '角色人设', label: '角色人设正文', text: String(chat.persona || '') })
+      pushContextTrace(trace, { ...base, id: `${item.id}:wrapper`, category: 'system', group: '角色人设', label: '角色人设说明与标题', text: content.replace(String(chat.persona || ''), '') })
+      return
+    }
+    if (item.id === 'prompt_user_persona') {
+      pushContextTrace(trace, { ...base, id: `${item.id}:persona`, category: 'system', group: '用户人设', label: '用户人设正文', text: String(userProfile.persona || '') })
+      pushContextTrace(trace, { ...base, id: `${item.id}:wrapper`, category: 'system', group: '用户人设', label: '用户人设说明与标题', text: content.replace(String(userProfile.persona || ''), '') })
+      return
+    }
+    if (item.id === 'prompt_world_book') {
+      pushContextTrace(trace, { ...base, id: `${item.id}:world`, category: 'world', group: '世界书正文', label: '本轮世界设定正文', text: worldBookContent })
+      const boundBooks = worldBooks.filter((book: any) => chat.boundWorldBooks?.includes(book.id) && book.enabled)
+      boundBooks.forEach((book: any) => (book.entries || []).filter((entry: any) => entry.enabled).forEach((entry: any) => {
+        pushContextTrace(trace, {
+          id: `world:${book.id}:${entry.id || entry.title}`,
+          parentId: `${item.id}:world`,
+          category: 'world',
+          group: book.title || book.name || '世界书',
+          label: entry.title || '未命名条目',
+          text: `${entry.title || ''}: ${entry.content || ''}`,
+          counted: false,
+          reason: `关联并启用了世界书「${book.title || book.name || '未命名'}」`
+        })
+      }))
+      pushContextTrace(trace, { ...base, id: `${item.id}:time`, category: 'system', group: '时间与状态', label: '当前时间上下文', text: timeContext })
+      const wrapper = content.replace(worldBookContent || (usesEnglishPrompt ? '(No world setting provided)' : '（无世界设定）'), '').replace(timeContext, '')
+      pushContextTrace(trace, { ...base, id: `${item.id}:wrapper`, category: 'system', group: '输出格式与协议', label: '世界设定标题与说明', text: wrapper })
+      return
+    }
+    pushContextTrace(trace, {
+      ...base,
+      id: item.id,
+      category: 'system',
+      group: groupForPrompt(item.id),
+      label: item.name,
+      text: content
+    })
+  })
+
+  const offlinePrompt = offlineMeetMode ? buildOfflineMeetPrompt(chat, offlineMeetMode, userProfile) : ''
+  pushContextTrace(trace, { id: 'runtime:voice', category: 'system', group: '语音能力', label: '语音回复附加规则', text: finalVoiceRules, reason: '当前角色开启了语音回复' })
+  pushContextTrace(trace, { id: 'runtime:relationship', category: 'system', group: '关系规则', label: '好友关系附加规则', text: relationshipRules, reason: '依据当前好友与拉黑状态生成' })
+  pushContextTrace(trace, { id: 'runtime:offline', category: 'system', group: '线下模式', label: '线下互动规则', text: offlinePrompt, reason: '当前处于线下互动模式' })
+  pushContextTrace(trace, { id: 'runtime:language', category: 'system', group: '输出格式与协议', label: '对白语言保护规则', text: usesEnglishPrompt ? englishDialogueLanguageGuard : '', reason: '当前使用英文底层提示词' })
+
+  return resolvedPrompts.join('\n\n') + memoryBookContext + finalVoiceRules + relationshipRules + offlinePrompt + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
 }

@@ -11,6 +11,7 @@ import { buildOfflinePostHistoryPrompt } from '../useOfflineMeetPrompt'
 import { useVoiceCall } from '../useVoiceCall'
 import { useVideoCall } from '../useVideoCall'
 import { globalPromptSettings } from '../../store'
+import { pushContextTrace, type ContextTraceCollector } from '../../services/contextTrace'
 
 // 将 Blob 转为 Base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -53,6 +54,8 @@ const extractFirstFrameFromGif = async (urlOrBase64: string): Promise<string> =>
 
 type BuildChatMessagesOptions = {
   includeMedia?: boolean
+  allowExternalMemoryLookup?: boolean
+  trace?: ContextTraceCollector
 }
 
 export const buildChatMessages = async (
@@ -172,8 +175,17 @@ export const buildChatMessages = async (
   const latestMemoryQuery = [...memoryQueryMessages].reverse().find((item: any) =>
       (item?.type === 'left' || item?.type === 'right' || item?.type === 'system' || item?.type === 'narration') && !item?.isUndelivered
   )?.content || ''
-  const memoryPacket = await buildMemoryPacket(chat, String(latestMemoryQuery), chat.memoryTokenBudget)
-  const sysPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode) + buildBilingualPrompt(chat) + memoryPacket + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
+  const memoryPacket = await buildMemoryPacket(chat, String(latestMemoryQuery), chat.memoryTokenBudget, {
+    allowEmbedding: options.allowExternalMemoryLookup !== false
+  })
+  const baseSystemPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode, options.trace)
+  const bilingualPrompt = buildBilingualPrompt(chat)
+  const sysPrompt = baseSystemPrompt + bilingualPrompt + memoryPacket + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
+  pushContextTrace(options.trace, { id: 'runtime:bilingual', category: 'system', group: '输出格式与协议', label: '双语对话规则', text: bilingualPrompt, reason: '当前聊天开启了双语输出' })
+  pushContextTrace(options.trace, { id: 'runtime:memory', category: 'memory', group: '本轮召回', label: '按需长期记忆包', text: memoryPacket, reason: '按当前话题、重要度与时间筛选' })
+  pushContextTrace(options.trace, { id: 'runtime:moments', category: 'system', group: '朋友圈能力', label: '朋友圈当前行为规则', text: momentBehaviorPrompt, reason: chat.enableCharMoments === false ? '朋友圈已关闭，注入禁用说明' : '依据当前朋友圈模式生成' })
+  pushContextTrace(options.trace, { id: 'runtime:call-summary', category: 'memory', group: '通话临时记忆', label: '本次通话前半段提要', text: callTempSummaryContext, reason: '当前通话存在临时总结' })
+  pushContextTrace(options.trace, { id: 'runtime:call-mode', category: 'system', group: '通话能力', label: '当前通话模式规则', text: callModePrompt, reason: '当前处于语音或视频通话' })
   
   if (chat.enableRoleEmojiVision && roleEmojiImages.length > 0) {
     const contentArr: any[] = [{ type: 'text', text: sysPrompt }]
@@ -441,12 +453,34 @@ export const buildChatMessages = async (
           content: formattedContent
         })
       }
+      pushContextTrace(options.trace, {
+        id: `history:${msg.id}`,
+        category: 'history',
+        group: msg.type === 'right' ? '用户消息' : msg.type === 'left' ? '角色消息' : msg.type === 'narration' ? '旁白' : '系统通知',
+        label: `${msg.type === 'right' ? userProfile.name || '用户' : msg.type === 'left' ? chat.name || '角色' : msg.type === 'narration' ? '旁白' : '系统通知'} · ${String(formattedContent).slice(0, 30) || '空消息'}`,
+        text: String(formattedContent || ''),
+        messageRole: msg.type === 'left' || msg.type === 'narration' ? 'assistant' : 'user',
+        messageId: msg.id,
+        reason: '位于当前历史消息保留范围内'
+      })
+      if (mediaBase64) {
+        pushContextTrace(options.trace, {
+          id: `media:${msg.id}`,
+          category: 'media',
+          group: isEmojiMessage ? '表情包图像' : '聊天图片',
+          label: isEmojiMessage ? emojiName || '表情包' : imageDescription || '图片',
+          text: '[图片内容由模型平台按尺寸另行计费]',
+          messageId: msg.id,
+          reason: '该媒体未被文字总结替代'
+        })
+      }
     }
   }
 
   if (offlineMeetMode) {
     const postHistoryPrompt = buildOfflinePostHistoryPrompt(chat, userProfile)
     if (postHistoryPrompt) messages.push({ role: 'system', content: postHistoryPrompt })
+    pushContextTrace(options.trace, { id: 'runtime:offline-history', category: 'system', group: '线下模式', label: '线下结束后历史规则', text: postHistoryPrompt, reason: '当前处于线下互动模式' })
   }
 
   return messages

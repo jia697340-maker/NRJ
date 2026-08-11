@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import localforage from 'localforage'
+import { estimateTextTokens } from '../utils/tokenEstimate'
 
 export const DIAGNOSTIC_SETTINGS_KEY = 'clingy_diagnostic_settings_v1'
 export const DIAGNOSTIC_UPDATED_EVENT = 'clingy-diagnostics-updated'
@@ -108,7 +109,7 @@ export const saveDiagnosticSettings = (settings: DiagnosticSettings) => {
   return normalized
 }
 
-const estimateTokens = (text: string) => Math.max(0, Math.ceil(text.length * 1.2))
+const estimateTokens = (text: string) => estimateTextTokens(text)
 
 const redactText = (value: string) => value
   .replace(/\b(sk|key|token|bearer)[-_][a-z0-9_-]{12,}\b/gi, '[已脱敏]')

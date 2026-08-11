@@ -21,6 +21,13 @@ export const estimateTextTokens = (text: string): number => {
   return Math.max(1, Math.ceil(cjkCount * 1.05 + latinTokens + numberTokens + remainingTokens))
 }
 
+export const estimateMessageTokens = (text: string, framingTokens = 4): number => {
+  if (!String(text || '')) return framingTokens
+  return estimateTextTokens(text) + framingTokens
+}
+
+export const getTokenEstimateMethodLabel = (): string => '中英混合本地估算'
+
 export const formatEstimatedTokens = (tokens: number): string => {
   if (tokens >= 1000) {
     const value = tokens >= 10000 ? Math.round(tokens / 1000) : Math.round(tokens / 100) / 10
