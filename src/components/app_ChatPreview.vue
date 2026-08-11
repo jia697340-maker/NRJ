@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import AvatarUploadModal from './AvatarUploadModal.vue'
 import AppChatDiscover from './app_ChatDiscover.vue'
 import AppChatContacts from './app_ChatContacts.vue'
@@ -18,12 +18,18 @@ import { useChatAuth } from '../composables/useChatAuth'
 import { useChatSettingsSave } from '../composables/useChatSettingsSave'
 import { processDueRelationshipTimers } from '../composables/useChatRelationship'
 import { useRelationshipAdvance } from '../composables/useRelationshipAdvance'
-import { runDueAutonomyChecks } from '../services/characterAutonomy'
+import { persistAutonomyChat, runDueAutonomyChecks } from '../services/characterAutonomy'
 import {
   applyUserProfileToChat,
   loadUserPersonas,
   personaToSnapshot
 } from '../composables/useChatUserProfiles'
+
+const props = withDefaults(defineProps<{
+  isActive?: boolean
+}>(), {
+  isActive: false
+})
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -38,6 +44,7 @@ const {
   avatarStore,
   activeGroup,
   totalUnreadCount,
+  setActiveChatContext,
   loadCustomContacts,
   loadMyProfile
 } = useChatState()
@@ -54,6 +61,7 @@ type VoiceCallState = {
 }
 
 const currentView = ref<ViewType>('list')
+const pageIsVisible = ref(document.visibilityState === 'visible')
 const activeTab = ref('消息')
 const tabs = ['消息', '联系人', '发现', '我的']
 
@@ -83,9 +91,25 @@ const reconcileRelationshipTimers = () => {
 }
 
 const reconcileAutonomy = () => {
-  if (document.visibilityState !== 'visible') return
+  pageIsVisible.value = document.visibilityState === 'visible'
+  if (!pageIsVisible.value) return
   void runDueAutonomyChecks('resume')
 }
+
+const characterContextViews = new Set<ViewType>(['chat', 'chatSettings', 'autonomy', 'relationship', 'offlineMeet'])
+
+watch(
+  [() => props.isActive, pageIsVisible, currentView, () => selectedChat.value?.id, () => selectedChat.value?.unread],
+  ([appActive, visible, view]) => {
+    const inCharacterContext = Boolean(appActive && visible && characterContextViews.has(view as ViewType) && selectedChat.value)
+    setActiveChatContext(inCharacterContext ? selectedChat.value.id : null)
+    if (inCharacterContext && selectedChat.value.unread > 0) {
+      selectedChat.value.unread = 0
+      persistAutonomyChat(selectedChat.value)
+    }
+  },
+  { immediate: true, flush: 'sync' }
+)
 
 const isGlobalCallWidgetVisible = computed(() => {
   return !!currentChatUserId.value && voiceCallState.value.active && currentView.value !== 'chat'
@@ -422,6 +446,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  setActiveChatContext(null)
   window.removeEventListener('resize', initGlobalCallWidgetPosition)
   if (relationshipTimer) window.clearInterval(relationshipTimer)
   document.removeEventListener('visibilitychange', reconcileRelationshipTimers)
@@ -469,6 +494,7 @@ onUnmounted(() => {
     <ChatRoomView 
       v-if="hasOpenedChat"
       v-show="currentView === 'chat'"
+      :is-visible="props.isActive && currentView === 'chat'"
       ref="chatRoomRef"
       @back="currentView = 'list'"
       @open-settings="currentView = 'chatSettings'"

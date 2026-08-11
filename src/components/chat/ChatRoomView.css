@@ -797,7 +797,7 @@
   backdrop-filter: blur(10px); 
   -webkit-backdrop-filter: blur(10px);
   /* 基础内边距加上底部安全区 */
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: var(--app-safe-bottom, env(safe-area-inset-bottom, 0px));
   border-top: 1px solid rgba(0, 0, 0, 0.05);
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 100;

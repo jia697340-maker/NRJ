@@ -2,7 +2,7 @@
 
 /* ================= 全局灰阶与极简基础 ================= */
 .app-chat-wrapper {
-  position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 100; overflow: hidden; overflow-x: hidden; display: flex; flex-direction: column;
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; z-index: 100; overflow: hidden; overflow-x: hidden; display: flex; flex-direction: column;
   background-color: var(--sys-bg-secondary); /* 纯白背景 */
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Helvetica, sans-serif;
   color: #1a1a1a; /* 增强对比度 */
@@ -13,7 +13,7 @@
   background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noise)" opacity="0.03"/></svg>');
 }
 
-.view-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; z-index: 1; }
+.view-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; z-index: 1; }
 .with-tabbar { height: 100%; padding-bottom: 90px; }
 .full-height { height: 100%; z-index: 10; background-color: var(--sys-bg-secondary); }
 
@@ -606,7 +606,7 @@
   font-weight: 500;
 }
 
-.message-area { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 24px; padding-bottom: 60px; }
+.message-area { flex: 1 1 0; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 20px; display: flex; flex-direction: column; gap: 24px; padding-bottom: 60px; }
 .message-row { display: flex; width: 100%; align-items: flex-start; gap: 12px; }
 .message-row.time { justify-content: center; align-items: center; margin: -4px 0; }
 .message-row.left { justify-content: flex-start; }
@@ -624,13 +624,26 @@
 .bubble-left { border-top-left-radius: 4px; }
 .bubble-right { border-top-right-radius: 4px; }
 
-.bottom-input-area { position: absolute; bottom: 0; left: 0; width: 100%; padding: 0 16px; padding-bottom: env(safe-area-inset-bottom, 0px); z-index: 20; background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-top: 1px solid rgba(0, 0, 0, 0.05); }
-.input-flat-bar { height: 56px; display: flex; align-items: center; gap: 12px; }
-.icon-group-left, .icon-group-right { display: flex; align-items: center; gap: 16px; }
+.bottom-input-area { position: absolute; bottom: 0; left: 0; width: 100%; min-width: 0; padding: 0 16px; padding-bottom: var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)); z-index: 20; background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-top: 1px solid rgba(0, 0, 0, 0.05); }
+.input-flat-bar { width: 100%; min-width: 0; height: 56px; display: flex; align-items: center; gap: 12px; }
+.icon-group-left, .icon-group-right { display: flex; flex: 0 0 auto; align-items: center; gap: 16px; }
 .slim { color: var(--text-tertiary); }
 .primary { color: var(--text-primary); }
-.text-input { flex: 1; height: 100%; background: transparent; border: none; outline: none; font-size: 15px; color: var(--text-primary); padding: 0 8px; }
+.text-input { flex: 1 1 0; width: 0; min-width: 0; height: 100%; background: transparent; border: none; outline: none; font-size: 15px; color: var(--text-primary); padding: 0 8px; }
 .text-input::placeholder { color: #cccccc; }
+
+@media (max-width: 380px) {
+  .bottom-input-area { padding-left: 10px; padding-right: 10px; }
+  .input-flat-bar { gap: 7px; }
+  .icon-group-left, .icon-group-right { gap: 10px; }
+  .text-input { padding-left: 4px; padding-right: 4px; font-size: 14px; }
+}
+
+@media (max-width: 340px) {
+  .bottom-input-area { padding-left: 7px; padding-right: 7px; }
+  .input-flat-bar { gap: 5px; }
+  .icon-group-left, .icon-group-right { gap: 7px; }
+}
 
 /* 无界档案画布排版 */
 .canvas-modal-overlay {

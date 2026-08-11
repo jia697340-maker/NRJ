@@ -39,6 +39,7 @@ const emit = defineEmits<{
   (e: 'toggle-mixed-offline'): void
   (e: 'open-relationship'): void
   (e: 'advance-relationship'): void
+  (e: 'focus-input'): void
   (e: 'update:showExtensionPanel', val: boolean): void
   (e: 'update:showEmojiPanel', val: boolean): void
 }>()
@@ -61,6 +62,7 @@ const handleAddMessage = () => {
 const onFocusInput = () => {
   emit('update:showExtensionPanel', false)
   emit('update:showEmojiPanel', false)
+  emit('focus-input')
 }
 </script>
 

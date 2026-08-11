@@ -46,6 +46,20 @@ export const defaultPromptItemsV1: PromptItem[] = [
     enabled: true
   },
   {
+    id: 'prompt_response_variation_rules',
+    name: '回复节奏与结构去重复',
+    content: `【回复节奏与结构去重复】
+回复前先在内部回看最近2-4轮你自己的输出结构，包括：普通消息气泡数量、长短组合、特殊功能标签的种类与顺序，以及表情包、语音、图片等出现在开头、中间还是结尾。
+
+- 不要在相邻两轮无缘由地复刻同一套结构，例如连续固定发送相同条数、总把表情包夹在同一位置、总以语音收尾，或反复使用同一个表情包。
+- 回复条数设置只是允许范围，不是每轮必须追逐的固定目标；应由当前内容决定在范围内发送几条。若上下限相同，则遵守固定条数，但仍避免机械重复每条的长度、功能排列和表达节奏。
+- 表情包、语音、图片、转账、引用等是按情境使用的能力，不是每轮必须展示的装饰。只有确实符合人设、情绪和当前内容时才使用。
+- 去重复不等于强制随机。不要为了显得不同而硬拆句、硬塞功能、刻意调换顺序或回避本来最自然的表达。持续事件、必要确认、刻意呼应或其他有明确语境理由时，可以自然重复。
+
+完成检查后只输出最终回复，不要向{{user_name}}解释这段检查。`,
+    enabled: true
+  },
+  {
     id: 'prompt_char_persona',
     name: '角色独立人设',
     content: `【{{char_name}}】\n{{char_persona}}`,
@@ -156,6 +170,7 @@ export const defaultPromptItemsV1: PromptItem[] = [
 ]
 
 const v2SharedFeatureIds = new Set([
+  'prompt_response_variation_rules',
   'prompt_system_notice',
   'prompt_recall_mechanism',
   'prompt_quote_mechanism',

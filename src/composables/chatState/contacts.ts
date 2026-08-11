@@ -61,6 +61,13 @@ export const loadCustomContacts = async () => {
       }
     }
     
+    const autonomyHistory = Array.isArray(c.autonomyHistory) ? c.autonomyHistory : []
+    const autonomyState = c.autonomyState && typeof c.autonomyState === 'object' ? { ...c.autonomyState } : {}
+    const hasRecordedStatus = autonomyHistory.some((event: any) => event?.type === 'status' && !event?.blockedReason)
+    if (autonomyState.status === 'offline' && !autonomyState.statusSetAt && !hasRecordedStatus) {
+      delete autonomyState.status
+    }
+
     customChats.push({
       id: c.id,
       name: c.remark || c.name,
@@ -175,16 +182,19 @@ export const loadCustomContacts = async () => {
       enableImmersiveStatus: c.enableImmersiveStatus ?? false,
       statusText: c.statusText || '',
       offlineUntil: c.offlineUntil || 0,
+      statusSource: c.statusSource || '',
+      statusSetAt: c.statusSetAt || 0,
       autonomyEnabled: c.autonomyEnabled ?? false,
       autonomyAllowMessages: c.autonomyAllowMessages ?? true,
       autonomyAllowMoments: c.autonomyAllowMoments ?? true,
-      autonomyAllowStatus: c.autonomyAllowStatus ?? true,
+      autonomyAllowStatus: c.autonomyStatusPermissionExplicit === true ? c.autonomyAllowStatus === true : false,
+      autonomyStatusPermissionExplicit: c.autonomyStatusPermissionExplicit === true,
       autonomyCatchup: c.autonomyCatchup ?? true,
       autonomyActiveStart: c.autonomyActiveStart ?? 8,
       autonomyActiveEnd: c.autonomyActiveEnd ?? 24,
       autonomyMinIntervalMinutes: c.autonomyMinIntervalMinutes ?? 45,
-      autonomyHistory: Array.isArray(c.autonomyHistory) ? c.autonomyHistory : [],
-      autonomyState: c.autonomyState || null,
+      autonomyHistory,
+      autonomyState,
       isTyping: currentTypingState.get(c.id) || false
     })
   }

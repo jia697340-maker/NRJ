@@ -6,6 +6,15 @@ import { getEffectiveUserProfile } from '../useChatUserProfiles'
 // 全局共享状态（单例外置）
 export const mockChats = ref<any[]>([])
 export const selectedChat = ref<any | null>(null)
+export const activeChatContextId = ref<string | number | null>(null)
+
+export const setActiveChatContext = (id: string | number | null) => {
+  activeChatContextId.value = id
+}
+
+export const isChatContextVisible = (id: string | number) => (
+  activeChatContextId.value !== null && String(activeChatContextId.value) === String(id)
+)
 
 export const myProfile = ref({
   name: '我',

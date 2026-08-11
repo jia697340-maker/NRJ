@@ -7,7 +7,7 @@ export * from './chatState/prompt'
 export * from './chatState/messages'
 export * from './chatState/transfers'
 
-import { mockChats, selectedChat, myProfile, effectiveMyProfile, customGroups, activeGroup, isSidebarOpen, avatarStore, totalUnreadCount, switchChat } from './chatState/state'
+import { mockChats, selectedChat, myProfile, effectiveMyProfile, customGroups, activeGroup, isSidebarOpen, avatarStore, totalUnreadCount, switchChat, activeChatContextId, setActiveChatContext, isChatContextVisible } from './chatState/state'
 import { globalNotifications, showNotification, dismissNotification } from './chatState/notifications'
 import { sortChats, loadCustomContacts, deleteChats } from './chatState/contacts'
 import { loadMyProfile, saveMyProfile } from './chatState/profile'
@@ -18,6 +18,9 @@ export function useChatState() {
   return {
     mockChats,
     selectedChat,
+    activeChatContextId,
+    setActiveChatContext,
+    isChatContextVisible,
     switchChat,
     checkTransfersExpired,
     myProfile,

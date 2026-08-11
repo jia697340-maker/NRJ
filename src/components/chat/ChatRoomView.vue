@@ -47,6 +47,12 @@ import ChatRoomMessageList from './room/ChatRoomMessageList.vue'
 import ChatRoomInputArea from './room/ChatRoomInputArea.vue'
 import ChatVoiceCallWidget from './room/ChatVoiceCallWidget.vue'
 
+const props = withDefaults(defineProps<{
+  isVisible?: boolean
+}>(), {
+  isVisible: false
+})
+
 // 提前声明将被 composable 引用的基础函数，解决 500 报错
 const toastVisible = ref(false)
 const toastMessage = ref('')
@@ -75,10 +81,22 @@ async function scrollToBottom() {
   }
 }
 
+const keepLatestMessageVisible = () => {
+  void scrollToBottom()
+  requestAnimationFrame(() => void scrollToBottom())
+  window.setTimeout(() => void scrollToBottom(), 280)
+}
+
+const handleAppViewportChange = () => {
+  if (!(document.activeElement instanceof HTMLElement) || !document.activeElement.matches('.text-input')) return
+  keepLatestMessageVisible()
+}
+
 function saveCustomContacts(targetChat: any = selectedChat.value) {
   if (!targetChat) return
   if (targetChat.id === 1) {
     localStorage.setItem('clingy_system_messages', JSON.stringify(targetChat.messages))
+    localStorage.setItem('clingy_system_notice_read', targetChat.unread > 0 ? '0' : '1')
     return
   }
   const { currentChatUserId } = useChatAuth()
@@ -98,6 +116,7 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
       contacts[index].activeOfflineSessionId = targetChat.activeOfflineSessionId || null
       contacts[index].preview = targetChat.preview
       contacts[index].time = targetChat.time
+      contacts[index].unread = targetChat.unread || 0
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
     }
   }
@@ -421,7 +440,23 @@ const shouldShowName = (msg: any, index: number, messages: any[]) => {
 const currentDateStr = ref('')
 const currentDayStr = ref('')
 let timeInterval: any
-const isRoomActive = ref(false)
+const pageIsVisible = ref(document.visibilityState === 'visible')
+const isRoomActive = computed(() => props.isVisible && pageIsVisible.value)
+
+const handleDocumentVisibilityChange = () => {
+  pageIsVisible.value = document.visibilityState === 'visible'
+}
+
+watch(
+  [isRoomActive, () => selectedChat.value?.id],
+  ([active]) => {
+    const chat = selectedChat.value
+    if (!active || !chat || !(chat.unread > 0)) return
+    chat.unread = 0
+    saveCustomContacts(chat)
+  },
+  { flush: 'sync' }
+)
 
 const handleCancelImageGeneration = (msgId: number) => {
   handleStopCall()
@@ -887,7 +922,8 @@ watch(isGenerating, (newVal) => {
 })
 
 onMounted(() => {
-  isRoomActive.value = true
+  handleDocumentVisibilityChange()
+  document.addEventListener('visibilitychange', handleDocumentVisibilityChange)
   loadEmojis()
   updateTime()
   loadRoomAssets()
@@ -899,15 +935,17 @@ onMounted(() => {
     checkTransfersExpired()
   }, 60000)
   scrollToBottom()
+  window.addEventListener('app-viewport-change', handleAppViewportChange)
 
   mountTestError()
 })
 
 onUnmounted(() => {
-  isRoomActive.value = false
+  document.removeEventListener('visibilitychange', handleDocumentVisibilityChange)
   if (autoSummaryTimer) clearTimeout(autoSummaryTimer)
   if (timeInterval) clearInterval(timeInterval)
   stopVoice()
+  window.removeEventListener('app-viewport-change', handleAppViewportChange)
   if (callStatus.value === 'incoming') {
     handleIncomingCallMissed('timeout')
   }
@@ -1172,6 +1210,7 @@ onUnmounted(() => {
       @toggle-mixed-offline="toggleMixedOfflineSession"
       @open-relationship="emit('open-relationship')"
       @advance-relationship="handleRelationshipAdvance"
+      @focus-input="keepLatestMessageVisible"
       @update:showExtensionPanel="showExtensionPanel = $event"
       @update:showEmojiPanel="showEmojiPanel = $event"
     />

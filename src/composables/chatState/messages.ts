@@ -259,7 +259,9 @@ export const buildChatMessages = async (
       
       let isVoice = false
       let isImage = false
+      let isTransferMessage = false
       let voiceSeconds = 0
+      let imageDescription = ''
 
       let isEmojiMessage = false
       let emojiName = ''
@@ -278,6 +280,7 @@ export const buildChatMessages = async (
         }
       } else if (msg.imageData) {
         isImage = true
+        imageDescription = msg.imageData.text || msg.imageData.summary || msg.content || '图片'
         const prefix = msg.type === 'left' ? '我' : '对方'
         const verb = msg.type === 'left' ? '发送了' : '发来'
         
@@ -291,18 +294,20 @@ export const buildChatMessages = async (
         // 如果是一条语音消息，给AI特殊的XML标签解析
         isVoice = true
         voiceSeconds = msg.voiceData.seconds
-        formattedContent = `[对方发来一段语音，转文字内容：${msg.voiceData.text}]`
+        formattedContent = msg.type === 'left'
+          ? `[我发送了一段语音，内容：${msg.voiceData.text}]`
+          : `[对方发来一段语音，转文字内容：${msg.voiceData.text}]`
       } else if (msg.transferData) {
         // 对转账红包的特殊解析渲染给AI
+        isTransferMessage = true
         const td = msg.transferData
-        if (td.type === 'transfer') {
+        if (msg.type === 'left') {
+          const actionTag = td.type === 'red_packet' ? 'send_red_packet' : 'send_transfer'
+          formattedContent = `<${actionTag} amount="${td.amount}">${td.remark}</${actionTag}>`
+        } else if (td.type === 'transfer') {
           formattedContent = `<transfer id="${td.id}" status="${td.status}" amount="${td.amount}" remark="${td.remark}">`
         } else if (td.type === 'red_packet') {
-          if (msg.type === 'left') {
-             formattedContent = `<red_packet id="${td.id}" status="${td.status}" amount="${td.amount}" remark="${td.remark}">`
-          } else {
-             formattedContent = `<red_packet id="${td.id}" status="${td.status}" remark="${td.remark}">` // 不透露金额
-          }
+          formattedContent = `<red_packet id="${td.id}" status="${td.status}" remark="${td.remark}">` // 不透露金额
         }
       }
 
@@ -374,12 +379,20 @@ export const buildChatMessages = async (
           formattedContent = formattedContent.replace('<narration ', `<narration time="${timeStr}" `)
         } else if (isSystemNotice) {
           formattedContent = `<system_notice time="${timeStr}">${formattedContent}</system_notice>`
-        } else if (isEmojiMessage && msg.type === 'right') {
-          formattedContent = `<user_emoji_msg time="${timeStr}" name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
+        } else if (isEmojiMessage) {
+          formattedContent = msg.type === 'right'
+            ? `<user_emoji_msg time="${timeStr}" name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
+            : `<send_emoji time="${timeStr}">${emojiName}</send_emoji>`
         } else if (isVoice) {
-          formattedContent = `<user_voice_msg time="${timeStr}" seconds="${voiceSeconds}">${quotePrefix}${formattedContent}</user_voice_msg>`
+          formattedContent = msg.type === 'right'
+            ? `<user_voice_msg time="${timeStr}" seconds="${voiceSeconds}">${quotePrefix}${formattedContent}</user_voice_msg>`
+            : `<send_voice time="${timeStr}" seconds="${voiceSeconds}">${msg.voiceData.text}</send_voice>`
         } else if (isImage) {
-          formattedContent = msg.type === 'right' ? `<user_image_msg time="${timeStr}">${quotePrefix}${formattedContent}</user_image_msg>` : `<msg time="${timeStr}">${quotePrefix}${formattedContent}</msg>`
+          formattedContent = msg.type === 'right'
+            ? `<user_image_msg time="${timeStr}">${quotePrefix}${formattedContent}</user_image_msg>`
+            : `<send_image time="${timeStr}">${imageDescription}</send_image>`
+        } else if (isTransferMessage) {
+          formattedContent = formattedContent.replace(/^<([a-z_]+)/, `<$1 time="${timeStr}"`)
         } else if (msg.type === 'right') {
           formattedContent = `<user_msg time="${timeStr}">${quotePrefix}${formattedContent}</user_msg>`
         } else if (msg.type === 'left' && chat.sendCharacterTime !== false) {
@@ -392,12 +405,20 @@ export const buildChatMessages = async (
           // 已在上方恢复为结构化叙述标签，保持原样进入上下文。
         } else if (isSystemNotice) {
           formattedContent = `<system_notice>${formattedContent}</system_notice>`
-        } else if (isEmojiMessage && msg.type === 'right') {
-          formattedContent = `<user_emoji_msg name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
+        } else if (isEmojiMessage) {
+          formattedContent = msg.type === 'right'
+            ? `<user_emoji_msg name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
+            : `<send_emoji>${emojiName}</send_emoji>`
         } else if (isVoice) {
-          formattedContent = `<user_voice_msg seconds="${voiceSeconds}">${quotePrefix}${formattedContent}</user_voice_msg>`
+          formattedContent = msg.type === 'right'
+            ? `<user_voice_msg seconds="${voiceSeconds}">${quotePrefix}${formattedContent}</user_voice_msg>`
+            : `<send_voice seconds="${voiceSeconds}">${msg.voiceData.text}</send_voice>`
         } else if (isImage) {
-          formattedContent = msg.type === 'right' ? `<user_image_msg>${quotePrefix}${formattedContent}</user_image_msg>` : `<msg>${quotePrefix}${formattedContent}</msg>`
+          formattedContent = msg.type === 'right'
+            ? `<user_image_msg>${quotePrefix}${formattedContent}</user_image_msg>`
+            : `<send_image>${imageDescription}</send_image>`
+        } else if (isTransferMessage) {
+          // 转账和红包已经在上方恢复为原始动作标签，保持原样进入上下文。
         } else if (msg.type === 'right') {
           formattedContent = `<user_msg>${quotePrefix}${formattedContent}</user_msg>`
         } else {

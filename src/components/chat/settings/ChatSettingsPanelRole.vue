@@ -36,6 +36,25 @@ const handleSave = () => {
   emit('save')
 }
 
+const toggleImmersiveStatus = (event: Event) => {
+  const enabled = (event.target as HTMLInputElement).checked
+  props.selectedChat.enableImmersiveStatus = enabled
+  if (!enabled) {
+    props.selectedChat.statusText = ''
+    props.selectedChat.offlineUntil = 0
+    props.selectedChat.statusSource = ''
+    props.selectedChat.statusSetAt = 0
+    props.selectedChat.autonomyAllowStatus = false
+    props.selectedChat.autonomyStatusPermissionExplicit = true
+    if (props.selectedChat.autonomyState && typeof props.selectedChat.autonomyState === 'object') {
+      delete props.selectedChat.autonomyState.status
+      delete props.selectedChat.autonomyState.statusSetAt
+      delete props.selectedChat.autonomyState.statusSource
+    }
+  }
+  handleSave()
+}
+
 const bilingualModeLabel = () => ({
   auto: '智能判断',
   forced: '强制指定',
@@ -286,7 +305,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
             <div class="item-label">启用沉浸式状态与时间流逝</div>
             <div class="item-value" style="flex: unset;">
               <label class="switch" @click.stop>
-                <input type="checkbox" :checked="!!selectedChat.enableImmersiveStatus" @change="(e) => { selectedChat.enableImmersiveStatus = (e.target as HTMLInputElement).checked; handleSave(); }">
+                <input type="checkbox" :checked="!!selectedChat.enableImmersiveStatus" @change="toggleImmersiveStatus">
                 <span class="slider"></span>
               </label>
             </div>

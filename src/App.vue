@@ -110,6 +110,38 @@ const phoneCallWidgetStyle = computed(() => ({
 }))
 
 let usageTimer: ReturnType<typeof setInterval>
+let viewportAnimationFrame = 0
+let keyboardBlurTimer: ReturnType<typeof setTimeout> | undefined
+
+const isTextEntryTarget = (target: Element | null) => {
+  if (!(target instanceof HTMLElement)) return false
+  return target.matches('input, textarea, [contenteditable="true"]')
+}
+
+const syncVisualViewport = () => {
+  if (viewportAnimationFrame) cancelAnimationFrame(viewportAnimationFrame)
+  viewportAnimationFrame = requestAnimationFrame(() => {
+    const viewportHeight = window.visualViewport?.height || window.innerHeight
+    const keyboardOpen = isTextEntryTarget(document.activeElement)
+    document.documentElement.style.setProperty('--app-height', `${Math.round(viewportHeight)}px`)
+    document.documentElement.classList.toggle('keyboard-open', keyboardOpen)
+    window.dispatchEvent(new CustomEvent('app-viewport-change', {
+      detail: { height: viewportHeight, keyboardOpen }
+    }))
+  })
+}
+
+const handleViewportFocusIn = (event: FocusEvent) => {
+  if (!isTextEntryTarget(event.target as Element | null)) return
+  if (keyboardBlurTimer) clearTimeout(keyboardBlurTimer)
+  document.documentElement.classList.add('keyboard-open')
+  syncVisualViewport()
+}
+
+const handleViewportFocusOut = () => {
+  if (keyboardBlurTimer) clearTimeout(keyboardBlurTimer)
+  keyboardBlurTimer = setTimeout(syncVisualViewport, 120)
+}
 
 onMounted(async () => {
   if (!isStandaloneApp() && localStorage.getItem(installPromptDismissedKey) !== 'true') {
@@ -123,6 +155,12 @@ onMounted(async () => {
 
   initPhoneCallWidgetPosition()
   window.addEventListener('resize', initPhoneCallWidgetPosition)
+  window.addEventListener('resize', syncVisualViewport)
+  window.visualViewport?.addEventListener('resize', syncVisualViewport)
+  window.visualViewport?.addEventListener('scroll', syncVisualViewport)
+  document.addEventListener('focusin', handleViewportFocusIn)
+  document.addEventListener('focusout', handleViewportFocusOut)
+  syncVisualViewport()
   loadCustomContacts()
   loadMyProfile()
   await loadAppIconsData()
@@ -142,6 +180,14 @@ onUnmounted(() => {
     clearInterval(usageTimer)
   }
   window.removeEventListener('resize', initPhoneCallWidgetPosition)
+  window.removeEventListener('resize', syncVisualViewport)
+  window.visualViewport?.removeEventListener('resize', syncVisualViewport)
+  window.visualViewport?.removeEventListener('scroll', syncVisualViewport)
+  document.removeEventListener('focusin', handleViewportFocusIn)
+  document.removeEventListener('focusout', handleViewportFocusOut)
+  if (viewportAnimationFrame) cancelAnimationFrame(viewportAnimationFrame)
+  if (keyboardBlurTimer) clearTimeout(keyboardBlurTimer)
+  document.documentElement.classList.remove('keyboard-open')
   window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
 })
 
@@ -331,6 +377,7 @@ watch(activeApp, appId => {
       <AppChatPreview 
         v-if="hasOpenedChatApp"
         v-show="activeApp === 'chat'"
+        :is-active="activeApp === 'chat' && !isLocked"
         ref="chatAppRef"
         data-font-app="chat"
         @close="activeApp = null" 

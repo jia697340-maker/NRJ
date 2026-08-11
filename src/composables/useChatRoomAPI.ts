@@ -473,6 +473,11 @@ export function useChatRoomAPI(
           }
           
           if (action.type === 'offline') {
+            if (!chatToUpdate?.enableImmersiveStatus) {
+              console.log('[权限拦截] 沉浸式状态未开启，已忽略角色下线动作。')
+              processNextAction(index + 1)
+              return
+            }
             const timeStr = action.content.trim()
             let addMs = 0
             if (timeStr.endsWith('h')) addMs = parseFloat(timeStr.replace('h', '')) * 3600 * 1000
@@ -481,6 +486,8 @@ export function useChatRoomAPI(
             else if (!isNaN(parseFloat(timeStr))) addMs = parseFloat(timeStr) * 60 * 1000 // 默认分钟
             if (addMs > 0 && chatToUpdate) {
                chatToUpdate.offlineUntil = Date.now() + addMs
+               chatToUpdate.statusSource = 'chat'
+               chatToUpdate.statusSetAt = Date.now()
                console.log(`[沉浸模式] 角色决定下线时长：${timeStr}，折合 ${addMs} ms`)
             }
             processNextAction(index + 1)
@@ -488,9 +495,16 @@ export function useChatRoomAPI(
           }
 
           if (action.type === 'status') {
+            if (!chatToUpdate?.enableImmersiveStatus) {
+              console.log('[权限拦截] 沉浸式状态未开启，已忽略角色状态动作。')
+              processNextAction(index + 1)
+              return
+            }
             const st = action.content.trim()
             if (chatToUpdate) {
                chatToUpdate.statusText = (st.toLowerCase() === 'none') ? '' : st
+               chatToUpdate.statusSource = chatToUpdate.statusText ? 'chat' : ''
+               chatToUpdate.statusSetAt = chatToUpdate.statusText ? Date.now() : 0
                console.log(`[沉浸模式] 角色更新自身状态：${chatToUpdate.statusText}`)
             }
             processNextAction(index + 1)

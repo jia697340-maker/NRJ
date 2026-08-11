@@ -147,10 +147,16 @@ export function useChatSettingsSave() {
         contacts[idx].offlineMeetSessions = selectedChat.value.offlineMeetSessions || []
         contacts[idx].activeOfflineSessionId = selectedChat.value.activeOfflineSessionId || null
         contacts[idx].relationship = selectedChat.value.relationship || null
+        contacts[idx].enableImmersiveStatus = selectedChat.value.enableImmersiveStatus ?? false
+        contacts[idx].statusText = selectedChat.value.statusText || ''
+        contacts[idx].offlineUntil = selectedChat.value.offlineUntil || 0
+        contacts[idx].statusSource = selectedChat.value.statusSource || ''
+        contacts[idx].statusSetAt = selectedChat.value.statusSetAt || 0
         contacts[idx].autonomyEnabled = selectedChat.value.autonomyEnabled ?? false
         contacts[idx].autonomyAllowMessages = selectedChat.value.autonomyAllowMessages ?? true
         contacts[idx].autonomyAllowMoments = selectedChat.value.autonomyAllowMoments ?? true
-        contacts[idx].autonomyAllowStatus = selectedChat.value.autonomyAllowStatus ?? true
+        contacts[idx].autonomyAllowStatus = selectedChat.value.autonomyAllowStatus ?? false
+        contacts[idx].autonomyStatusPermissionExplicit = selectedChat.value.autonomyStatusPermissionExplicit === true
         contacts[idx].autonomyCatchup = selectedChat.value.autonomyCatchup ?? true
         contacts[idx].autonomyActiveStart = selectedChat.value.autonomyActiveStart ?? 8
         contacts[idx].autonomyActiveEnd = selectedChat.value.autonomyActiveEnd ?? 24

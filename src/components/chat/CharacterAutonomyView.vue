@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ensureAutonomyDefaults, persistAutonomyChat, runAutonomousCheck, type AutonomyEvent } from '../../services/characterAutonomy'
+import { disableAutonomyPresence, ensureAutonomyDefaults, persistAutonomyChat, runAutonomousCheck, type AutonomyCheckResult, type AutonomyEvent } from '../../services/characterAutonomy'
 
 const props = defineProps<{ chat: any }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'save'): void }>()
 const running = ref(false)
 const feedback = ref<{ type: 'success' | 'error'; text: string } | null>(null)
+const previewResult = ref<AutonomyCheckResult | null>(null)
 const showClearConfirm = ref(false)
 const filter = ref<'all' | 'message' | 'moment' | 'status'>('all')
 
-onMounted(() => ensureAutonomyDefaults(props.chat))
+onMounted(() => {
+  ensureAutonomyDefaults(props.chat)
+  persistAutonomyChat(props.chat)
+})
 
 const save = () => {
   ensureAutonomyDefaults(props.chat)
@@ -20,7 +24,14 @@ const save = () => {
 const statusLabel = computed(() => {
   if (!props.chat.autonomyEnabled) return '已暂停'
   if (running.value || props.chat.autonomyState?.running) return '正在判断'
-  return ({ online: '在线', offline: '离线', busy: '忙碌', away: '暂离' } as Record<string, string>)[props.chat.autonomyState?.status] || '等待活动'
+  if (!props.chat.enableImmersiveStatus) return '状态功能未开启'
+  if (!props.chat.autonomyAllowStatus) return '自主状态已关闭'
+  return ({ online: '在线', offline: '离线', busy: '忙碌', away: '暂离' } as Record<string, string>)[props.chat.autonomyState?.status] || '尚未设置'
+})
+
+const statusDotClass = computed(() => {
+  if (!props.chat.enableImmersiveStatus || !props.chat.autonomyAllowStatus) return 'disabled'
+  return props.chat.autonomyState?.status || 'unset'
 })
 
 const nextCheckLabel = computed(() => {
@@ -50,19 +61,43 @@ const formatTime = (value: number) => new Date(value).toLocaleString('zh-CN', {
   month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
 })
 
-const runNow = async () => {
+const runNow = async (preview = false) => {
   if (running.value || !props.chat.autonomyEnabled) return
   running.value = true
   feedback.value = null
+  if (!preview) previewResult.value = null
   try {
-    await runAutonomousCheck(props.chat, 'manual')
-    feedback.value = { type: 'success', text: '角色已经完成了这次自主判断' }
+    const result = await runAutonomousCheck(props.chat, 'manual', { preview })
+    if (!result) throw new Error('这个角色正在进行另一项判断')
+    if (preview) {
+      previewResult.value = result
+      feedback.value = { type: 'success', text: '预览完成，没有产生消息、未读或状态变化' }
+    } else {
+      feedback.value = { type: 'success', text: result.executed > 0 ? `已执行 ${result.executed} 个实际动作` : '角色选择了保持安静' }
+    }
   } catch (error: any) {
     feedback.value = { type: 'error', text: error?.message || '检查失败，请稍后重试' }
   } finally {
     running.value = false
   }
 }
+
+const toggleStatusPermission = () => {
+  if (props.chat.autonomyAllowStatus && !props.chat.enableImmersiveStatus) {
+    props.chat.autonomyAllowStatus = false
+    feedback.value = { type: 'error', text: '请先在上一页开启“沉浸式状态与时间流逝”' }
+    return
+  }
+  props.chat.autonomyStatusPermissionExplicit = true
+  if (!props.chat.autonomyAllowStatus) disableAutonomyPresence(props.chat)
+  save()
+}
+
+const actionLabel = (type: string) => ({ message: '主动消息', moment: '朋友圈', status: '状态变化' } as Record<string, string>)[type] || type
+const actionDetail = (action: any) => action.type === 'status'
+  ? `${({ online: '在线', offline: '离线', busy: '忙碌', away: '暂离' } as Record<string, string>)[action.status] || action.status || '未指定'}${action.text ? ` · ${action.text}` : ''}`
+  : action.content || '无内容'
+const triggerLabel = (trigger?: string) => ({ manual: '手动触发', scheduled: '定时判断', resume: '重新打开后判断' } as Record<string, string>)[trigger || ''] || ''
 
 const toggleMain = () => {
   if (props.chat.autonomyEnabled && !props.chat.autonomyState?.nextCheckAt) {
@@ -98,20 +133,37 @@ const clearHistory = () => {
               <div><p class="eyebrow">{{ chat.autonomyEnabled ? '自主活动中' : '自主活动已关闭' }}</p><h2>{{ chat.name }}</h2><p>{{ chat.autonomyEnabled ? '会根据人设、关系和聊天上下文决定是否行动。' : '不会在你没有发消息时调用 API 或产生新活动。' }}</p></div>
             </div>
             <div class="hero-status">
-              <div><span>当前状态</span><strong><i :class="chat.autonomyState?.status || 'offline'"></i>{{ statusLabel }}</strong></div>
+              <div><span>当前状态</span><strong><i :class="statusDotClass"></i>{{ statusLabel }}</strong></div>
               <div><span>下次判断</span><strong>{{ nextCheckLabel }}</strong></div>
             </div>
-            <button class="primary-action" type="button" :disabled="!chat.autonomyEnabled || running" @click="runNow">
-              <svg v-if="!running" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.64 5.64l2.12 2.12m8.48 8.48 2.12 2.12m0-12.72-2.12 2.12m-8.48 8.48-2.12 2.12" /></svg>
-              <span v-else class="button-spinner" aria-hidden="true"></span>
-              {{ running ? '正在判断…' : '立即检查一次' }}
-            </button>
+            <div class="hero-actions">
+              <button class="primary-action secondary" type="button" :disabled="!chat.autonomyEnabled || running" @click="runNow(true)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+                仅预览
+              </button>
+              <button class="primary-action" type="button" :disabled="!chat.autonomyEnabled || running" @click="runNow(false)">
+                <svg v-if="!running" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.64 5.64l2.12 2.12m8.48 8.48 2.12 2.12m0-12.72-2.12 2.12m-8.48 8.48-2.12 2.12" /></svg>
+                <span v-else class="button-spinner" aria-hidden="true"></span>
+                {{ running ? '正在判断…' : '立即执行' }}
+              </button>
+            </div>
           </section>
 
           <div v-if="feedback" class="feedback" :class="feedback.type" role="status">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="feedback.type === 'success'" d="m5 12 4 4L19 6"/><path v-else d="M12 8v5m0 3h.01M10.3 4.4 3.5 17a2 2 0 0 0 1.76 3h13.48a2 2 0 0 0 1.76-3L13.7 4.4a2 2 0 0 0-3.4 0Z"/></svg>
             <span>{{ feedback.text }}</span><button type="button" aria-label="关闭提示" @click="feedback = null">×</button>
           </div>
+
+          <section v-if="previewResult" class="settings-card preview-card">
+            <div class="section-heading"><div><h3>本次预览</h3><p>{{ previewResult.summary || '角色没有补充判断说明。' }}</p></div><button class="text-button" type="button" @click="previewResult = null">收起</button></div>
+            <div v-if="!previewResult.actions.length" class="setting-row preview-empty"><div class="setting-copy"><label>选择保持安静</label><p>本次没有准备执行任何动作。</p></div></div>
+            <template v-else>
+              <div v-for="(action, index) in previewResult.actions" :key="`${action.type}_${index}`" class="setting-row">
+                <div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5zM8 12l2.5 2.5L16 9"/></svg></div>
+                <div class="setting-copy"><label>{{ actionLabel(action.type) }} · {{ action.allowed ? '允许执行' : '将被拦截' }}</label><p>{{ action.blockedReason || actionDetail(action) }}</p></div>
+              </div>
+            </template>
+          </section>
 
           <section class="settings-card">
             <div class="setting-row main-setting">
@@ -135,8 +187,8 @@ const clearHistory = () => {
             </div>
             <div class="setting-row">
               <div class="setting-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></div>
-              <div class="setting-copy"><label for="allow-status">上线与状态变化</label><p>可上线、下线、忙碌或暂离。</p></div>
-              <label class="switch"><input id="allow-status" v-model="chat.autonomyAllowStatus" type="checkbox" :disabled="!chat.autonomyEnabled" @change="save"><span></span></label>
+              <div class="setting-copy"><label for="allow-status">上线与状态变化</label><p>{{ chat.enableImmersiveStatus ? '可上线、下线、忙碌或暂离；未触发前不设置状态。' : '需先在上一页开启“沉浸式状态与时间流逝”。' }}</p></div>
+              <label class="switch"><input id="allow-status" v-model="chat.autonomyAllowStatus" type="checkbox" :disabled="!chat.autonomyEnabled || !chat.enableImmersiveStatus" @change="toggleStatusPermission"><span></span></label>
             </div>
           </section>
 
@@ -163,7 +215,7 @@ const clearHistory = () => {
             <div v-if="history.length" class="timeline">
               <article v-for="event in history" :key="event.id" class="timeline-item" :class="event.type">
                 <div class="timeline-marker"><svg viewBox="0 0 24 24"><path v-if="event.type === 'message'" d="M5 5h14v11H9l-4 3Z"/><path v-else-if="event.type === 'moment'" d="M4 5h16v14H4zM4 16l4-4 3 3 3-4 6 6"/><path v-else-if="event.type === 'status'" d="M12 4a8 8 0 1 0 8 8"/><path v-else-if="event.type === 'error'" d="M12 8v5m0 3h.01M4 20h16L12 4Z"/><path v-else d="M5 12h14"/></svg></div>
-                <div class="timeline-content"><div><strong>{{ event.title }}</strong><time>{{ formatTime(event.createdAt) }}</time></div><p>{{ event.detail }}</p><span v-if="event.catchup">重新打开后结算</span></div>
+                <div class="timeline-content"><div><strong>{{ event.title }}</strong><time>{{ formatTime(event.createdAt) }}</time></div><p>{{ event.detail }}</p><span v-if="triggerLabel(event.trigger)">{{ triggerLabel(event.trigger) }}</span><span v-if="event.catchup">经过时间结算</span><span v-if="event.blockedReason">权限已拦截</span></div>
               </article>
             </div>
             <div v-else class="empty-state">
@@ -191,6 +243,7 @@ const clearHistory = () => {
 
 <style scoped>
 .autonomy-view{display:flex;flex-direction:column;background:var(--sys-bg-primary);color:var(--text-primary);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif}.autonomy-header{height:58px;min-height:58px;display:grid;grid-template-columns:48px 1fr 48px;align-items:center;padding-top:env(safe-area-inset-top);border-bottom:1px solid var(--border-color);background:var(--sys-bg-secondary);z-index:3}.header-copy{text-align:center;line-height:1.1}.header-copy h1{font-size:16px;letter-spacing:.2px;margin:0;font-weight:650}.header-copy span{display:block;margin-top:4px;color:var(--text-tertiary);font-size:10px}.icon-button,.text-button{border:0;background:transparent;color:var(--text-primary);font:inherit;height:44px;display:grid;place-items:center;cursor:pointer;border-radius:10px}.icon-button{width:44px;margin-left:4px}.icon-button svg{width:22px;height:22px}.text-button{font-size:13px;color:var(--text-secondary);padding:0 10px}.text-button:disabled{opacity:.35;cursor:not-allowed}.icon-button:hover,.text-button:not(:disabled):hover{background:var(--sys-bg-primary)}button:focus-visible,select:focus-visible,input:focus-visible+span{outline:2px solid #3478f6;outline-offset:2px}.autonomy-scroll{flex:1;overflow:auto;padding:22px 20px calc(28px + env(safe-area-inset-bottom))}.autonomy-layout{width:min(1060px,100%);margin:auto;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:18px;align-items:start}.autonomy-column{display:flex;flex-direction:column;gap:14px}.hero-card,.settings-card,.history-card{background:var(--card-bg-solid);border:1px solid var(--border-color);border-radius:16px;box-shadow:0 4px 14px rgba(0,0,0,.025)}.hero-card{padding:20px}.hero-card.paused{background:color-mix(in srgb,var(--card-bg-solid) 80%,var(--sys-bg-primary))}.hero-identity{display:flex;gap:14px;align-items:center}.hero-avatar{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--sys-bg-tertiary);background-size:cover;background-position:center;font-size:20px;font-weight:650;box-shadow:0 0 0 3px var(--card-bg-solid),0 0 0 4px var(--border-color)}.eyebrow{font-size:10px!important;text-transform:uppercase;letter-spacing:1px;color:#4f8b70!important;font-weight:650;margin-bottom:4px!important}.hero-card.paused .eyebrow{color:var(--text-tertiary)!important}.hero-identity h2{font-size:19px;margin:0 0 4px}.hero-identity p{font-size:12px;line-height:1.55;color:var(--text-secondary);margin:0}.hero-status{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0 12px}.hero-status>div{padding:11px 12px;border-radius:11px;background:var(--sys-bg-primary);min-width:0}.hero-status span{font-size:10px;color:var(--text-tertiary);display:block;margin-bottom:5px}.hero-status strong{font-size:12px;font-weight:550;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero-status i{width:7px;height:7px;border-radius:50%;background:#979797;box-shadow:0 0 0 3px rgba(151,151,151,.1)}.hero-status i.online{background:#52a575;box-shadow:0 0 0 3px rgba(82,165,117,.12)}.hero-status i.busy{background:#d66d68}.hero-status i.away{background:#d6a24e}.primary-action{width:100%;height:42px;border-radius:11px;border:1px solid var(--text-primary);background:var(--text-primary);color:var(--sys-bg-secondary);font:inherit;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:transform .15s,opacity .15s,background .15s}.primary-action:hover:not(:disabled){opacity:.88}.primary-action:active:not(:disabled){transform:scale(.985)}.primary-action:disabled{opacity:.28;cursor:not-allowed}.primary-action svg{width:17px;height:17px}.button-spinner{width:15px;height:15px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .75s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.feedback{min-height:42px;padding:9px 12px;border-radius:12px;display:flex;align-items:center;gap:9px;font-size:12px;border:1px solid}.feedback svg{width:17px;height:17px;flex:none}.feedback.success{color:#397a5c;background:rgba(82,165,117,.08);border-color:rgba(82,165,117,.18)}.feedback.error{color:#b9504c;background:rgba(214,109,104,.08);border-color:rgba(214,109,104,.18)}.feedback button{margin-left:auto;border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer}.settings-card{overflow:hidden}.section-heading{padding:16px 16px 9px}.section-heading h3,.history-head h3{font-size:14px;margin:0 0 4px}.section-heading p,.history-head p{font-size:11px;line-height:1.45;color:var(--text-tertiary);margin:0}.setting-row{min-height:62px;padding:11px 16px;display:flex;align-items:center;gap:11px;position:relative}.setting-row:not(:last-child)::after{content:"";position:absolute;height:1px;background:var(--border-color);left:51px;right:0;bottom:0}.main-setting{min-height:72px}.setting-icon{width:27px;height:27px;border-radius:8px;background:var(--sys-bg-primary);display:grid;place-items:center;color:var(--text-secondary);flex:none}.setting-icon svg{width:15px;height:15px}.setting-copy{flex:1;min-width:0}.setting-copy label{display:block;font-size:13px;font-weight:520;line-height:1.3}.setting-copy p{font-size:10.5px;color:var(--text-tertiary);line-height:1.45;margin:4px 0 0}.switch{width:40px;height:24px;flex:none;position:relative}.switch input{position:absolute;opacity:0;pointer-events:none}.switch span{position:absolute;inset:0;border-radius:999px;background:#d7d7da;cursor:pointer;transition:.22s}.switch span::after{content:"";position:absolute;width:18px;height:18px;top:3px;left:3px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.22);transition:.22s}.switch input:checked+span{background:var(--text-primary)}.switch input:checked+span::after{transform:translateX(16px);background:var(--sys-bg-secondary)}.switch input:disabled+span{cursor:not-allowed;opacity:.45}.settings-card.disabled>.setting-row:not(.main-setting),.settings-card.disabled>.section-heading,.settings-card.disabled>.field-grid{opacity:.48}.field-grid{border-top:1px solid var(--border-color);padding:13px 16px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px}.field-grid>label{font-size:10px;color:var(--text-tertiary);display:flex;flex-direction:column;gap:6px}.field-grid>label:last-child{grid-column:1/-1}.select-wrap{height:38px;position:relative;display:block}.select-wrap select{appearance:none;width:100%;height:100%;border:1px solid var(--border-color);border-radius:9px;background:var(--sys-bg-primary);color:var(--text-primary);font:inherit;font-size:12px;padding:0 30px 0 11px;cursor:pointer}.select-wrap svg{position:absolute;right:9px;top:11px;width:16px;height:16px;pointer-events:none;color:var(--text-tertiary)}.history-card{padding:17px;min-height:360px}.history-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.history-head>span{min-width:28px;height:24px;padding:0 7px;border-radius:999px;background:var(--sys-bg-primary);display:grid;place-items:center;font-size:11px;color:var(--text-secondary)}.filter-tabs{display:flex;gap:4px;margin:15px 0 14px;padding:3px;background:var(--sys-bg-primary);border-radius:9px}.filter-tabs button{height:30px;flex:1;border:0;border-radius:7px;background:transparent;color:var(--text-tertiary);font:inherit;font-size:11px;cursor:pointer;transition:.18s}.filter-tabs button:hover{color:var(--text-primary)}.filter-tabs button.active{background:var(--sys-bg-secondary);color:var(--text-primary);font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.05)}.timeline{display:flex;flex-direction:column}.timeline-item{display:grid;grid-template-columns:29px 1fr;gap:9px;position:relative;padding-bottom:15px}.timeline-item:not(:last-child)::before{content:"";position:absolute;width:1px;background:var(--border-color);top:27px;bottom:0;left:14px}.timeline-marker{width:29px;height:29px;border-radius:9px;background:var(--sys-bg-primary);display:grid;place-items:center;color:var(--text-secondary);z-index:1}.timeline-marker svg{width:15px;height:15px}.timeline-item.error .timeline-marker{color:#b9504c;background:rgba(214,109,104,.08)}.timeline-content{min-width:0;padding-top:1px}.timeline-content>div{display:flex;align-items:center;gap:8px}.timeline-content strong{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-content time{font-size:9.5px;color:var(--text-tertiary);margin-left:auto;white-space:nowrap}.timeline-content p{font-size:11px;line-height:1.5;color:var(--text-secondary);margin:4px 0 0;word-break:break-word}.timeline-content>span{display:inline-block;margin-top:5px;padding:2px 6px;border-radius:5px;background:var(--sys-bg-primary);font-size:9px;color:var(--text-tertiary)}.empty-state{min-height:245px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px}.empty-state>div{width:45px;height:45px;border-radius:14px;background:var(--sys-bg-primary);display:grid;place-items:center;color:var(--text-tertiary)}.empty-state svg{width:21px;height:21px}.empty-state h4{font-size:13px;margin:13px 0 5px}.empty-state p{max-width:230px;font-size:10.5px;line-height:1.55;color:var(--text-tertiary);margin:0}.local-note{display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px;color:var(--text-tertiary);margin:0}.local-note svg{width:14px;height:14px}.autonomy-overlay{position:fixed;inset:0;z-index:10020;background:rgba(0,0,0,.38);display:grid;place-items:center;padding:20px;backdrop-filter:blur(3px)}.autonomy-modal{width:min(330px,100%);background:var(--sys-bg-secondary);border:1px solid var(--border-color);border-radius:18px;padding:21px;text-align:center;box-shadow:0 18px 48px rgba(0,0,0,.14);animation:modal-in .18s ease-out}@keyframes modal-in{from{opacity:0;transform:scale(.96) translateY(4px)}}.modal-icon{width:42px;height:42px;margin:0 auto 12px;border-radius:13px;background:rgba(214,109,104,.08);color:#c35450;display:grid;place-items:center}.modal-icon svg{width:20px;height:20px}.autonomy-modal h3{font-size:16px;margin:0 0 7px}.autonomy-modal p{font-size:11px;color:var(--text-secondary);line-height:1.55;margin:0 0 18px}.modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.modal-actions button{height:40px;border:1px solid var(--border-color);border-radius:10px;background:var(--sys-bg-primary);color:var(--text-primary);font:inherit;font-size:12px;cursor:pointer}.modal-actions button:hover{filter:brightness(.97)}.modal-actions .danger{background:#c95752;border-color:#c95752;color:#fff;font-weight:600}
+.hero-actions{display:grid;grid-template-columns:.8fr 1.2fr;gap:8px}.primary-action.secondary{background:var(--sys-bg-primary);color:var(--text-primary);border-color:var(--border-color);font-weight:550}.hero-status i.unset,.hero-status i.disabled{background:#a8a8ab;box-shadow:0 0 0 3px rgba(151,151,151,.08)}.preview-card .section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.preview-card .section-heading .text-button{width:auto;height:28px;margin-top:-3px}.preview-empty{min-height:58px}.timeline-content>span+span{margin-left:4px}
 .text-button{width:48px;padding:0}
 @media(max-width:760px){.autonomy-scroll{padding:14px 12px calc(24px + env(safe-area-inset-bottom))}.autonomy-layout{display:flex;flex-direction:column}.primary-column,.history-column{width:100%}.history-column{order:2}.hero-card,.settings-card,.history-card{border-radius:14px}.history-card{min-height:330px}.hero-card{padding:17px}.hero-avatar{width:52px;height:52px}.autonomy-header{height:56px;min-height:56px}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
