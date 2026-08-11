@@ -4,14 +4,16 @@ import { sendChatMessage } from '../services/api'
 import { globalPromptSettings } from '../store'
 import {
   acceptFriendRequest,
-  addBlockedCharacterMessage,
   appendRelationshipEvent,
   characterBlocksUser,
   characterUnblocksUser,
   createFriendRequest,
   deleteFriendByCharacter,
   ensureRelationship,
+  deliverCharacterMessage,
+  formatRecentRelationshipHistory,
   markRequestViewed,
+  markRelationshipPlanRetry,
   persistRelationship,
   rejectFriendRequest,
   setRelationshipPlan,
@@ -68,11 +70,13 @@ export function useRelationshipAdvance() {
     isAdvancing.value = true
     relationshipError.value = ''
     const relationship = ensureRelationship(chat)
-    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - relationship.changedAt) / 60000))
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - Number(relationship.stateChangedAt || relationship.changedAt)) / 60000))
+    const relationshipHistory = formatRecentRelationshipHistory(chat)
 
     const chinesePrompt = `你正在扮演“${chat.realName || chat.name}”，人物设定如下：\n${chat.persona || '无额外设定'}\n\n` +
       `这是一次好友关系事件，不是普通聊天续写。请按照人物性格自主决定下一步，不要讨好用户，也不要默认一定会复合。\n` +
       `当前好友关系：${relationship.friendship}；拉黑状态：${relationship.blockedBy}；当前状态已经持续约 ${elapsedMinutes} 分钟。\n` +
+      (relationshipHistory ? `最近的重要关系经历：\n${relationshipHistory}\n` : '') +
       `本次触发：${trigger}。\n` +
       (relatedRequest ? `相关申请：${relatedRequest.message}；状态：${relatedRequest.status}；拒绝理由：${relatedRequest.rejectionReason || '无'}。\n` : '') +
       `最近对话：\n${recentChatText(chat) || '暂无'}\n\n` +
@@ -85,7 +89,7 @@ export function useRelationshipAdvance() {
       `reconsiderMinutes：如果暂不行动，多少分钟后重新考虑；\n` +
       `visibility：exact、vague、hidden；planSummary：一句话描述后续打算。`
     const prompt = globalPromptSettings.language === 'en'
-      ? `You are portraying “${chat.realName || chat.name}”. Persona:\n${chat.persona || 'No additional persona provided'}\n\nThis is a friendship-state event, not an ordinary chat continuation. Independently choose the next step according to the persona. Do not appease the user or assume reconciliation is inevitable.\nCurrent friendship: ${relationship.friendship}; blocked by: ${relationship.blockedBy}; this state has lasted about ${elapsedMinutes} minutes.\nTrigger: ${trigger}.\n${relatedRequest ? `Related request: ${relatedRequest.message}; status: ${relatedRequest.status}; rejection reason: ${relatedRequest.rejectionReason || 'none'}.\n` : ''}Recent conversation:\n${recentChatText(chat) || 'None'}\n\nOutput exactly one JSON object with no Markdown. Natural-language fields must use the conversation's primary language. Fields:\nobservableReaction: a brief externally observable reaction, never analysis;\nmessage: a message the character genuinely attempts to send now, or an empty string;\naction: one of none, send_request, block_user, unblock_user, delete_friend, accept_request, reject_request;\nrequestMessage; rejectionReason;\ndelayMinutes: minutes before executing action, where 0 means immediate;\nreconsiderMinutes: minutes before reconsidering when taking no action now;\nvisibility: exact, vague, or hidden; planSummary: one sentence describing the later intention.`
+      ? `You are portraying “${chat.realName || chat.name}”. Persona:\n${chat.persona || 'No additional persona provided'}\n\nThis is a friendship-state event, not an ordinary chat continuation. Independently choose the next step according to the persona. Do not appease the user or assume reconciliation is inevitable.\nCurrent friendship: ${relationship.friendship}; blocked by: ${relationship.blockedBy}; this state has lasted about ${elapsedMinutes} minutes.\n${relationshipHistory ? `Recent important relationship history:\n${relationshipHistory}\n` : ''}Trigger: ${trigger}.\n${relatedRequest ? `Related request: ${relatedRequest.message}; status: ${relatedRequest.status}; rejection reason: ${relatedRequest.rejectionReason || 'none'}.\n` : ''}Recent conversation:\n${recentChatText(chat) || 'None'}\n\nOutput exactly one JSON object with no Markdown. Natural-language fields must use the conversation's primary language. Fields:\nobservableReaction: a brief externally observable reaction, never analysis;\nmessage: a message the character genuinely attempts to send now, or an empty string;\naction: one of none, send_request, block_user, unblock_user, delete_friend, accept_request, reject_request;\nrequestMessage; rejectionReason;\ndelayMinutes: minutes before executing action, where 0 means immediate;\nreconsiderMinutes: minutes before reconsidering when taking no action now;\nvisibility: exact, vague, or hidden; planSummary: one sentence describing the later intention.`
       : chinesePrompt
 
     try {
@@ -103,21 +107,10 @@ export function useRelationshipAdvance() {
         appendRelationshipEvent(chat, 'character_reaction', '对方有了新的反应', decision.observableReaction)
       }
 
-      if (decision.message) {
-        if (relationship.blockedBy === 'user') {
-          addBlockedCharacterMessage(chat, decision.message)
-        } else {
-          chat.messages ||= []
-          chat.messages.push({ id: Date.now(), type: 'left', content: decision.message, relationshipMessage: true })
-          chat.preview = decision.message
-          appendRelationshipEvent(chat, 'relationship_message', '对方发来一条关系消息', decision.message)
-        }
-      }
+      let deliveryStatus: 'none' | 'blocked' | 'timeline' | 'delivered' | 'suppressed' = 'none'
+      if (decision.message) deliveryStatus = deliverCharacterMessage(chat, decision.message, 'relationship')
 
       const action = decision.action || 'none'
-      if (action === 'send_request' && executeAt && relationship.friendship !== 'friends') {
-        createFriendRequest(chat, 'character_to_user', decision.requestMessage || '想重新加你为好友', executeAt)
-      }
       if (delay === 0) {
         if (action === 'send_request' && relationship.friendship !== 'friends') {
           createFriendRequest(chat, 'character_to_user', decision.requestMessage || '想重新加你为好友')
@@ -134,17 +127,23 @@ export function useRelationshipAdvance() {
         }
       }
 
+      const scheduledAction = delay > 0 ? action as RelationPlanAction : (reviewAt ? 'reconsider' : 'none')
       setRelationshipPlan(chat, {
-        action: (action === 'send_request' || action === 'unblock_user' ? action : (reviewAt ? 'reconsider' : 'none')) as RelationPlanAction,
-        summary: decision.planSummary || (action === 'none' ? '目前没有新的打算' : '对方已经决定下一步'),
-        executeAt,
-        reviewAt,
-        visibility: decision.visibility || 'exact'
+        action: scheduledAction,
+        summary: decision.planSummary || (scheduledAction === 'none' ? '目前没有新的打算' : '对方已经决定下一步'),
+        executeAt: delay > 0 ? executeAt : undefined,
+        reviewAt: reviewAt,
+        visibility: decision.visibility || 'exact',
+        status: (delay > 0 || reviewAt) ? 'active' : 'completed',
+        requestId: relatedRequest?.id,
+        requestMessage: decision.requestMessage,
+        rejectionReason: decision.rejectionReason
       })
       persistRelationship(chat)
-      return decision
+      return { ...decision, deliveryStatus }
     } catch (error: any) {
       relationshipError.value = error?.message || '关系推进失败，请稍后重试'
+      if (trigger === 'scheduled_review') markRelationshipPlanRetry(chat, relationshipError.value)
       appendRelationshipEvent(chat, 'advance_error', '关系推进暂时失败', relationshipError.value)
       throw error
     } finally {

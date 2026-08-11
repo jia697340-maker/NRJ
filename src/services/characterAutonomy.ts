@@ -14,6 +14,7 @@ import {
   type AutonomyLedgerWindow
 } from './autonomyConfig'
 import { flushAutonomyDeliveries, queueAutonomyDelivery } from './autonomyDelivery'
+import { deliverCharacterMessage, ensureRelationship } from '../composables/useChatRelationship'
 
 export type AutonomyEventType = 'message' | 'moment' | 'status' | 'idle' | 'error'
 export type AutonomyEvent = {
@@ -195,6 +196,12 @@ const extractMessageContents = (raw: string) => {
 
 const actionPermission = (chat: any, action: AutonomyAction) => {
   if (action.type === 'message' && !chat.autonomyAllowMessages) return '“主动给我发消息”未开启'
+  if (action.type === 'message') {
+    const relationship = ensureRelationship(chat)
+    if (relationship.blockedBy === 'user') return '用户当前已拉黑角色'
+    if (relationship.blockedBy === 'character') return '角色当前已拉黑用户'
+    if (relationship.friendship !== 'friends') return '当前不是好友关系'
+  }
   if (action.type === 'moment' && !chat.autonomyAllowMoments) return '“朋友圈活动”未开启'
   if (action.type === 'status' && !chat.enableImmersiveStatus) return '聊天设置中的“沉浸式状态与时间流逝”未开启'
   if (action.type === 'status' && !chat.autonomyAllowStatus) return '“上线与状态变化”未开启'
@@ -219,6 +226,10 @@ export const runAutonomousCheck = async (
   const silenceMinutes = Math.max(0, Math.round((now - lastMeaningfulActionAt(chat)) / 60000))
   const contactRequired = chat.autonomyGuaranteeContact
     && silenceMinutes >= normalizeAutonomySilenceMinutes(chat.autonomyMaxSilenceMinutes)
+  const relationship = ensureRelationship(chat)
+  const directMessageAvailable = chat.autonomyAllowMessages
+    && relationship.friendship === 'friends'
+    && relationship.blockedBy === 'none'
   const maxActions = catchup ? 8 : 3
   runningChats.add(chatKey)
   chat.autonomyState.running = true
@@ -245,8 +256,8 @@ export const runAutonomousCheck = async (
     const importantEmotionDue = chat.autonomyEmotionMustDeliver
       && decision.emotionNeedsDelivery === true
       && Number(decision.emotionIntensity || 0) >= 2
-      && chat.autonomyAllowMessages
-    const requiresMessage = (contactRequired && chat.autonomyAllowMessages) || importantEmotionDue
+      && directMessageAvailable
+    const requiresMessage = (contactRequired && directMessageAvailable) || importantEmotionDue
     const hasExecutableAction = actions.some(action => {
       if (actionPermission(chat, action)) return false
       if (action.type === 'message' || action.type === 'moment') return Boolean(action.content?.trim())
@@ -298,9 +309,11 @@ export const runAutonomousCheck = async (
         contents.forEach((content, messageIndex) => {
           const messageId = createdAt + messageIndex
           const important = action.important === true || importantEmotionDue
-          chat.messages.push({ id: messageId, type: 'left', content, isAutonomous: true, autonomyImportant: important })
-          queueAutonomyDelivery(chat, messageId, content, createdAt + messageIndex, important)
-          addEvent(chat, { type: 'message', createdAt: createdAt + messageIndex, title: '主动发来消息', detail: content, catchup, trigger: reason })
+          const delivery = deliverCharacterMessage(chat, content, 'autonomy', { id: messageId, autonomyImportant: important })
+          if (delivery === 'delivered') {
+            queueAutonomyDelivery(chat, messageId, content, createdAt + messageIndex, important)
+            addEvent(chat, { type: 'message', createdAt: createdAt + messageIndex, title: '主动发来消息', detail: content, catchup, trigger: reason })
+          }
         })
         const content = contents[contents.length - 1]
         chat.preview = content

@@ -84,11 +84,19 @@ const { currentChatUserId } = useChatAuth()
 const { saveCurrentChat } = useChatSettingsSave()
 const { advanceRelationship: advanceScheduledRelationship } = useRelationshipAdvance()
 let relationshipTimer: number | null = null
+let relationshipTimerRunning = false
 
-const reconcileRelationshipTimers = () => {
+const reconcileRelationshipTimers = async () => {
+  if (relationshipTimerRunning) return
+  relationshipTimerRunning = true
   const due = processDueRelationshipTimers()
-  const next = due[0]
-  if (next) advanceScheduledRelationship(next, 'scheduled_review').catch(() => {})
+  try {
+    for (const chat of due) {
+      try { await advanceScheduledRelationship(chat, 'scheduled_review') } catch (_) {}
+    }
+  } finally {
+    relationshipTimerRunning = false
+  }
 }
 
 const syncPageVisibility = () => {

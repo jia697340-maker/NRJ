@@ -586,7 +586,17 @@ watch(() => selectedChat.value?.id, () => {
 
 const { isAdvancing: isRelationshipAdvancing, advanceRelationship } = useRelationshipAdvance()
 const handleRelationshipAdvance = async () => {
-  try { await advanceRelationship(selectedChat.value, 'manual_advance') } catch (_) {}
+  try {
+    const result: any = await advanceRelationship(selectedChat.value, 'manual_advance')
+    if (result?.deliveryStatus === 'delivered') {
+      showToast('角色发来了一条新消息')
+      await nextTick()
+      scrollToBottom()
+    } else {
+      showToast(result?.deliveryStatus === 'blocked' ? '消息已收入黑名单消息' : '角色有了新的关系动向')
+      emit('open-relationship')
+    }
+  } catch (_) {}
 }
 
 const toggleMixedOfflineSession = () => {
