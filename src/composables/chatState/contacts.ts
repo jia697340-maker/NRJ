@@ -1,6 +1,8 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { useChatAuth } from '../useChatAuth'
+import { normalizeChatUserProfileState } from '../useChatUserProfiles'
 import { mockChats, customGroups, avatarStore } from './state'
+import { reconcilePresence } from '../../services/presenceLifecycle'
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -15,6 +17,10 @@ export const loadCustomContacts = async () => {
   const contactsKey = currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
   const savedStr = localStorage.getItem(contactsKey)
   const savedContacts = savedStr ? JSON.parse(savedStr) : []
+  let didMigrateUserProfiles = false
+  savedContacts.forEach((contact: any) => {
+    if (normalizeChatUserProfileState(contact)) didMigrateUserProfiles = true
+  })
   
   const groupsKey = currentChatUserId.value ? `clingy_chat_groups_${currentChatUserId.value}` : 'clingy_chat_groups'
   const savedGroupsStr = localStorage.getItem(groupsKey)
@@ -29,6 +35,7 @@ export const loadCustomContacts = async () => {
   
   const customChats = []
   for (const c of savedContacts) {
+    if (reconcilePresence(c).changed) didMigrateUserProfiles = true
     let avatarUrl = null
     try {
       const storedAvatar = await avatarStore.getItem<string>(`avatar_contact_${c.id}`)
@@ -184,6 +191,9 @@ export const loadCustomContacts = async () => {
       offlineUntil: c.offlineUntil || 0,
       statusSource: c.statusSource || '',
       statusSetAt: c.statusSetAt || 0,
+      presenceSession: c.presenceSession || null,
+      presenceHistory: Array.isArray(c.presenceHistory) ? c.presenceHistory : [],
+      presencePendingReply: c.presencePendingReply === true,
       autonomyEnabled: c.autonomyEnabled ?? false,
       autonomyAllowMessages: c.autonomyAllowMessages ?? true,
       autonomyAllowMoments: c.autonomyAllowMoments ?? true,
@@ -193,10 +203,20 @@ export const loadCustomContacts = async () => {
       autonomyActiveStart: c.autonomyActiveStart ?? 8,
       autonomyActiveEnd: c.autonomyActiveEnd ?? 24,
       autonomyMinIntervalMinutes: c.autonomyMinIntervalMinutes ?? 45,
+      autonomyGuaranteeContact: c.autonomyGuaranteeContact ?? false,
+      autonomyMaxSilenceMinutes: c.autonomyMaxSilenceMinutes ?? 720,
+      autonomyEmotionMustDeliver: c.autonomyEmotionMustDeliver ?? true,
+      autonomyLastMeaningfulActionAt: c.autonomyLastMeaningfulActionAt || 0,
+      autonomyLedger: c.autonomyLedger || null,
+      autonomyDeliveries: Array.isArray(c.autonomyDeliveries) ? c.autonomyDeliveries : [],
       autonomyHistory,
       autonomyState,
       isTyping: currentTypingState.get(c.id) || false
     })
+  }
+
+  if (didMigrateUserProfiles) {
+    localStorage.setItem(contactsKey, JSON.stringify(savedContacts))
   }
   
   const sysPinned = localStorage.getItem('clingy_system_notice_pinned') === '1'

@@ -4,6 +4,7 @@ import { getEffectiveUserProfile } from '../useChatUserProfiles'
 import { myProfile } from './state'
 import { buildOfflineMeetPrompt } from '../useOfflineMeetPrompt'
 import { pushContextTrace, type ContextTraceCollector } from '../../services/contextTrace'
+import { buildPresenceContext } from '../../services/presenceLifecycle'
 import {
   buildEnglishCallFormatRules,
   buildEnglishFormatRules,
@@ -151,6 +152,7 @@ ${usesNaturalPromptV2
     }
     }
   }
+  const presenceContext = chat.enableImmersiveStatus ? buildPresenceContext(chat, usesEnglishPrompt) : ''
 
   // 占位符替换字典
   const placeholders: Record<string, string> = {
@@ -287,8 +289,8 @@ ${usesNaturalPromptV2
   // 如果没有任何启用的设定，返回一个兜底
   if (activePromptItems.length === 0) {
     return usesEnglishPrompt
-      ? `You are ${charName}.${memoryBookContext}${englishDialogueLanguageGuard}`
-      : `你是${charName}。${memoryBookContext}`
+      ? `You are ${charName}.${memoryBookContext}${presenceContext}${englishDialogueLanguageGuard}`
+      : `你是${charName}。${memoryBookContext}${presenceContext}`
   }
 
   // 拼接 UI 上所有的有效条目，并解析占位符
@@ -378,5 +380,5 @@ ${usesNaturalPromptV2
   pushContextTrace(trace, { id: 'runtime:offline', category: 'system', group: '线下模式', label: '线下互动规则', text: offlinePrompt, reason: '当前处于线下互动模式' })
   pushContextTrace(trace, { id: 'runtime:language', category: 'system', group: '输出格式与协议', label: '对白语言保护规则', text: usesEnglishPrompt ? englishDialogueLanguageGuard : '', reason: '当前使用英文底层提示词' })
 
-  return resolvedPrompts.join('\n\n') + memoryBookContext + finalVoiceRules + relationshipRules + offlinePrompt + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
+  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + relationshipRules + offlinePrompt + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
 }

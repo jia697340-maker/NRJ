@@ -18,8 +18,10 @@ import { useChatAuth } from '../composables/useChatAuth'
 import { useChatSettingsSave } from '../composables/useChatSettingsSave'
 import { processDueRelationshipTimers } from '../composables/useChatRelationship'
 import { useRelationshipAdvance } from '../composables/useRelationshipAdvance'
-import { persistAutonomyChat, runDueAutonomyChecks } from '../services/characterAutonomy'
+import { persistAutonomyChat } from '../services/characterAutonomy'
+import { acknowledgeAutonomyDeliveries } from '../services/autonomyDelivery'
 import {
+  ACCOUNT_PROFILE_SOURCE_NAME,
   applyUserProfileToChat,
   loadUserPersonas,
   personaToSnapshot
@@ -39,7 +41,6 @@ const emit = defineEmits<{
 const {
   selectedChat,
   mockChats,
-  myProfile,
   effectiveMyProfile,
   avatarStore,
   activeGroup,
@@ -69,6 +70,7 @@ const previousView = ref<ViewType>('list')
 const relationshipBackView = ref<ViewType>('chatSettings')
 const hasOpenedChat = ref(false)
 const chatRoomRef = ref<any>(null)
+const chatSettingsRef = ref<any>(null)
 const voiceCallState = ref<VoiceCallState>({
   active: false,
   minimized: false,
@@ -82,7 +84,6 @@ const { currentChatUserId } = useChatAuth()
 const { saveCurrentChat } = useChatSettingsSave()
 const { advanceRelationship: advanceScheduledRelationship } = useRelationshipAdvance()
 let relationshipTimer: number | null = null
-let autonomyTimer: number | null = null
 
 const reconcileRelationshipTimers = () => {
   const due = processDueRelationshipTimers()
@@ -90,10 +91,8 @@ const reconcileRelationshipTimers = () => {
   if (next) advanceScheduledRelationship(next, 'scheduled_review').catch(() => {})
 }
 
-const reconcileAutonomy = () => {
+const syncPageVisibility = () => {
   pageIsVisible.value = document.visibilityState === 'visible'
-  if (!pageIsVisible.value) return
-  void runDueAutonomyChecks('resume')
 }
 
 const characterContextViews = new Set<ViewType>(['chat', 'chatSettings', 'autonomy', 'relationship', 'offlineMeet'])
@@ -103,9 +102,11 @@ watch(
   ([appActive, visible, view]) => {
     const inCharacterContext = Boolean(appActive && visible && characterContextViews.has(view as ViewType) && selectedChat.value)
     setActiveChatContext(inCharacterContext ? selectedChat.value.id : null)
-    if (inCharacterContext && selectedChat.value.unread > 0) {
-      selectedChat.value.unread = 0
-      persistAutonomyChat(selectedChat.value)
+    if (inCharacterContext && selectedChat.value) {
+      const deliveryChanged = acknowledgeAutonomyDeliveries(selectedChat.value)
+      const unreadChanged = selectedChat.value.unread > 0
+      if (unreadChanged) selectedChat.value.unread = 0
+      if (deliveryChanged || unreadChanged) persistAutonomyChat(selectedChat.value)
     }
   },
   { immediate: true, flush: 'sync' }
@@ -330,7 +331,17 @@ const saveContact = async () => {
   const savedStr = localStorage.getItem(contactsKey)
   const savedContacts = savedStr ? JSON.parse(savedStr) : []
   const initialGroups = activeGroup.value !== '全部' ? [activeGroup.value] : []
-  savedContacts.push({ ...newContactForm.value, isPinned: false, groups: initialGroups })
+  savedContacts.push({
+    ...newContactForm.value,
+    isPinned: false,
+    groups: initialGroups,
+    userProfile: null,
+    userProfileSource: {
+      type: 'account',
+      name: ACCOUNT_PROFILE_SOURCE_NAME,
+      hasLocalChanges: false
+    }
+  })
   localStorage.setItem(contactsKey, JSON.stringify(savedContacts))
   
   await loadCustomContacts()
@@ -400,6 +411,7 @@ const openPersonaSelect = async () => {
 const selectPersona = async (p: any) => {
   if (!selectedChat.value) return
   const isAccountPersona = p.boundAccountId === currentChatUserId.value
+  if (isAccountPersona) await loadMyProfile()
   applyUserProfileToChat(selectedChat.value, personaToSnapshot(p), {
     type: isAccountPersona ? 'account' : 'library',
     personaId: p.id,
@@ -413,10 +425,11 @@ const useAccountPersona = async () => {
   const personas = await loadUserPersonas()
   const boundPersona = personas.find(item => item.boundAccountId === currentChatUserId.value)
   if (!boundPersona) {
-    window.alert('当前账号还没有绑定人设，请先在“我的－人设库”中绑定。')
+    chatSettingsRef.value?.showToast?.('当前账号还没有绑定人设，请先在“我的－人设库”中绑定')
     return
   }
   await selectPersona(boundPersona)
+  chatSettingsRef.value?.showToast?.('已恢复为账号人设并自动跟随更新')
 }
 
 const handleCreateUserPersona = () => {
@@ -424,25 +437,23 @@ const handleCreateUserPersona = () => {
   currentView.value = 'createUserPersona'
 }
 
-const handleLoginSuccess = () => {
-  loadCustomContacts()
-  loadMyProfile()
-  setTimeout(reconcileAutonomy, 800)
+const handleLoginSuccess = async () => {
+  await loadMyProfile()
+  await loadCustomContacts()
 }
 
 onMounted(async () => {
   initGlobalCallWidgetPosition()
   window.addEventListener('resize', initGlobalCallWidgetPosition)
   if (currentChatUserId.value) {
+    await loadMyProfile()
     await loadCustomContacts()
-    loadMyProfile()
   }
   reconcileRelationshipTimers()
   relationshipTimer = window.setInterval(reconcileRelationshipTimers, 30000)
   document.addEventListener('visibilitychange', reconcileRelationshipTimers)
-  autonomyTimer = window.setInterval(() => void runDueAutonomyChecks('scheduled'), 60000)
-  document.addEventListener('visibilitychange', reconcileAutonomy)
-  setTimeout(reconcileAutonomy, 500)
+  document.addEventListener('visibilitychange', syncPageVisibility)
+  syncPageVisibility()
 })
 
 onUnmounted(() => {
@@ -450,8 +461,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', initGlobalCallWidgetPosition)
   if (relationshipTimer) window.clearInterval(relationshipTimer)
   document.removeEventListener('visibilitychange', reconcileRelationshipTimers)
-  if (autonomyTimer) window.clearInterval(autonomyTimer)
-  document.removeEventListener('visibilitychange', reconcileAutonomy)
+  document.removeEventListener('visibilitychange', syncPageVisibility)
 })
 </script>
 
@@ -506,6 +516,7 @@ onUnmounted(() => {
     <!-- 3. 设置视图 -->
     <ChatSettingsView 
       v-if="currentView === 'chatSettings'"
+      ref="chatSettingsRef"
       @back="currentView = 'chat'"
       @open-avatar-upload="openAvatarUpload"
       @open-persona-select="openPersonaSelect"

@@ -83,7 +83,7 @@ const emit = defineEmits<{
   (e: 'open-autonomy'): void
 }>()
 
-const { selectedChat, myProfile, effectiveMyProfile, mockChats, saveMyProfile } = useChatState()
+const { selectedChat, myProfile, effectiveMyProfile, mockChats, loadMyProfile, saveMyProfile } = useChatState()
 const { saveCurrentChat } = useChatSettingsSave()
 const { tokenStats, refreshTokenStats } = useChatTokenStats()
 const { getTimezoneLabel } = useTimezone()
@@ -413,6 +413,8 @@ function showToast(msg: string) {
   }, 2000)
 }
 
+defineExpose({ showToast })
+
 // --- 历史通话记录管理 ---
 const { summarizeVoiceCall } = useChatSummary(selectedChat, saveCurrentChat, showToast)
 
@@ -604,6 +606,7 @@ const saveUserProfileToCurrentChat = async (
         name: updated.name || source.name,
         hasLocalChanges: false
       })
+      if (source.type === 'account') await loadMyProfile()
     } else {
       applyUserProfileToChat(selectedChat.value, snapshot, {
         type: 'custom',
@@ -612,10 +615,13 @@ const saveUserProfileToCurrentChat = async (
       })
     }
   } else {
-    applyUserProfileToChat(selectedChat.value, snapshot, {
-      ...source,
-      hasLocalChanges: source.type !== 'custom'
-    })
+    applyUserProfileToChat(
+      selectedChat.value,
+      snapshot,
+      source.type === 'account'
+        ? { type: 'custom', name: '当前聊天独立人设', hasLocalChanges: false }
+        : { ...source, hasLocalChanges: source.type !== 'custom' }
+    )
   }
 
   await saveCurrentChat()

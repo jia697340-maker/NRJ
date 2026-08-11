@@ -53,9 +53,9 @@ const showCallRecordsView = ref(false)
       </div>
     </div>
 
-    <div class="profile-source-hint" v-if="selectedChat?.userProfileSource">
-      当前使用：{{ selectedChat.userProfileSource.name || '独立人设' }}
-      <span v-if="selectedChat.userProfileSource.hasLocalChanges">（当前聊天已修改）</span>
+    <div class="profile-source-hint">
+      当前使用：{{ selectedChat?.userProfileSource?.name || '账号人设（自动跟随）' }}
+      <span v-if="selectedChat?.userProfileSource?.hasLocalChanges">（当前聊天已修改）</span>
     </div>
 
     <div class="glass-panel" v-show="matchSearch('真名', '备注', '用户人设')">

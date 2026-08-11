@@ -22,6 +22,7 @@ import { useChatState } from './composables/useChatState'
 import { useAppIcons } from './composables/useAppIcons'
 import { appRegistry, availableAppIds } from './appRegistry'
 import { useCustomFonts } from './composables/useCustomFonts'
+import { startAutonomyRuntime, stopAutonomyRuntime } from './services/autonomyRuntime'
 
 const { globalNotifications, dismissNotification, showNotification, loadCustomContacts, loadMyProfile } = useChatState()
 const { loadData: loadAppIconsData, customIcons } = useAppIcons()
@@ -161,8 +162,9 @@ onMounted(async () => {
   document.addEventListener('focusin', handleViewportFocusIn)
   document.addEventListener('focusout', handleViewportFocusOut)
   syncVisualViewport()
-  loadCustomContacts()
-  loadMyProfile()
+  await loadCustomContacts()
+  await loadMyProfile()
+  startAutonomyRuntime()
   await loadAppIconsData()
 
 })
@@ -189,6 +191,7 @@ onUnmounted(() => {
   if (keyboardBlurTimer) clearTimeout(keyboardBlurTimer)
   document.documentElement.classList.remove('keyboard-open')
   window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+  stopAutonomyRuntime()
 })
 
 // 监听 darkMode 变化，将类直接加到 body 上，确保所有 Teleport 组件生效
@@ -246,6 +249,15 @@ const openGeneratedCharacterChat = async (contactId: string) => {
   activeApp.value = 'chat'
   await nextTick()
   await chatAppRef.value?.openChatFromOutside?.(contactId)
+}
+
+const openChatNotification = async (notice: any) => {
+  dismissNotification(notice.id)
+  hasOpenedChatApp.value = true
+  activeApp.value = 'chat'
+  if (notice.chatId === undefined || notice.chatId === null) return
+  await nextTick()
+  await chatAppRef.value?.openChatFromOutside?.(notice.chatId)
 }
 
 const onPhoneWidgetPointerStart = (e: TouchEvent | MouseEvent) => {
@@ -489,14 +501,15 @@ watch(activeApp, appId => {
           v-for="(notice, index) in globalNotifications" 
           :key="notice.id" 
           class="global-notification-card glass"
+          :class="{ important: notice.important }"
           :style="getGlobalStackStyle(index, globalNotifications.length)"
-          @click="() => { hasOpenedChatApp = true; activeApp = 'chat'; dismissNotification(notice.id) }"
+          @click="openChatNotification(notice)"
         >
           <div class="notification-avatar" :style="notice.avatarUrl ? { backgroundImage: `url(${notice.avatarUrl})` } : {}">
             {{ notice.avatarUrl ? '' : notice.avatarText }}
           </div>
           <div class="notification-content">
-            <div class="notification-title">{{ notice.name }}</div>
+            <div class="notification-title">{{ notice.name }}<span v-if="notice.important" class="notification-priority">重要</span></div>
             <div class="notification-text">{{ notice.content }}</div>
           </div>
         </div>
@@ -769,6 +782,10 @@ export default {
   box-sizing: border-box;
 }
 
+.global-notification-card.important {
+  box-shadow: 0 8px 24px rgba(185,80,76,0.16), inset 0 0 0 1px rgba(185,80,76,0.16);
+}
+
 .is-dark .global-notification-card {
   background: rgba(40, 40, 40, 0.85);
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
@@ -805,6 +822,20 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.notification-priority {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  margin-left: 7px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(185,80,76,0.1);
+  color: #b9504c;
+  font-size: 9px;
+  font-weight: 650;
+  vertical-align: 2px;
 }
 
 .notification-text {

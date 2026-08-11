@@ -7,7 +7,13 @@ export interface ChatNotification {
   avatarUrl: string | null
   avatarText: string
   content: string
+  chatId?: string | number
+  deliveryId?: string
+  important?: boolean
+  persistent?: boolean
 }
+
+export type ChatNotificationOptions = Pick<ChatNotification, 'chatId' | 'deliveryId' | 'important' | 'persistent'>
 
 export const globalNotifications = ref<ChatNotification[]>([])
 const pendingQueue = ref<ChatNotification[]>([])
@@ -34,7 +40,7 @@ export const processQueue = async () => {
           setTimeout(() => {
             processQueue()
           }, 500)
-        }, 4000)
+        }, nextNotif.persistent ? 12000 : 4000)
       }
     } else {
       // 列表模式：推入并显示最多 3 条（避免太长挡住屏幕），自带 4 秒倒计时
@@ -48,20 +54,32 @@ export const processQueue = async () => {
           
           setTimeout(() => {
             globalNotifications.value = globalNotifications.value.filter(n => n.id !== nextNotif.id)
-          }, 4000)
+          }, nextNotif.persistent ? 12000 : 4000)
         }
       }
     }
   })
 }
 
-export const showNotification = (name: string, avatarUrl: string | null, avatarText: string, content: string) => {
+export const showNotification = (
+  name: string,
+  avatarUrl: string | null,
+  avatarText: string,
+  content: string,
+  options: ChatNotificationOptions = {}
+) => {
+  if (options.deliveryId) {
+    const alreadyQueued = [...globalNotifications.value, ...pendingQueue.value]
+      .some(item => item.deliveryId === options.deliveryId)
+    if (alreadyQueued) return
+  }
   pendingQueue.value.push({
     id: Date.now() + Math.random(),
     name,
     avatarUrl,
     avatarText,
-    content
+    content,
+    ...options
   })
   processQueue()
 }

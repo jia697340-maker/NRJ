@@ -10,10 +10,10 @@ import { useGeminiImage } from './useGeminiImage'
 import { useFluxImage } from './useFluxImage'
 import { useNijiImage } from './useNijiImage'
 import { useSeedreamImage } from './useSeedreamImage'
-import { useChatAuth } from './useChatAuth'
 import { appendMissedIncomingCall, isInDoNotDisturb } from './useCallRecords'
 import { parseBilingualMessage } from '../services/bilingualChat'
 import { attachActiveOfflineSession } from '../services/offlineSessions'
+import { beginOfflinePresence, reconcilePresence } from '../services/presenceLifecycle'
 import { useVoicePlayer } from './useVoicePlayer'
 
 // 引入拆分的逻辑模块
@@ -123,6 +123,47 @@ export function useChatRoomAPI(
     if (targetChat) targetChat.isTyping = false
   }
 
+  const clearOfflineTimer = (chatId: string | number) => {
+    if (!(window as any)._offlineTimers) (window as any)._offlineTimers = {}
+    const timer = (window as any)._offlineTimers[chatId]
+    if (timer) clearTimeout(timer)
+    delete (window as any)._offlineTimers[chatId]
+  }
+
+  const scheduleOfflineReturn = (chat: any) => {
+    if (!chat?.offlineUntil || chat.offlineUntil <= Date.now()) return
+    clearOfflineTimer(chat.id)
+    const waitTime = Math.max(0, chat.offlineUntil - Date.now())
+    ;(window as any)._offlineTimers[chat.id] = setTimeout(async () => {
+      clearOfflineTimer(chat.id)
+      const result = reconcilePresence(chat)
+      if (!result.changed) return
+      const shouldResumeReply = chat.presencePendingReply === true
+      if (result.becameOnline) chat.presencePendingReply = false
+      saveCustomContacts(chat)
+      if (selectedChat.value?.id === chat.id) await scrollToBottom()
+      if (result.becameOnline && shouldResumeReply && selectedChat.value?.id === chat.id && !isGenerating.value) {
+        await triggerAPI()
+      }
+    }, waitTime + 250)
+  }
+
+  const syncPresenceLifecycle = async (chat: any = selectedChat.value) => {
+    if (!chat) return
+    const result = reconcilePresence(chat)
+    if (result.changed) {
+      saveCustomContacts(chat)
+      if (selectedChat.value?.id === chat.id) await scrollToBottom()
+    }
+    if (chat.offlineUntil > Date.now()) scheduleOfflineReturn(chat)
+    else if (chat.presencePendingReply === true && selectedChat.value?.id === chat.id && !isGenerating.value) {
+      chat.presencePendingReply = false
+      saveCustomContacts(chat)
+      await triggerAPI()
+    }
+    return result
+  }
+
   const handleRegenerate = async (showExtensionPanel: any, showToast: any, callMode: false | 'voice' | 'video' = false) => {
     if (isGenerating.value || !selectedChat.value || selectedChat.value.id === 1) return
     
@@ -162,22 +203,21 @@ export function useChatRoomAPI(
     
     const currentChatId = selectedChat.value.id
     const targetChat = mockChats.value.find((c: any) => c.id === currentChatId)
+
+    if (targetChat) {
+      const presenceResult = reconcilePresence(targetChat)
+      if (targetChat.offlineUntil <= Date.now()) targetChat.presencePendingReply = false
+      if (presenceResult.changed) saveCustomContacts(targetChat)
+    }
     
     // --- 拦截离线积压逻辑 ---
     if (targetChat && targetChat.enableImmersiveStatus && targetChat.offlineUntil && targetChat.offlineUntil > Date.now()) {
       isGenerating.value = false
       const waitTime = targetChat.offlineUntil - Date.now()
       console.log(`[沉浸模式] 对方离线中，消息已积压。距离回归还有 ${Math.round(waitTime / 1000)} 秒`)
+      targetChat.presencePendingReply = true
       
-      if (!(window as any)._offlineTimers) (window as any)._offlineTimers = {}
-      if ((window as any)._offlineTimers[currentChatId]) {
-         clearTimeout((window as any)._offlineTimers[currentChatId])
-      }
-      (window as any)._offlineTimers[currentChatId] = setTimeout(() => {
-         if (targetChat.offlineUntil <= Date.now()) {
-           triggerAPI()
-         }
-      }, waitTime + 1000)
+      scheduleOfflineReturn(targetChat)
 
       saveCustomContacts()
       return
@@ -383,25 +423,9 @@ export function useChatRoomAPI(
                console.log(`[调试] 聊天结束，用户正在看着 ${chatToUpdate.name}，更新当前对话数据`)
                saveCustomContacts()
                await scrollToBottom()
-            } else {
-               console.log(`[调试] 聊天结束，用户已离开 ${chatToUpdate.name} 房间，准备将未读状态写入硬盘`)
-               const { currentChatUserId } = useChatAuth()
-               const contactsKey = currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
-               const savedStr = localStorage.getItem(contactsKey)
-               if (savedStr && chatToUpdate) {
-                  const contacts = JSON.parse(savedStr)
-                  const idx = contacts.findIndex((c: any) => c.id === currentChatId)
-                  if (idx !== -1) {
-                    contacts[idx].messages = chatToUpdate.messages
-                    contacts[idx].unread = chatToUpdate.unread
-                    contacts[idx].preview = chatToUpdate.preview
-                    contacts[idx].time = chatToUpdate.time
-                    contacts[idx].innerThoughts = chatToUpdate.innerThoughts || []
-                    contacts[idx].callSummaries = chatToUpdate.callSummaries || []
-                    localStorage.setItem(contactsKey, JSON.stringify(contacts))
-                    console.log(`[调试] 已成功保存 ${chatToUpdate.name} 的数据，最新未读数: ${contacts[idx].unread}`)
-                  }
-               }
+             } else {
+               console.log(`[调试] 聊天结束，用户已离开 ${chatToUpdate.name} 房间，准备将最新状态写入硬盘`)
+               saveCustomContacts(chatToUpdate)
             }
             return
           }
@@ -485,10 +509,11 @@ export function useChatRoomAPI(
             else if (timeStr.endsWith('s')) addMs = parseFloat(timeStr.replace('s', '')) * 1000
             else if (!isNaN(parseFloat(timeStr))) addMs = parseFloat(timeStr) * 60 * 1000 // 默认分钟
             if (addMs > 0 && chatToUpdate) {
-               chatToUpdate.offlineUntil = Date.now() + addMs
-               chatToUpdate.statusSource = 'chat'
-               chatToUpdate.statusSetAt = Date.now()
-               console.log(`[沉浸模式] 角色决定下线时长：${timeStr}，折合 ${addMs} ms`)
+               const safeDurationMs = Math.min(addMs, 30 * 24 * 3600 * 1000)
+               beginOfflinePresence(chatToUpdate, safeDurationMs, timeStr, Date.now(), 'chat')
+               scheduleOfflineReturn(chatToUpdate)
+               saveCustomContacts(chatToUpdate)
+               console.log(`[沉浸模式] 角色决定下线时长：${timeStr}，折合 ${safeDurationMs} ms`)
             }
             processNextAction(index + 1)
             return
@@ -908,23 +933,7 @@ export function useChatRoomAPI(
     if (isRoomActive.value && selectedChat.value && selectedChat.value.id === currentChatId) {
       saveCustomContacts()
       await scrollToBottom()
-    } else {
-      const { currentChatUserId } = useChatAuth()
-      const contactsKey = currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
-      const savedStr = localStorage.getItem(contactsKey)
-      if (savedStr && chatToUpdate) {
-        const contacts = JSON.parse(savedStr)
-        const idx = contacts.findIndex((c: any) => c.id === currentChatId)
-        if (idx !== -1) {
-          contacts[idx].messages = chatToUpdate.messages
-          contacts[idx].unread = chatToUpdate.unread
-          contacts[idx].preview = chatToUpdate.preview
-          contacts[idx].time = chatToUpdate.time
-          contacts[idx].innerThoughts = chatToUpdate.innerThoughts || []
-          localStorage.setItem(contactsKey, JSON.stringify(contacts))
-        }
-      }
-    }
+    } else if (chatToUpdate) saveCustomContacts(chatToUpdate)
   }
 
   // 返回原有一致的签名结构，保证任何组件不会报错失联
@@ -940,6 +949,7 @@ export function useChatRoomAPI(
     handleStopCall,
     handleRegenerate,
     triggerAPI,
+    syncPresenceLifecycle,
     reSummarizeImage,
     mountTestError
   }

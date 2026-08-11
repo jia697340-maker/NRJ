@@ -10,6 +10,7 @@ import PersonaLibraryView from './profile/PersonaLibraryView.vue'
 import ChatAppearanceView from './profile/ChatAppearanceView.vue'
 import NotificationSettingsView from './profile/NotificationSettingsView.vue'
 import { useChatAuth, type ChatAccount } from '../composables/useChatAuth'
+import { useChatState } from '../composables/useChatState'
 
 const props = defineProps<{
   currentView: 'profile' | 'createUserPersona' | 'personaLibrary' | 'chatAppearance' | 'notificationSettings'
@@ -20,6 +21,7 @@ const emit = defineEmits<{
 }>()
 
 const { currentChatUserId, logout } = useChatAuth()
+const { loadMyProfile } = useChatState()
 
 const getKey = (base: string) => currentChatUserId.value ? `${base}_${currentChatUserId.value}` : base
 
@@ -171,14 +173,6 @@ onMounted(async () => {
 
         personas.value = loadedPersonas
 
-        // 同步继承的账号头像
-        loadedPersonas.forEach((p: any) => {
-          if (p.boundAccountId === currentChatUserId.value) {
-            updateAccount(currentChatUserId.value ?? '', {
-              avatarUrl: p.avatar || ''
-            })
-          }
-        })
       }
     } catch (e) {
       console.error('Failed to load personas', e)
@@ -215,6 +209,7 @@ onMounted(async () => {
   if (savedGroupId && savedGroupId !== 'null') {
     activeGroupId.value = savedGroupId
   }
+  await loadMyProfile()
 })
 
 watch(personas, () => {
@@ -527,7 +522,7 @@ const handleAvatarSaved = (url: string | null) => {
 
 const { updateAccount } = useChatAuth()
 
-const saveUserPersona = () => {
+const saveUserPersona = async () => {
   if (!newUserName.value.trim() && !newNetworkName.value.trim()) return
 
   if (editingPersonaId.value !== null) {
@@ -567,8 +562,9 @@ const saveUserPersona = () => {
   }
   
   // 强制同步写入 localStorage
-  syncPersonasToStorage()
+  await syncPersonasToStorage()
   localStorage.setItem(getKey('app_chat_active_persona_index'), activePersonaIndex.value.toString())
+  await loadMyProfile()
   
   if (editingPersonaId.value !== null) {
     emit('update:currentView', 'personaLibrary')
@@ -598,7 +594,7 @@ const handleImportPersonas = (importedPersonas: any[]) => {
 }
 
 // 绑定/解绑逻辑
-const handleBindPersonaToAccount = (personaId: number) => {
+const handleBindPersonaToAccount = async (personaId: number) => {
   if (!currentChatUserId.value) return
   
   // 先把当前账号绑定的其他人都解绑（保证一对一或多对一的单一绑定侧）
@@ -638,7 +634,8 @@ const handleBindPersonaToAccount = (personaId: number) => {
     // 重置展示索引为 0
     activePersonaIndex.value = 0
     
-    syncPersonasToStorage()
+    await syncPersonasToStorage()
+    await loadMyProfile()
   }
 }
 

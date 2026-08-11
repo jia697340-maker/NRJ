@@ -2,9 +2,18 @@ import localforage from 'localforage'
 import { sendChatMessage } from './api'
 import { buildChatMessages } from '../composables/chatState/messages'
 import { isChatContextVisible, mockChats } from '../composables/chatState/state'
-import { showNotification } from '../composables/chatState/notifications'
 import { useChatAuth } from '../composables/useChatAuth'
 import { globalPromptSettings } from '../store'
+import { beginOfflinePresence, finishOfflinePresence, reconcilePresence } from './presenceLifecycle'
+import {
+  AUTONOMY_HISTORY_LIMIT,
+  ensureAutonomyPolicyDefaults,
+  normalizeAutonomyIntervalMinutes,
+  normalizeAutonomySilenceMinutes,
+  pendingAutonomyLedgerWindow,
+  type AutonomyLedgerWindow
+} from './autonomyConfig'
+import { flushAutonomyDeliveries, queueAutonomyDelivery } from './autonomyDelivery'
 
 export type AutonomyEventType = 'message' | 'moment' | 'status' | 'idle' | 'error'
 export type AutonomyEvent = {
@@ -24,6 +33,16 @@ type AutonomyAction = {
   status?: 'online' | 'offline' | 'busy' | 'away'
   text?: string
   atOffsetMinutes?: number
+  important?: boolean
+}
+
+type AutonomyDecision = {
+  summary?: string
+  nextCheckMinutes?: number
+  actions?: AutonomyAction[]
+  emotion?: string
+  emotionIntensity?: number
+  emotionNeedsDelivery?: boolean
 }
 
 export type AutonomyCheckResult = {
@@ -46,6 +65,8 @@ const clearAutonomyPresence = (chat: any, clearShared = false) => {
   if (clearShared || chat.statusSource === 'autonomy') {
     chat.statusText = ''
     chat.offlineUntil = 0
+    chat.presenceSession = null
+    chat.presencePendingReply = false
     chat.statusSource = ''
     chat.statusSetAt = 0
   }
@@ -65,7 +86,7 @@ export const ensureAutonomyDefaults = (chat: any) => {
   chat.autonomyCatchup ??= true
   chat.autonomyActiveStart ??= 8
   chat.autonomyActiveEnd ??= 24
-  chat.autonomyMinIntervalMinutes ??= 45
+  ensureAutonomyPolicyDefaults(chat)
   chat.autonomyHistory = Array.isArray(chat.autonomyHistory) ? chat.autonomyHistory : []
   if (!chat.autonomyState || typeof chat.autonomyState !== 'object') chat.autonomyState = {}
   const hasRecordedStatus = chat.autonomyHistory.some((event: AutonomyEvent) => event.type === 'status' && !event.blockedReason)
@@ -93,8 +114,10 @@ export const persistAutonomyChat = (chat: any) => {
   const fields = [
     'autonomyEnabled', 'autonomyAllowMessages', 'autonomyAllowMoments', 'autonomyAllowStatus', 'autonomyStatusPermissionExplicit',
     'autonomyCatchup', 'autonomyActiveStart', 'autonomyActiveEnd', 'autonomyMinIntervalMinutes',
+    'autonomyGuaranteeContact', 'autonomyMaxSilenceMinutes', 'autonomyEmotionMustDeliver', 'autonomyLastMeaningfulActionAt',
+    'autonomyLedger', 'autonomyDeliveries',
     'autonomyHistory', 'autonomyState', 'messages', 'unread', 'preview', 'time', 'statusText', 'offlineUntil',
-    'statusSource', 'statusSetAt', 'enableImmersiveStatus'
+    'statusSource', 'statusSetAt', 'enableImmersiveStatus', 'presenceSession', 'presenceHistory', 'presencePendingReply'
   ]
   fields.forEach(field => { saved[index][field] = chat[field] })
   localStorage.setItem(key, JSON.stringify(saved))
@@ -103,10 +126,10 @@ export const persistAutonomyChat = (chat: any) => {
 const addEvent = (chat: any, event: Omit<AutonomyEvent, 'id'>) => {
   ensureAutonomyDefaults(chat)
   chat.autonomyHistory.unshift({ ...event, id: `${event.createdAt}_${Math.random().toString(36).slice(2, 8)}` })
-  chat.autonomyHistory = chat.autonomyHistory.slice(0, 200)
+  chat.autonomyHistory = chat.autonomyHistory.slice(0, AUTONOMY_HISTORY_LIMIT)
 }
 
-const parseDecision = (raw: string): { summary?: string; nextCheckMinutes?: number; actions?: AutonomyAction[] } => {
+const parseDecision = (raw: string): AutonomyDecision => {
   const cleaned = raw.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim()
   const start = cleaned.indexOf('{')
   const end = cleaned.lastIndexOf('}')
@@ -114,10 +137,21 @@ const parseDecision = (raw: string): { summary?: string; nextCheckMinutes?: numb
   return JSON.parse(cleaned.slice(start, end + 1))
 }
 
+const lastMeaningfulActionAt = (chat: any) => {
+  return Number(chat.autonomyLastMeaningfulActionAt || Date.now())
+}
+
 const isWithinActiveHours = (chat: any, date = new Date()) => {
   const start = Number(chat.autonomyActiveStart ?? 8)
   const end = Number(chat.autonomyActiveEnd ?? 24)
-  const hour = date.getHours()
+  let hour = date.getHours()
+  try {
+    hour = Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: chat.timezone || undefined,
+      hour: '2-digit',
+      hourCycle: 'h23'
+    }).format(date))
+  } catch (_) {}
   if (start === end) return true
   return start < end ? hour >= start && hour < end : hour >= start || hour < end
 }
@@ -170,17 +204,22 @@ const actionPermission = (chat: any, action: AutonomyAction) => {
 export const runAutonomousCheck = async (
   chat: any,
   reason: 'scheduled' | 'resume' | 'manual' = 'scheduled',
-  options: { preview?: boolean } = {}
+  options: { preview?: boolean; ledgerWindow?: AutonomyLedgerWindow | null } = {}
 ): Promise<AutonomyCheckResult | false> => {
   ensureAutonomyDefaults(chat)
   const chatKey = String(chat.id)
   if (!chat.autonomyEnabled || runningChats.has(chatKey) || chat.isTyping) return false
-  if (reason !== 'manual' && !isWithinActiveHours(chat)) return false
+  if (reason !== 'manual' && !isWithinActiveHours(chat) && !options.ledgerWindow) return false
 
   const now = Date.now()
-  const previous = Number(chat.autonomyState.lastCheckedAt || now)
+  const previous = Number(options.ledgerWindow?.startedAt || chat.autonomyState.lastCheckedAt || now)
   const elapsedMinutes = Math.max(0, Math.round((now - previous) / 60000))
-  const catchup = reason === 'resume' && chat.autonomyCatchup && elapsedMinutes >= 30
+  const minimum = normalizeAutonomyIntervalMinutes(chat.autonomyMinIntervalMinutes)
+  const catchup = reason === 'resume' && chat.autonomyCatchup && elapsedMinutes >= minimum
+  const silenceMinutes = Math.max(0, Math.round((now - lastMeaningfulActionAt(chat)) / 60000))
+  const contactRequired = chat.autonomyGuaranteeContact
+    && silenceMinutes >= normalizeAutonomySilenceMinutes(chat.autonomyMaxSilenceMinutes)
+  const maxActions = catchup ? 8 : 3
   runningChats.add(chatKey)
   chat.autonomyState.running = true
   chat.autonomyState.lastError = ''
@@ -188,15 +227,51 @@ export const runAutonomousCheck = async (
 
   try {
     const messages = await buildChatMessages(chat)
+    const policyText = globalPromptSettings.language === 'en'
+      ? `Minimum-contact guarantee: ${chat.autonomyGuaranteeContact ? `enabled; after ${normalizeAutonomySilenceMinutes(chat.autonomyMaxSilenceMinutes)} minutes of silence` : 'disabled'}. Current silence: about ${silenceMinutes} minutes. ${contactRequired ? 'The guarantee is due now: return at least one permitted action, preferably a sincere message.' : ''} Important-emotion delivery: ${chat.autonomyEmotionMustDeliver ? 'enabled; if there is a strong emotion the user should know, set emotionNeedsDelivery=true and include a direct message expressing it naturally' : 'disabled'}.`
+      : `最低联系保障：${chat.autonomyGuaranteeContact ? `已开启，最长沉默 ${normalizeAutonomySilenceMinutes(chat.autonomyMaxSilenceMinutes)} 分钟` : '未开启'}；目前已沉默约 ${silenceMinutes} 分钟。${contactRequired ? '保障现已到期：必须至少给出一个获准动作，优先是一条真诚的直接消息。' : ''}重要情绪必达：${chat.autonomyEmotionMustDeliver ? '已开启；如果存在用户应该知道的强烈情绪，请令 emotionNeedsDelivery=true，并用一条自然的直接消息表达' : '未开启'}。`
     messages.push({
       role: 'system',
       content: globalPromptSettings.language === 'en'
-        ? `[Character autonomous-activity decision]\nCurrent time: ${new Date(now).toLocaleString('zh-CN')}. About ${elapsedMinutes} minutes have passed since the last check. Trigger: ${reason}. ${catchup ? 'This is a catch-up calculation after reopening; a small number of plausible events may have occurred during the elapsed time.' : 'This is a normal check while the page is running.'}\nYou are not replying to the user. You are deciding whether the character genuinely wants to act now. Proactive messages allowed: ${chat.autonomyAllowMessages ? 'yes' : 'no'}; Moments allowed: ${chat.autonomyAllowMoments ? 'yes' : 'no'}; status changes allowed: ${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? 'yes' : 'no'}. Respect the persona, relationship, recent conversation, and any schedule or busyness the user disclosed. Silence is normal and should remain an easy choice. Never act merely to display the feature, send mechanical greetings or time announcements, or explain these rules.\nReturn JSON only: {"summary":"one internal summary sentence","nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"plain message or Moments post body without XML tags","status":"online|offline|busy|away","text":"status text","atOffsetMinutes":0}]}. content must be plain text and must never contain <msg> or other action tags. Natural-language fields must use the conversation's primary language. actions may be empty and may contain at most 3 items. nextCheckMinutes must be between ${Math.max(30, Number(chat.autonomyMinIntervalMinutes || 45))} and 720. During catch-up, atOffsetMinutes means how many minutes ago the action occurred and may not exceed ${elapsedMinutes}.`
-        : `【角色自主活动判断】\n现在是 ${new Date(now).toLocaleString('zh-CN')}。距离上次自主判断约 ${elapsedMinutes} 分钟。触发原因：${reason}。${catchup ? '这是重新打开后的时间结算，可以生成这段时间内合理发生过的少量事件。' : '这是页面运行期间的正常判断。'}\n你不是在回复用户，而是在决定自己此刻是否想行动。允许主动消息：${chat.autonomyAllowMessages ? '是' : '否'}；允许朋友圈：${chat.autonomyAllowMoments ? '是' : '否'}；允许状态变化：${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? '是' : '否'}。必须尊重人设、关系、最近聊天内容和用户透露的忙碌/作息；沉默是完全正常且优先允许的选择，不要为了展示功能而行动，不要机械问候或报时，不要解释规则。\n只返回 JSON：{"summary":"一句内部摘要","nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"不含任何 XML 标签的纯文本消息或朋友圈正文","status":"online|offline|busy|away","text":"状态文案","atOffsetMinutes":0}]}。content 必须是纯文本，禁止包含 <msg> 或其他动作标签。actions 可以为空；最多 3 个动作；nextCheckMinutes 为 ${Math.max(30, Number(chat.autonomyMinIntervalMinutes || 45))} 到 720。补演时 atOffsetMinutes 表示该动作发生在多少分钟前，不能超过 ${elapsedMinutes}。`
+        ? `[Character autonomous-activity decision]\nCurrent time: ${new Date(now).toLocaleString('zh-CN')}. About ${elapsedMinutes} minutes have passed since the last check. Trigger: ${reason}. ${catchup ? 'This is a complete local catch-up for the recorded closed-page window. Place plausible actions across the elapsed time without repetition.' : 'This is a normal check while the page is running.'}\nYou are not replying to the user. You are deciding whether the character genuinely wants to act now. Proactive messages allowed: ${chat.autonomyAllowMessages ? 'yes' : 'no'}; Moments allowed: ${chat.autonomyAllowMoments ? 'yes' : 'no'}; status changes allowed: ${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? 'yes' : 'no'}. ${policyText} Respect the persona, relationship, recent conversation, and any schedule or busyness the user disclosed. Outside mandatory policies, silence is normal. Never send mechanical greetings, time announcements, or explanations of these rules.\nReturn JSON only: {"summary":"one internal summary sentence","emotion":"current emotion","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"plain message or Moments post body without XML tags","status":"online|offline|busy|away","text":"status text","atOffsetMinutes":0,"important":false}]}. content must be plain text and never contain tags. actions may be empty unless a policy is due; at most ${maxActions}. nextCheckMinutes must be between ${minimum} and ${Math.max(720, minimum)}. During catch-up, atOffsetMinutes means how many minutes ago the action occurred and may not exceed ${elapsedMinutes}.`
+        : `【角色自主活动判断】\n现在是 ${new Date(now).toLocaleString('zh-CN')}。距离上次自主判断约 ${elapsedMinutes} 分钟。触发原因：${reason}。${catchup ? '这是记录到的页面关闭时间段的完整本地补演，请在经过时间内合理分布动作且避免重复。' : '这是页面运行期间的正常判断。'}\n你不是在回复用户，而是在决定自己此刻是否想行动。允许主动消息：${chat.autonomyAllowMessages ? '是' : '否'}；允许朋友圈：${chat.autonomyAllowMoments ? '是' : '否'}；允许状态变化：${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? '是' : '否'}。${policyText}必须尊重人设、关系、最近聊天内容和用户透露的忙碌/作息；除强制保障外，沉默是正常选择。不要机械问候、报时或解释规则。\n只返回 JSON：{"summary":"一句内部摘要","emotion":"当前情绪","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"不含标签的纯文本消息或朋友圈正文","status":"online|offline|busy|away","text":"状态文案","atOffsetMinutes":0,"important":false}]}。actions 除保障到期外可以为空；最多 ${maxActions} 个；nextCheckMinutes 为 ${minimum} 到 ${Math.max(720, minimum)}。补演时 atOffsetMinutes 表示动作发生在多少分钟前，不能超过 ${elapsedMinutes}。`
     })
     const result: any = await sendChatMessage(messages)
-    const decision = parseDecision(typeof result === 'string' ? result : result.content)
-    const actions = Array.isArray(decision.actions) ? decision.actions.slice(0, 3) : []
+    const rawDecision = typeof result === 'string' ? result : result.content
+    let decision = parseDecision(rawDecision)
+    let actions = Array.isArray(decision.actions)
+      ? decision.actions.filter(action => action && typeof action.type === 'string').slice(0, maxActions)
+      : []
+    const importantEmotionDue = chat.autonomyEmotionMustDeliver
+      && decision.emotionNeedsDelivery === true
+      && Number(decision.emotionIntensity || 0) >= 2
+      && chat.autonomyAllowMessages
+    const requiresMessage = (contactRequired && chat.autonomyAllowMessages) || importantEmotionDue
+    const hasExecutableAction = actions.some(action => {
+      if (actionPermission(chat, action)) return false
+      if (action.type === 'message' || action.type === 'moment') return Boolean(action.content?.trim())
+      return action.type === 'status' && Boolean(action.status && validPresenceStatuses.has(action.status))
+    })
+    const missingRequiredMessage = requiresMessage && !actions.some(action => action.type === 'message' && action.content?.trim())
+    const missingGuaranteedAction = contactRequired && !hasExecutableAction
+    if (!options.preview && (missingRequiredMessage || missingGuaranteedAction)) {
+      messages.push({ role: 'assistant', content: rawDecision })
+      messages.push({
+        role: 'system',
+        content: globalPromptSettings.language === 'en'
+          ? requiresMessage
+            ? 'The required direct message is missing. Return the same JSON schema again with one sincere, persona-consistent message action. Do not mention this correction or the policy.'
+            : 'The minimum-contact guarantee is due but no executable action was returned. Return the same JSON schema with at least one sincere permitted action. Do not mention this correction or the policy.'
+          : requiresMessage
+            ? '必达的直接消息缺失。请重新按同一 JSON 结构返回，并加入一条真诚、符合人设的 message 动作；不要提及修正过程或规则。'
+            : '最低联系保障已经到期，但没有返回可执行动作。请重新按同一 JSON 结构返回，并加入至少一个真诚且已获准的动作；不要提及修正过程或规则。'
+      })
+      const repaired: any = await sendChatMessage(messages)
+      decision = parseDecision(typeof repaired === 'string' ? repaired : repaired.content)
+      actions = Array.isArray(decision.actions)
+        ? decision.actions.filter(action => action && typeof action.type === 'string').slice(0, maxActions)
+        : []
+    }
     const previewActions = actions.map(action => {
       const blockedReason = actionPermission(chat, action)
       const previewContent = action.type === 'message' && action.content
@@ -221,7 +296,10 @@ export const runAutonomousCheck = async (
         if (!contents.length) continue
         chat.messages ||= []
         contents.forEach((content, messageIndex) => {
-          chat.messages.push({ id: createdAt + messageIndex, type: 'left', content, isAutonomous: true })
+          const messageId = createdAt + messageIndex
+          const important = action.important === true || importantEmotionDue
+          chat.messages.push({ id: messageId, type: 'left', content, isAutonomous: true, autonomyImportant: important })
+          queueAutonomyDelivery(chat, messageId, content, createdAt + messageIndex, important)
           addEvent(chat, { type: 'message', createdAt: createdAt + messageIndex, title: '主动发来消息', detail: content, catchup, trigger: reason })
         })
         const content = contents[contents.length - 1]
@@ -229,12 +307,14 @@ export const runAutonomousCheck = async (
         chat.time = new Date(createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
         if (!isChatContextVisible(chat.id)) {
           chat.unread = (chat.unread || 0) + contents.length
-          showNotification(chat.name, chat.avatarUrl, chat.avatarText, content)
         }
+        flushAutonomyDeliveries([chat])
+        chat.autonomyLastMeaningfulActionAt = now
         executed += contents.length
       } else if (action.type === 'moment' && action.content?.trim()) {
         await addMoment(chat, action.content.trim(), createdAt)
         addEvent(chat, { type: 'moment', createdAt, title: '发布了朋友圈', detail: action.content.trim(), catchup, trigger: reason })
+        chat.autonomyLastMeaningfulActionAt = now
         executed++
       } else if (action.type === 'status' && action.status && validPresenceStatuses.has(action.status)) {
         chat.autonomyState.status = action.status
@@ -243,23 +323,30 @@ export const runAutonomousCheck = async (
         chat.statusText = action.text?.trim() || ({ online: '在线', offline: '离线', busy: '忙碌', away: '暂离' } as any)[action.status]
         chat.statusSource = 'autonomy'
         chat.statusSetAt = createdAt
-        if (action.status === 'offline') chat.offlineUntil = now + 30 * 60000
-        else chat.offlineUntil = 0
+        if (action.status === 'offline') {
+          beginOfflinePresence(chat, 30 * 60000, '30m', createdAt, 'autonomy')
+          reconcilePresence(chat, now)
+        }
+        else finishOfflinePresence(chat, createdAt)
         addEvent(chat, { type: 'status', createdAt, title: `状态变为${chat.statusText}`, detail: action.text?.trim() || '角色根据自己的安排改变了状态', catchup, trigger: reason })
+        chat.autonomyLastMeaningfulActionAt = now
         executed++
       }
     }
 
     if (executed === 0 && !previewActions.some(action => action.blockedReason)) addEvent(chat, { type: 'idle', createdAt: now, title: '选择保持安静', detail: decision.summary?.trim() || '这次没有想做的事', catchup, trigger: reason })
-    const minimum = Math.max(30, Number(chat.autonomyMinIntervalMinutes || 45))
-    const nextMinutes = Math.min(720, Math.max(minimum, Number(decision.nextCheckMinutes || 120)))
+    const requestedNextMinutes = Number(decision.nextCheckMinutes)
+    const nextMinutes = Math.min(
+      Math.max(720, minimum),
+      Math.max(minimum, Number.isFinite(requestedNextMinutes) ? requestedNextMinutes : 120)
+    )
     chat.autonomyState.lastCheckedAt = now
     chat.autonomyState.nextCheckAt = now + nextMinutes * 60000
     chat.autonomyState.lastSummary = decision.summary?.trim() || ''
     return { executed, summary: decision.summary?.trim() || '', preview: false, actions: previewActions }
   } catch (error: any) {
     chat.autonomyState.lastError = error?.message || '自主活动检查失败'
-    chat.autonomyState.nextCheckAt = now + Math.max(30, Number(chat.autonomyMinIntervalMinutes || 45)) * 60000
+    chat.autonomyState.nextCheckAt = now + Math.max(5, normalizeAutonomyIntervalMinutes(chat.autonomyMinIntervalMinutes)) * 60000
     addEvent(chat, { type: 'error', createdAt: now, title: '本次活动检查失败', detail: chat.autonomyState.lastError })
     throw error
   } finally {
@@ -270,13 +357,39 @@ export const runAutonomousCheck = async (
 }
 
 export const runDueAutonomyChecks = async (reason: 'scheduled' | 'resume' = 'scheduled') => {
+  const now = Date.now()
   for (const chat of mockChats.value.filter(item => item.id !== 1)) {
     ensureAutonomyDefaults(chat)
     if (!chat.autonomyEnabled) continue
-    const due = !chat.autonomyState.nextCheckAt || chat.autonomyState.nextCheckAt <= Date.now()
+    const ledgerWindow = reason === 'resume' ? pendingAutonomyLedgerWindow(chat) : null
+    const due = Boolean(ledgerWindow) || !chat.autonomyState.nextCheckAt || chat.autonomyState.nextCheckAt <= now
     if (due) {
-      try { await runAutonomousCheck(chat, reason) } catch (_) {}
-      break
+      try {
+        if (ledgerWindow) {
+          ledgerWindow.status = 'processing'
+          ledgerWindow.attempts += 1
+          persistAutonomyChat(chat)
+        }
+        const result = await runAutonomousCheck(chat, reason, { ledgerWindow })
+        if (ledgerWindow && result) {
+          ledgerWindow.status = 'completed'
+          ledgerWindow.completedAt = Date.now()
+          ledgerWindow.executed = result.executed
+          ledgerWindow.summary = result.summary
+          ledgerWindow.error = ''
+          persistAutonomyChat(chat)
+        } else if (ledgerWindow) {
+          ledgerWindow.status = 'pending'
+          persistAutonomyChat(chat)
+        }
+      } catch (error: any) {
+        if (ledgerWindow) {
+          ledgerWindow.status = 'failed'
+          ledgerWindow.error = error?.message || '补演失败'
+          persistAutonomyChat(chat)
+        }
+      }
     }
   }
+  flushAutonomyDeliveries(mockChats.value).forEach(persistAutonomyChat)
 }

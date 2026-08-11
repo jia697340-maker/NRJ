@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { disableAutonomyPresence, ensureAutonomyDefaults, persistAutonomyChat, runAutonomousCheck, type AutonomyCheckResult, type AutonomyEvent } from '../../services/characterAutonomy'
+import {
+  AUTONOMY_INTERVAL_MINUTES_MAX,
+  AUTONOMY_INTERVAL_MINUTES_MIN,
+  normalizeAutonomyIntervalMinutes,
+  normalizeAutonomySilenceMinutes,
+  pendingAutonomyLedgerWindow
+} from '../../services/autonomyConfig'
+import { getPendingAutonomyDeliveryCount } from '../../services/autonomyDelivery'
 
 const props = defineProps<{ chat: any }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'save'): void }>()
@@ -9,9 +17,13 @@ const feedback = ref<{ type: 'success' | 'error'; text: string } | null>(null)
 const previewResult = ref<AutonomyCheckResult | null>(null)
 const showClearConfirm = ref(false)
 const filter = ref<'all' | 'message' | 'moment' | 'status'>('all')
+const intervalDraft = ref('45')
+const silenceHoursDraft = ref('12')
 
 onMounted(() => {
   ensureAutonomyDefaults(props.chat)
+  intervalDraft.value = String(props.chat.autonomyMinIntervalMinutes)
+  silenceHoursDraft.value = String(Math.max(0.5, props.chat.autonomyMaxSilenceMinutes / 60))
   persistAutonomyChat(props.chat)
 })
 
@@ -42,6 +54,15 @@ const nextCheckLabel = computed(() => {
   if (diff <= 0) return '即将检查'
   if (diff < 3600000) return `约 ${Math.ceil(diff / 60000)} 分钟后`
   return `约 ${Math.ceil(diff / 3600000)} 小时后`
+})
+
+const pendingDeliveryCount = computed(() => getPendingAutonomyDeliveryCount(props.chat))
+const ledgerLabel = computed(() => {
+  const pending = pendingAutonomyLedgerWindow(props.chat)
+  if (pending) return pending.status === 'failed' ? '有一段补演等待重试' : '有一段关闭时间等待结算'
+  const windows = props.chat.autonomyLedger?.windows || []
+  const latest = windows[windows.length - 1]
+  return latest?.status === 'completed' ? '关闭时间已完整结算' : '暂无待结算时间'
 })
 
 const filters = [
@@ -93,6 +114,11 @@ const toggleStatusPermission = () => {
   save()
 }
 
+const toggleMessagePermission = () => {
+  if (!props.chat.autonomyAllowMessages) props.chat.autonomyEmotionMustDeliver = false
+  save()
+}
+
 const actionLabel = (type: string) => ({ message: '主动消息', moment: '朋友圈', status: '状态变化' } as Record<string, string>)[type] || type
 const actionDetail = (action: any) => action.type === 'status'
   ? `${({ online: '在线', offline: '离线', busy: '忙碌', away: '暂离' } as Record<string, string>)[action.status] || action.status || '未指定'}${action.text ? ` · ${action.text}` : ''}`
@@ -102,7 +128,57 @@ const triggerLabel = (trigger?: string) => ({ manual: '手动触发', scheduled:
 const toggleMain = () => {
   if (props.chat.autonomyEnabled && !props.chat.autonomyState?.nextCheckAt) {
     props.chat.autonomyState ||= {}
-    props.chat.autonomyState.nextCheckAt = Date.now() + 60000
+    props.chat.autonomyState.nextCheckAt = Date.now() + normalizeAutonomyIntervalMinutes(props.chat.autonomyMinIntervalMinutes) * 60000
+    props.chat.autonomyLastMeaningfulActionAt ||= Date.now()
+  }
+  save()
+}
+
+const saveInterval = () => {
+  const parsed = Number(intervalDraft.value.trim())
+  if (!Number.isFinite(parsed)) {
+    intervalDraft.value = String(props.chat.autonomyMinIntervalMinutes)
+    feedback.value = { type: 'error', text: '请输入有效的分钟数' }
+    return
+  }
+  const normalized = normalizeAutonomyIntervalMinutes(parsed)
+  props.chat.autonomyMinIntervalMinutes = normalized
+  intervalDraft.value = String(normalized)
+  props.chat.autonomyState ||= {}
+  props.chat.autonomyState.nextCheckAt = Date.now() + normalized * 60000
+  feedback.value = parsed !== normalized
+    ? { type: 'error', text: `检查间隔已调整到允许范围 ${AUTONOMY_INTERVAL_MINUTES_MIN}–${AUTONOMY_INTERVAL_MINUTES_MAX} 分钟` }
+    : { type: 'success', text: `最短检查间隔已设为 ${normalized} 分钟` }
+  save()
+}
+
+const setIntervalPreset = (minutes: number) => {
+  intervalDraft.value = String(minutes)
+  saveInterval()
+}
+
+const saveSilenceHours = () => {
+  const parsed = Number(silenceHoursDraft.value.trim())
+  if (!Number.isFinite(parsed)) {
+    silenceHoursDraft.value = String(props.chat.autonomyMaxSilenceMinutes / 60)
+    feedback.value = { type: 'error', text: '请输入有效的小时数' }
+    return
+  }
+  const minutes = normalizeAutonomySilenceMinutes(parsed * 60)
+  props.chat.autonomyMaxSilenceMinutes = minutes
+  silenceHoursDraft.value = String(Number((minutes / 60).toFixed(1)))
+  save()
+}
+
+const toggleContactGuarantee = () => {
+  if (props.chat.autonomyGuaranteeContact) props.chat.autonomyLastMeaningfulActionAt ||= Date.now()
+  save()
+}
+
+const toggleEmotionDelivery = () => {
+  if (props.chat.autonomyEmotionMustDeliver && !props.chat.autonomyAllowMessages) {
+    props.chat.autonomyEmotionMustDeliver = false
+    feedback.value = { type: 'error', text: '请先允许角色主动给你发消息' }
   }
   save()
 }
@@ -178,7 +254,7 @@ const clearHistory = () => {
             <div class="setting-row">
               <div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M20 15a3 3 0 0 1-3 3H9l-5 3v-6a3 3 0 0 1-1-2V7a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3Z"/></svg></div>
               <div class="setting-copy"><label for="allow-message">主动给我发消息</label><p>允许在你没有先开口时主动联系。</p></div>
-              <label class="switch"><input id="allow-message" v-model="chat.autonomyAllowMessages" type="checkbox" :disabled="!chat.autonomyEnabled" @change="save"><span></span></label>
+              <label class="switch"><input id="allow-message" v-model="chat.autonomyAllowMessages" type="checkbox" :disabled="!chat.autonomyEnabled" @change="toggleMessagePermission"><span></span></label>
             </div>
             <div class="setting-row">
               <div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h.01M4 16l4-4 3 3 3-4 6 6"/></svg></div>
@@ -201,7 +277,41 @@ const clearHistory = () => {
             <div class="field-grid">
               <label>可活动时段<span class="select-wrap"><select v-model.number="chat.autonomyActiveStart" :disabled="!chat.autonomyEnabled" @change="save"><option v-for="hour in 24" :key="hour - 1" :value="hour - 1">{{ String(hour - 1).padStart(2, '0') }}:00</option></select><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></span></label>
               <label>至<span class="select-wrap"><select v-model.number="chat.autonomyActiveEnd" :disabled="!chat.autonomyEnabled" @change="save"><option v-for="hour in 24" :key="hour" :value="hour">{{ String(hour).padStart(2, '0') }}:00</option></select><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></span></label>
-              <label>最短检查间隔<span class="select-wrap wide"><select v-model.number="chat.autonomyMinIntervalMinutes" :disabled="!chat.autonomyEnabled" @change="save"><option :value="30">30 分钟</option><option :value="45">45 分钟</option><option :value="60">1 小时</option><option :value="120">2 小时</option></select><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></span></label>
+              <label>最短检查间隔
+                <span class="number-field" :class="{ disabled: !chat.autonomyEnabled }">
+                  <input v-model="intervalDraft" type="text" inputmode="numeric" :disabled="!chat.autonomyEnabled" aria-label="最短检查间隔分钟数" @keydown.enter.prevent="saveInterval" @blur="saveInterval">
+                  <span>分钟</span>
+                </span>
+                <span class="field-hint">可手动输入 {{ AUTONOMY_INTERVAL_MINUTES_MIN }}–{{ AUTONOMY_INTERVAL_MINUTES_MAX }} 分钟</span>
+                <span class="interval-presets" aria-label="常用检查间隔">
+                  <button v-for="minutes in [5, 15, 30, 60, 120]" :key="minutes" type="button" :disabled="!chat.autonomyEnabled" :class="{ active: chat.autonomyMinIntervalMinutes === minutes }" @click="setIntervalPreset(minutes)">{{ minutes < 60 ? `${minutes} 分` : `${minutes / 60} 小时` }}</button>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-card" :class="{ disabled: !chat.autonomyEnabled }">
+            <div class="section-heading"><div><h3>联系保障</h3><p>为需要明确送达的自主活动设置底线。</p></div></div>
+            <div class="setting-row">
+              <div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.4-7-10a4 4 0 0 1 7-2.7A4 4 0 0 1 19 11c0 5.6-7 10-7 10Z"/></svg></div>
+              <div class="setting-copy"><label for="contact-guarantee">最低联系保障</label><p>超过设定时间仍无自主行动时，本次判断必须选择一种获准行为。</p></div>
+              <label class="switch"><input id="contact-guarantee" v-model="chat.autonomyGuaranteeContact" type="checkbox" :disabled="!chat.autonomyEnabled" @change="toggleContactGuarantee"><span></span></label>
+            </div>
+            <div v-if="chat.autonomyGuaranteeContact" class="setting-row compact-setting">
+              <div class="setting-copy"><label>最长沉默时间</label><p>至少 0.5 小时，最长 30 天。</p></div>
+              <span class="number-field compact">
+                <input v-model="silenceHoursDraft" type="text" inputmode="decimal" :disabled="!chat.autonomyEnabled" aria-label="最长沉默小时数" @keydown.enter.prevent="saveSilenceHours" @blur="saveSilenceHours">
+                <span>小时</span>
+              </span>
+            </div>
+            <div class="setting-row">
+              <div class="setting-icon"><svg viewBox="0 0 24 24"><path d="M12 3 4 7v5c0 4.5 2.8 7.7 8 9 5.2-1.3 8-4.5 8-9V7Z"/><path d="M12 8v5m0 3h.01"/></svg></div>
+              <div class="setting-copy"><label for="emotion-delivery">重要情绪必达</label><p>角色判断有需要让你知道的强烈情绪时，必须形成一条可靠未读消息。</p></div>
+              <label class="switch"><input id="emotion-delivery" v-model="chat.autonomyEmotionMustDeliver" type="checkbox" :disabled="!chat.autonomyEnabled" @change="toggleEmotionDelivery"><span></span></label>
+            </div>
+            <div class="delivery-state-row">
+              <span><i :class="{ active: pendingDeliveryCount > 0 }"></i>{{ pendingDeliveryCount > 0 ? `${pendingDeliveryCount} 条消息等待确认` : '没有待确认的重要消息' }}</span>
+              <span>{{ ledgerLabel }}</span>
             </div>
           </section>
         </div>
@@ -245,6 +355,9 @@ const clearHistory = () => {
 .autonomy-view{display:flex;flex-direction:column;background:var(--sys-bg-primary);color:var(--text-primary);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif}.autonomy-header{height:58px;min-height:58px;display:grid;grid-template-columns:48px 1fr 48px;align-items:center;padding-top:env(safe-area-inset-top);border-bottom:1px solid var(--border-color);background:var(--sys-bg-secondary);z-index:3}.header-copy{text-align:center;line-height:1.1}.header-copy h1{font-size:16px;letter-spacing:.2px;margin:0;font-weight:650}.header-copy span{display:block;margin-top:4px;color:var(--text-tertiary);font-size:10px}.icon-button,.text-button{border:0;background:transparent;color:var(--text-primary);font:inherit;height:44px;display:grid;place-items:center;cursor:pointer;border-radius:10px}.icon-button{width:44px;margin-left:4px}.icon-button svg{width:22px;height:22px}.text-button{font-size:13px;color:var(--text-secondary);padding:0 10px}.text-button:disabled{opacity:.35;cursor:not-allowed}.icon-button:hover,.text-button:not(:disabled):hover{background:var(--sys-bg-primary)}button:focus-visible,select:focus-visible,input:focus-visible+span{outline:2px solid #3478f6;outline-offset:2px}.autonomy-scroll{flex:1;overflow:auto;padding:22px 20px calc(28px + env(safe-area-inset-bottom))}.autonomy-layout{width:min(1060px,100%);margin:auto;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:18px;align-items:start}.autonomy-column{display:flex;flex-direction:column;gap:14px}.hero-card,.settings-card,.history-card{background:var(--card-bg-solid);border:1px solid var(--border-color);border-radius:16px;box-shadow:0 4px 14px rgba(0,0,0,.025)}.hero-card{padding:20px}.hero-card.paused{background:color-mix(in srgb,var(--card-bg-solid) 80%,var(--sys-bg-primary))}.hero-identity{display:flex;gap:14px;align-items:center}.hero-avatar{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--sys-bg-tertiary);background-size:cover;background-position:center;font-size:20px;font-weight:650;box-shadow:0 0 0 3px var(--card-bg-solid),0 0 0 4px var(--border-color)}.eyebrow{font-size:10px!important;text-transform:uppercase;letter-spacing:1px;color:#4f8b70!important;font-weight:650;margin-bottom:4px!important}.hero-card.paused .eyebrow{color:var(--text-tertiary)!important}.hero-identity h2{font-size:19px;margin:0 0 4px}.hero-identity p{font-size:12px;line-height:1.55;color:var(--text-secondary);margin:0}.hero-status{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0 12px}.hero-status>div{padding:11px 12px;border-radius:11px;background:var(--sys-bg-primary);min-width:0}.hero-status span{font-size:10px;color:var(--text-tertiary);display:block;margin-bottom:5px}.hero-status strong{font-size:12px;font-weight:550;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero-status i{width:7px;height:7px;border-radius:50%;background:#979797;box-shadow:0 0 0 3px rgba(151,151,151,.1)}.hero-status i.online{background:#52a575;box-shadow:0 0 0 3px rgba(82,165,117,.12)}.hero-status i.busy{background:#d66d68}.hero-status i.away{background:#d6a24e}.primary-action{width:100%;height:42px;border-radius:11px;border:1px solid var(--text-primary);background:var(--text-primary);color:var(--sys-bg-secondary);font:inherit;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:transform .15s,opacity .15s,background .15s}.primary-action:hover:not(:disabled){opacity:.88}.primary-action:active:not(:disabled){transform:scale(.985)}.primary-action:disabled{opacity:.28;cursor:not-allowed}.primary-action svg{width:17px;height:17px}.button-spinner{width:15px;height:15px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .75s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.feedback{min-height:42px;padding:9px 12px;border-radius:12px;display:flex;align-items:center;gap:9px;font-size:12px;border:1px solid}.feedback svg{width:17px;height:17px;flex:none}.feedback.success{color:#397a5c;background:rgba(82,165,117,.08);border-color:rgba(82,165,117,.18)}.feedback.error{color:#b9504c;background:rgba(214,109,104,.08);border-color:rgba(214,109,104,.18)}.feedback button{margin-left:auto;border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer}.settings-card{overflow:hidden}.section-heading{padding:16px 16px 9px}.section-heading h3,.history-head h3{font-size:14px;margin:0 0 4px}.section-heading p,.history-head p{font-size:11px;line-height:1.45;color:var(--text-tertiary);margin:0}.setting-row{min-height:62px;padding:11px 16px;display:flex;align-items:center;gap:11px;position:relative}.setting-row:not(:last-child)::after{content:"";position:absolute;height:1px;background:var(--border-color);left:51px;right:0;bottom:0}.main-setting{min-height:72px}.setting-icon{width:27px;height:27px;border-radius:8px;background:var(--sys-bg-primary);display:grid;place-items:center;color:var(--text-secondary);flex:none}.setting-icon svg{width:15px;height:15px}.setting-copy{flex:1;min-width:0}.setting-copy label{display:block;font-size:13px;font-weight:520;line-height:1.3}.setting-copy p{font-size:10.5px;color:var(--text-tertiary);line-height:1.45;margin:4px 0 0}.switch{width:40px;height:24px;flex:none;position:relative}.switch input{position:absolute;opacity:0;pointer-events:none}.switch span{position:absolute;inset:0;border-radius:999px;background:#d7d7da;cursor:pointer;transition:.22s}.switch span::after{content:"";position:absolute;width:18px;height:18px;top:3px;left:3px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.22);transition:.22s}.switch input:checked+span{background:var(--text-primary)}.switch input:checked+span::after{transform:translateX(16px);background:var(--sys-bg-secondary)}.switch input:disabled+span{cursor:not-allowed;opacity:.45}.settings-card.disabled>.setting-row:not(.main-setting),.settings-card.disabled>.section-heading,.settings-card.disabled>.field-grid{opacity:.48}.field-grid{border-top:1px solid var(--border-color);padding:13px 16px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px}.field-grid>label{font-size:10px;color:var(--text-tertiary);display:flex;flex-direction:column;gap:6px}.field-grid>label:last-child{grid-column:1/-1}.select-wrap{height:38px;position:relative;display:block}.select-wrap select{appearance:none;width:100%;height:100%;border:1px solid var(--border-color);border-radius:9px;background:var(--sys-bg-primary);color:var(--text-primary);font:inherit;font-size:12px;padding:0 30px 0 11px;cursor:pointer}.select-wrap svg{position:absolute;right:9px;top:11px;width:16px;height:16px;pointer-events:none;color:var(--text-tertiary)}.history-card{padding:17px;min-height:360px}.history-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.history-head>span{min-width:28px;height:24px;padding:0 7px;border-radius:999px;background:var(--sys-bg-primary);display:grid;place-items:center;font-size:11px;color:var(--text-secondary)}.filter-tabs{display:flex;gap:4px;margin:15px 0 14px;padding:3px;background:var(--sys-bg-primary);border-radius:9px}.filter-tabs button{height:30px;flex:1;border:0;border-radius:7px;background:transparent;color:var(--text-tertiary);font:inherit;font-size:11px;cursor:pointer;transition:.18s}.filter-tabs button:hover{color:var(--text-primary)}.filter-tabs button.active{background:var(--sys-bg-secondary);color:var(--text-primary);font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.05)}.timeline{display:flex;flex-direction:column}.timeline-item{display:grid;grid-template-columns:29px 1fr;gap:9px;position:relative;padding-bottom:15px}.timeline-item:not(:last-child)::before{content:"";position:absolute;width:1px;background:var(--border-color);top:27px;bottom:0;left:14px}.timeline-marker{width:29px;height:29px;border-radius:9px;background:var(--sys-bg-primary);display:grid;place-items:center;color:var(--text-secondary);z-index:1}.timeline-marker svg{width:15px;height:15px}.timeline-item.error .timeline-marker{color:#b9504c;background:rgba(214,109,104,.08)}.timeline-content{min-width:0;padding-top:1px}.timeline-content>div{display:flex;align-items:center;gap:8px}.timeline-content strong{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-content time{font-size:9.5px;color:var(--text-tertiary);margin-left:auto;white-space:nowrap}.timeline-content p{font-size:11px;line-height:1.5;color:var(--text-secondary);margin:4px 0 0;word-break:break-word}.timeline-content>span{display:inline-block;margin-top:5px;padding:2px 6px;border-radius:5px;background:var(--sys-bg-primary);font-size:9px;color:var(--text-tertiary)}.empty-state{min-height:245px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px}.empty-state>div{width:45px;height:45px;border-radius:14px;background:var(--sys-bg-primary);display:grid;place-items:center;color:var(--text-tertiary)}.empty-state svg{width:21px;height:21px}.empty-state h4{font-size:13px;margin:13px 0 5px}.empty-state p{max-width:230px;font-size:10.5px;line-height:1.55;color:var(--text-tertiary);margin:0}.local-note{display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px;color:var(--text-tertiary);margin:0}.local-note svg{width:14px;height:14px}.autonomy-overlay{position:fixed;inset:0;z-index:10020;background:rgba(0,0,0,.38);display:grid;place-items:center;padding:20px;backdrop-filter:blur(3px)}.autonomy-modal{width:min(330px,100%);background:var(--sys-bg-secondary);border:1px solid var(--border-color);border-radius:18px;padding:21px;text-align:center;box-shadow:0 18px 48px rgba(0,0,0,.14);animation:modal-in .18s ease-out}@keyframes modal-in{from{opacity:0;transform:scale(.96) translateY(4px)}}.modal-icon{width:42px;height:42px;margin:0 auto 12px;border-radius:13px;background:rgba(214,109,104,.08);color:#c35450;display:grid;place-items:center}.modal-icon svg{width:20px;height:20px}.autonomy-modal h3{font-size:16px;margin:0 0 7px}.autonomy-modal p{font-size:11px;color:var(--text-secondary);line-height:1.55;margin:0 0 18px}.modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.modal-actions button{height:40px;border:1px solid var(--border-color);border-radius:10px;background:var(--sys-bg-primary);color:var(--text-primary);font:inherit;font-size:12px;cursor:pointer}.modal-actions button:hover{filter:brightness(.97)}.modal-actions .danger{background:#c95752;border-color:#c95752;color:#fff;font-weight:600}
 .hero-actions{display:grid;grid-template-columns:.8fr 1.2fr;gap:8px}.primary-action.secondary{background:var(--sys-bg-primary);color:var(--text-primary);border-color:var(--border-color);font-weight:550}.hero-status i.unset,.hero-status i.disabled{background:#a8a8ab;box-shadow:0 0 0 3px rgba(151,151,151,.08)}.preview-card .section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.preview-card .section-heading .text-button{width:auto;height:28px;margin-top:-3px}.preview-empty{min-height:58px}.timeline-content>span+span{margin-left:4px}
 .text-button{width:48px;padding:0}
+.number-field{height:38px;display:flex;align-items:center;border:1px solid var(--border-color);border-radius:9px;background:var(--sys-bg-primary);overflow:hidden;transition:border-color .18s,box-shadow .18s}.number-field:focus-within{border-color:#3478f6;box-shadow:0 0 0 2px rgba(52,120,246,.12)}.number-field input{width:100%;height:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--text-primary);font:inherit;font-size:12px;padding:0 11px;appearance:none}.number-field>span{height:24px;display:flex;align-items:center;padding:0 11px;border-left:1px solid var(--border-color);color:var(--text-tertiary);font-size:10px;white-space:nowrap}.number-field.disabled{opacity:.48}.field-hint{font-size:9.5px;color:var(--text-tertiary);line-height:1.4}.interval-presets{display:flex;gap:5px;flex-wrap:wrap}.interval-presets button{height:27px;padding:0 9px;border:1px solid var(--border-color);border-radius:7px;background:var(--sys-bg-primary);color:var(--text-secondary);font:inherit;font-size:9.5px;cursor:pointer}.interval-presets button:hover:not(:disabled){color:var(--text-primary)}.interval-presets button.active{background:var(--text-primary);border-color:var(--text-primary);color:var(--sys-bg-secondary);font-weight:600}.interval-presets button:disabled{opacity:.45;cursor:not-allowed}.compact-setting{min-height:56px;padding-left:54px}.number-field.compact{width:112px;flex:none}.delivery-state-row{min-height:43px;padding:10px 16px;border-top:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--text-tertiary);font-size:9.5px}.delivery-state-row span{display:flex;align-items:center;gap:6px}.delivery-state-row i{width:6px;height:6px;border-radius:50%;background:#9b9b9f}.delivery-state-row i.active{background:#d66d68;box-shadow:0 0 0 3px rgba(214,109,104,.1)}
 @media(max-width:760px){.autonomy-scroll{padding:14px 12px calc(24px + env(safe-area-inset-bottom))}.autonomy-layout{display:flex;flex-direction:column}.primary-column,.history-column{width:100%}.history-column{order:2}.hero-card,.settings-card,.history-card{border-radius:14px}.history-card{min-height:330px}.hero-card{padding:17px}.hero-avatar{width:52px;height:52px}.autonomy-header{height:56px;min-height:56px}}
+@media(max-width:430px){.delivery-state-row{align-items:flex-start;flex-direction:column;gap:5px}.compact-setting{padding-left:16px}}
+.autonomy-view,.autonomy-scroll,.autonomy-layout,.autonomy-column,.field-grid,.field-grid>label,.select-wrap,.select-wrap select{min-width:0}.autonomy-view,.autonomy-scroll{width:100%;box-sizing:border-box}.field-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>

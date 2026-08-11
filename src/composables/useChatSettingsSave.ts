@@ -152,6 +152,9 @@ export function useChatSettingsSave() {
         contacts[idx].offlineUntil = selectedChat.value.offlineUntil || 0
         contacts[idx].statusSource = selectedChat.value.statusSource || ''
         contacts[idx].statusSetAt = selectedChat.value.statusSetAt || 0
+        contacts[idx].presenceSession = selectedChat.value.presenceSession || null
+        contacts[idx].presenceHistory = selectedChat.value.presenceHistory || []
+        contacts[idx].presencePendingReply = selectedChat.value.presencePendingReply === true
         contacts[idx].autonomyEnabled = selectedChat.value.autonomyEnabled ?? false
         contacts[idx].autonomyAllowMessages = selectedChat.value.autonomyAllowMessages ?? true
         contacts[idx].autonomyAllowMoments = selectedChat.value.autonomyAllowMoments ?? true
@@ -161,6 +164,12 @@ export function useChatSettingsSave() {
         contacts[idx].autonomyActiveStart = selectedChat.value.autonomyActiveStart ?? 8
         contacts[idx].autonomyActiveEnd = selectedChat.value.autonomyActiveEnd ?? 24
         contacts[idx].autonomyMinIntervalMinutes = selectedChat.value.autonomyMinIntervalMinutes ?? 45
+        contacts[idx].autonomyGuaranteeContact = selectedChat.value.autonomyGuaranteeContact ?? false
+        contacts[idx].autonomyMaxSilenceMinutes = selectedChat.value.autonomyMaxSilenceMinutes ?? 720
+        contacts[idx].autonomyEmotionMustDeliver = selectedChat.value.autonomyEmotionMustDeliver ?? true
+        contacts[idx].autonomyLastMeaningfulActionAt = selectedChat.value.autonomyLastMeaningfulActionAt || 0
+        contacts[idx].autonomyLedger = selectedChat.value.autonomyLedger || null
+        contacts[idx].autonomyDeliveries = selectedChat.value.autonomyDeliveries || []
         contacts[idx].autonomyHistory = selectedChat.value.autonomyHistory || []
         contacts[idx].autonomyState = selectedChat.value.autonomyState || null
         
@@ -179,8 +188,12 @@ export function useChatSettingsSave() {
   }
 
   const saveMyProfileLocal = () => {
-    const personasStr = localStorage.getItem('app_chat_personas')
-    const activeIndex = localStorage.getItem('app_chat_active_persona_index') || '0'
+    const { currentChatUserId } = useChatAuth()
+    const accountSuffix = currentChatUserId.value ? `_${currentChatUserId.value}` : ''
+    const personasKey = `app_chat_personas${accountSuffix}`
+    const activeIndexKey = `app_chat_active_persona_index${accountSuffix}`
+    const personasStr = localStorage.getItem(personasKey)
+    const activeIndex = localStorage.getItem(activeIndexKey) || '0'
     if (personasStr) {
       try {
         let personas = JSON.parse(personasStr)
@@ -190,7 +203,7 @@ export function useChatSettingsSave() {
           p.signature = myProfile.value.persona
           p.customText = myProfile.value.remark
           p.avatar = myProfile.value.avatarUrl
-          localStorage.setItem('app_chat_personas', JSON.stringify(personas))
+          localStorage.setItem(personasKey, JSON.stringify(personas))
         }
       } catch(e) {}
     }

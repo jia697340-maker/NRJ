@@ -36,6 +36,7 @@ import {
   startMixedOfflineSession,
   type OfflineCarryoverMode
 } from '../../services/offlineSessions'
+import { queueMessageForPresence } from '../../services/presenceLifecycle'
 
 useBubbleBeautify()
 
@@ -117,6 +118,14 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
       contacts[index].preview = targetChat.preview
       contacts[index].time = targetChat.time
       contacts[index].unread = targetChat.unread || 0
+      contacts[index].enableImmersiveStatus = targetChat.enableImmersiveStatus ?? false
+      contacts[index].statusText = targetChat.statusText || ''
+      contacts[index].offlineUntil = targetChat.offlineUntil || 0
+      contacts[index].statusSource = targetChat.statusSource || ''
+      contacts[index].statusSetAt = targetChat.statusSetAt || 0
+      contacts[index].presenceSession = targetChat.presenceSession || null
+      contacts[index].presenceHistory = targetChat.presenceHistory || []
+      contacts[index].presencePendingReply = targetChat.presencePendingReply === true
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
     }
   }
@@ -445,6 +454,7 @@ const isRoomActive = computed(() => props.isVisible && pageIsVisible.value)
 
 const handleDocumentVisibilityChange = () => {
   pageIsVisible.value = document.visibilityState === 'visible'
+  if (pageIsVisible.value) void syncPresenceLifecycle(selectedChat.value)
 }
 
 watch(
@@ -496,6 +506,7 @@ const handleAddMessage = async (text: string) => {
     isVideoCallProcessMsg: isVideoCallPanelActive.value,
     isUndelivered: ensureRelationship(selectedChat.value).blockedBy === 'character'
   }
+  if (!newMessage.isUndelivered) queueMessageForPresence(selectedChat.value, newMessage)
   if (!isCallPanelActive.value && !isVideoCallPanelActive.value && isMixedOfflineSessionActive.value) {
     attachActiveOfflineSession(selectedChat.value, newMessage)
   }
@@ -550,6 +561,7 @@ const {
   handleStopCall,
   handleRegenerate: originalHandleRegenerate,
   triggerAPI,
+  syncPresenceLifecycle,
   reSummarizeImage,
   mountTestError
 } = useChatRoomAPI(
@@ -567,6 +579,10 @@ const {
     return false
   }
 )
+
+watch(() => selectedChat.value?.id, () => {
+  void syncPresenceLifecycle(selectedChat.value)
+}, { immediate: true })
 
 const { isAdvancing: isRelationshipAdvancing, advanceRelationship } = useRelationshipAdvance()
 const handleRelationshipAdvance = async () => {
@@ -938,6 +954,7 @@ onMounted(() => {
   window.addEventListener('app-viewport-change', handleAppViewportChange)
 
   mountTestError()
+  void syncPresenceLifecycle(selectedChat.value)
 })
 
 onUnmounted(() => {

@@ -44,6 +44,8 @@ const toggleImmersiveStatus = (event: Event) => {
     props.selectedChat.offlineUntil = 0
     props.selectedChat.statusSource = ''
     props.selectedChat.statusSetAt = 0
+    props.selectedChat.presenceSession = null
+    props.selectedChat.presencePendingReply = false
     props.selectedChat.autonomyAllowStatus = false
     props.selectedChat.autonomyStatusPermissionExplicit = true
     if (props.selectedChat.autonomyState && typeof props.selectedChat.autonomyState === 'object') {

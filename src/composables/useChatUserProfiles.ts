@@ -29,6 +29,8 @@ export interface UserPersonaRecord {
   boundAccountId?: string
 }
 
+export const ACCOUNT_PROFILE_SOURCE_NAME = '账号人设（自动跟随）'
+
 const avatarStore = localforage.createInstance({
   name: 'nrt-app',
   storeName: 'avatars'
@@ -76,18 +78,106 @@ export const personaToSnapshot = (persona: UserPersonaRecord): ChatUserProfileSn
   avatarUrl: persona.avatar || ''
 })
 
-export const getEffectiveUserProfile = (chat: any, accountProfile: any) => ({
-  ...accountProfile,
-  ...(chat?.userProfile || {}),
-  // 时区属于当前用户账号，不跟随某个聊天的人设快照。
-  timezone: accountProfile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
-})
+const hasSnapshotContent = (snapshot: any) => (
+  !!snapshot && ['name', 'remark', 'persona', 'avatarUrl'].some(key => {
+    const value = snapshot[key]
+    return value !== null && value !== undefined && String(value).trim() !== ''
+  })
+)
+
+export const getEffectiveUserProfile = (chat: any, accountProfile: any) => {
+  const sourceType = chat?.userProfileSource?.type
+  const hasExplicitOverride = sourceType === 'library' || sourceType === 'custom'
+  // 没有来源标记但保存过非空快照的旧聊天，按独立人设保留，避免迁移时丢失用户设置。
+  const hasLegacyOverride = !sourceType && hasSnapshotContent(chat?.userProfile)
+  const profile = hasExplicitOverride || hasLegacyOverride
+    ? { ...accountProfile, ...(chat?.userProfile || {}) }
+    : { ...accountProfile }
+
+  return {
+    ...profile,
+    // 时区属于当前用户账号，不跟随某个聊天的人设快照。
+    timezone: accountProfile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+  }
+}
+
+export const normalizeChatUserProfileState = (chat: any) => {
+  if (!chat || typeof chat !== 'object') return false
+  const sourceType = chat.userProfileSource?.type
+  const personaId = chat.userProfileSource?.personaId
+
+  if (sourceType === 'library' || sourceType === 'custom') return false
+
+  if (!sourceType && hasSnapshotContent(chat.userProfile)) {
+    chat.userProfileSource = {
+      type: 'custom',
+      name: '历史独立人设',
+      hasLocalChanges: false
+    }
+    return true
+  }
+
+  let changed = chat.userProfile !== null || sourceType !== 'account'
+  if (chat.userProfileSource?.name !== ACCOUNT_PROFILE_SOURCE_NAME || chat.userProfileSource?.hasLocalChanges) {
+    changed = true
+  }
+  chat.userProfile = null
+  chat.userProfileSource = {
+    type: 'account',
+    ...(personaId ? { personaId } : {}),
+    name: ACCOUNT_PROFILE_SOURCE_NAME,
+    hasLocalChanges: false
+  }
+  return changed
+}
+
+export const syncBoundPersonaToCurrentAccount = async () => {
+  const { currentChatUserId, currentAccount, updateAccount } = useChatAuth()
+  const accountId = currentChatUserId.value
+  const account = currentAccount.value
+  if (!accountId || !account) return null
+
+  const personas = await loadUserPersonas()
+  const boundPersona = personas.find(item => item.boundAccountId === accountId)
+  if (!boundPersona) return null
+
+  const snapshot = personaToSnapshot(boundPersona)
+  const accountUpdates = {
+    name: boundPersona.networkName || account.name,
+    realName: snapshot.name,
+    avatarUrl: snapshot.avatarUrl,
+    persona: snapshot.persona
+  }
+  if (Object.entries(accountUpdates).some(([key, value]) => account[key as keyof typeof account] !== value)) {
+    updateAccount(accountId, accountUpdates)
+  }
+
+  const extraKey = `clingy_user_extra_${accountId}`
+  let extra: Record<string, any> = {}
+  try {
+    extra = JSON.parse(localStorage.getItem(extraKey) || '{}')
+  } catch {}
+  if (extra.remark !== snapshot.remark) {
+    localStorage.setItem(extraKey, JSON.stringify({ ...extra, remark: snapshot.remark }))
+  }
+  return snapshot
+}
 
 export const applyUserProfileToChat = (
   chat: any,
   snapshot: ChatUserProfileSnapshot,
   source: ChatUserProfileSource
 ) => {
+  if (source.type === 'account') {
+    chat.userProfile = null
+    chat.userProfileSource = {
+      type: 'account',
+      ...(source.personaId ? { personaId: source.personaId } : {}),
+      name: ACCOUNT_PROFILE_SOURCE_NAME,
+      hasLocalChanges: false
+    }
+    return
+  }
   chat.userProfile = { ...snapshot }
   chat.userProfileSource = { ...source, hasLocalChanges: false }
 }
@@ -128,11 +218,18 @@ export const updateStoredPersona = async (
     localStorage.setItem(key, JSON.stringify(personas))
 
     if (personas[index].boundAccountId) {
-      useChatAuth().updateAccount(personas[index].boundAccountId!, {
+      const boundAccountId = personas[index].boundAccountId!
+      useChatAuth().updateAccount(boundAccountId, {
         realName: snapshot.name,
         avatarUrl: snapshot.avatarUrl,
         persona: snapshot.persona
       })
+      const extraKey = `clingy_user_extra_${boundAccountId}`
+      let extra: Record<string, any> = {}
+      try {
+        extra = JSON.parse(localStorage.getItem(extraKey) || '{}')
+      } catch {}
+      localStorage.setItem(extraKey, JSON.stringify({ ...extra, remark: snapshot.remark }))
     }
     return { ...personas[index], avatar: snapshot.avatarUrl }
   } catch (error) {

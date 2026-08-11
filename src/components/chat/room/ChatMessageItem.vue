@@ -388,6 +388,8 @@ const formatMsgTime = (timestamp: number) => {
             </div>
           </div>
           <div v-if="msg.isUndelivered" class="undelivered-label">未送达 · 对方不可见</div>
+          <div v-else-if="msg.presenceDeliveryStatus === 'queued'" class="undelivered-label">已发送 · 等待对方上线</div>
+          <div v-else-if="msg.presenceDeliveryStatus === 'delivered'" class="undelivered-label">对方上线后已送达</div>
 
         </div>
         <div class="msg-avatar-col" v-if="shouldShowAvatar(msg)">

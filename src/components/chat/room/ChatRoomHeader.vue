@@ -50,9 +50,7 @@ const getStatusText = () => {
 }
 
 const showStatusRow = () => {
-  if (!props.selectedChat?.enableImmersiveStatus) return false
-  const isOffline = (props.selectedChat?.offlineUntil || 0) > now.value
-  return !!props.selectedChat?.statusText || isOffline
+  return !!props.selectedChat?.enableImmersiveStatus
 }
 </script>
 
