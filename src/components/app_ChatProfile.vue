@@ -474,15 +474,15 @@ const handleManualCreate = () => {
   createActionSheetVisible.value = false
   editingPersonaId.value = null
   
-  // 新人设归属于当前聊天账号，但不复制现有人设资料。
+  // 新人设归属于当前聊天账号，并继承账号级资料作为默认值。
+  // 真名仍然留空，因为它是每个人设独立的专属称呼。
   const globalAccount = useChatAuth().currentAccount.value
   if (globalAccount) {
     newUserId.value = globalAccount.accountId || ''
-    // 新档案只标明所属聊天账号，其他人设资料保持空白，避免看起来像重复默认人设。
-    newNetworkName.value = ''
+    newNetworkName.value = globalAccount.name || ''
     newUserName.value = ''
-    newUserDetail.value = ''
-    newUserAvatar.value = ''
+    newUserDetail.value = globalAccount.persona || ''
+    newUserAvatar.value = globalAccount.avatarUrl || ''
   } else {
     newUserId.value = ''
     newNetworkName.value = ''

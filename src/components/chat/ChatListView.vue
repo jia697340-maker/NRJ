@@ -29,7 +29,8 @@ const {
   activeGroup, 
   sortChats, 
   deleteChats,
-  loadCustomContacts
+  loadCustomContacts,
+  avatarStore
 } = useChatState()
 
 const groups = computed(() => ['全部', ...customGroups.value])
@@ -256,18 +257,40 @@ const importModalMode = ref<'card'|'doc'>('card')
 const accountSwitchModalVisible = ref(false)
 
 // === UI 行为 ===
-const handleImportComplete = (personas: any[]) => {
+const resolveImportedAvatar = async (avatar: unknown) => {
+  if (typeof avatar !== 'string' || !avatar.trim()) return null
+
+  const value = avatar.trim()
+  if (/^(data:|blob:|https?:\/\/)/i.test(value)) return value
+
+  const storageKey = value.startsWith('localforage:') ? value.slice('localforage:'.length) : value
+  return await avatarStore.getItem<string>(storageKey)
+}
+
+const handleImportComplete = async (personas: any[]) => {
   const savedStr = localStorage.getItem(getContactsKey())
   let contacts = savedStr ? JSON.parse(savedStr) : []
-  personas.forEach(p => {
+
+  for (const p of personas) {
+    const id = `contact_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const avatarKey = `avatar_contact_${id}`
+
+    try {
+      const avatarData = await resolveImportedAvatar(p.avatar)
+      if (avatarData) await avatarStore.setItem(avatarKey, avatarData)
+    } catch (error) {
+      console.error(`Failed to persist imported avatar for contact ${id}`, error)
+    }
+
     contacts.push({
-      id: Date.now() + Math.random(), name: p.name, remark: '', persona: p.signature,
-      avatarKey: p.avatar || '', isPinned: false, groups: [], boundWorldBooks: p.boundWorldBooks || [],
+      id, name: p.name, remark: '', persona: p.signature,
+      avatarKey, isPinned: false, groups: [], boundWorldBooks: p.boundWorldBooks || [],
       boundWorldBookGroups: [], messages: []
     })
-  })
+  }
+
   localStorage.setItem(getContactsKey(), JSON.stringify(contacts))
-  loadCustomContacts()
+  await loadCustomContacts()
 }
 
 </script>

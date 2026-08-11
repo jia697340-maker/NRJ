@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
 import { sendChatMessage, isMomentApiReady, type ChatApiPurpose } from '../services/api'
-import { chatSettings } from '../store'
+import { chatSettings, worldBooks } from '../store'
 import { characterBlocksUser, deleteFriendByCharacter, setRelationshipPlan } from './useChatRelationship'
 import localforage from 'localforage'
 import { useNovelAI } from './useNovelAI'
@@ -195,6 +195,22 @@ export function useChatRoomAPI(
 
     // 组装 Prompt (此时变为异步)，传入当前是否是语音通话状态
     const apiMessages = await buildChatMessages(selectedChat.value, callMode, offlineMeetMode)
+    const boundBookIds = Array.isArray(selectedChat.value.boundWorldBooks) ? selectedChat.value.boundWorldBooks : []
+    const diagnosticContext = {
+      chatId: selectedChat.value.id,
+      chatName: selectedChat.value.name,
+      worldBookEntries: worldBooks
+        .filter((book: any) => book.enabled && boundBookIds.includes(book.id))
+        .flatMap((book: any) => (book.entries || [])
+          .filter((entry: any) => entry.enabled)
+          .map((entry: any) => `${book.name || book.title || '世界书'} · ${entry.title || '未命名条目'}`)),
+      memoryEntries: [
+        ...(selectedChat.value.memoryBook || []).map((item: any) => item.title || `叙事记忆 ${item.id || ''}`),
+        ...(selectedChat.value.memoryState?.events || []).map((item: any) => `事件 · ${item.title || '未命名'}`),
+        ...(selectedChat.value.memoryState?.variables || []).map((item: any) => `变量 · ${item.key || '未命名'}`),
+        ...(selectedChat.value.memoryState?.relations || []).map((item: any) => `关系 · ${item.source || ''}${item.relation || ''}${item.target || ''}`)
+      ]
+    }
     
     if (targetChat) targetChat.isTyping = true
     
@@ -210,7 +226,8 @@ export function useChatRoomAPI(
           false,
           false,
           apiPurpose,
-          offlineMeetMode ? (selectedChat.value.offlineModelProfile || 'auto') : 'auto'
+          offlineMeetMode ? (selectedChat.value.offlineModelProfile || 'auto') : 'auto',
+          diagnosticContext
         )
       } catch (specializedError: any) {
         const shouldFallbackToGlobal = apiPurpose === 'moment-followup' && isMomentApiReady() && specializedError?.name !== 'AbortError'
@@ -223,7 +240,8 @@ export function useChatRoomAPI(
           false,
           false,
           'default',
-          offlineMeetMode ? (selectedChat.value.offlineModelProfile || 'auto') : 'auto'
+          offlineMeetMode ? (selectedChat.value.offlineModelProfile || 'auto') : 'auto',
+          diagnosticContext
         )
       }
       const costSeconds = ((Date.now() - startTime) / 1000).toFixed(1)

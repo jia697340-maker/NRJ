@@ -6,6 +6,7 @@ import PromptPanel from './advanced_settings/PromptPanel.vue'
 import CotPanel from './advanced_settings/CotPanel.vue'
 import StoragePanel from './advanced_settings/StoragePanel.vue'
 import PluginPanel from './advanced_settings/PluginPanel.vue'
+import DiagnosticPanel from './advanced_settings/DiagnosticPanel.vue'
 import { useAdvancedSettingsModals } from '../composables/useAdvancedSettingsModals'
 
 const emit = defineEmits(['close'])
@@ -14,6 +15,7 @@ const activeTab = ref('home')
 
 const tabs = [
   { id: 'console', name: '控制台', en: 'Console', desc: '应用运行日志与调试' },
+  { id: 'diagnostic', name: '诊断中心', en: 'Diagnostics', desc: '上下文轨迹、调用记录与场景回放' },
   { id: 'prompt', name: '全局提示词', en: 'Prompt', desc: '底层人设与格式规则' },
   { id: 'cot', name: '思维链', en: 'Chain of Thought', desc: '控制模型内心活动' },
   { id: 'storage', name: '存储', en: 'Storage', desc: '空间管理与数据持久化' },
@@ -91,6 +93,7 @@ const {
 
         <!-- 各个分页 -->
         <ConsolePanel v-if="activeTab === 'console'" />
+        <DiagnosticPanel v-if="activeTab === 'diagnostic'" />
         <PromptPanel v-if="activeTab === 'prompt'" :showConfirm="showConfirm" />
         <CotPanel v-if="activeTab === 'cot'" :showConfirm="showConfirm" />
         <StoragePanel v-if="activeTab === 'storage'" :showConfirm="showConfirm" />

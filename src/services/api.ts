@@ -3,6 +3,7 @@ import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, 
 import { apiLogger } from './apiLogger'
 import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest } from './modelAdapters'
 import type { ModelAdapterProfile } from './modelAdapters'
+import { commitDiagnosticTrace, createDiagnosticDraft, type DiagnosticContextMeta } from './diagnosticTrace'
 
 export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global'
 
@@ -26,7 +27,9 @@ export async function sendChatMessage(
   isSummary: boolean = false,
   isVision: boolean = false,
   purpose: ChatApiPurpose = 'default',
-  adapterOverride: ModelAdapterProfile = 'auto'
+  adapterOverride: ModelAdapterProfile = 'auto',
+  diagnosticContext?: DiagnosticContextMeta,
+  payloadReady: boolean = false
 ) {
   // 定义一个包含所有可能属性的接口，包括各个设置独有的属性
   interface MergedApiSettings {
@@ -77,7 +80,7 @@ export async function sendChatMessage(
   let payloadMessages = JSON.parse(JSON.stringify(messages)) // 深拷贝避免污染原数组
 
   // 总结/结构化记忆要求稳定的 JSON 或纯摘要，不能被聊天思维链模板污染。
-  if (!isSummary && !purpose.startsWith('character-') && cotSettings.enabled) {
+  if (!payloadReady && !isSummary && !purpose.startsWith('character-') && cotSettings.enabled) {
     if (cotSettings.mode === 'skip') {
       // 模式 A：跳过思考 (Skip)
       payloadMessages.push({
@@ -140,6 +143,31 @@ export async function sendChatMessage(
     frequencyPenalty: activeSettings.enableFrequencyPenalty ? activeSettings.frequencyPenalty : undefined,
     presencePenalty: activeSettings.enablePresencePenalty ? activeSettings.presencePenalty : undefined
   }, payloadMessages)
+
+  let diagnosticType = 'Chat'
+  if (isSummary) diagnosticType = 'Summary'
+  if (isVision) diagnosticType = 'Vision'
+  if (purpose === 'moment-followup') diagnosticType = 'Moment'
+  if (purpose === 'character-generation') diagnosticType = 'CharacterGeneration'
+  if (purpose === 'character-review-global') diagnosticType = 'CharacterReview'
+
+  const diagnosticDraft = createDiagnosticDraft({
+    messages: payloadMessages,
+    type: diagnosticType,
+    purpose,
+    provider: activeSettings.provider,
+    model,
+    adapter: preparedRequest.profile,
+    stream: activeSettings.enableStream,
+    context: diagnosticContext,
+    requestOptions: {
+      temperature: activeSettings.enableTemperature ? activeSettings.temperature : undefined,
+      maxTokens: activeSettings.enableMaxTokens ? activeSettings.maxTokens : undefined,
+      topP: activeSettings.enableTopP ? activeSettings.topP : undefined,
+      frequencyPenalty: activeSettings.enableFrequencyPenalty ? activeSettings.frequencyPenalty : undefined,
+      presencePenalty: activeSettings.enablePresencePenalty ? activeSettings.presencePenalty : undefined
+    }
+  })
 
   const startTime = Date.now()
   appStats.apiCalls++
@@ -207,6 +235,10 @@ export async function sendChatMessage(
     })
   } catch (e: any) {
     appStats.apiFailures++
+    commitDiagnosticTrace(diagnosticDraft, {
+      status: e?.name === 'AbortError' ? 'aborted' : 'error',
+      errorMessage: e?.message || 'API 请求异常中断'
+    }).catch(() => {})
     throw new Error(e.message || 'API 请求异常中断')
   }
 
@@ -233,6 +265,11 @@ export async function sendChatMessage(
       duration: endTime - startTime,
       success: false,
       errorMsg: errorMsg
+    }).catch(() => {})
+
+    commitDiagnosticTrace(diagnosticDraft, {
+      status: 'error',
+      errorMessage: errorMsg
     }).catch(() => {})
 
     throw new Error(errorMsg)
@@ -333,6 +370,15 @@ export async function sendChatMessage(
     }
   }
   // --- 结束解析逻辑 ---
+
+  commitDiagnosticTrace(diagnosticDraft, {
+    status: 'success',
+    response: content,
+    thinking,
+    tokens: tokensUsage > 0 ? tokensUsage : undefined,
+    stopReason,
+    truncated: ['length', 'max_tokens', 'MAX_TOKENS'].includes(stopReason)
+  }).catch(() => {})
 
   // 返回对象格式以支持 thinking
   return {
