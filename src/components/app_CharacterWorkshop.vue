@@ -23,6 +23,9 @@ const mobilePanel = ref<'brief' | 'profile' | 'studio'>('brief')
 const publishVisible = ref(false)
 const publishLoading = ref(false)
 const deleteTarget = ref<CharacterDraft | null>(null)
+const isSelectingDrafts = ref(false)
+const selectedDraftIds = ref<string[]>([])
+const batchDeleteVisible = ref(false)
 const refineText = ref('')
 const keywordText = ref('')
 const expandedSection = ref('identity')
@@ -84,6 +87,7 @@ const nodeReady = computed(() => {
   return Boolean(url && key && target.model)
 })
 const filteredDrafts = computed(() => recentDrafts.value.filter(item => homeFilter.value === 'all' || item.status === homeFilter.value || (homeFilter.value === 'draft' && item.status === 'ready')))
+const allFilteredSelected = computed(() => filteredDrafts.value.length > 0 && filteredDrafts.value.every(item => selectedDraftIds.value.includes(item.id)))
 const completion = computed(() => {
   const draft = activeDraft.value
   if (!draft) return 0
@@ -163,6 +167,23 @@ const inspectExistingContact = async (contact: any) => {
 const useTemplate = (template: any) => { const draft = features.createFromTemplate(template); workshop.saveDraft(draft, '从本地模板创建'); templateVisible.value = false; currentView.value = 'workspace'; mobilePanel.value = 'profile' }
 const importDraft = async (file: File) => { try { const draft = await features.importDraftFile(file); workshop.saveDraft(draft, '导入角色文件'); templateVisible.value = false; currentView.value = 'workspace'; mobilePanel.value = 'profile' } catch (e: any) { errorMessage.value = e?.message || '导入失败。' } }
 const confirmDelete = () => { if (deleteTarget.value) workshop.deleteDraft(deleteTarget.value.id); deleteTarget.value = null }
+const toggleDraftSelection = (id: string) => {
+  selectedDraftIds.value = selectedDraftIds.value.includes(id)
+    ? selectedDraftIds.value.filter(item => item !== id)
+    : [...selectedDraftIds.value, id]
+}
+const toggleSelectAll = () => {
+  const visibleIds = filteredDrafts.value.map(item => item.id)
+  selectedDraftIds.value = allFilteredSelected.value
+    ? selectedDraftIds.value.filter(id => !visibleIds.includes(id))
+    : [...new Set([...selectedDraftIds.value, ...visibleIds])]
+}
+const exitSelection = () => { isSelectingDrafts.value = false; selectedDraftIds.value = [] }
+const confirmBatchDelete = () => {
+  workshop.deleteDrafts(selectedDraftIds.value)
+  batchDeleteVisible.value = false
+  exitSelection()
+}
 const formatTime = (timestamp: number) => new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(timestamp)
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -171,7 +192,7 @@ watch(activeDraft, draft => {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => workshop.saveDraft(draft), 600)
 }, { deep: true })
-onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer); if (activeDraft.value) workshop.saveDraft(activeDraft.value) })
+onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer); if (isGenerating.value) workshop.stopGeneration(); if (activeDraft.value) workshop.saveDraft(activeDraft.value) })
 </script>
 
 <template>
@@ -212,12 +233,14 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer); if (activeDraft.
       </section>
 
       <section class="cw-section library-section">
-        <div class="cw-section-heading"><div><span>02</span><h2>角色档案</h2></div><div class="cw-filter-tabs" role="tablist"><button v-for="item in [{id:'all',label:'全部'},{id:'draft',label:'草稿'},{id:'published',label:'已发布'}]" :key="item.id" type="button" :class="{ active: homeFilter === item.id }" @click="homeFilter = item.id as any">{{ item.label }}</button></div></div>
+        <div class="cw-section-heading"><div><span>02</span><h2>角色档案</h2></div><div class="cw-library-controls"><div class="cw-filter-tabs" role="tablist"><button v-for="item in [{id:'all',label:'全部'},{id:'draft',label:'草稿'},{id:'published',label:'已发布'}]" :key="item.id" type="button" :class="{ active: homeFilter === item.id }" @click="homeFilter = item.id as any">{{ item.label }}</button></div><button v-if="!isSelectingDrafts && filteredDrafts.length" class="cw-manage-button" type="button" @click="isSelectingDrafts = true">批量管理</button></div></div>
+        <div v-if="isSelectingDrafts" class="cw-selection-toolbar"><button type="button" @click="toggleSelectAll"><span class="cw-checkbox" :class="{ checked: allFilteredSelected }"><svg viewBox="0 0 24 24"><path d="M5 12.5l4 4L19 7"/></svg></span>{{ allFilteredSelected ? '取消全选' : '全选当前列表' }}</button><span>已选择 {{ selectedDraftIds.length }} 项</span><div><button type="button" @click="exitSelection">取消</button><button class="danger" type="button" :disabled="!selectedDraftIds.length" @click="batchDeleteVisible = true">删除所选</button></div></div>
         <div v-if="filteredDrafts.length" class="cw-library-grid">
-          <article v-for="draft in filteredDrafts" :key="draft.id" class="cw-character-card" tabindex="0" @click="openStoredDraft(draft.id)" @keydown.enter="openStoredDraft(draft.id)">
+          <article v-for="draft in filteredDrafts" :key="draft.id" class="cw-character-card" :class="{ selected: selectedDraftIds.includes(draft.id), selecting: isSelectingDrafts }" tabindex="0" :aria-selected="isSelectingDrafts ? selectedDraftIds.includes(draft.id) : undefined" @click="isSelectingDrafts ? toggleDraftSelection(draft.id) : openStoredDraft(draft.id)" @keydown.enter="isSelectingDrafts ? toggleDraftSelection(draft.id) : openStoredDraft(draft.id)">
+            <span v-if="isSelectingDrafts" class="cw-card-checkbox cw-checkbox" :class="{ checked: selectedDraftIds.includes(draft.id) }"><svg viewBox="0 0 24 24"><path d="M5 12.5l4 4L19 7"/></svg></span>
             <div class="cw-character-monogram">{{ draft.name?.charAt(0) || '未' }}</div>
             <div class="cw-character-info"><div><span class="cw-status" :class="draft.status">{{ draft.status === 'published' ? '已发布' : draft.status === 'ready' ? '待校准' : '草稿' }}</span><small>{{ formatTime(draft.updatedAt) }}</small></div><h3>{{ draft.name || '未命名角色' }}</h3><p>{{ draft.tagline || draft.sourcePrompt || '等待你写下第一笔。' }}</p><div class="cw-keyword-row"><span v-for="keyword in draft.keywords.slice(0, 3)" :key="keyword">{{ keyword }}</span></div></div>
-            <button class="cw-card-menu" type="button" aria-label="删除角色草稿" @click.stop="deleteTarget = draft"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+            <button v-if="!isSelectingDrafts" class="cw-card-menu" type="button" aria-label="删除角色草稿" @click.stop="deleteTarget = draft"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
           </article>
         </div>
         <CharacterEmptyState v-else title="这里还没有角色" description="选择上方任一种方式开始。未完成的内容会自动保存，不必一次想清所有细节。" />
@@ -270,7 +293,7 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer); if (activeDraft.
         <section class="cw-studio-section"><div class="cw-studio-heading"><h3>版本记录</h3><span>最多保留 20 版</span></div><div v-if="activeDraft.versions.length" class="cw-version-list"><button v-for="version in activeDraft.versions" :key="version.id" type="button" @click="workshop.restoreVersion(version.id)"><span><strong>{{ version.label }}</strong><small>{{ formatTime(version.createdAt) }}</small></span><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2L4 8m0-4v4h4"/></svg></button></div><p v-else class="cw-muted-copy">生成、AI 修改和发布时会自动建立可恢复的版本。</p></section>
       </aside>
 
-      <div v-if="isGenerating" class="cw-generation-overlay" role="status" aria-live="polite"><div><span class="cw-generation-symbol"><i></i><svg viewBox="0 0 24 24"><path d="M12 3.5l1.5 4.1 4.1 1.5-4.1 1.5-1.5 4.1-1.5-4.1-4.1-1.5 4.1-1.5L12 3.5z"/></svg></span><p class="cw-kicker">STAGE {{ generationStage || 1 }} / 4</p><strong>{{ generationLabel || '正在整理角色档案' }}</strong><p>每完成一个阶段都会自动保存，不必担心长输出中断。</p><div class="cw-stage-progress"><i v-for="stage in 4" :key="stage" :class="{ done: stage <= (generationStage || 1) }"></i></div></div></div>
+      <div v-if="isGenerating" class="cw-generation-overlay" role="status" aria-live="polite"><div><span class="cw-generation-symbol"><i></i><svg viewBox="0 0 24 24"><path d="M12 3.5l1.5 4.1 4.1 1.5-4.1 1.5-1.5 4.1-1.5-4.1-4.1-1.5 4.1-1.5L12 3.5z"/></svg></span><p class="cw-kicker">STAGE {{ generationStage || 1 }} / 4</p><strong>{{ generationLabel || '正在整理角色档案' }}</strong><p>每完成一个阶段都会自动保存；暂停后可以从未完成的阶段继续。</p><div class="cw-stage-progress"><i v-for="stage in 4" :key="stage" :class="{ done: stage <= (generationStage || 1) }"></i></div><button class="cw-stop-generation" type="button" @click="workshop.stopGeneration"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"/></svg>暂停生成</button></div></div>
     </main>
 
     <CharacterPublishModal v-if="publishVisible && activeDraft" :draft="activeDraft" :loading="publishLoading" @close="publishVisible = false" @publish="handlePublish" />
@@ -279,6 +302,7 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer); if (activeDraft.
     <CharacterContactImportModal v-if="contactImportVisible" :contacts="contacts" :loading="isFeatureLoading" :loading-label="featureLabel" @close="contactImportVisible = false" @select="inspectExistingContact" />
     <CharacterTemplateModal v-if="templateVisible" :templates="templates" :active-draft="activeDraft" @close="templateVisible = false" @use="useTemplate" @save="activeDraft && features.saveAsTemplate(activeDraft)" @delete="features.deleteTemplate" @export="activeDraft && features.exportDraft(activeDraft)" @import="importDraft" />
     <div v-if="deleteTarget" class="cw-modal-backdrop" @click.self="deleteTarget = null"><section class="cw-confirm-modal" role="alertdialog" aria-modal="true"><span class="cw-confirm-icon"><svg viewBox="0 0 24 24"><path d="M5 7h14m-9-3h4m-7 3l1 13h8l1-13M10 11v5m4-5v5"/></svg></span><h2>删除这个角色草稿？</h2><p>“{{ deleteTarget.name || '未命名角色' }}”的档案与版本记录会被移除；已经发布到聊天的联系人不会被删除。</p><div><button class="cw-button secondary" type="button" @click="deleteTarget = null">取消</button><button class="cw-button danger" type="button" @click="confirmDelete">删除草稿</button></div></section></div>
+    <div v-if="batchDeleteVisible" class="cw-modal-backdrop" @click.self="batchDeleteVisible = false"><section class="cw-confirm-modal" role="alertdialog" aria-modal="true"><span class="cw-confirm-icon"><svg viewBox="0 0 24 24"><path d="M5 7h14m-9-3h4m-7 3l1 13h8l1-13M10 11v5m4-5v5"/></svg></span><h2>删除选中的 {{ selectedDraftIds.length }} 个角色？</h2><p>所选档案与版本记录会被移除；已经发布到聊天的联系人不会被删除。</p><div><button class="cw-button secondary" type="button" @click="batchDeleteVisible = false">取消</button><button class="cw-button danger" type="button" @click="confirmBatchDelete">确认删除</button></div></section></div>
   </div>
 </template>
 

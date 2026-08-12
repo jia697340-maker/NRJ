@@ -33,6 +33,13 @@ const STORAGE_KEY = 'clingy_desktop_layout_v1'
 const FIRST_PAGE_CAPACITY = 4
 const OTHER_PAGE_CAPACITY = 12
 const DOCK_CAPACITY = 4
+const THIRD_PAGE_APP_IDS = new Set([
+  'character_workshop',
+  'persona_workshop',
+  'bubble_dressup',
+  'character_phone',
+  'watch_together'
+])
 
 const state = reactive<DesktopLayoutState>({
   version: 1,
@@ -54,8 +61,8 @@ const createDefaultLayout = (appIds: string[]): DesktopLayoutState => ({
   dock: appIds.slice(0, 4).map(id => ({ type: 'app', id })),
   pages: [
     appIds.slice(4, 8).map(id => ({ type: 'app', id })),
-    appIds.slice(8).filter(id => id !== 'character_workshop').map(id => ({ type: 'app', id })),
-    appIds.includes('character_workshop') ? [{ type: 'app', id: 'character_workshop' }] : []
+    appIds.slice(8).filter(id => !THIRD_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id })),
+    appIds.filter(id => THIRD_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id }))
   ],
   hiddenAppIds: []
 })
@@ -106,7 +113,7 @@ const normalize = (raw: Partial<DesktopLayoutState>, appIds: string[]): DesktopL
 
   for (const id of appIds) {
     if (!used.has(id) && !hidden.has(id)) {
-      const targetPage = id === 'character_workshop' ? 2 : 1
+      const targetPage = THIRD_PAGE_APP_IDS.has(id) ? 2 : 1
       pages[targetPage].push({ type: 'app', id })
     }
   }

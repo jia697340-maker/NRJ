@@ -433,7 +433,7 @@ onBeforeUnmount(() => {
       <div v-for="pageIndex in Math.max(layout.pages.length - 1, 0)" :key="`desktop-page-${pageIndex}`" class="page">
         <div class="page-two-grid drop-container" data-drop-area="page" :data-drop-page="pageIndex" :data-drop-index="layout.pages[pageIndex]?.length ?? 0">
           <div v-for="(entry, index) in layout.pages[pageIndex]" :key="entryKey(entry)" class="desktop-entry desktop-drop-slot" :class="{ 'dragging-source': dragKey === entryKey(entry), 'folder-target': folderCandidateKey === entryKey(entry) }" :data-entry-key="entryKey(entry)" data-drop-area="page" :data-drop-page="pageIndex" :data-drop-index="index" @pointerdown="handleItemPointerDown($event, { area: 'page', page: pageIndex, index })" @click="activateApp(entry)">
-            <AppIcon v-if="entry.type === 'app' && getApp(entry.id)" :app="getApp(entry.id)" :badge="badgeForEntry(entry)" :editing="editing" @delete="removeApp({ area: 'page', page: 1, index })" />
+            <AppIcon v-if="entry.type === 'app' && getApp(entry.id)" :app="getApp(entry.id)" :badge="badgeForEntry(entry)" :editing="editing" @delete="removeApp({ area: 'page', page: pageIndex, index })" />
             <DesktopFolderIcon v-else-if="entry.type === 'folder'" :folder="entry" :apps-by-id="appsById" :badge="badgeForEntry(entry)" :editing="editing" />
           </div>
         </div>

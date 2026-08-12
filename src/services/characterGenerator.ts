@@ -38,11 +38,11 @@ const mergeUnlocked = (draft: CharacterDraft, patch: Record<string, any>) => {
   draft.updatedAt = Date.now()
 }
 
-export const runCharacterJson = async (instruction: string, purpose: 'character-generation' | 'character-review-global' = 'character-generation') => {
+export const runCharacterJson = async (instruction: string, purpose: 'character-generation' | 'character-review-global' = 'character-generation', signal?: AbortSignal) => {
   const response = await sendChatMessage([
     { role: 'system', content: globalPromptSettings.language === 'en' ? englishStageSystem : stageSystem },
     { role: 'user', content: instruction }
-  ], undefined, false, false, purpose)
+  ], signal, false, false, purpose)
   if (response.truncated) throw new Error('模型达到输出上限，已保留前面完成的阶段。请重试当前阶段，或提高角色生成节点的最大输出。')
   return extractJson(response.content)
 }
@@ -50,7 +50,8 @@ export const runCharacterJson = async (instruction: string, purpose: 'character-
 export async function generateCharacterByStages(
   draft: CharacterDraft,
   input: CharacterGenerationInput,
-  onProgress: (stage: number, label: string) => void
+  onProgress: (stage: number, label: string) => void,
+  signal?: AbortSignal
 ) {
   const brief = inputSummary(input)
   const resumeStage = draft.status !== 'ready' && draft.sourcePrompt === brief ? draft.completedGenerationStage : 0
@@ -95,7 +96,7 @@ export async function generateCharacterByStages(
     onProgress(index + 1, stages[index].label)
     const prompt = stages[index].prompt
     const instruction = typeof prompt === 'function' ? prompt() : prompt
-    mergeUnlocked(draft, await runCharacterJson(instruction))
+    mergeUnlocked(draft, await runCharacterJson(instruction, 'character-generation', signal))
     draft.completedGenerationStage = index + 1
   }
   draft.keywords = [...input.keywords]
@@ -108,12 +109,12 @@ export async function generateCharacterByStages(
   return draft
 }
 
-export async function refineCharacter(draft: CharacterDraft, instruction: string) {
+export async function refineCharacter(draft: CharacterDraft, instruction: string, signal?: AbortSignal) {
   const current = { ...draft, versions: undefined, lockedFields: undefined }
   const prompt = globalPromptSettings.language === 'en'
     ? `Current character profile: ${JSON.stringify(current)}\nUser request: ${instruction}\nReturn only top-level fields that need modification. Do not modify user-locked fields or mix change explanations into field content. Keep natural-language field values in Simplified Chinese.`
     : `这是当前角色档案：${JSON.stringify(current)}\n用户要求：${instruction}\n只返回需要修改的顶层字段。不得修改用户锁定字段；不要把修改说明混进字段内容。`
-  const patch = await runCharacterJson(prompt)
+  const patch = await runCharacterJson(prompt, 'character-generation', signal)
   mergeUnlocked(draft, patch)
   return draft
 }

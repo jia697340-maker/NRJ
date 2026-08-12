@@ -36,6 +36,7 @@ export function useCharacterWorkshop() {
   const generationLabel = ref('')
   const errorMessage = ref('')
   const successMessage = ref('')
+  let generationController: AbortController | null = null
 
   const recentDrafts = computed(() => [...drafts.value].sort((a, b) => b.updatedAt - a.updatedAt))
   const publishedDrafts = computed(() => recentDrafts.value.filter(item => item.status === 'published'))
@@ -78,6 +79,20 @@ export function useCharacterWorkshop() {
     persist()
   }
 
+  const deleteDrafts = (ids: string[]) => {
+    if (!ids.length) return
+    const targets = new Set(ids)
+    drafts.value = drafts.value.filter(item => !targets.has(item.id))
+    if (activeDraft.value && targets.has(activeDraft.value.id)) activeDraft.value = null
+    persist()
+  }
+
+  const stopGeneration = () => {
+    if (!generationController) return
+    generationLabel.value = '正在暂停生成'
+    generationController.abort()
+  }
+
   const generate = async (input: CharacterGenerationInput) => {
     errorMessage.value = ''
     successMessage.value = ''
@@ -95,21 +110,27 @@ export function useCharacterWorkshop() {
       }
     }
     isGenerating.value = true
+    generationController = new AbortController()
     generationStage.value = 0
     try {
       await generateCharacterByStages(draft, input, (stage, label) => {
         generationStage.value = stage
         generationLabel.value = label
         saveDraft(draft)
-      })
+      }, generationController.signal)
       saveDraft(draft, 'AI 生成完成')
       successMessage.value = '角色档案已完成，可以继续手写调整或进行试演。'
     } catch (error: any) {
       saveDraft(draft)
+      if (error?.name === 'AbortError') {
+        successMessage.value = '生成已暂停，已完成的阶段已经保存。再次生成时会从未完成处继续。'
+        throw error
+      }
       errorMessage.value = error?.message || '角色生成失败，请检查 API 配置后重试。'
       throw error
     } finally {
       isGenerating.value = false
+      generationController = null
     }
   }
 
@@ -117,16 +138,21 @@ export function useCharacterWorkshop() {
     if (!activeDraft.value || !instruction.trim()) return
     errorMessage.value = ''
     isGenerating.value = true
+    generationController = new AbortController()
     generationLabel.value = '理解修改要求'
     try {
       saveDraft(activeDraft.value, 'AI 修改前')
-      await refineCharacter(activeDraft.value, instruction.trim())
+      await refineCharacter(activeDraft.value, instruction.trim(), generationController.signal)
       saveDraft(activeDraft.value, 'AI 共创修改')
       successMessage.value = '修改已应用，锁定字段保持不变。'
     } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        successMessage.value = '本次修改已暂停，原档案已保留。'
+        throw error
+      }
       errorMessage.value = error?.message || '修改失败，请稍后重试。'
       throw error
-    } finally { isGenerating.value = false }
+    } finally { isGenerating.value = false; generationController = null }
   }
 
   const restoreVersion = (versionId: string) => {
@@ -186,5 +212,5 @@ export function useCharacterWorkshop() {
   }
 
   return { drafts, recentDrafts, publishedDrafts, activeDraft, isGenerating, generationStage, generationLabel,
-    errorMessage, successMessage, createDraft, openDraft, deleteDraft, saveDraft, generate, refine, restoreVersion, publish }
+    errorMessage, successMessage, createDraft, openDraft, deleteDraft, deleteDrafts, stopGeneration, saveDraft, generate, refine, restoreVersion, publish }
 }

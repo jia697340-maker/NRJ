@@ -21,7 +21,6 @@ const AppWorldBook = defineAsyncComponent(() => import('./components/app_WorldBo
 const AppAdvancedSettings = defineAsyncComponent(() => import('./components/app_AdvancedSettings.vue'))
 const AppVoiceAccess = defineAsyncComponent(() => import('./components/app_VoiceAccess.vue'))
 const AppImageAccess = defineAsyncComponent(() => import('./components/app_ImageAccess.vue'))
-const AppMusic = defineAsyncComponent(() => import('./components/app_Music.vue'))
 const AppWidgetBeautify = defineAsyncComponent(() => import('./components/app_WidgetBeautify.vue'))
 const AppCharacterWorkshop = defineAsyncComponent(() => import('./components/app_CharacterWorkshop.vue'))
 
@@ -36,6 +35,8 @@ const activeApp = ref<string | null>(null)
 const isLocked = ref(globalSettings.enableLockScreen)
 const hasOpenedChatApp = ref(false)
 const chatAppRef = ref<any>(null)
+const developmentNotice = ref('')
+let developmentNoticeTimer: ReturnType<typeof setTimeout> | undefined
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -190,6 +191,7 @@ onUnmounted(() => {
   document.removeEventListener('focusout', handleViewportFocusOut)
   if (viewportAnimationFrame) cancelAnimationFrame(viewportAnimationFrame)
   if (keyboardBlurTimer) clearTimeout(keyboardBlurTimer)
+  if (developmentNoticeTimer) clearTimeout(developmentNoticeTimer)
   document.documentElement.classList.remove('keyboard-open')
   window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
   stopAutonomyRuntime()
@@ -233,7 +235,12 @@ const handleOpenApp = (appId: string) => {
     }
     activeApp.value = appId
   } else {
-    console.log('Open app:', appId)
+    const appName = appRegistry.find(app => app.id === appId)?.name || '该功能'
+    developmentNotice.value = `${appName}正在开发中，敬请期待`
+    if (developmentNoticeTimer) clearTimeout(developmentNoticeTimer)
+    developmentNoticeTimer = setTimeout(() => {
+      developmentNotice.value = ''
+    }, 2200)
   }
 }
 
@@ -370,6 +377,13 @@ watch(activeApp, appId => {
     <!-- 状态栏：只要桌面壁纸是浅色的，状态栏就应该是深色字体。目前壁纸写死为浅色，所以 is-dark 恒为 true -->
     <StatusBar data-font-area="desktop" :is-dark="true" v-show="globalSettings.showStatusBar && activeApp === null && (!isLocked || globalSettings.lockScreenStyle !== 'classic')" />
     <Desktop data-font-area="desktop" :apps="apps" @open-app="handleOpenApp" v-show="!isLocked" />
+
+    <Transition name="development-notice">
+      <div v-if="developmentNotice" class="development-notice" role="status">
+        <span class="development-notice-mark">开</span>
+        <span>{{ developmentNotice }}</span>
+      </div>
+    </Transition>
     
     <!-- 应用视图 -->
     <Transition name="app-fade">
@@ -436,13 +450,6 @@ watch(activeApp, appId => {
       <AppImageAccess 
         v-if="activeApp === 'image_access'" 
         data-font-app="image_access"
-        @close="activeApp = null" 
-      />
-    </Transition>
-    <Transition name="app-fade">
-      <AppMusic 
-        v-if="activeApp === 'music'" 
-        data-font-app="music"
         @close="activeApp = null" 
       />
     </Transition>
@@ -712,6 +719,59 @@ export default {
   z-index: 9999;
   mix-blend-mode: multiply;
 }
+
+/* 桌面占位应用提示：沿用全局通知的毛玻璃、圆角与文字层级。 */
+.development-notice {
+  position: absolute;
+  z-index: 1300;
+  top: max(54px, calc(env(safe-area-inset-top) + 42px));
+  left: 50%;
+  width: calc(100% - 40px);
+  max-width: 400px;
+  min-height: 54px;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, .54);
+  border-radius: 20px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, .85);
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px rgba(31, 37, 48, .14);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.development-notice-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: var(--card-bg-solid);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+:global(.dark-theme) .development-notice {
+  border-color: rgba(255, 255, 255, .08);
+  background: rgba(40, 40, 40, .88);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+}
+
+.development-notice-enter-active,
+.development-notice-leave-active { transition: opacity .25s ease, transform .25s ease; }
+.development-notice-enter-from,
+.development-notice-leave-to { opacity: 0; transform: translate(-50%, -14px) scale(.98); }
 
 /* 全局通知容器与卡片样式 */
 .global-notifications-container {

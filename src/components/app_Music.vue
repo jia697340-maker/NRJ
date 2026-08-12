@@ -8,26 +8,26 @@ const handleBack = () => {
 </script>
 
 <template>
-  <div class="wardrobe-container">
+  <div class="music-container">
     <div class="header">
       <div class="back-btn" @click="handleBack">
         <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="15 18 9 12 15 6"></polyline>
         </svg>
       </div>
-      <div class="title">衣柜</div>
+      <div class="title">音乐</div>
       <div class="header-right"></div>
     </div>
     <div class="content">
       <div class="empty-state">
-        <div class="empty-text">衣柜功能开发中...</div>
+        <div class="empty-text">音乐功能开发中...</div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.wardrobe-container {
+.music-container {
   position: absolute;
   top: 0;
   left: 0;

@@ -229,6 +229,7 @@ export async function sendChatMessage(
       status: e?.name === 'AbortError' ? 'aborted' : 'error',
       errorMessage: e?.message || 'API 请求异常中断'
     }).catch(() => {})
+    if (e?.name === 'AbortError') throw e
     throw new Error(e.message || 'API 请求异常中断')
   }
 
