@@ -6,8 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "check": "npm run typecheck && npm run lint && npm run test:transfer && npm run build",
+    "lint": "eslint src scripts vite.config.ts --max-warnings 0",
     "preview": "vite preview",
-    "test:transfer": "node scripts/test-transfer-lifecycle.mjs"
+    "test:transfer": "node scripts/test-transfer-lifecycle.mjs",
+    "typecheck": "vue-tsc -p tsconfig.app.json --noEmit --incremental false"
   },
   "dependencies": {
     "jszip": "^3.10.1",
@@ -22,7 +25,11 @@
     "@types/node": "^24.13.2",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/tsconfig": "^0.9.1",
+    "eslint": "^10.8.1",
+    "eslint-plugin-vue": "^10.10.0",
+    "globals": "^17.11.0",
     "typescript": "~6.0.2",
+    "typescript-eslint": "^8.67.0",
     "vite": "^8.1.1",
     "vue-tsc": "^3.3.5"
   }

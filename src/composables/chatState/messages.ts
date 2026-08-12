@@ -10,7 +10,7 @@ import { buildSystemPrompt } from './prompt'
 import { buildOfflinePostHistoryPrompt } from '../useOfflineMeetPrompt'
 import { useVoiceCall } from '../useVoiceCall'
 import { useVideoCall } from '../useVideoCall'
-import { globalPromptSettings } from '../../store'
+import { chatSettings, globalPromptSettings, taskPromptSettings } from '../../store'
 import { pushContextTrace, type ContextTraceCollector } from '../../services/contextTrace'
 import { buildInnerThoughtContext } from '../../services/innerThoughtContext'
 import { formatTransferForContext } from '../../services/transferLifecycle'
@@ -137,7 +137,6 @@ export const buildChatMessages = async (
   // 视频/语音通话模式附加提示
   let callModePrompt = ''
   if (callMode === 'voice') {
-    const { taskPromptSettings } = await import('../../store')
     const voiceItem = taskPromptSettings.items.find((i: any) => i.id === 'task_voice_call_status')
     if (voiceItem && voiceItem.enabled) {
       callModePrompt = voiceItem.content
@@ -147,7 +146,6 @@ export const buildChatMessages = async (
         : `\n\n【当前模式：语音通话】你们正在进行实时语音通话。请使用口语化表达，不要使用颜文字、表情包标签或动作描写括号。不要发送图片、语音条、表情包或转账。`
     }
   } else if (callMode === 'video') {
-    const { taskPromptSettings } = await import('../../store')
     const videoItem = taskPromptSettings.items.find((i: any) => i.id === 'task_video_call_status')
     if (videoItem && videoItem.enabled) {
       callModePrompt = videoItem.content
@@ -322,18 +320,7 @@ export const buildChatMessages = async (
 
       // 提取图片或表情包的 Base64 供未压缩时的视觉识别使用
       if (!isSummaryReplaced) {
-        // 拦截：如果这是角色（左侧）发出的，并且开启了角色图片省 Token 选项，则强制跳过提取 Base64
-        import('../../store').then(({ chatSettings }) => {
-          if (msg.type === 'left' && chatSettings.enableRoleImageTokenSaver) {
-            return
-          }
-        })
-        
-        // 注意上述是异步导入，为了不破坏当前同步/异步流程结构，可以直接判断
-        // 但由于 useChatState 是单例且在很多地方调用，最好用一个同步判断
-        // 我们上面可以借用 store 的直接 import
-        const { chatSettings } = await import('../../store')
-        
+        // 角色图片省 Token 开启时，不读取角色侧图片的 Base64。
         if (options.includeMedia !== false && !(msg.type === 'left' && chatSettings.enableRoleImageTokenSaver)) {
           if (isEmojiMessage) {
             if (chat.enableEmojiVision && msg.emojiId) {

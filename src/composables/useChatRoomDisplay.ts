@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { computed } from 'vue'
+import localforage from 'localforage'
 import { chatSettings } from '../store'
 
 const isInternalSystemNarration = (msg: any) => {
@@ -85,15 +86,13 @@ export function useChatRoomDisplay(selectedChat: any) {
       if (msg.imageData && msg.imageData.imageId && !msg._localImageUrl) {
         // 先给个标记防止重复请求
         msg._localImageUrl = '' // 占位
-        import('localforage').then((localforage) => {
-          const imageStore = localforage.default.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
-          imageStore.getItem<string>(msg.imageData.imageId).then(base64 => {
-            if (base64) {
-               msg._localImageUrl = base64
-            }
-          }).catch(err => {
-            console.error('加载图片失败', err)
-          })
+        const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+        imageStore.getItem<string>(msg.imageData.imageId).then(base64 => {
+          if (base64) {
+             msg._localImageUrl = base64
+          }
+        }).catch(err => {
+          console.error('加载图片失败', err)
         })
       }
 

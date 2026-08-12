@@ -177,7 +177,7 @@ const getPositionLabel = (pos: string) => {
           </div>
           
           <div class="form-row">
-            <div class="form-label">内容文本 <span class="hint">(支持 <变量名>)</span></div>
+            <div class="form-label">内容文本 <span class="hint">(支持 &lt;变量名&gt;)</span></div>
             <textarea 
               v-model="editingCotItem.content" 
               class="simple-modal-input textarea" 

@@ -27,8 +27,8 @@
           />
           <div class="search-actions">
             <span class="search-count" v-if="searchKeyword">{{ currentMatchIndex + 1 }} / {{ matchCount }}</span>
-            <button class="search-btn" @click="findPrev" :disabled="!matchCount"><</button>
-            <button class="search-btn" @click="findNext" :disabled="!matchCount">></button>
+            <button class="search-btn" @click="findPrev" :disabled="!matchCount">&lt;</button>
+            <button class="search-btn" @click="findNext" :disabled="!matchCount">&gt;</button>
             <button class="search-btn close-search" @click="toggleSearch">×</button>
           </div>
         </div>

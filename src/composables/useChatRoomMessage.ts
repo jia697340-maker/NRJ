@@ -51,13 +51,11 @@ export function useChatRoomMessage(
 
     if (data.file && data.dataUrl) {
       // 安全存储真实图片到 localforage
-      import('localforage').then((localforage) => {
-        const imageStore = localforage.default.createInstance({
-          name: 'nrt-app',
-          storeName: 'chatImages'
-        })
-        imageStore.setItem(imageStoreId, data.dataUrl)
+      const imageStore = localforage.createInstance({
+        name: 'nrt-app',
+        storeName: 'chatImages'
       })
+      void imageStore.setItem(imageStoreId, data.dataUrl)
     }
 
     selectedChat.value.messages.push({

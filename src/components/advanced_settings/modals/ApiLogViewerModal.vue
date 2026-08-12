@@ -118,7 +118,7 @@ const getIcon = (type: string) => {
                     </div>
                     <div class="log-bottom">
                       <span v-if="!log.success" class="error-msg">{{ log.errorMsg || '请求失败' }}</span>
-                      <span v-else class="log-tokens" v-if="log.tokens">耗费 {{ log.tokens }} Tokens</span>
+                      <span v-else-if="log.tokens" class="log-tokens">耗费 {{ log.tokens }} Tokens</span>
                     </div>
                   </div>
                   <div class="log-meta">
