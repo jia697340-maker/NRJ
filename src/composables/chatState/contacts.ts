@@ -3,6 +3,7 @@ import { useChatAuth } from '../useChatAuth'
 import { normalizeChatUserProfileState } from '../useChatUserProfiles'
 import { mockChats, customGroups, avatarStore } from './state'
 import { reconcilePresence } from '../../services/presenceLifecycle'
+import { normalizeChatTransfers } from '../../services/transferLifecycle'
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -20,6 +21,7 @@ export const loadCustomContacts = async () => {
   let didMigrateUserProfiles = false
   savedContacts.forEach((contact: any) => {
     if (normalizeChatUserProfileState(contact)) didMigrateUserProfiles = true
+    if (normalizeChatTransfers(contact)) didMigrateUserProfiles = true
   })
   
   const groupsKey = currentChatUserId.value ? `clingy_chat_groups_${currentChatUserId.value}` : 'clingy_chat_groups'

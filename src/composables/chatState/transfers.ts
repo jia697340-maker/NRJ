@@ -2,34 +2,25 @@
 import { useChatAuth } from '../useChatAuth'
 import { getEffectiveUserProfile } from '../useChatUserProfiles'
 import { mockChats, myProfile } from './state'
+import { normalizeChatTransfers, resolveTransfer } from '../../services/transferLifecycle'
 
 export const checkTransfersExpired = () => {
   const now = Date.now()
   let changed = false
   mockChats.value.forEach(chat => {
+    if (normalizeChatTransfers(chat)) changed = true
     if (chat.messages) {
-      chat.messages.forEach((m: any) => {
+      ;[...chat.messages].forEach((m: any) => {
         if (m.transferData && m.transferData.status === 'pending') {
-          if (now >= m.transferData.expireTime) {
-            m.transferData.status = 'expired'
-            changed = true
-            const charName = chat.name || chat.realName || '角色'
-            const userName = getEffectiveUserProfile(chat, myProfile.value).name || '用户'
-            const noun = m.transferData.type === 'red_packet' ? '红包' : '转账'
-            
-            if (m.type === 'left') {
-              chat.messages.push({
-                 id: Date.now() + Math.random(),
-                 type: 'system',
-                 content: `${charName}发送给${userName}的${noun}超过24小时未被领取，已退回给${charName}。`
-              })
-            } else {
-              chat.messages.push({
-                 id: Date.now() + Math.random(),
-                 type: 'system',
-                 content: `${userName}发送给${charName}的${noun}超过24小时未被领取，已退回给${userName}。`
-              })
-            }
+          if (now >= Number(m.transferData.expireAt || m.transferData.expireTime)) {
+            const result = resolveTransfer({
+              chat,
+              transferId: m.transferData.id,
+              action: 'expire',
+              actor: 'system',
+              userName: getEffectiveUserProfile(chat, myProfile.value).name || '用户'
+            })
+            if (result.ok) changed = true
           }
         }
       })

@@ -286,11 +286,15 @@ ${usesNaturalPromptV2
     relationshipRules = `\n\n【当前好友关系】好友状态：${relationship.friendship}；拉黑状态：${relationship.blockedBy}。严格遵守当前关系的消息可见性，不得假装看见未送达的消息。`
   }
 
+  const transferStateGuard = usesEnglishPrompt
+    ? `\n\n[Transfer state guard] Historical transfer tags are records, not new send commands. You may use <claim> or <reject> only for an item whose receiver="character" and status="pending". Never process your own, claimed, returned, or expired item again.`
+    : `\n\n【转账状态保护】历史中的转账标签是已经发生的记录，不是新的发送指令。只有 receiver="character" 且 status="pending" 的款项可以用 <claim> 或 <reject> 处理；严禁再次处理自己发送、已领取、已退还或已过期的款项。`
+
   // 如果没有任何启用的设定，返回一个兜底
   if (activePromptItems.length === 0) {
     return usesEnglishPrompt
-      ? `You are ${charName}.${memoryBookContext}${presenceContext}${englishDialogueLanguageGuard}`
-      : `你是${charName}。${memoryBookContext}${presenceContext}`
+      ? `You are ${charName}.${memoryBookContext}${presenceContext}${transferStateGuard}${englishDialogueLanguageGuard}`
+      : `你是${charName}。${memoryBookContext}${presenceContext}${transferStateGuard}`
   }
 
   // 拼接 UI 上所有的有效条目，并解析占位符
@@ -379,6 +383,7 @@ ${usesNaturalPromptV2
   pushContextTrace(trace, { id: 'runtime:relationship', category: 'system', group: '关系规则', label: '好友关系附加规则', text: relationshipRules, reason: '依据当前好友与拉黑状态生成' })
   pushContextTrace(trace, { id: 'runtime:offline', category: 'system', group: '线下模式', label: '线下互动规则', text: offlinePrompt, reason: '当前处于线下互动模式' })
   pushContextTrace(trace, { id: 'runtime:language', category: 'system', group: '输出格式与协议', label: '对白语言保护规则', text: usesEnglishPrompt ? englishDialogueLanguageGuard : '', reason: '当前使用英文底层提示词' })
+  pushContextTrace(trace, { id: 'runtime:transfer-state', category: 'system', group: '红包与转账', label: '转账状态保护', text: transferStateGuard, reason: '确保历史转账不会被当作新动作或重复处理' })
 
-  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + relationshipRules + offlinePrompt + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
+  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + relationshipRules + offlinePrompt + transferStateGuard + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
 }

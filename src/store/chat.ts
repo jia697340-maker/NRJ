@@ -12,7 +12,7 @@ export const chatSettings = reactive({
   enableGlobalNotification: savedChatSettings.enableGlobalNotification ?? true,
   enableNotificationInChat: savedChatSettings.enableNotificationInChat ?? false,
   notificationStyle: savedChatSettings.notificationStyle ?? 'queue', // 'queue' | 'list' | 'stack'
-  transferStyle: savedChatSettings.transferStyle ?? 'wechat', // 'wechat' | 'glass'
+  transferStyle: savedChatSettings.transferStyle ?? 'wechat', // 'wechat' | 'ticket' | 'glass'
   cotInSameBubble: savedChatSettings.cotInSameBubble ?? false, // 思考过程包含在正文气泡
   avatarDisplayStyle: savedChatSettings.avatarDisplayStyle ?? 'all', // 'all' | 'first' | 'last'
   nameDisplayStyle: savedChatSettings.nameDisplayStyle ?? 'all', // 'all' | 'user_only' | 'character_only' | 'none'

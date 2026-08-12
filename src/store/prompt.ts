@@ -105,7 +105,7 @@ export const defaultPromptItemsV1: PromptItem[] = [
   {
     id: 'prompt_transfer_mechanism',
     name: '红包与转账机制',
-    content: `【红包与转账机制】\n如果对方给你发送了转账或红包（会以 <transfer ...> 或 <red_packet ...> 的形式显示），你可以根据当前语境决定是否领取、拒绝或者无视。\n- 想领取请回复：<claim>红包/转账的id</claim>\n- 想拒绝请回复：<reject>红包/转账的id</reject>`,
+    content: `【红包与转账机制】\n历史红包和转账会以带有 sender、receiver、status 的 <transfer ... /> 或 <red_packet ... /> 显示。只有 receiver="character" 且 status="pending" 的记录才是当前可由你处理的款项；你自己发送的、已领取、已退回或已过期的记录都不能再次处理。你可以根据当前语境决定领取、拒绝或者暂时无视。\n- 想领取请回复：<claim>红包/转账的id</claim>\n- 想拒绝请回复：<reject>红包/转账的id</reject>`,
     enabled: true
   },
   {

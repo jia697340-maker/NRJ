@@ -15,6 +15,7 @@ import { parseBilingualMessage } from '../services/bilingualChat'
 import { attachActiveOfflineSession } from '../services/offlineSessions'
 import { beginOfflinePresence, reconcilePresence } from '../services/presenceLifecycle'
 import { useVoicePlayer } from './useVoicePlayer'
+import { createChatMessageId, createTransferData, resolveTransfer } from '../services/transferLifecycle'
 
 // 引入拆分的逻辑模块
 import { useChatRoomError } from './useChatRoomError'
@@ -680,24 +681,22 @@ export function useChatRoomAPI(
           
           if (action.type === 'claim' || action.type === 'reject') {
              const transferIdStr = action.content.trim()
-             const tId = parseInt(transferIdStr)
-             if (!isNaN(tId) && chatToUpdate && chatToUpdate.messages) {
-                const targetMsg = chatToUpdate.messages.find((m: any) => m.transferData && m.transferData.id === tId && m.transferData.status === 'pending')
-                if (targetMsg) {
-                   targetMsg.transferData.status = action.type === 'claim' ? 'claimed' : 'rejected'
-                   const verb = action.type === 'claim' ? '领取' : '退回'
-                   const noun = targetMsg.transferData.type === 'red_packet' ? '红包' : '转账'
-                   const aiName = chatToUpdate.name || '对方'
-                   const myName = myProfile.value.name || '我'
-                   let amountText = ''
-                   if (action.type === 'claim' && targetMsg.transferData.type === 'red_packet') {
-                     amountText = `，金额为 ${targetMsg.transferData.amount} 元`
-                   }
-                   pushMsg(chatToUpdate,{
-                     id: Date.now() + index,
-                     type: 'system',
-                     content: `${aiName}${verb}了${myName}的${noun}${amountText}`
-                   })
+             if (transferIdStr && chatToUpdate && chatToUpdate.messages) {
+                const targetMsg = chatToUpdate.messages.find((m: any) =>
+                  m.transferData &&
+                  String(m.transferData.id) === transferIdStr &&
+                  m.transferData.status === 'pending' &&
+                  (m.transferData.receiverType === 'character' || (!m.transferData.receiverType && m.type === 'right'))
+                )
+                 if (targetMsg) {
+                    resolveTransfer({
+                      chat: chatToUpdate,
+                      transferId: targetMsg.transferData.id,
+                      action: action.type === 'claim' ? 'claim' : 'reject',
+                      actor: 'character',
+                      userName: myProfile.value.name || '我',
+                      pushEvent: event => pushMsg(chatToUpdate, event)
+                    })
                    saveCustomContacts()
                    if (isRoomActive.value && selectedChat.value && selectedChat.value.id === currentChatId) {
                       await scrollToBottom()
@@ -862,21 +861,18 @@ export function useChatRoomAPI(
             const typeMap = { 'send_transfer': 'transfer', 'send_red_packet': 'red_packet' } as const
             const text = action.type === 'send_red_packet' ? '[发来一个红包]' : '[发来一笔转账]'
             const tType = typeMap[action.type]
-            const transferId = Date.now() + Math.floor(Math.random() * 1000)
-            
             if (chatToUpdate) {
               pushMsg(chatToUpdate,{
-                id: Date.now() + index,
+                id: createChatMessageId(),
                 type: 'left',
                 content: text,
-                transferData: {
-                  id: transferId,
+                transferData: createTransferData({
                   type: tType,
                   amount: action.amount || 0,
                   remark: action.content || (tType === 'red_packet' ? '恭喜发财，大吉大利' : '转账'),
-                  status: 'pending',
-                  expireTime: Date.now() + 24 * 3600 * 1000 // 24小时后过期
-                }
+                  expireHours: 24,
+                  sender: 'character'
+                })
               })
               chatToUpdate.preview = text
               const now = new Date()

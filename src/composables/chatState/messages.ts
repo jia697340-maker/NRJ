@@ -13,6 +13,7 @@ import { useVideoCall } from '../useVideoCall'
 import { globalPromptSettings } from '../../store'
 import { pushContextTrace, type ContextTraceCollector } from '../../services/contextTrace'
 import { buildInnerThoughtContext } from '../../services/innerThoughtContext'
+import { formatTransferForContext } from '../../services/transferLifecycle'
 
 // 将 Blob 转为 Base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -316,15 +317,7 @@ export const buildChatMessages = async (
       } else if (msg.transferData) {
         // 对转账红包的特殊解析渲染给AI
         isTransferMessage = true
-        const td = msg.transferData
-        if (msg.type === 'left') {
-          const actionTag = td.type === 'red_packet' ? 'send_red_packet' : 'send_transfer'
-          formattedContent = `<${actionTag} amount="${td.amount}">${td.remark}</${actionTag}>`
-        } else if (td.type === 'transfer') {
-          formattedContent = `<transfer id="${td.id}" status="${td.status}" amount="${td.amount}" remark="${td.remark}">`
-        } else if (td.type === 'red_packet') {
-          formattedContent = `<red_packet id="${td.id}" status="${td.status}" remark="${td.remark}">` // 不透露金额
-        }
+        formattedContent = formatTransferForContext(msg)
       }
 
       // 提取图片或表情包的 Base64 供未压缩时的视觉识别使用

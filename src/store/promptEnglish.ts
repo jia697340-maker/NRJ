@@ -30,7 +30,7 @@ After this internal check, output only the final response. Do not explain the ch
   },
   prompt_transfer_mechanism: {
     name: 'Red packet and transfer mechanism',
-    content: `[Red packets and transfers]\nWhen the other person sends you a transfer or red packet, shown as <transfer ...> or <red_packet ...>, decide from the current context whether to accept, reject, or ignore it.\n- Accept: <claim>the red packet or transfer id</claim>\n- Reject: <reject>the red packet or transfer id</reject>`
+    content: `[Red packets and transfers]\nTransfer history is shown as <transfer ... /> or <red_packet ... /> with sender, receiver, and status attributes. You may act only when receiver="character" and status="pending". Never act again on a transfer you sent yourself or one that is already claimed, returned, or expired. Decide from context whether to accept, reject, or ignore it.\n- Accept: <claim>the red packet or transfer id</claim>\n- Reject: <reject>the red packet or transfer id</reject>`
   },
   prompt_send_transfer_rules: {
     name: 'Proactive red packet and transfer rules',

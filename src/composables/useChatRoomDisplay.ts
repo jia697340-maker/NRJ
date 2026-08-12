@@ -42,10 +42,21 @@ export function useChatRoomDisplay(selectedChat: any) {
   const displayMessages = computed(() => {
     const msgs = selectedChat.value?.messages || []
     const result: any[] = []
+    const groupedTransferEvents = new Map<string, any[]>()
+    for (const message of msgs) {
+      if (message?.systemKind !== 'transfer_event' || message.transferMessageId === undefined) continue
+      const key = String(message.transferMessageId)
+      const events = groupedTransferEvents.get(key) || []
+      events.push(message)
+      groupedTransferEvents.set(key, events)
+    }
     let lastTime = 0
     
     for (const msg of msgs) {
       if (msg.type === 'time') continue
+      // 转账事件在视觉上固定跟随原卡片，避免被角色连发消息拆散。
+      // 数据数组仍保留真实发生顺序，供上下文和持久化使用。
+      if (msg.systemKind === 'transfer_event' && msg.transferMessageId !== undefined) continue
       
       // 通话内的对话只属于通话界面。挂断时的剔除是事后清理，
       // 通话中途最小化、或者中途刷新页面都会赶在剔除之前，所以这里必须按标记实时过滤
@@ -87,6 +98,8 @@ export function useChatRoomDisplay(selectedChat: any) {
       }
 
       result.push(msg)
+      const transferEvents = groupedTransferEvents.get(String(msg.id)) || []
+      result.push(...transferEvents)
     }
     
     return result
