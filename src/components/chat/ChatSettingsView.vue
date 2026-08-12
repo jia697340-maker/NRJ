@@ -81,6 +81,7 @@ const emit = defineEmits<{
   (e: 'open-offline-meet'): void
   (e: 'open-relationship'): void
   (e: 'open-autonomy'): void
+  (e: 'open-character-profile'): void
 }>()
 
 const { selectedChat, myProfile, effectiveMyProfile, mockChats, loadMyProfile, saveMyProfile } = useChatState()
@@ -805,6 +806,7 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @show-world-book-bind-selector="showWorldBookBindSelector = true"
         @show-bilingual-option-modal="openBilingualOptionModal"
         @show-bilingual-language-modal="openBilingualLanguageModal"
+        @open-character-profile="emit('open-character-profile')"
         @save="saveCurrentChat"
       />
 

@@ -152,6 +152,7 @@ const emit = defineEmits<{
   (e: 'open-settings'): void
   (e: 'open-relationship'): void
   (e: 'open-offline-meet'): void
+  (e: 'open-character-profile'): void
   (e: 'voice-call-state-change', state: {
     active: boolean
     minimized: boolean
@@ -304,7 +305,8 @@ const {
   isMultiSelectMode,
   saveCustomContacts,
   scrollToBottom,
-  updatePreviewAndTime
+  updatePreviewAndTime,
+  showToast
 )
 
 const handleSendImage = (data: { file?: File, dataUrl?: string, text?: string }) => originalHandleSendImage({ text: data.text ?? '' }, showExtensionPanel)
@@ -1060,6 +1062,7 @@ onUnmounted(() => {
         @view-recalled-message="viewRecalledMessage"
         @cancel-image-generation="handleCancelImageGeneration"
         @open-gallery="handleOpenGallery"
+        @open-character-profile="emit('open-character-profile')"
       />
 
     <transition name="fade">

@@ -3,10 +3,15 @@ import { readFile } from 'node:fs/promises'
 import ts from 'typescript'
 
 try {
+  const walletSource = await readFile('src/services/walletService.ts', 'utf8')
+  const walletTranspiled = ts.transpileModule(walletSource, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+  }).outputText
+  const walletUrl = `data:text/javascript;base64,${Buffer.from(walletTranspiled).toString('base64')}`
   const source = await readFile('src/services/transferLifecycle.ts', 'utf8')
   const transpiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
-  }).outputText
+  }).outputText.replace("from './walletService';", `from '${walletUrl}';`)
   const lifecycle = await import(`data:text/javascript;base64,${Buffer.from(transpiled).toString('base64')}`)
 
   const transferData = lifecycle.createTransferData({

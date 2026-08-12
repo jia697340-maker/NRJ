@@ -11,6 +11,7 @@ import ChatSettingsView from './chat/ChatSettingsView.vue'
 import ChatOfflineMeetView from './chat/ChatOfflineMeetView.vue'
 import ChatFriendRequestsView from './chat/ChatFriendRequestsView.vue'
 import ChatRelationshipView from './chat/ChatRelationshipView.vue'
+import CharacterProfileView from './chat/profile/CharacterProfileView.vue'
 import CharacterAutonomyView from './chat/CharacterAutonomyView.vue'
 import ChatAuthView from './chat/ChatAuthView.vue'
 import { useChatState } from '../composables/useChatState'
@@ -51,7 +52,7 @@ const {
   loadMyProfile
 } = useChatState()
 
-type ViewType = 'list' | 'chat' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'relationship' | 'autonomy' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
+type ViewType = 'list' | 'chat' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'relationship' | 'autonomy' | 'characterProfile' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
 type VoiceCallState = {
   active: boolean
   minimized: boolean
@@ -69,6 +70,7 @@ const tabs = ['消息', '联系人', '发现', '我的']
 
 const previousView = ref<ViewType>('list')
 const relationshipBackView = ref<ViewType>('chatSettings')
+const characterProfileBackView = ref<ViewType>('chat')
 const hasOpenedChat = ref(false)
 const chatRoomRef = ref<any>(null)
 const chatSettingsRef = ref<any>(null)
@@ -104,7 +106,7 @@ const syncPageVisibility = () => {
   pageIsVisible.value = document.visibilityState === 'visible'
 }
 
-const characterContextViews = new Set<ViewType>(['chat', 'chatSettings', 'autonomy', 'relationship', 'offlineMeet'])
+const characterContextViews = new Set<ViewType>(['chat', 'chatSettings', 'autonomy', 'relationship', 'offlineMeet', 'characterProfile'])
 
 watch(
   [() => props.isActive, pageIsVisible, currentView, () => selectedChat.value?.id, () => selectedChat.value?.unread],
@@ -275,6 +277,11 @@ const openRelationship = (chat = selectedChat.value, backView: ViewType = curren
   selectedChat.value = chat
   relationshipBackView.value = backView
   currentView.value = 'relationship'
+}
+
+const openCharacterProfile = (backView: ViewType = currentView.value) => {
+  characterProfileBackView.value = backView
+  currentView.value = 'characterProfile'
 }
 
 const handleOfflineMeetBack = () => {
@@ -487,7 +494,7 @@ onUnmounted(() => {
 
     <template v-else>
       <!-- 底部 TabBar -->
-    <footer v-show="!['chat', 'personaLibrary', 'createUserPersona', 'chatSettings', 'offlineMeet', 'friendRequests', 'relationship', 'autonomy'].includes(currentView)" class="floating-tabbar glass">
+    <footer v-show="!['chat', 'personaLibrary', 'createUserPersona', 'chatSettings', 'offlineMeet', 'friendRequests', 'relationship', 'autonomy', 'characterProfile'].includes(currentView)" class="floating-tabbar glass">
       <div 
         v-for="tab in tabs" 
         :key="tab"
@@ -519,7 +526,16 @@ onUnmounted(() => {
       @open-settings="currentView = 'chatSettings'"
       @open-relationship="openRelationship(selectedChat, 'chat')"
       @open-offline-meet="openOfflineMeet"
+      @open-character-profile="openCharacterProfile('chat')"
       @voice-call-state-change="handleVoiceCallStateChange"
+    />
+
+    <CharacterProfileView
+      v-if="currentView === 'characterProfile' && selectedChat"
+      :chat="selectedChat"
+      @back="currentView = characterProfileBackView"
+      @open-chat="currentView = 'chat'"
+      @save="saveCurrentChat"
     />
 
     <!-- 3. 设置视图 -->
@@ -534,6 +550,7 @@ onUnmounted(() => {
       @open-offline-meet="openOfflineMeet"
       @open-relationship="openRelationship(selectedChat, 'chatSettings')"
       @open-autonomy="currentView = 'autonomy'"
+      @open-character-profile="openCharacterProfile('chatSettings')"
     />
 
     <CharacterAutonomyView

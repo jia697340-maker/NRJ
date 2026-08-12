@@ -34,6 +34,7 @@ const emit = defineEmits([
   'play-voice',
   'handle-left-transfer-click',
   'handle-emoji-click',
+  'open-character-profile',
   'view-recalled-message',
   'cancel-image-generation'
 ])
@@ -161,9 +162,9 @@ const formatMsgTime = (timestamp: number) => {
       </template>
       <template v-else>
         <div class="msg-avatar-col" v-if="shouldShowAvatar(msg)">
-          <div class="msg-avatar" :style="[
+          <div class="msg-avatar" :role="selectedChat?.id === 1 ? undefined : 'button'" :tabindex="selectedChat?.id === 1 ? -1 : 0" :aria-label="selectedChat?.id === 1 ? undefined : '查看角色主页'" :style="[
             selectedChat?.avatarUrl ? { backgroundImage: `url(${selectedChat.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}
-          ]">{{ selectedChat?.avatarText || '伴' }}</div>
+          ]" @click.stop="selectionMode === null && selectedChat?.id !== 1 && emit('open-character-profile')" @keydown.enter.stop="selectionMode === null && selectedChat?.id !== 1 && emit('open-character-profile')" @keydown.space.prevent.stop="selectionMode === null && selectedChat?.id !== 1 && emit('open-character-profile')">{{ selectedChat?.avatarText || '伴' }}</div>
           <div v-if="chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'avatar_bottom'" class="msg-time-inline">
             {{ formatMsgTime(msg.timestamp || msg.id) }}
           </div>

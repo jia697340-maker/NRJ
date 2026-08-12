@@ -1,4 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+import { resolveWalletPayment } from './walletService'
 
 export type TransferKind = 'transfer' | 'red_packet'
 export type TransferStatus = 'pending' | 'claimed' | 'rejected' | 'expired'
@@ -19,6 +20,8 @@ export const createTransferData = (input: {
   remark: string
   expireHours?: number
   sender: 'user' | 'character'
+  walletPaymentId?: string
+  walletAccountId?: string
 }) => {
   const createdAt = Date.now()
   const expireHours = Number.isFinite(input.expireHours) && Number(input.expireHours) > 0
@@ -32,6 +35,8 @@ export const createTransferData = (input: {
     status: 'pending' as TransferStatus,
     senderType: input.sender,
     receiverType: input.sender === 'user' ? 'character' : 'user',
+    walletPaymentId: input.walletPaymentId,
+    walletAccountId: input.walletAccountId,
     createdAt,
     expireHours,
     expireAt: createdAt + expireHours * 3600 * 1000,
@@ -40,7 +45,7 @@ export const createTransferData = (input: {
   }
 }
 
-const actionToStatus: Record<TransferAction, TransferStatus> = {
+const actionToStatus: Record<TransferAction, Exclude<TransferStatus, 'pending'>> = {
   claim: 'claimed',
   reject: 'rejected',
   expire: 'expired'
@@ -82,6 +87,12 @@ export const resolveTransfer = (input: {
 
   const transfer = targetMessage.transferData
   const nextStatus = actionToStatus[input.action]
+  if (transfer.walletPaymentId && transfer.walletAccountId) {
+    const walletResult = resolveWalletPayment(transfer.walletAccountId, transfer.walletPaymentId, nextStatus)
+    if (!walletResult.ok && walletResult.reason !== 'already_resolved' && walletResult.reason !== 'missing_payment') {
+      return { ok: false as const, reason: 'wallet_resolution_failed', targetMessage }
+    }
+  }
   const resolvedAt = Date.now()
   transfer.status = nextStatus
   transfer.resolvedAt = resolvedAt

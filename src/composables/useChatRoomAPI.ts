@@ -16,6 +16,8 @@ import { attachActiveOfflineSession } from '../services/offlineSessions'
 import { beginOfflinePresence, reconcilePresence } from '../services/presenceLifecycle'
 import { useVoicePlayer } from './useVoicePlayer'
 import { createChatMessageId, createTransferData, resolveTransfer } from '../services/transferLifecycle'
+import { useChatAuth } from './useChatAuth'
+import { createIncomingWalletPayment } from '../services/walletService'
 
 // 引入拆分的逻辑模块
 import { useChatRoomError } from './useChatRoomError'
@@ -66,6 +68,7 @@ export function useChatRoomAPI(
   onIncomingCall?: (reason: string, resume: () => void) => void,
   getOfflineMeetMode?: () => false | 'mixed' | 'separate'
 ) {
+  const { currentChatUserId } = useChatAuth()
   const isGenerating = ref(false)
   let abortController: AbortController | null = null
   const typingTimers: ReturnType<typeof setTimeout>[] = []
@@ -862,6 +865,13 @@ export function useChatRoomAPI(
             const text = action.type === 'send_red_packet' ? '[发来一个红包]' : '[发来一笔转账]'
             const tType = typeMap[action.type]
             if (chatToUpdate) {
+              const walletAccountId = currentChatUserId.value || 'guest'
+              const walletPayment = createIncomingWalletPayment(
+                walletAccountId,
+                Math.round((action.amount || 0) * 100),
+                tType,
+                action.content || (tType === 'red_packet' ? '恭喜发财，大吉大利' : '转账')
+              )
               pushMsg(chatToUpdate,{
                 id: createChatMessageId(),
                 type: 'left',
@@ -871,7 +881,9 @@ export function useChatRoomAPI(
                   amount: action.amount || 0,
                   remark: action.content || (tType === 'red_packet' ? '恭喜发财，大吉大利' : '转账'),
                   expireHours: 24,
-                  sender: 'character'
+                  sender: 'character',
+                  walletPaymentId: walletPayment.id,
+                  walletAccountId
                 })
               })
               chatToUpdate.preview = text

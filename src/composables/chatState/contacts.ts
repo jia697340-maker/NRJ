@@ -4,6 +4,7 @@ import { normalizeChatUserProfileState } from '../useChatUserProfiles'
 import { mockChats, customGroups, avatarStore } from './state'
 import { reconcilePresence } from '../../services/presenceLifecycle'
 import { normalizeChatTransfers } from '../../services/transferLifecycle'
+import { normalizeSocialProfile } from '../../services/characterSocialProfile'
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -83,6 +84,7 @@ export const loadCustomContacts = async () => {
       realName: c.name,
       remark: c.remark,
       persona: c.persona,
+      socialProfile: normalizeSocialProfile(c),
       userProfile: c.userProfile || null,
       userProfileSource: c.userProfileSource || null,
       preview: previewText,

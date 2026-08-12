@@ -7,6 +7,9 @@ import { sendChatMessage } from '../services/api'
 import { useChatAuth } from './useChatAuth'
 import { generateMomentImage } from './useMomentImageGen'
 import { canViewMoment, canPerformMomentAction, recordMomentAction, addMomentNotification, getMomentBehavior } from '../services/moments'
+import { applySocialProfilePatch, ensureSocialProfile, persistSocialProfile } from '../services/characterSocialProfile'
+import { deleteCharacterMoment, listMomentsByAuthor, updateCharacterMoment } from '../services/momentRepository'
+import { createWalletPayment } from '../services/walletService'
 
 // 初始化 discover_moments
 const discoverStore = localforage.createInstance({
@@ -25,7 +28,8 @@ export function useChatRoomMessage(
   isMultiSelectMode: any,
   saveCustomContacts: () => void,
   scrollToBottom: () => Promise<void>,
-  updatePreviewAndTime: (content: string) => void
+  updatePreviewAndTime: (content: string) => void,
+  showToast?: (text: string) => void
 ) {
   const showImageModal = ref(false)
   const expandedImageIds = ref<Set<number>>(new Set())
@@ -110,6 +114,22 @@ export function useChatRoomMessage(
       selectedChat.value.messages = []
     }
 
+    const { currentChatUserId } = useChatAuth()
+    const walletAccountId = currentChatUserId.value || 'guest'
+    let walletPayment
+    try {
+      walletPayment = createWalletPayment({
+        accountId: walletAccountId,
+        senderType: 'user',
+        amountCents: Math.round(data.amount * 100),
+        kind: data.type,
+        remark: data.remark
+      })
+    } catch (error) {
+      showToast?.(error instanceof Error ? error.message : '钱包余额不足，无法发送')
+      return
+    }
+
     selectedChat.value.messages.push({
       id: createChatMessageId(),
       type: 'right',
@@ -119,7 +139,9 @@ export function useChatRoomMessage(
         amount: data.amount,
         remark: data.remark,
         expireHours: data.expireHours,
-        sender: 'user'
+        sender: 'user',
+        walletPaymentId: walletPayment.id,
+        walletAccountId
       })
     })
     
@@ -169,6 +191,63 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
   let aiContext = ''
   let handledMomentAction = false
 
+  const socialProfile = ensureSocialProfile(selectedChat)
+  const updateProfileRegex = /<update_social_profile\s+field="(nickname|socialId|signature|coverStyle)">([\s\S]*?)<\/update_social_profile>/g
+  let profileMatch
+  while ((profileMatch = updateProfileRegex.exec(newContent)) !== null) {
+    handledMomentAction = true
+    const field = profileMatch[1] as 'nickname' | 'socialId' | 'signature' | 'coverStyle'
+    let value = profileMatch[2].trim()
+    const permissionKey = field === 'coverStyle' ? 'cover' : field
+    if (!socialProfile.awarenessEnabled || socialProfile.managementMode === 'readonly' || !socialProfile.permissions[permissionKey]) continue
+    if (field === 'coverStyle' && !['dots', 'grid', 'stars', 'plain'].includes(value)) continue
+    if (field === 'socialId') value = value.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)
+    if (!value) continue
+    if (socialProfile.managementMode === 'confirm') {
+      socialProfile.changes.unshift({ id: `${Date.now()}_${field}`, field, before: socialProfile[field], after: value, source: 'character', createdAt: Date.now(), status: 'pending' })
+    } else {
+      applySocialProfilePatch(selectedChat, { [field]: value }, 'character')
+    }
+    persistSocialProfile(selectedChat)
+  }
+  newContent = newContent.replace(updateProfileRegex, '')
+
+  const editOwnMomentRegex = /<edit_own_moment\s+id="([^"]+)">([\s\S]*?)<\/edit_own_moment>/g
+  let editMatch
+  while ((editMatch = editOwnMomentRegex.exec(newContent)) !== null) {
+    handledMomentAction = true
+    if (!socialProfile.awarenessEnabled || socialProfile.managementMode === 'readonly' || !socialProfile.permissions.editMoments) continue
+    const momentId = editMatch[1]
+    const nextContent = editMatch[2].trim()
+    if (!nextContent) continue
+    const ownedMoment = (await listMomentsByAuthor(selectedChat.id)).find(moment => String(moment.id) === String(momentId))
+    if (!ownedMoment || (!socialProfile.permissions.manageUserMoments && ownedMoment.createdBy === 'user')) continue
+    if (socialProfile.managementMode === 'confirm') {
+      socialProfile.changes.unshift({ id: `${Date.now()}_momentEdit`, field: 'momentEdit', before: momentId, after: nextContent, source: 'character', createdAt: Date.now(), status: 'pending' })
+      persistSocialProfile(selectedChat)
+    } else {
+      try { await updateCharacterMoment(momentId, { content: nextContent }) } catch (_) {}
+    }
+  }
+  newContent = newContent.replace(editOwnMomentRegex, '')
+
+  const deleteOwnMomentRegex = /<delete_own_moment\s+id="([^"]+)"\s*\/>/g
+  let deleteMatch: RegExpExecArray | null
+  while ((deleteMatch = deleteOwnMomentRegex.exec(newContent)) !== null) {
+    handledMomentAction = true
+    if (!socialProfile.awarenessEnabled || socialProfile.managementMode === 'readonly' || !socialProfile.permissions.deleteMoments) continue
+    const momentId = deleteMatch[1]
+    const ownedMoment = (await listMomentsByAuthor(selectedChat.id)).find(moment => String(moment.id) === String(momentId))
+    if (!ownedMoment || (!socialProfile.permissions.manageUserMoments && ownedMoment.createdBy === 'user')) continue
+    if (socialProfile.managementMode === 'confirm') {
+      socialProfile.changes.unshift({ id: `${Date.now()}_momentDelete`, field: 'momentDelete', before: momentId, after: '删除朋友圈', source: 'character', createdAt: Date.now(), status: 'pending' })
+      persistSocialProfile(selectedChat)
+    } else {
+      try { await deleteCharacterMoment(momentId) } catch (_) {}
+    }
+  }
+  newContent = newContent.replace(deleteOwnMomentRegex, '')
+
   // 如果开关关闭，直接返回
   if (!selectedChat.__forceMomentAction && selectedChat.enableCharMoments === false) {
     return { newContent, shouldTriggerAI, aiContext, handledMomentAction }
@@ -183,7 +262,7 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
       // 简单筛选出设定数量的用户公开或当前角色可见的朋友圈
       const visibleMoments = moments
         .filter(m => canViewMoment(m, { id: selectedChat.id, name: selectedChat.name || '对方', groups: selectedChat.groups, groupIds: selectedChat.groupIds }))
-        .filter(m => String(m.authorId ?? '') !== String(selectedChat.id) && m.author !== (selectedChat.name || '对方'))
+        .filter(m => socialProfile.awarenessEnabled || (String(m.authorId ?? '') !== String(selectedChat.id) && m.author !== (selectedChat.name || '对方')))
         .sort((a, b) => Number((b.mentions || []).some((person: any) => String(person.id) === String(selectedChat.id))) - Number((a.mentions || []).some((person: any) => String(person.id) === String(selectedChat.id))) || Number(b.time) - Number(a.time))
         .slice(0, chatSettings.momentReadCount ?? 5)
 
@@ -274,6 +353,14 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
     const visibility = attrValue('visibility')
     const visibilityGroups = attrValue('groups').split(',').map(v => v.trim()).filter(Boolean)
     const textContent = postMatch[2].trim()
+    if (socialProfile.awarenessEnabled) {
+      if (socialProfile.managementMode === 'readonly' || !socialProfile.permissions.publishMoments) continue
+      if (socialProfile.managementMode === 'confirm') {
+        socialProfile.changes.unshift({ id: `${Date.now()}_momentPublish`, field: 'momentPublish', before: '', after: textContent, source: 'character', createdAt: Date.now(), status: 'pending' })
+        persistSocialProfile(selectedChat)
+        continue
+      }
+    }
     if (!selectedChat.__forceMomentAction && !canPerformMomentAction(selectedChat, 'post')) continue
     try {
       const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
@@ -291,7 +378,9 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         likes: [],
         comments: [],
         imagePrompt: imgDesc || '',
-        isGeneratingImage: Boolean(imgDesc)
+        isGeneratingImage: Boolean(imgDesc),
+        source: 'ai-chat',
+        createdBy: 'character'
       }
       moments.unshift(newMoment)
       recordMomentAction(selectedChat, 'post')

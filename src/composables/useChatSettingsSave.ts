@@ -17,6 +17,7 @@ export function useChatSettingsSave() {
         contacts[idx].name = selectedChat.value.realName
         contacts[idx].remark = selectedChat.value.remark
         contacts[idx].persona = selectedChat.value.persona
+        contacts[idx].socialProfile = selectedChat.value.socialProfile || null
         contacts[idx].userProfile = selectedChat.value.userProfile || null
         contacts[idx].userProfileSource = selectedChat.value.userProfileSource || null
         contacts[idx].boundWorldBooks = selectedChat.value.boundWorldBooks || []

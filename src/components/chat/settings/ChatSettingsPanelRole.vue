@@ -29,6 +29,7 @@ const emit = defineEmits<{
   (e: 'show-world-book-bind-selector'): void
   (e: 'show-bilingual-option-modal', kind: 'mode' | 'display'): void
   (e: 'show-bilingual-language-modal', kind: 'output' | 'translation'): void
+  (e: 'open-character-profile'): void
   (e: 'save'): void
 }>()
 
@@ -134,7 +135,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
 
 <template>
   <div class="role-edit-section">
-    <div class="user-avatar-action-box" style="margin-bottom: 24px;" v-show="matchSearch('当前时间', '待开发', '更换头像', '伴')">
+    <div class="user-avatar-action-box" style="margin-bottom: 24px;" v-show="matchSearch('当前时间', '角色主页', '待开发', '更换头像', '伴')">
       <div class="action-column">
         <div class="action-btn" @click="emit('open-timezone-modal', 'character')">
           <span style="font-size: 11px; opacity: 0.8; margin-bottom: 2px;">当前时间</span>
@@ -154,7 +155,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </div>
       
       <div class="action-column">
-        <div class="action-btn placeholder">待开发</div>
+        <button type="button" class="action-btn" @click="emit('open-character-profile')">角色主页</button>
         <div class="action-btn placeholder">待开发</div>
       </div>
     </div>

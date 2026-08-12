@@ -171,7 +171,9 @@ const addMoment = async (chat: any, content: string, createdAt: number) => {
     visibility: '公开',
     likes: [],
     comments: [],
-    notifications: []
+    notifications: [],
+    source: 'autonomy',
+    createdBy: 'character'
   })
   await momentStore.setItem(key, moments)
 }
