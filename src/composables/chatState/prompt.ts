@@ -120,11 +120,11 @@ ${usesNaturalPromptV2
     formatRules += usesEnglishPrompt ? `\n\n${englishBubbleNarrationRules}` : `\n\n【气泡叙事模式】
 - 这是线上气泡聊天与叙事描写结合的模式。角色真正说出口的话仍使用 <msg>...</msg>，每个 <msg> 会显示为角色气泡。
 - 动作、神态、环境变化或必要的心理描写必须独立使用 <narration kind="action">...</narration>、<narration kind="scene">...</narration> 或 <narration kind="thought">...</narration>，它们会显示为气泡之间的无归属叙述块。
-- <narration> 中使用第三人称或自然的镜头语言，不要把对话放进叙述标签，也不要用括号、星号或 <msg> 气泡冒充动作描写。
+- <narration> 中必须使用第三人称或自然的镜头语言。涉及人物时，明确使用 ${charName}、${userName} 等姓名，不用“你”“我”等第一、第二人称代词；不要把对话放进叙述标签，也不要用括号、星号或 <msg> 气泡冒充动作描写。
 - 只在能推动情绪、动作或场景时加入叙述，保持简洁自然；不要每条气泡后机械添加，不要替对方决定动作、感受或内心。
 示例：
 <msg>你怎么现在才回来？</msg>
-<narration kind="action">他靠在门边，语气听起来平静，目光却一直落在你身上。</narration>
+<narration kind="action">${charName}靠在门边，语气听起来平静，目光却一直落在${userName}身上。</narration>
 <msg>我等了你好久。</msg>`
   }
 

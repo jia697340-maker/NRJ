@@ -18,6 +18,7 @@ export const chatSettings = reactive({
   nameDisplayStyle: savedChatSettings.nameDisplayStyle ?? 'all', // 'all' | 'user_only' | 'character_only' | 'none'
   timeDisplayStyle: savedChatSettings.timeDisplayStyle ?? 'none', // 'none' | 'hm' | 'hms'
   timeDisplayPosition: savedChatSettings.timeDisplayPosition ?? 'avatar_bottom', // 'avatar_bottom' | 'bubble_outer' | 'name_side'
+  showSystemNarration: savedChatSettings.showSystemNarration ?? false, // 显示仅供模型衔接上下文的系统内部旁白
   autoTranscribeVoice: savedChatSettings.autoTranscribeVoice ?? true, // 语音自动转文字
   enableVisionTokenSaver: savedChatSettings.enableVisionTokenSaver ?? false, // 识别图片省TOKEN
   enableRoleImageTokenSaver: savedChatSettings.enableRoleImageTokenSaver ?? true, // 角色发图/表情包不传Base64省Token

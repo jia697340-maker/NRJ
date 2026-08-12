@@ -105,7 +105,7 @@ export function useChatRoomVoiceCallUI(
           selectedChat.value.messages.push({
             id: rejectedRecordId + 1,
             type: 'system',
-            content: `${myProfile.value?.name || '对方'}给你打来语音电话，你没有接听。`,
+            content: `${myProfile.value?.name || '用户'}给${selectedChat.value.name || '角色'}打来语音电话，${selectedChat.value.name || '角色'}没有接听。`,
             isHidden: true
           })
           saveCustomContacts()

@@ -192,11 +192,12 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         .slice(0, chatSettings.momentReadCount ?? 5)
 
       if (visibleMoments.length > 0) {
+        const charName = selectedChat.name || '角色'
         const behavior = getMomentBehavior(selectedChat)
         const behaviorHint = behavior.mode === 'custom'
-          ? `请遵循用户设置的表达偏好“${behavior.style || '符合你自己的人设'}”。`
-          : '请只依据你自己的人设、当下情绪、与作者的关系和动态内容自然反应；你可以只看，也可以点赞、评论、回复或在聊天中提起，不必为了互动而互动。'
-        aiContext = `【系统旁白：你打开了朋友圈。${behaviorHint}你看到了以下最新动态：\n`
+          ? `请让${charName}遵循用户设置的表达偏好“${behavior.style || `符合${charName}自己的人设`}”。`
+          : `请只依据${charName}自己的人设、当下情绪、与作者的关系和动态内容自然反应；${charName}可以只看，也可以点赞、评论、回复或在聊天中提起，不必为了互动而互动。`
+        aiContext = `【系统旁白：${charName}打开了朋友圈。${behaviorHint}${charName}看到了以下最新动态：\n`
         
         // 如果开启了视觉 API 和图片省 Token 机制，进行静默识图
         const shouldSummarizeImages = visionApiSettings.enabled && chatSettings.enableVisionTokenSaver
@@ -257,9 +258,10 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
             })
           }
         }
-        aiContext += `你可以使用 <interact_moment action="like|comment" id="动态ID" content="评论内容" /> 来进行点赞或评论；也可对评论用 like_comment 或 reply_comment 标签互动，或者直接在聊天中讨论此事。】`
+        aiContext += `${charName}可以使用 <interact_moment action="like|comment" id="动态ID" content="评论内容" /> 来进行点赞或评论；也可对评论用 like_comment 或 reply_comment 标签互动，或者直接在聊天中讨论此事。】`
       } else {
-        aiContext = `【系统旁白：你打开了朋友圈，但最近没有任何新动态。】`
+        const charName = selectedChat.name || '角色'
+        aiContext = `【系统旁白：${charName}打开了朋友圈，但最近没有任何新动态。】`
       }
       shouldTriggerAI = true
     } catch(e) {}

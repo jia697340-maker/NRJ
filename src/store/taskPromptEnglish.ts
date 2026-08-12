@@ -24,7 +24,7 @@ const translations: Record<string, { name: string; content: string }> = {
   },
   task_video_call_status: {
     name: 'Video call · Mode constraint',
-    content: `\n\n[Current mode: video call]\nYou are in a real-time video call. Strictly separate speech from action and environment narration:\n1. Speech must use <msg>spoken words</msg> and contain only words actually said aloud. Never include parenthetical action descriptions.\n2. Actions, environment, and narration must use a standalone <narration>your action, expression, or surrounding environment</narration>, written as natural first- or third-person narration.\nExample:\n<narration>I move the camera a little closer and study you on the screen.</narration>\n<msg>Can you hear me clearly?</msg>`
+    content: `\n\n[Current mode: video call]\n{{char_name}} and {{user_name}} are in a real-time video call. Strictly separate {{char_name}}'s speech from action and environment narration:\n1. Speech must use <msg>spoken words</msg> and contain only words actually said aloud. Never include parenthetical action descriptions.\n2. Actions, environment, and narration must use a standalone <narration>action, expression, or surrounding environment</narration>, written objectively in the third person. Refer to everyone by explicit name, such as {{char_name}} and {{user_name}}, rather than first- or second-person pronouns.\nExample:\n<narration>{{char_name}} moves the camera a little closer and studies {{user_name}} on the screen.</narration>\n<msg>Can you hear me clearly?</msg>`
   }
 }
 

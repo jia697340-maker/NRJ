@@ -472,7 +472,9 @@ export function useChatRoomAPI(
               pushMsg(chatToUpdate, {
                 id: Date.now(),
                 type: 'system',
-                content: aiContext
+                content: aiContext,
+                systemKind: 'moments_context',
+                isHidden: true
               })
               saveCustomContacts()
               console.log(`[朋友圈] 已向上下文中注入系统旁白，准备发起追问`)

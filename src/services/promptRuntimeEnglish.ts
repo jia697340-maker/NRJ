@@ -42,11 +42,11 @@ export const englishOfflineFormatRules = `[Offline output format]\nThis is an in
 export const englishBubbleNarrationRules = `[Bubble narration mode]
 - This mode combines online message bubbles with narrative description. Words actually spoken by the character still use <msg>...</msg>; each <msg> appears as a character bubble.
 - Actions, expressions, environmental changes, or necessary private description use a standalone <narration kind="action">...</narration>, <narration kind="scene">...</narration>, or <narration kind="thought">...</narration>. These appear as unattributed narrative blocks between bubbles.
-- Use third-person or natural camera-like prose inside <narration>. Do not put dialogue there, and do not imitate actions with parentheses, asterisks, or <msg> bubbles.
+- Use third-person or natural camera-like prose inside <narration>. Refer to everyone by name or an unambiguous third-person noun; never use first- or second-person pronouns such as “I” or “you” in narration. Do not put dialogue there, and do not imitate actions with parentheses, asterisks, or <msg> bubbles.
 - Add narration only when it advances emotion, action, or scene. Keep it concise and natural; do not attach it mechanically after every bubble, and never decide the other person's actions, feelings, or thoughts.
 Example:
 <msg>Why are you only getting back now?</msg>
-<narration kind="action">He leans against the doorway. His voice sounds calm, but his gaze never leaves you.</narration>
+<narration kind="action">The character leans against the doorway. The character's voice sounds calm, but their gaze never leaves the other person.</narration>
 <msg>I've been waiting for ages.</msg>`
 
 export const buildEnglishMessageCountRule = (minimum: number, maximum: number) => (

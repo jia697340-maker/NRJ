@@ -90,7 +90,7 @@ const handleSave = () => {
       </div>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('显示回复耗时')">
+    <div class="glass-panel" v-show="matchSearch('显示回复耗时', '显示系统内部旁白', '系统旁白')">
       <div class="glass-list-item" v-show="matchSearch('显示回复耗时')">
         <div class="item-label">显示回复耗时</div>
         <div class="item-value">
@@ -98,6 +98,20 @@ const handleSave = () => {
             <input type="checkbox" :checked="selectedChat.showCostTime !== false" @change="(e) => { selectedChat.showCostTime = (e.target as HTMLInputElement).checked; handleSave(); }">
             <span class="slider"></span>
           </label>
+        </div>
+      </div>
+      <div class="glass-list-item" style="flex-direction: column; align-items: flex-start; padding: 12px 16px;" v-show="matchSearch('显示系统内部旁白', '系统旁白')">
+        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+          <div class="item-label">显示系统内部旁白</div>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.showSystemNarration">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-tertiary); margin-top: 4px; line-height: 1.4;">
+          朋友圈读取、通话衔接等内部上下文默认隐藏
         </div>
       </div>
     </div>

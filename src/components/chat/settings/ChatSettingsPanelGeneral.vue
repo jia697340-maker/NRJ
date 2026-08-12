@@ -164,7 +164,7 @@ onBeforeUnmount(() => {
           <div class="preview-bubble">你怎么现在才回来？</div>
           <div class="preview-narration">
             <span class="preview-narration-line"></span>
-            <span>他靠在门边，目光安静地落在你身上。</span>
+            <span>角色靠在门边，目光安静地落在对方身上。</span>
             <span class="preview-narration-line"></span>
           </div>
           <div class="preview-bubble preview-bubble-self">临时有点事情。</div>

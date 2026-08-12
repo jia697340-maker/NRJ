@@ -41,7 +41,7 @@ export const defaultTaskPromptItems: PromptItem[] = [
   {
     id: 'task_video_call_status',
     name: '视频通话 - 状态强制设定',
-    content: `\n\n【当前模式：视频通话】你们正在进行实时视频通话。请严格区分你的“语言”和“动作/环境描写”：\n1. 语言：必须使用 <msg>说话内容</msg> 标签，且只能包含嘴上说出的话，绝对不要包含任何括号动作描写。\n2. 动作/环境/旁白：必须使用独立的 <narration>你的动作、表情或周围环境描写</narration> 标签，以第三人称或第一人称旁白形式客观输出。\n示例：\n<narration>我把镜头凑近了一些，仔细看着屏幕里的你。</narration>\n<msg>能听清我说话吗？</msg>`,
+    content: `\n\n【当前模式：视频通话】{{char_name}}与{{user_name}}正在进行实时视频通话。请严格区分{{char_name}}的“语言”和“动作/环境描写”：\n1. 语言：必须使用 <msg>说话内容</msg> 标签，且只能包含嘴上说出的话，绝对不要包含任何括号动作描写。\n2. 动作/环境/旁白：必须使用独立的 <narration>动作、表情或周围环境描写</narration> 标签，并以第三人称客观输出。涉及人物时必须使用 {{char_name}}、{{user_name}} 等明确姓名，不得使用“我”“你”等第一、第二人称代词。\n示例：\n<narration>{{char_name}}把镜头凑近了一些，仔细看着屏幕里的{{user_name}}。</narration>\n<msg>能听清我说话吗？</msg>`,
     enabled: true
   }
 ]
@@ -63,6 +63,13 @@ const hydrate = (language: PromptLanguage, stored?: PromptItem[]) => {
   for (const item of result) {
     if (typeof item.content === 'string') {
       item.content = item.content.replace(/不要发送图片、语音条、表情包或转账。/g, '').trim()
+      if (item.id === 'task_video_call_status') {
+        item.content = item.content
+          .replace('<narration>你的动作、表情或周围环境描写</narration> 标签，以第三人称或第一人称旁白形式客观输出。', '<narration>动作、表情或周围环境描写</narration> 标签，并以第三人称客观输出。涉及人物时必须使用 {{char_name}}、{{user_name}} 等明确姓名，不得使用“我”“你”等第一、第二人称代词。')
+          .replace('<narration>我把镜头凑近了一些，仔细看着屏幕里的你。</narration>', '<narration>{{char_name}}把镜头凑近了一些，仔细看着屏幕里的{{user_name}}。</narration>')
+          .replace('<narration>your action, expression, or surrounding environment</narration>, written as natural first- or third-person narration.', '<narration>action, expression, or surrounding environment</narration>, written objectively in the third person. Refer to everyone by explicit name, such as {{char_name}} and {{user_name}}, rather than first- or second-person pronouns.')
+          .replace('<narration>I move the camera a little closer and study you on the screen.</narration>', '<narration>{{char_name}} moves the camera a little closer and studies {{user_name}} on the screen.</narration>')
+      }
     }
   }
   for (const item of defaults) if (!result.some(existing => existing.id === item.id)) result.push(item)

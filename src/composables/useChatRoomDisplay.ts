@@ -1,5 +1,15 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { computed } from 'vue'
+import { chatSettings } from '../store'
+
+const isInternalSystemNarration = (msg: any) => {
+  if (msg?.type !== 'system') return false
+  if (msg.isHidden === true) return true
+  if (msg.systemKind === 'moments_context' || msg.systemKind === 'call_context') return true
+
+  // 兼容已经存入本地、尚未带 systemKind 的朋友圈上下文。
+  return /^【系统旁白：你打开了朋友圈[。 ，,]/.test(String(msg.content || '').trim())
+}
 
 export function useChatRoomDisplay(selectedChat: any) {
   // 友好的时间格式化
@@ -43,8 +53,9 @@ export function useChatRoomDisplay(selectedChat: any) {
 
       // 独立线下见面产生的消息只在线下界面显示，普通聊天框隐藏
       if (msg.isOfflineMeetMsg) continue
-      
-      // 不再过滤隐藏消息，让原本是被解析为 system 的消息也显示出来
+
+      // 内部旁白保留在历史与模型上下文中，只控制聊天界面的可见性。
+      if (!chatSettings.showSystemNarration && isInternalSystemNarration(msg)) continue
       
       // msg.id 必须是一个合法的时间戳，做兜底兼容
       const msgTime = (msg.id > 1000000000000) ? msg.id : Date.now()

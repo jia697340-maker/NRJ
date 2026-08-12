@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { useChatAuth } from '../useChatAuth'
-import { mockChats } from './state'
+import { getEffectiveUserProfile } from '../useChatUserProfiles'
+import { mockChats, myProfile } from './state'
 
 export const checkTransfersExpired = () => {
   const now = Date.now()
@@ -12,20 +13,21 @@ export const checkTransfersExpired = () => {
           if (now >= m.transferData.expireTime) {
             m.transferData.status = 'expired'
             changed = true
+            const charName = chat.name || chat.realName || '角色'
+            const userName = getEffectiveUserProfile(chat, myProfile.value).name || '用户'
+            const noun = m.transferData.type === 'red_packet' ? '红包' : '转账'
             
             if (m.type === 'left') {
-              const noun = m.transferData.type === 'red_packet' ? '红包' : '转账'
               chat.messages.push({
                  id: Date.now() + Math.random(),
                  type: 'system',
-                 content: `对方发送给你的${noun}超过24小时未被领取，已退回。`
+                 content: `${charName}发送给${userName}的${noun}超过24小时未被领取，已退回给${charName}。`
               })
             } else {
-              const noun = m.transferData.type === 'red_packet' ? '红包' : '转账'
               chat.messages.push({
                  id: Date.now() + Math.random(),
                  type: 'system',
-                 content: `你发送给对方的${noun}超过24小时未被领取，已退回。`
+                 content: `${userName}发送给${charName}的${noun}超过24小时未被领取，已退回给${userName}。`
               })
             }
           }
