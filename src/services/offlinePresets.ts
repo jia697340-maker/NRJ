@@ -1,4 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+import { resolvePromptVariables } from './promptVariables'
 
 export type OfflineModelProfile = 'auto' | 'openai-compatible' | 'deepseek-chat' | 'deepseek-reasoner' | 'claude' | 'gemini'
 export type OfflinePresetSource = 'builtin' | 'user'
@@ -23,6 +24,12 @@ export interface OfflinePromptPreset {
   modePrompt: string
   postHistoryPrompt: string
   entries?: OfflinePromptEntry[]
+  languageVariants?: Partial<Record<'zh' | 'en', {
+    mainPrompt: string
+    modePrompt: string
+    postHistoryPrompt: string
+    entries?: OfflinePromptEntry[]
+  }>>
 }
 
 export interface OfflinePresetSettingsData {
@@ -225,11 +232,7 @@ export const validateImportedOfflinePresets = (raw: unknown): OfflinePromptPrese
 }
 
 export const replacePromptVariables = (content: string, values: Record<string, string>) => {
-  let resolved = content
-  for (const [key, value] of Object.entries(values)) {
-    resolved = resolved.split(`{{${key}}}`).join(value)
-  }
-  return resolved
+  return resolvePromptVariables(content, values)
 }
 
 export const getOfflineModelProfileLabel = (profile: OfflineModelProfile) => ({

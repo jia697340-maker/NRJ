@@ -344,6 +344,27 @@ export const defaultPromptItemsV2: PromptItem[] = [
 
 export type PromptPresetId = 'v1' | 'v2'
 export type PromptLanguage = 'zh' | 'en'
+export type PromptEditorMode = 'items' | 'full'
+export type PromptSchemeSource = 'builtin' | 'user'
+
+export interface PromptSchemeVariant {
+  mode: PromptEditorMode
+  items: PromptItem[]
+  fullText: string
+  structuredSnapshot: PromptItem[]
+}
+
+export interface PromptScheme {
+  id: string
+  name: string
+  description: string
+  source: PromptSchemeSource
+  basePresetId: PromptPresetId
+  originalSchemeId?: string
+  variants: Record<PromptLanguage, PromptSchemeVariant>
+  createdAt: number
+  updatedAt: number
+}
 
 export const defaultPromptItemsV1En = buildEnglishPromptItems(defaultPromptItemsV1, 'v1')
 export const defaultPromptItemsV2En = buildEnglishPromptItems(defaultPromptItemsV2, 'v2')
@@ -371,73 +392,222 @@ export const systemPromptItemIds = new Set(
 
 export const defaultPromptItems = defaultPromptItemsV1
 
-type PromptVariantMap = Record<string, PromptItem[]>
-
 const cloneItems = (items: PromptItem[]) => JSON.parse(JSON.stringify(items)) as PromptItem[]
 export const getPromptVariantKey = (presetId: PromptPresetId, language: PromptLanguage) => `${presetId}:${language}`
 
-const activePresetId = (savedPromptSettings.activePresetId === 'v2' ? 'v2' : 'v1') as PromptPresetId
-const activeLanguage = (savedPromptSettings.language === 'en' ? 'en' : 'zh') as PromptLanguage
-const legacyItems = Array.isArray(savedPromptSettings.items) ? savedPromptSettings.items as PromptItem[] : []
-const sharedCustomItems = legacyItems.filter(item => item && !systemPromptItemIds.has(item.id) && item.id !== 'prompt_call_user_rules')
-const savedVariants = savedPromptSettings.variants && typeof savedPromptSettings.variants === 'object'
-  ? savedPromptSettings.variants as PromptVariantMap
-  : {}
-
-const hydrateVariant = (presetId: PromptPresetId, language: PromptLanguage, stored?: PromptItem[]) => {
-  const defaults = getDefaultPromptItemsByPreset(presetId, language)
-  const source = Array.isArray(stored) ? cloneItems(stored).filter(item => item?.id !== 'prompt_call_user_rules') : []
-  const result = source.length ? source : defaults
-  for (const item of defaults) {
-    if (!result.some(existing => existing.id === item.id)) result.push(item)
-  }
-  for (const item of sharedCustomItems) {
-    if (!result.some(existing => existing.id === item.id)) result.push(cloneItems([item])[0])
-  }
-  return result.filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index)
-}
-
-const variants: PromptVariantMap = {}
-for (const presetId of ['v1', 'v2'] as PromptPresetId[]) {
-  for (const language of ['zh', 'en'] as PromptLanguage[]) {
-    const key = getPromptVariantKey(presetId, language)
-    const fallback = key === getPromptVariantKey(activePresetId, activeLanguage) ? legacyItems : undefined
-    variants[key] = hydrateVariant(presetId, language, savedVariants[key] || fallback)
-  }
-}
-
-export const globalPromptSettings = reactive({
-  items: cloneItems(variants[getPromptVariantKey(activePresetId, activeLanguage)]),
-  activePresetId,
-  language: activeLanguage,
-  variants
+const cloneVariant = (variant: PromptSchemeVariant): PromptSchemeVariant => JSON.parse(JSON.stringify(variant))
+const makeVariant = (presetId: PromptPresetId, language: PromptLanguage, items?: PromptItem[]): PromptSchemeVariant => ({
+  mode: 'items',
+  items: cloneItems(items?.length ? items : getDefaultPromptItemsByPreset(presetId, language)),
+  fullText: '',
+  structuredSnapshot: cloneItems(items?.length ? items : getDefaultPromptItemsByPreset(presetId, language))
 })
 
-const currentCustomItems = () => globalPromptSettings.items.filter(item => !systemPromptItemIds.has(item.id))
-
-export const activatePromptVariant = (
-  presetId: PromptPresetId,
-  language: PromptLanguage,
-  resetSystemItems = false
-) => {
-  const previousKey = getPromptVariantKey(globalPromptSettings.activePresetId, globalPromptSettings.language)
-  globalPromptSettings.variants[previousKey] = cloneItems(globalPromptSettings.items)
-  const customItems = cloneItems(currentCustomItems())
-  const nextKey = getPromptVariantKey(presetId, language)
-  const storedTarget = globalPromptSettings.variants[nextKey]
-  const systemItems = resetSystemItems || !storedTarget
-    ? getDefaultPromptItemsByPreset(presetId, language)
-    : cloneItems(storedTarget).filter(item => systemPromptItemIds.has(item.id))
-
-  globalPromptSettings.activePresetId = presetId
-  globalPromptSettings.language = language
-  globalPromptSettings.items = [...systemItems, ...customItems]
-  globalPromptSettings.variants[nextKey] = cloneItems(globalPromptSettings.items)
+const makeBuiltinScheme = (presetId: PromptPresetId): PromptScheme => {
+  const option = promptPresetOptions.find(item => item.id === presetId)!
+  return {
+    id: `builtin_${presetId}`,
+    name: option.name,
+    description: option.description,
+    source: 'builtin',
+    basePresetId: presetId,
+    variants: { zh: makeVariant(presetId, 'zh'), en: makeVariant(presetId, 'en') },
+    createdAt: 0,
+    updatedAt: 0
+  }
 }
 
+const normalizeItem = (item: any, index: number): PromptItem => ({
+  id: typeof item?.id === 'string' && item.id ? item.id : `custom_prompt_${Date.now()}_${index}`,
+  name: typeof item?.name === 'string' && item.name.trim() ? item.name : `提示词条目 ${index + 1}`,
+  content: typeof item?.content === 'string' ? item.content : '',
+  enabled: item?.enabled !== false
+})
+
+const normalizeVariant = (value: any, presetId: PromptPresetId, language: PromptLanguage): PromptSchemeVariant => {
+  const items = Array.isArray(value?.items) ? value.items.map(normalizeItem) : getDefaultPromptItemsByPreset(presetId, language)
+  const snapshot = Array.isArray(value?.structuredSnapshot) ? value.structuredSnapshot.map(normalizeItem) : cloneItems(items)
+  return {
+    mode: value?.mode === 'full' ? 'full' : 'items',
+    items,
+    fullText: typeof value?.fullText === 'string' ? value.fullText : '',
+    structuredSnapshot: snapshot
+  }
+}
+
+const normalizeUserScheme = (value: any, index: number): PromptScheme | null => {
+  if (!value || typeof value !== 'object') return null
+  const basePresetId = value.basePresetId === 'v1' ? 'v1' : 'v2'
+  const id = typeof value.id === 'string' && value.id && !value.id.startsWith('builtin_')
+    ? value.id
+    : `prompt_scheme_${Date.now()}_${index}`
+  return {
+    id,
+    name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : `自定义方案 ${index + 1}`,
+    description: typeof value.description === 'string' ? value.description : '',
+    source: 'user',
+    basePresetId,
+    originalSchemeId: typeof value.originalSchemeId === 'string' ? value.originalSchemeId : undefined,
+    variants: {
+      zh: normalizeVariant(value.variants?.zh, basePresetId, 'zh'),
+      en: normalizeVariant(value.variants?.en, basePresetId, 'en')
+    },
+    createdAt: Number(value.createdAt) || Date.now(),
+    updatedAt: Number(value.updatedAt) || Date.now()
+  }
+}
+
+const itemSignature = (items: PromptItem[]) => JSON.stringify(items.map(item => ({ id: item.id, name: item.name, content: item.content, enabled: item.enabled })))
+const legacyPresetId = (savedPromptSettings.activePresetId === 'v2' ? 'v2' : 'v1') as PromptPresetId
+const initialLanguage = (savedPromptSettings.language === 'en' ? 'en' : 'zh') as PromptLanguage
+const builtinSchemes = [makeBuiltinScheme('v1'), makeBuiltinScheme('v2')]
+const storedUserSchemes = Array.isArray(savedPromptSettings.schemes)
+  ? savedPromptSettings.schemes.map(normalizeUserScheme).filter(Boolean) as PromptScheme[]
+  : []
+
+const migrateLegacySchemes = (): PromptScheme[] => {
+  if (storedUserSchemes.length || Number(savedPromptSettings.schemaVersion) >= 2) return storedUserSchemes
+  const savedVariants = savedPromptSettings.variants && typeof savedPromptSettings.variants === 'object' ? savedPromptSettings.variants : {}
+  const legacyItems = Array.isArray(savedPromptSettings.items) ? savedPromptSettings.items.map(normalizeItem) : []
+  const migrated: PromptScheme[] = []
+  for (const presetId of ['v1', 'v2'] as PromptPresetId[]) {
+    const variants = {} as Record<PromptLanguage, PromptSchemeVariant>
+    let changed = false
+    for (const language of ['zh', 'en'] as PromptLanguage[]) {
+      const key = getPromptVariantKey(presetId, language)
+      const candidate = Array.isArray(savedVariants[key])
+        ? savedVariants[key].map(normalizeItem)
+        : (presetId === legacyPresetId && language === initialLanguage && legacyItems.length ? legacyItems : getDefaultPromptItemsByPreset(presetId, language))
+      variants[language] = makeVariant(presetId, language, candidate)
+      if (itemSignature(candidate) !== itemSignature(getDefaultPromptItemsByPreset(presetId, language))) changed = true
+    }
+    if (changed) {
+      migrated.push({
+        id: `prompt_scheme_migrated_${presetId}`,
+        name: `我的旧版 ${presetId.toUpperCase()}`,
+        description: `由升级前修改过的${presetId.toUpperCase()}提示词自动迁移，原内容已完整保留。`,
+        source: 'user',
+        basePresetId: presetId,
+        originalSchemeId: `builtin_${presetId}`,
+        variants,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      })
+    }
+  }
+  return migrated
+}
+
+const userSchemes = migrateLegacySchemes()
+const requestedSchemeId = typeof savedPromptSettings.activeSchemeId === 'string' ? savedPromptSettings.activeSchemeId : ''
+const migratedActiveId = userSchemes.find(item => item.id === `prompt_scheme_migrated_${legacyPresetId}`)?.id
+const activeSchemeId = [...builtinSchemes, ...userSchemes].some(item => item.id === requestedSchemeId)
+  ? requestedSchemeId
+  : (migratedActiveId || `builtin_${legacyPresetId}`)
+
+export const globalPromptSettings = reactive({
+  schemaVersion: 2,
+  activeSchemeId,
+  activePresetId: legacyPresetId,
+  language: initialLanguage,
+  items: [] as PromptItem[],
+  schemes: [...builtinSchemes, ...userSchemes]
+})
+
+export const getPromptScheme = (id = globalPromptSettings.activeSchemeId) => globalPromptSettings.schemes.find(item => item.id === id)
+export const getActivePromptScheme = () => getPromptScheme()
+export const getActivePromptVariant = () => getActivePromptScheme()?.variants[globalPromptSettings.language]
+export const getActivePromptItems = (): PromptItem[] => {
+  const scheme = getActivePromptScheme()
+  const variant = getActivePromptVariant()
+  if (!scheme || !variant) return getDefaultPromptItemsByPreset(globalPromptSettings.activePresetId, globalPromptSettings.language)
+  if (variant.mode === 'full') {
+    return [{ id: `custom_full_${scheme.id}`, name: scheme.name, content: variant.fullText, enabled: true }]
+  }
+  return cloneItems(variant.items)
+}
+
+const refreshActivePrompt = () => {
+  const scheme = getActivePromptScheme() || getPromptScheme('builtin_v1')!
+  if (scheme.id !== globalPromptSettings.activeSchemeId) globalPromptSettings.activeSchemeId = scheme.id
+  globalPromptSettings.activePresetId = scheme.basePresetId
+  globalPromptSettings.items = getActivePromptItems()
+}
+
+export const activatePromptScheme = (schemeId: string, language: PromptLanguage = globalPromptSettings.language) => {
+  const scheme = getPromptScheme(schemeId)
+  if (!scheme) return false
+  globalPromptSettings.activeSchemeId = scheme.id
+  globalPromptSettings.activePresetId = scheme.basePresetId
+  globalPromptSettings.language = language
+  refreshActivePrompt()
+  return true
+}
+
+export const activatePromptVariant = (presetId: PromptPresetId, language: PromptLanguage) => {
+  activatePromptScheme(`builtin_${presetId}`, language)
+}
+
+export const createPromptSchemeCopy = (sourceId = globalPromptSettings.activeSchemeId, name?: string): PromptScheme => {
+  const source = getPromptScheme(sourceId) || getPromptScheme('builtin_v2')!
+  const now = Date.now()
+  return {
+    ...JSON.parse(JSON.stringify(source)),
+    id: `prompt_scheme_${now}_${Math.random().toString(36).slice(2, 7)}`,
+    name: name?.trim() || `${source.name} 副本`,
+    source: 'user',
+    originalSchemeId: source.source === 'builtin' ? source.id : source.originalSchemeId,
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+export const createBlankPromptScheme = (name = '新提示词方案', basePresetId: PromptPresetId = 'v2'): PromptScheme => {
+  const scheme = createPromptSchemeCopy(`builtin_${basePresetId}`, name)
+  for (const language of ['zh', 'en'] as PromptLanguage[]) {
+    scheme.variants[language] = { mode: 'items', items: [], fullText: '', structuredSnapshot: [] }
+  }
+  scheme.description = '从空白创建的自定义提示词方案'
+  return scheme
+}
+
+export const savePromptScheme = (scheme: PromptScheme) => {
+  if (scheme.source !== 'user') throw new Error('内置方案不可修改，请先复制为自定义方案。')
+  const normalized = normalizeUserScheme(scheme, globalPromptSettings.schemes.length)
+  if (!normalized) throw new Error('提示词方案格式无效。')
+  normalized.updatedAt = Date.now()
+  const index = globalPromptSettings.schemes.findIndex(item => item.id === normalized.id)
+  if (index >= 0) globalPromptSettings.schemes[index] = normalized
+  else globalPromptSettings.schemes.push(normalized)
+  activatePromptScheme(normalized.id, globalPromptSettings.language)
+  return normalized
+}
+
+export const deletePromptScheme = (schemeId: string) => {
+  const scheme = getPromptScheme(schemeId)
+  if (!scheme || scheme.source === 'builtin') return false
+  globalPromptSettings.schemes = globalPromptSettings.schemes.filter(item => item.id !== schemeId)
+  if (globalPromptSettings.activeSchemeId === schemeId) activatePromptScheme(`builtin_${scheme.basePresetId}`)
+  return true
+}
+
+export const validateImportedPromptSchemes = (raw: unknown): PromptScheme[] => {
+  const source = Array.isArray(raw) ? raw : (raw as any)?.schemes
+  if (!Array.isArray(source)) throw new Error('导入内容中没有提示词方案列表。')
+  const result = source.map((item, index) => normalizeUserScheme({ ...item, id: `prompt_scheme_import_${Date.now()}_${index}` }, index)).filter(Boolean) as PromptScheme[]
+  if (!result.length) throw new Error('没有找到有效的提示词方案。')
+  return result
+}
+
+refreshActivePrompt()
+
 watch(globalPromptSettings, (newVal) => {
-  const key = getPromptVariantKey(newVal.activePresetId, newVal.language)
-  const persisted = JSON.parse(JSON.stringify(newVal))
-  persisted.variants[key] = cloneItems(newVal.items)
+  const persisted = {
+    schemaVersion: 2,
+    activeSchemeId: newVal.activeSchemeId,
+    activePresetId: newVal.activePresetId,
+    language: newVal.language,
+    schemes: newVal.schemes.filter(item => item.source === 'user')
+  }
   localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify(persisted))
 }, { deep: true })

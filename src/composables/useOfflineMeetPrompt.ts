@@ -8,7 +8,10 @@ const resolvePreset = (chat: any) => {
   const preset = offlinePresetSettings.presets.find(item => item.id === requestedId)
     || offlinePresetSettings.presets.find(item => item.id === 'offline_default')
     || offlinePresetSettings.presets[0]
-  return preset && globalPromptSettings.language === 'en' ? getEnglishOfflinePreset(preset) : preset
+  if (!preset) return preset
+  if (globalPromptSettings.language === 'en') return getEnglishOfflinePreset(preset)
+  const chinese = preset.source === 'user' ? preset.languageVariants?.zh : undefined
+  return chinese ? { ...preset, ...chinese } : preset
 }
 
 const resolveValues = (chat: any, userProfile?: any) => ({

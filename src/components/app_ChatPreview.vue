@@ -1,6 +1,18 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import AvatarUploadModal from './AvatarUploadModal.vue'
+import AppChatDiscover from './app_ChatDiscover.vue'
+import AppChatContacts from './app_ChatContacts.vue'
+import AppChatProfile from './app_ChatProfile.vue'
+import ChatListView from './chat/ChatListView.vue'
+import ChatRoomView from './chat/ChatRoomView.vue'
+import ChatSettingsView from './chat/ChatSettingsView.vue'
+import ChatOfflineMeetView from './chat/ChatOfflineMeetView.vue'
+import ChatFriendRequestsView from './chat/ChatFriendRequestsView.vue'
+import ChatRelationshipView from './chat/ChatRelationshipView.vue'
+import CharacterAutonomyView from './chat/CharacterAutonomyView.vue'
+import ChatAuthView from './chat/ChatAuthView.vue'
 import { useChatState } from '../composables/useChatState'
 import { useChatAuth } from '../composables/useChatAuth'
 import { useChatSettingsSave } from '../composables/useChatSettingsSave'
@@ -9,19 +21,6 @@ import { useRelationshipAdvance } from '../composables/useRelationshipAdvance'
 import { persistAutonomyChat } from '../services/characterAutonomy'
 import { acknowledgeAutonomyDeliveries } from '../services/autonomyDelivery'
 
-// 聊天内部页面按访问路径加载，避免列表、设置、朋友圈和关系页绑成一个超大文件。
-const AvatarUploadModal = defineAsyncComponent(() => import('./AvatarUploadModal.vue'))
-const AppChatDiscover = defineAsyncComponent(() => import('./app_ChatDiscover.vue'))
-const AppChatContacts = defineAsyncComponent(() => import('./app_ChatContacts.vue'))
-const AppChatProfile = defineAsyncComponent(() => import('./app_ChatProfile.vue'))
-const ChatListView = defineAsyncComponent(() => import('./chat/ChatListView.vue'))
-const ChatRoomView = defineAsyncComponent(() => import('./chat/ChatRoomView.vue'))
-const ChatSettingsView = defineAsyncComponent(() => import('./chat/ChatSettingsView.vue'))
-const ChatOfflineMeetView = defineAsyncComponent(() => import('./chat/ChatOfflineMeetView.vue'))
-const ChatFriendRequestsView = defineAsyncComponent(() => import('./chat/ChatFriendRequestsView.vue'))
-const ChatRelationshipView = defineAsyncComponent(() => import('./chat/ChatRelationshipView.vue'))
-const CharacterAutonomyView = defineAsyncComponent(() => import('./chat/CharacterAutonomyView.vue'))
-const ChatAuthView = defineAsyncComponent(() => import('./chat/ChatAuthView.vue'))
 import {
   ACCOUNT_PROFILE_SOURCE_NAME,
   applyUserProfileToChat,

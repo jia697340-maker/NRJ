@@ -6,7 +6,7 @@ import type { ModelAdapterProfile } from './modelAdapters'
 import { saveTokenUsageSnapshot } from './tokenUsageSnapshot'
 import { commitDiagnosticTrace, createDiagnosticDraft, type DiagnosticContextMeta } from './diagnosticTrace'
 
-export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global'
+export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global' | 'prompt-generation'
 
 export const decorateChatPayload = (
   messages: { role: string; content: string | any[] }[],
@@ -14,7 +14,7 @@ export const decorateChatPayload = (
   purpose: ChatApiPurpose = 'default'
 ) => {
   const payloadMessages = JSON.parse(JSON.stringify(messages))
-  if (isSummary || purpose.startsWith('character-') || !cotSettings.enabled) return payloadMessages
+  if (isSummary || purpose.startsWith('character-') || purpose === 'prompt-generation' || !cotSettings.enabled) return payloadMessages
   if (cotSettings.mode === 'skip') {
     payloadMessages.push({
       role: 'assistant',
@@ -138,6 +138,7 @@ export async function sendChatMessage(
   if (purpose === 'moment-followup') diagnosticType = 'Moment'
   if (purpose === 'character-generation') diagnosticType = 'CharacterGeneration'
   if (purpose === 'character-review-global') diagnosticType = 'CharacterReview'
+  if (purpose === 'prompt-generation') diagnosticType = 'PromptGeneration'
 
   const diagnosticDraft = createDiagnosticDraft({
     messages: payloadMessages,
@@ -249,6 +250,7 @@ export async function sendChatMessage(
     if (purpose === 'moment-followup') logType = 'Moment'
     if (purpose === 'character-generation') logType = 'CharacterGeneration'
     if (purpose === 'character-review-global') logType = 'CharacterReview'
+    if (purpose === 'prompt-generation') logType = 'PromptGeneration'
 
     apiLogger.addLog({
       type: logType,
@@ -349,6 +351,7 @@ export async function sendChatMessage(
   if (purpose === 'moment-followup') logType = 'Moment'
   if (purpose === 'character-generation') logType = 'CharacterGeneration'
   if (purpose === 'character-review-global') logType = 'CharacterReview'
+  if (purpose === 'prompt-generation') logType = 'PromptGeneration'
 
   apiLogger.addLog({
     type: logType,

@@ -45,6 +45,8 @@ Maintain continuity of location, time, clothing, objects, and character position
 }
 
 export const getEnglishOfflinePreset = (preset: OfflinePromptPreset): OfflinePromptPreset => {
+  const custom = preset.source === 'user' ? preset.languageVariants?.en : undefined
+  if (custom) return { ...preset, ...custom }
   const sections = preset.source === 'builtin' ? englishSections[preset.id] : undefined
   return sections ? { ...preset, ...sections, entries: undefined } : preset
 }

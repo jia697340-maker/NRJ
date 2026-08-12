@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
-import { apiSettings, defaultPromptItemsV1, defaultPromptItemsV1En, defaultPromptItemsV2, defaultPromptItemsV2En, globalPromptSettings } from '../store'
+import { apiSettings, defaultPromptItemsV1, defaultPromptItemsV1En, defaultPromptItemsV2, defaultPromptItemsV2En, getActivePromptItems, getActivePromptScheme, globalPromptSettings } from '../store'
 import { useChatState } from './useChatState'
 import { estimateMessageTokens, estimateTextTokens, getTokenEstimateMethodLabel } from '../utils/tokenEstimate'
 import type { ContextTraceCategory, ContextTraceFragment } from '../services/contextTrace'
@@ -81,11 +81,18 @@ const makeComparisons = () => {
     { label: '英文 V1', items: defaultPromptItemsV1En, preset: 'v1', language: 'en' },
     { label: '英文 V2', items: defaultPromptItemsV2En, preset: 'v2', language: 'en' }
   ]
-  return variants.map(variant => ({
+  const comparisons = variants.map(variant => ({
     label: variant.label,
     tokens: variant.items.filter(item => item.enabled).reduce((sum, item) => sum + estimateTextTokens(item.content), 0),
-    active: globalPromptSettings.activePresetId === variant.preset && globalPromptSettings.language === variant.language
+    active: globalPromptSettings.activeSchemeId === `builtin_${variant.preset}` && globalPromptSettings.language === variant.language
   }))
+  const active = getActivePromptScheme()
+  if (active?.source === 'user') comparisons.unshift({
+    label: `${globalPromptSettings.language === 'en' ? '英文' : '中文'} ${active.name}`,
+    tokens: getActivePromptItems().filter(item => item.enabled).reduce((sum, item) => sum + estimateTextTokens(item.content), 0),
+    active: true
+  })
+  return comparisons
 }
 
 export function useChatTokenStats() {
@@ -175,7 +182,7 @@ export function useChatTokenStats() {
       const referenceWindow = 128000
       tokenStats.value = {
         totalTokens, totalCharacters, methodLabel: getTokenEstimateMethodLabel(), model: apiSettings.model || '未选择模型',
-        presetLabel: `${globalPromptSettings.language === 'en' ? '英文' : '中文'} ${globalPromptSettings.activePresetId.toUpperCase()}`,
+        presetLabel: `${globalPromptSettings.language === 'en' ? '英文' : '中文'} ${getActivePromptScheme()?.name || globalPromptSettings.activePresetId.toUpperCase()}`,
         categories, topItems, suggestions, comparisons: makeComparisons(), outputReserve, referenceWindow,
         remainingReference: Math.max(0, referenceWindow - totalTokens - outputReserve),
         totalMsgCount: (chat.messages || []).length, activeMsgCount: Math.max(0, apiMessages.length - 1),

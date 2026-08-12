@@ -33,6 +33,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'microsoft-mai-voice', group: '账号与安全', name: 'Microsoft MAI Voice 配置', description: '独立的 Azure Speech 官方与中转服务配置', sensitive: true, localKeys: ['microsoft_mai_voice_config_v1'] },
   { id: 'aliyun-tts', group: '账号与安全', name: '阿里云 TTS 配置', description: '独立的阿里云百炼官方与中转服务配置', sensitive: true, localKeys: ['aliyun_tts_config_v1'] },
   { id: 'llm-presets', group: 'AI 与生成设置', name: 'LLM 预设列表', description: '模型预设与参数', localKeys: ['app_llm_presets'] },
+  { id: 'system-prompt-schemes', group: 'AI 与生成设置', name: '系统提示词方案', description: '常规聊天方案、线下预设与特殊任务提示词', localKeys: ['clingy_global_prompt_settings', 'clingy_offline_prompt_presets', 'clingy_task_prompt_settings'] },
   { id: 'novelai-presets', group: 'AI 与生成设置', name: 'NovelAI 预设列表', description: '图像生成预设', localKeys: ['app_novelai_presets'] },
   { id: 'current-ai-preset', group: 'AI 与生成设置', name: '当前 AI 预设', description: '当前使用的模型与图像预设', localKeys: ['app_novelai_current_preset', 'app_novelai_current_prompt_preset'] },
   { id: 'prompt-presets', group: 'AI 与生成设置', name: '提示词预设', description: '正向提示词预设', localKeys: ['app_novelai_prompt_presets'] },

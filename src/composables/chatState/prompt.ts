@@ -1,10 +1,11 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { worldBooks, globalPromptSettings, chatSettings } from '../../store'
+import { worldBooks, globalPromptSettings, chatSettings, getActivePromptItems, systemPromptItemIds } from '../../store'
 import { getEffectiveUserProfile } from '../useChatUserProfiles'
 import { myProfile } from './state'
 import { buildOfflineMeetPrompt } from '../useOfflineMeetPrompt'
 import { pushContextTrace, type ContextTraceCollector } from '../../services/contextTrace'
 import { buildPresenceContext } from '../../services/presenceLifecycle'
+import { resolvePromptVariables } from '../../services/promptVariables'
 import {
   buildEnglishCallFormatRules,
   buildEnglishFormatRules,
@@ -171,7 +172,7 @@ ${usesNaturalPromptV2
   const memoryBookContext = ''
 
   // 从 globalPromptSettings 动态构建 Prompt
-  let activePromptItems = globalPromptSettings.items.map((i: any) => ({ ...i })).filter((i: any) => {
+  let activePromptItems = getActivePromptItems().map((i: any) => ({ ...i })).filter((i: any) => {
     // 如果全局设置关掉了允许主动来电，则不发送对应规则，让角色彻底不知道自己能打电话
     if (i.id === 'prompt_voice_call_user_rules' && chatSettings.enableCharVoiceCall === false) {
       return false
@@ -300,12 +301,11 @@ ${usesNaturalPromptV2
   // 拼接 UI 上所有的有效条目，并解析占位符
   const resolvedPrompts = activePromptItems.map((item: any) => {
     let content = item.content
-    // 循环替换所有占位符
-    for (const [key, value] of Object.entries(placeholders)) {
-      content = content.replace(new RegExp(key, 'g'), value)
-    }
+    content = resolvePromptVariables(content, Object.fromEntries(
+      Object.entries(placeholders).map(([key, value]) => [key.slice(2, -2), value])
+    ))
     // 对于不属于新默认架构的自定义条目，加上名字作为小标题
-    if (!item.id.startsWith('prompt_')) {
+    if (!systemPromptItemIds.has(item.id)) {
       return `[${item.name}]\n${content}`
     }
     

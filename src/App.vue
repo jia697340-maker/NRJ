@@ -1,8 +1,19 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
 import StatusBar from './components/StatusBar.vue'
 import Desktop from './components/Desktop.vue'
+import AppearanceSettings from './components/AppearanceSettings.vue'
+import ApiSettings from './components/ApiSettings.vue'
+import AppChatPreview from './components/app_ChatPreview.vue'
+import AppSMS from './components/app_SMS.vue'
+import AppWallet from './components/app_Wallet.vue'
+import AppWorldBook from './components/app_WorldBook.vue'
+import AppAdvancedSettings from './components/app_AdvancedSettings.vue'
+import AppVoiceAccess from './components/app_VoiceAccess.vue'
+import AppImageAccess from './components/app_ImageAccess.vue'
+import AppWidgetBeautify from './components/app_WidgetBeautify.vue'
+import AppCharacterWorkshop from './components/app_CharacterWorkshop.vue'
 import LockScreen from './components/LockScreen.vue'
 import { globalSettings, appStats } from './store'
 import { useChatState } from './composables/useChatState'
@@ -10,19 +21,6 @@ import { useAppIcons } from './composables/useAppIcons'
 import { appRegistry, availableAppIds } from './appRegistry'
 import { useCustomFonts } from './composables/useCustomFonts'
 import { startAutonomyRuntime, stopAutonomyRuntime } from './services/autonomyRuntime'
-
-// 桌面只保留壳层组件；各应用在首次打开时再下载并缓存，避免全部进入首屏主包。
-const AppearanceSettings = defineAsyncComponent(() => import('./components/AppearanceSettings.vue'))
-const ApiSettings = defineAsyncComponent(() => import('./components/ApiSettings.vue'))
-const AppChatPreview = defineAsyncComponent(() => import('./components/app_ChatPreview.vue'))
-const AppSMS = defineAsyncComponent(() => import('./components/app_SMS.vue'))
-const AppWallet = defineAsyncComponent(() => import('./components/app_Wallet.vue'))
-const AppWorldBook = defineAsyncComponent(() => import('./components/app_WorldBook.vue'))
-const AppAdvancedSettings = defineAsyncComponent(() => import('./components/app_AdvancedSettings.vue'))
-const AppVoiceAccess = defineAsyncComponent(() => import('./components/app_VoiceAccess.vue'))
-const AppImageAccess = defineAsyncComponent(() => import('./components/app_ImageAccess.vue'))
-const AppWidgetBeautify = defineAsyncComponent(() => import('./components/app_WidgetBeautify.vue'))
-const AppCharacterWorkshop = defineAsyncComponent(() => import('./components/app_CharacterWorkshop.vue'))
 
 const { globalNotifications, dismissNotification, showNotification, loadCustomContacts, loadMyProfile } = useChatState()
 const { loadData: loadAppIconsData, customIcons } = useAppIcons()

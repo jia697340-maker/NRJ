@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { offlinePresetSettings } from '../../../store'
+import { globalPromptSettings, offlinePresetSettings } from '../../../store'
 import {
   createOfflinePresetCopy,
   createOfflineEntriesFromLegacy,
@@ -14,6 +14,8 @@ import {
   type OfflineModelProfile,
   type OfflinePromptPreset
 } from '../../../services/offlinePresets'
+import { getEnglishOfflinePreset } from '../../../services/offlinePresetEnglish'
+import { buildOfflinePromptGenerationGuide, generateOfflinePromptOnline, parseGeneratedOfflinePrompt, type GeneratedOfflinePromptPayload } from '../../../services/promptSchemeAI'
 
 const props = defineProps<{ visible: boolean; selectedChat: any }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'save'): void }>()
@@ -22,6 +24,7 @@ const currentView = ref<'list' | 'detail'>('list')
 const detailMenuVisible = ref(false)
 
 const editorDraft = ref<OfflinePromptPreset | null>(null)
+const editorStoredPreset = ref<OfflinePromptPreset | null>(null)
 const editorMode = ref<'entries' | 'raw'>('entries')
 const editorEntries = ref<OfflinePromptEntry[]>([])
 const expandedEntryId = ref('')
@@ -29,6 +32,15 @@ const draggedEntryIndex = ref<number | null>(null)
 const rawModeSnapshot = ref({ mainPrompt: '', modePrompt: '', postHistoryPrompt: '' })
 const fileInput = ref<HTMLInputElement | null>(null)
 const toast = ref({ visible: false, message: '' })
+const confirmState = ref({ visible: false, message: '', resolve: null as null | ((value: boolean) => void) })
+const aiVisible = ref(false)
+const aiRequirement = ref('')
+const aiPaste = ref('')
+const aiLoading = ref(false)
+const aiError = ref('')
+const aiResult = ref<GeneratedOfflinePromptPayload | null>(null)
+const aiUnknownVariables = ref<string[]>([])
+let aiController: AbortController | null = null
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 const modelProfiles: OfflineModelProfile[] = ['auto', 'openai-compatible', 'deepseek-chat', 'deepseek-reasoner', 'claude', 'gemini']
@@ -43,6 +55,20 @@ const showToast = (message: string) => {
   toastTimer = setTimeout(() => { toast.value.visible = false }, 2200)
 }
 
+const askConfirm = (message: string) => new Promise<boolean>(resolve => {
+  confirmState.value = { visible: true, message, resolve }
+})
+const settleConfirm = (value: boolean) => {
+  confirmState.value.resolve?.(value)
+  confirmState.value = { visible: false, message: '', resolve: null }
+}
+
+const localizedPreset = (preset: OfflinePromptPreset) => {
+  if (globalPromptSettings.language === 'en') return getEnglishOfflinePreset(preset)
+  const chinese = preset.source === 'user' ? preset.languageVariants?.zh : undefined
+  return chinese ? { ...preset, ...chinese } : preset
+}
+
 const selectPreset = (preset: OfflinePromptPreset) => {
   props.selectedChat.offlinePresetId = preset.id
   offlinePresetSettings.currentPresetId = preset.id
@@ -55,8 +81,8 @@ const selectProfile = (profile: OfflineModelProfile) => {
 }
 
 const openDetail = (preset: OfflinePromptPreset) => {
-  // Enter detail/edit mode
-  editorDraft.value = JSON.parse(JSON.stringify(preset))
+  editorStoredPreset.value = JSON.parse(JSON.stringify(preset))
+  editorDraft.value = JSON.parse(JSON.stringify(localizedPreset(preset)))
   editorEntries.value = getOfflinePresetEntries(editorDraft.value!)
   editorMode.value = 'entries'
   expandedEntryId.value = ''
@@ -65,8 +91,15 @@ const openDetail = (preset: OfflinePromptPreset) => {
 }
 
 const openCopy = (preset: OfflinePromptPreset) => {
-  editorDraft.value = createOfflinePresetCopy(preset)
-  editorEntries.value = getOfflinePresetEntries(editorDraft.value)
+  const copy = createOfflinePresetCopy(preset)
+  const english = getEnglishOfflinePreset(preset)
+  copy.languageVariants = {
+    zh: { mainPrompt: preset.mainPrompt, modePrompt: preset.modePrompt, postHistoryPrompt: preset.postHistoryPrompt, entries: preset.entries ? JSON.parse(JSON.stringify(preset.entries)) : undefined },
+    en: { mainPrompt: english.mainPrompt, modePrompt: english.modePrompt, postHistoryPrompt: english.postHistoryPrompt, entries: english.entries ? JSON.parse(JSON.stringify(english.entries)) : undefined }
+  }
+  editorStoredPreset.value = JSON.parse(JSON.stringify(copy))
+  editorDraft.value = JSON.parse(JSON.stringify(localizedPreset(copy)))
+  editorEntries.value = getOfflinePresetEntries(editorDraft.value!)
   editorMode.value = 'entries'
   expandedEntryId.value = ''
   currentView.value = 'detail'
@@ -77,6 +110,7 @@ const goBack = () => {
   currentView.value = 'list'
   detailMenuVisible.value = false
   editorDraft.value = null
+  editorStoredPreset.value = null
 }
 
 const sectionLabels: Record<OfflinePromptSection, string> = {
@@ -181,11 +215,23 @@ const saveEditor = () => {
     showToast('名称、主提示词和末尾规则不能为空')
     return
   }
+  const stored = JSON.parse(JSON.stringify(editorStoredPreset.value || draft)) as OfflinePromptPreset
+  stored.name = draft.name
+  stored.description = draft.description
+  stored.languageVariants ||= {}
+  const localized = {
+    mainPrompt: draft.mainPrompt,
+    modePrompt: draft.modePrompt,
+    postHistoryPrompt: draft.postHistoryPrompt,
+    entries: draft.entries ? JSON.parse(JSON.stringify(draft.entries)) : undefined
+  }
+  stored.languageVariants[globalPromptSettings.language] = localized
+  if (globalPromptSettings.language === 'zh') Object.assign(stored, localized)
   const index = offlinePresetSettings.presets.findIndex(item => item.id === draft.id)
   if (index >= 0) {
-    offlinePresetSettings.presets[index] = JSON.parse(JSON.stringify(draft))
+    offlinePresetSettings.presets[index] = stored
   } else {
-    offlinePresetSettings.presets.push(JSON.parse(JSON.stringify(draft)))
+    offlinePresetSettings.presets.push(stored)
   }
   props.selectedChat.offlinePresetId = draft.id
   offlinePresetSettings.currentPresetId = draft.id
@@ -194,10 +240,10 @@ const saveEditor = () => {
   goBack()
 }
 
-const resetToDefault = () => {
+const resetToDefault = async () => {
   const draft = editorDraft.value
   if (!draft || !draft.originalPresetId) return
-  if (!confirm('这会清除当前的所有修改，恢复为官方初始状态，确认重置吗？')) return
+  if (!await askConfirm('这会清除当前语言下的修改，恢复为官方初始状态。确认重置吗？')) return
   
   const original = offlinePresetSettings.presets.find(p => p.id === draft.originalPresetId)
   if (!original) {
@@ -207,10 +253,11 @@ const resetToDefault = () => {
   }
 
   // 完全覆盖草稿数据（保留当前副本的 ID、Name、Description 和 originalPresetId）
-  draft.mainPrompt = original.mainPrompt
-  draft.modePrompt = original.modePrompt
-  draft.postHistoryPrompt = original.postHistoryPrompt
-  draft.entries = original.entries ? JSON.parse(JSON.stringify(original.entries)) : undefined
+  const localizedOriginal = localizedPreset(original)
+  draft.mainPrompt = localizedOriginal.mainPrompt
+  draft.modePrompt = localizedOriginal.modePrompt
+  draft.postHistoryPrompt = localizedOriginal.postHistoryPrompt
+  draft.entries = localizedOriginal.entries ? JSON.parse(JSON.stringify(localizedOriginal.entries)) : undefined
   
   // 重新加载编辑器状态
   editorEntries.value = getOfflinePresetEntries(draft)
@@ -221,10 +268,10 @@ const resetToDefault = () => {
   detailMenuVisible.value = false
 }
 
-const deleteCurrentPreset = () => {
+const deleteCurrentPreset = async () => {
   const draft = editorDraft.value
   if (!draft || draft.source === 'builtin') return
-  if (!confirm(`确定要删除预设 "${draft.name}" 吗？`)) return
+  if (!await askConfirm(`确定要删除预设“${draft.name}”吗？`)) return
   
   offlinePresetSettings.presets = offlinePresetSettings.presets.filter(item => item.id !== draft.id)
   if (selectedPresetId.value === draft.id) {
@@ -269,6 +316,68 @@ const importPresets = async (event: Event) => {
   } catch (error: any) {
     showToast(error?.message || '导入失败，请检查文件格式')
   }
+}
+
+const copyAiGuide = async () => {
+  const draft = editorDraft.value
+  if (!draft) return
+  await navigator.clipboard.writeText(buildOfflinePromptGenerationGuide(globalPromptSettings.language, draft))
+  showToast('已复制线下预设生成说明')
+}
+
+const openAi = () => {
+  aiVisible.value = true
+  aiError.value = ''
+  aiResult.value = null
+  aiUnknownVariables.value = []
+}
+
+const runAi = async () => {
+  const draft = editorDraft.value
+  if (!draft || aiLoading.value) return
+  aiController = new AbortController()
+  aiLoading.value = true
+  aiError.value = ''
+  try {
+    const result = await generateOfflinePromptOnline({ requirement: aiRequirement.value, language: globalPromptSettings.language, current: draft, signal: aiController.signal })
+    aiResult.value = result.payload
+    aiUnknownVariables.value = result.unknownVariables
+  } catch (error: any) {
+    if (error?.name !== 'AbortError') aiError.value = error?.message || '在线生成失败'
+  } finally {
+    aiLoading.value = false
+    aiController = null
+  }
+}
+const stopAi = () => aiController?.abort()
+
+const parseAiPaste = () => {
+  try {
+    const result = parseGeneratedOfflinePrompt(aiPaste.value)
+    aiResult.value = result.payload
+    aiUnknownVariables.value = result.unknownVariables
+    aiError.value = ''
+  } catch (error: any) {
+    aiError.value = error?.message || '无法解析 AI 返回内容'
+  }
+}
+
+const applyAi = () => {
+  const result = aiResult.value
+  const source = editorStoredPreset.value || editorDraft.value
+  if (!result || !source) return
+  const copy = createOfflinePresetCopy(source, result.name)
+  copy.description = result.description
+  const localized = { mainPrompt: result.mainPrompt, modePrompt: result.modePrompt, postHistoryPrompt: result.postHistoryPrompt }
+  copy.languageVariants ||= {}
+  copy.languageVariants[globalPromptSettings.language] = localized
+  if (globalPromptSettings.language === 'zh') Object.assign(copy, localized)
+  editorStoredPreset.value = JSON.parse(JSON.stringify(copy))
+  editorDraft.value = JSON.parse(JSON.stringify(localizedPreset(copy)))
+  editorEntries.value = getOfflinePresetEntries(editorDraft.value!)
+  editorMode.value = 'raw'
+  aiVisible.value = false
+  showToast('已生成新的线下预设草稿')
 }
 </script>
 
@@ -363,7 +472,7 @@ const importPresets = async (event: Event) => {
     <div v-if="currentView === 'detail' && editorDraft" class="preset-modal detail-modal">
       <div class="modal-header">
         <button class="nav-back-btn" @click="goBack">返回</button>
-        <span class="editor-title">{{ editorDraft.name || '编辑预设' }}</span>
+        <span class="editor-title">{{ editorDraft.name || '编辑预设' }} · {{ globalPromptSettings.language === 'en' ? 'EN' : '中文' }}</span>
         <div class="header-right">
           <button class="nav-menu-btn" @click="detailMenuVisible = !detailMenuVisible">更多</button>
           <!-- 更多菜单弹窗 -->
@@ -418,11 +527,9 @@ const importPresets = async (event: Event) => {
               </div>
               <div v-if="expandedEntryId === entry.id" class="entry-card-body">
                 <input v-model="entry.name" class="field-input" placeholder="条目名称" :disabled="editorDraft.source === 'builtin'">
-                <select v-model="entry.section" class="field-input" :disabled="editorDraft.source === 'builtin'">
-                  <option value="main">主要任务</option>
-                  <option value="mode">线下模式</option>
-                  <option value="postHistory">回复规则</option>
-                </select>
+                <div class="section-picker" :class="{ disabled: editorDraft.source === 'builtin' }">
+                  <button v-for="(label, value) in sectionLabels" :key="value" :class="{ active: entry.section === value }" :disabled="editorDraft.source === 'builtin'" @click="entry.section = value">{{ label }}</button>
+                </div>
                 <textarea v-model="entry.content" class="field-textarea entry-textarea" spellcheck="false" placeholder="输入这一条提示词内容" :disabled="editorDraft.source === 'builtin'"></textarea>
                 <div v-if="editorDraft.source === 'user'" class="entry-actions">
                   <button :disabled="index === 0" @click="moveEntry(index, -1)">上移</button>
@@ -444,12 +551,38 @@ const importPresets = async (event: Event) => {
           <label class="field-label">Post-History Instructions</label>
           <textarea v-model="editorDraft.postHistoryPrompt" class="field-textarea" spellcheck="false" :disabled="editorDraft.source === 'builtin'"></textarea>
         </template>
-        <div v-pre class="editor-hint">可用变量：{{char_name}}、{{user_name}}</div>
+        <div v-pre class="editor-hint">可用变量：{{char_name}}、{{user_name}}。中文和英文内容会分别保存。</div>
       </div>
       
       <div class="editor-footer">
-        <button v-if="editorDraft.source === 'builtin'" class="footer-btn primary" @click="openCopy(editorDraft)">复制并修改</button>
+        <button class="footer-btn secondary" @click="copyAiGuide">复制给 AI</button>
+        <button class="footer-btn secondary" @click="openAi">AI 生成</button>
+        <button v-if="editorDraft.source === 'builtin'" class="footer-btn primary" @click="openCopy(editorStoredPreset || editorDraft)">复制并修改</button>
         <button v-else class="footer-btn primary" @click="saveEditor">保存修改</button>
+      </div>
+    </div>
+
+    <div v-if="confirmState.visible" class="sub-modal-overlay">
+      <div class="confirm-card">
+        <div class="confirm-title">请确认</div><div class="confirm-message">{{ confirmState.message }}</div>
+        <div class="confirm-actions"><button @click="settleConfirm(false)">取消</button><button class="primary" @click="settleConfirm(true)">确定</button></div>
+      </div>
+    </div>
+
+    <div v-if="aiVisible" class="sub-modal-overlay" @click.self="!aiLoading && (aiVisible = false)">
+      <div class="ai-card">
+        <div class="ai-card-header"><div><strong>AI 生成线下预设</strong><span>只创建新草稿，不覆盖当前预设</span></div><button @click="aiVisible = false">关闭</button></div>
+        <div class="ai-card-body">
+          <label class="field-label">希望达到的效果</label>
+          <textarea v-model="aiRequirement" class="field-textarea" placeholder="例如：动作更克制，保持空间与物品连续……" spellcheck="false"></textarea>
+          <label class="field-label">也可以粘贴其他 AI 返回的 JSON</label>
+          <textarea v-model="aiPaste" class="field-textarea small" placeholder="粘贴 JSON 后点击解析" spellcheck="false"></textarea>
+          <div class="ai-inline-actions"><button @click="copyAiGuide">复制生成说明</button><button @click="parseAiPaste">解析粘贴内容</button><button v-if="aiLoading" class="danger" @click="stopAi">停止</button><button v-else class="primary" @click="runAi">在线生成</button></div>
+          <div v-if="aiLoading" class="ai-state">正在使用当前配置的模型生成……</div>
+          <div v-if="aiError" class="ai-error">{{ aiError }}</div>
+          <div v-if="aiResult" class="ai-preview"><strong>{{ aiResult.name }}</strong><span>{{ aiResult.description }}</span><small>主要任务、线下模式、回复规则均已生成</small><div v-if="aiUnknownVariables.length" class="ai-error">未知变量：{{ aiUnknownVariables.join('、') }}</div></div>
+        </div>
+        <div class="ai-card-footer"><button @click="aiVisible = false">取消</button><button class="primary" :disabled="!aiResult" @click="applyAi">作为新草稿打开</button></div>
       </div>
     </div>
 
@@ -557,9 +690,19 @@ const importPresets = async (event: Event) => {
 .entries-empty, .raw-mode-note { padding: 14px; border-radius: 9px; background: var(--sys-bg-secondary); color: var(--text-tertiary); font-size: 11px; line-height: 1.5; }
 .raw-mode-note { margin-bottom: 12px; }
 
-.editor-footer { padding: 12px 20px; background: var(--sys-bg-secondary); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; }
-.footer-btn { appearance: none; border: none; font-family: inherit; font-size: 14px; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 500; width: 100%; }
+.editor-footer { padding: 12px 20px; background: var(--sys-bg-secondary); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.footer-btn { appearance: none; border: none; font-family: inherit; font-size: 12px; padding: 9px 13px; border-radius: 8px; cursor: pointer; font-weight: 500; }
 .footer-btn.primary { background: var(--text-primary); color: var(--sys-bg-secondary); }
+.footer-btn.secondary { background: var(--sys-bg-primary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+.section-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 9px; background: var(--sys-bg-primary); }
+.section-picker button { appearance: none; border: 0; border-radius: 7px; padding: 7px 4px; background: transparent; color: var(--text-tertiary); font: inherit; font-size: 11px; cursor: pointer; }
+.section-picker button.active { background: var(--text-primary); color: var(--sys-bg-primary); }
+.section-picker.disabled { opacity: .65; }
+.sub-modal-overlay { position: fixed; inset: 0; z-index: 10024; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0,0,0,.48); box-sizing: border-box; }
+.confirm-card,.ai-card { width: min(360px,100%); max-height: 88vh; overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--border-color); border-radius: 16px; background: var(--sys-bg-primary); box-shadow: 0 16px 44px rgba(0,0,0,.2); }
+.confirm-title { padding: 18px 18px 7px; color: var(--text-primary); font-size: 16px; font-weight: 600; }.confirm-message { padding: 5px 18px 18px; white-space: pre-wrap; color: var(--text-secondary); font-size: 13px; line-height: 1.55; }.confirm-actions,.ai-card-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border-color); background: var(--sys-bg-secondary); }
+.confirm-actions button,.ai-card button,.ai-inline-actions button { appearance: none; border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 12px; background: var(--sys-bg-primary); color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }.confirm-actions button.primary,.ai-card button.primary,.ai-inline-actions button.primary { border-color: var(--text-primary); background: var(--text-primary); color: var(--sys-bg-primary); }.ai-card button:disabled { opacity: .4; cursor: not-allowed; }
+.ai-card { width: min(430px,100%); }.ai-card-header { display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--border-color)}.ai-card-header>div{display:flex;flex-direction:column;gap:3px}.ai-card-header strong{color:var(--text-primary);font-size:15px}.ai-card-header span{color:var(--text-tertiary);font-size:10px}.ai-card-header button{border:0;background:transparent}.ai-card-body{overflow-y:auto;padding:4px 18px 20px}.ai-inline-actions{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap;margin-top:10px}.ai-state,.ai-error,.ai-preview{margin-top:10px;padding:10px 12px;border-radius:9px;background:var(--sys-bg-secondary);color:var(--text-secondary);font-size:11px;line-height:1.5}.ai-error{color:#c06f67;border:1px solid rgba(192,111,103,.25)}.ai-preview{display:flex;flex-direction:column;gap:4px}.ai-preview strong{color:var(--text-primary)}.ai-preview small{color:var(--text-tertiary)}
 
 .preset-toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 10023; padding: 10px 16px; border-radius: 8px; background: rgba(0,0,0,.78); color: #fff; font-size: 13px; pointer-events: none; }
 .toast-fade-enter-active, .toast-fade-leave-active { transition: opacity .2s; }
