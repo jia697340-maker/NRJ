@@ -440,7 +440,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="page-indicator" aria-label="桌面分页"><div v-for="(_, index) in layout.pages" :key="index" class="dot" :class="{ active: currentPage === index }"></div></div>
+    <div class="page-indicator" aria-label="桌面分页"><div v-for="(_, index) in layout.pages" :key="index" class="page-dot" :class="{ active: currentPage === index }"></div></div>
 
     <div class="dock-container">
       <div class="dock drop-container" data-drop-area="dock" :data-drop-index="layout.dock.length">
@@ -499,8 +499,8 @@ onBeforeUnmount(() => {
 .folder-target::after { content: ''; position: absolute; inset: -8px; border-radius: 24%; border: 2px solid rgba(255,255,255,.92); background: rgba(255,255,255,.12); box-shadow: 0 0 0 3px rgba(64,145,255,.45); pointer-events: none; animation: folder-pulse .65s ease-in-out infinite alternate; }
 @keyframes folder-pulse { from { transform: scale(.96); } to { transform: scale(1.03); } }
 .page-indicator { display: flex; justify-content: center; align-items: center; gap: 1.5vw; padding-bottom: 1vh; }
-.dot { width: 1.5vw; height: 1.5vw; background: rgba(255,255,255,.4); border-radius: 50%; transition: all .3s ease; }
-.dot.active { width: 2vw; height: 2vw; background: rgba(255,255,255,.9); }
+.page-dot { width: 1.5vw; height: 1.5vw; background: rgba(255,255,255,.4); border-radius: 50%; transition: all .3s ease; }
+.page-dot.active { width: 2vw; height: 2vw; background: rgba(255,255,255,.9); }
 .dock-container { padding: 1.5vh 4vw 3vh; width: 100%; box-sizing: border-box; }
 .dock { min-height: calc(14.5vw + 4vh); padding: 2vh 3vw; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; width: 100%; border-radius: 6vw; background: var(--dock-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); transition: background-color .3s; }
 .edit-toolbar { position: absolute; z-index: 80; top: max(44px, calc(env(safe-area-inset-top) + 40px)); left: 4vw; right: 4vw; height: 38px; padding: 0 5px; display: flex; align-items: center; justify-content: space-between; border-radius: 19px; background: rgba(30,30,32,.58); color: #fff; box-shadow: 0 4px 18px rgba(0,0,0,.16); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); font-size: 13px; font-weight: 600; }

@@ -12,7 +12,7 @@ import AppWorldBook from './components/app_WorldBook.vue'
 import AppAdvancedSettings from './components/app_AdvancedSettings.vue'
 import AppVoiceAccess from './components/app_VoiceAccess.vue'
 import AppImageAccess from './components/app_ImageAccess.vue'
-import AppWardrobe from './components/app_Wardrobe.vue'
+import AppMusic from './components/app_Music.vue'
 import AppWidgetBeautify from './components/app_WidgetBeautify.vue'
 import AppCharacterWorkshop from './components/app_CharacterWorkshop.vue'
 import LockScreen from './components/LockScreen.vue'
@@ -439,9 +439,9 @@ watch(activeApp, appId => {
       />
     </Transition>
     <Transition name="app-fade">
-      <AppWardrobe 
-        v-if="activeApp === 'wardrobe'" 
-        data-font-app="wardrobe"
+      <AppMusic 
+        v-if="activeApp === 'music'" 
+        data-font-app="music"
         @close="activeApp = null" 
       />
     </Transition>

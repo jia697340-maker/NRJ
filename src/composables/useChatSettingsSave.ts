@@ -23,6 +23,7 @@ export function useChatSettingsSave() {
         contacts[idx].boundWorldBookGroups = selectedChat.value.boundWorldBookGroups || []
         contacts[idx].memoryType = selectedChat.value.memoryType || 'count'
         contacts[idx].memoryValue = selectedChat.value.memoryValue || null
+        contacts[idx].daysOffset = selectedChat.value.daysOffset || 0
         contacts[idx].timezone = selectedChat.value.timezone || myProfile.value.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
         contacts[idx].enableEmojiVision = selectedChat.value.enableEmojiVision ?? false
         contacts[idx].enableRoleEmojiVision = selectedChat.value.enableRoleEmojiVision ?? false
@@ -51,6 +52,10 @@ export function useChatSettingsSave() {
 
         // 心声设置持久化
         contacts[idx].enableAutoThought = selectedChat.value.enableAutoThought ?? false
+        contacts[idx].enableRoleThoughtHistory = selectedChat.value.enableRoleThoughtHistory ?? false
+        contacts[idx].roleThoughtHistoryCount = selectedChat.value.roleThoughtHistoryCount || 3
+        contacts[idx].enableUserThoughtHistory = selectedChat.value.enableUserThoughtHistory ?? false
+        contacts[idx].userThoughtHistoryCount = selectedChat.value.userThoughtHistoryCount || 3
         contacts[idx].thoughtWithImage = selectedChat.value.thoughtWithImage ?? false
         contacts[idx].thoughtWithAudio = selectedChat.value.thoughtWithAudio ?? false
         

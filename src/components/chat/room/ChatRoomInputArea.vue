@@ -36,6 +36,7 @@ const emit = defineEmits<{
   (e: 'show-image-modal'): void
   (e: 'show-voice-call-modal'): void
   (e: 'show-video-call-modal'): void
+  (e: 'show-user-thought-modal'): void
   (e: 'toggle-mixed-offline'): void
   (e: 'open-relationship'): void
   (e: 'advance-relationship'): void
@@ -151,10 +152,15 @@ const onFocusInput = () => {
       <button v-if="relationship.blockedBy === 'character'" type="button" class="undelivered-notice" @click="emit('open-relationship')">
         对方已拉黑你 · 发送的消息不会送达 <span>查看动向</span>
       </button>
-      <div v-if="isMixedOfflineActive" class="offline-context-indicator">
+      <button
+        v-if="selectedChat?.offlineMeetEnabled && selectedChat?.offlineMeetMode === 'mixed'"
+        type="button"
+        class="offline-context-indicator"
+        @click="emit('toggle-mixed-offline')"
+      >
         <span class="offline-context-dot"></span>
-        <span>当前为线下见面</span>
-      </div>
+        <span>{{ isMixedOfflineActive ? '当前为线下见面 · 点击结束' : '点击开始线下见面' }}</span>
+      </button>
       <!-- 引用提示条 -->
       <transition name="reply-fade">
         <div v-if="replyTargetMessage" class="reply-preview-bar">
@@ -294,38 +300,19 @@ const onFocusInput = () => {
           <span class="extension-label">视频通话</span>
         </div>
 
-          <!-- 功能 8: 共用页面线下状态切换 -->
+          <!-- 功能 8: 填写本轮用户心声 -->
           <div
-            v-if="selectedChat?.offlineMeetEnabled && selectedChat?.offlineMeetMode === 'mixed'"
             class="extension-item is-active"
-            :class="{ 'offline-active': isMixedOfflineActive }"
-            @click="emit('toggle-mixed-offline')"
+            :class="{ 'thought-ready': Boolean(selectedChat?.pendingUserThought?.trim()) }"
+            @click="emit('show-user-thought-modal')"
           >
             <div class="extension-icon-box">
-              <svg v-if="isMixedOfflineActive" viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 18l6-6-6-6"></path>
-                <path d="M15 12H3"></path>
-                <path d="M21 4v16"></path>
-              </svg>
-              <svg v-else viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                <circle cx="9" cy="7" r="4"></circle>
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+              <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 11.2a7.8 7.8 0 0 1-8 7.8 9 9 0 0 1-3.5-.7L4 20l1.5-4A7.7 7.7 0 0 1 4 11.2 7.8 7.8 0 0 1 12 3a7.8 7.8 0 0 1 8 8.2Z"></path>
+                <path d="M9.2 11.3c.9 1.3 1.9 2 2.8 2s1.9-.7 2.8-2"></path>
               </svg>
             </div>
-            <span class="extension-label">{{ isMixedOfflineActive ? '结束线下' : '开始线下' }}</span>
-          </div>
-
-          <div v-else class="extension-item placeholder">
-            <div class="extension-icon-box">
-              <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                <polyline points="21 15 16 10 5 21"></polyline>
-              </svg>
-            </div>
-            <span class="extension-label">敬请期待</span>
+            <span class="extension-label">{{ selectedChat?.pendingUserThought?.trim() ? '已填写心声' : '填写心声' }}</span>
           </div>
       </div>
     </div>
@@ -336,6 +323,11 @@ const onFocusInput = () => {
 @import '../ChatRoomView.css';
 
 .offline-context-indicator {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -357,6 +349,11 @@ const onFocusInput = () => {
 .extension-item.offline-active .extension-icon-box {
   background: var(--text-primary);
   color: var(--bg-primary);
+}
+
+.extension-item.thought-ready .extension-icon-box {
+  background: var(--text-primary);
+  color: var(--sys-bg-secondary);
 }
 
 .relationship-input-state{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:transparent}.relationship-summary{min-width:0;height:52px;padding:7px 10px;border:1px solid var(--border-color);border-radius:14px;background:var(--sys-bg-secondary);color:var(--text-primary);display:grid;grid-template-columns:34px minmax(0,1fr) 17px;align-items:center;gap:8px;text-align:left;cursor:pointer}.relationship-summary-icon{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:var(--sys-bg-tertiary);color:var(--text-secondary)}.relationship-summary span:nth-child(2){min-width:0;display:flex;flex-direction:column;gap:3px}.relationship-summary b{font-size:12px}.relationship-summary small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--text-tertiary)}.relationship-chevron{color:var(--text-tertiary)}.relationship-advance{height:52px;padding:0 14px;border:0;border-radius:14px;background:var(--text-primary);color:var(--sys-bg-secondary);display:flex;align-items:center;gap:6px;font:inherit;font-size:12px;font-weight:650;cursor:pointer}.relationship-advance:disabled{opacity:.55;cursor:not-allowed}.relationship-advance:focus-visible,.relationship-summary:focus-visible,.undelivered-notice:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}.relationship-spinner{width:16px;height:16px;border:2px solid rgba(128,128,128,.35);border-top-color:currentColor;border-radius:50%;animation:relationship-spin .7s linear infinite}.undelivered-notice{width:100%;padding:6px 12px 2px;border:0;background:transparent;color:var(--text-tertiary);font:inherit;font-size:10px;text-align:center;cursor:pointer}.undelivered-notice span{color:#3478c8;margin-left:5px}@keyframes relationship-spin{to{transform:rotate(360deg)}}@media(max-width:420px){.relationship-input-state{grid-template-columns:minmax(0,1fr) 82px;gap:7px;padding-left:8px;padding-right:8px}.relationship-advance{padding:0 9px}.relationship-summary{padding-left:8px}.relationship-summary-icon{width:30px;height:30px}}

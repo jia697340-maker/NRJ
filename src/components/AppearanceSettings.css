@@ -28,8 +28,8 @@
   position: absolute;
   top: 0; left: 0; width: 100%; height: 100%;
   background: 
-    radial-gradient(circle at 100% 0%, rgba(241, 245, 249, 0.8) 0%, rgba(255,255,255,0) 50%), /* 右上角极浅银灰 */
-    radial-gradient(circle at 0% 60%, rgba(226, 232, 240, 0.6) 0%, rgba(255,255,255,0) 60%); /* 左侧中下浅冷灰 */
+    radial-gradient(circle at 100% 0%, rgba(239, 228, 233, 0.9) 0%, rgba(255,255,255,0) 50%), /* 右上角极浅暖灰 #efe4e9，提亮 */
+    radial-gradient(circle at 0% 60%, rgba(189, 187, 191, 0.3) 0%, rgba(255,255,255,0) 60%); /* 左侧微弱的中浅灰 #bdbbbf，避免显脏 */
   opacity: 1;
 }
 
@@ -55,7 +55,7 @@
   top: 15px; left: 15px;
   margin-top: env(safe-area-inset-top, 20px);
   display: flex; align-items: center; gap: 6px;
-  color: #64748B; /* 中度冷灰 */
+  color: #5f5f5f; /* 炭灰 #5f5f5f */
   opacity: 0.8;
 }
 .back-text {
@@ -115,14 +115,14 @@
   font-family: "Georgia", -apple-system, "PingFang SC", serif;
   font-size: 26px;
   font-weight: 500;
-  color: #1A1D20;
+  color: #5f5f5f; /* 统一使用高级炭灰 #5f5f5f */
   margin: 0 0 4px 0;
   letter-spacing: 3px;
 }
 .page-subtitle {
   font-family: "Georgia", "Times New Roman", serif;
   font-size: 12px;
-  color: #64748B;
+  color: #a2a1a4; /* 深灰 #a2a1a4 */
   margin: 0;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -145,7 +145,7 @@
 
 .book-tab-item {
   font-size: 13px;
-  color: #64748B; /* 未选中灰色 */
+  color: #bdbbbf; /* 未选中浅灰 #bdbbbf */
   cursor: pointer;
   position: relative;
   transition: all 0.3s ease;
@@ -154,7 +154,7 @@
 }
 
 .book-tab-item.active {
-  color: #1A1D20;
+  color: #5f5f5f; /* 选中炭灰 #5f5f5f */
   font-weight: 600;
 }
 
@@ -165,7 +165,7 @@
   left: 0;
   width: 100%;
   height: 2px;
-  background: #475569; /* 选中状态的深灰书签线 */
+  background: #a2a1a4; /* 选中状态的深灰书签线 #a2a1a4 */
 }
 
 /* 留白与悬浮卡片 -> 纸张段落排版 */
@@ -186,7 +186,7 @@
   font-family: "Georgia", "PingFang SC", serif;
   font-size: 14px;
   font-weight: bold;
-  color: #1A1D20;
+  color: #5f5f5f; /* 炭灰 #5f5f5f */
   letter-spacing: 2px;
 }
 .card-title-line {
@@ -217,7 +217,7 @@
 
 .item-label {
   font-size: 15px;
-  color: #1A1D20;
+  color: #5f5f5f; /* 炭灰 #5f5f5f */
   font-weight: 400;
   letter-spacing: 1px;
 }

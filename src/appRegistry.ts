@@ -25,7 +25,7 @@ export const appRegistry: AppRegistryItem[] = [
   { id: 'live', name: '直播', icon: '<span class="text-icon">播</span>', color: '#ffffff', available: false, allowCustomFont: true },
   { id: 'voice_access', name: '语音接入', icon: '<span class="text-icon">音</span>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'image_access', name: '图像接入', icon: '<span class="text-icon">图</span>', color: '#ffffff', available: true, allowCustomFont: true },
-  { id: 'wardrobe', name: '衣柜', icon: '<span class="text-icon">衣</span>', color: '#ffffff', available: true, allowCustomFont: true },
+  { id: 'music', name: '音乐', icon: '<span class="text-icon">乐</span>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'widget_beautify', name: '小组件美化', icon: '<span class="text-icon">美</span>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'character_workshop', name: '角色工坊', icon: '<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.5 4.1 4.1 1.5-4.1 1.5-1.5 4.1-1.5-4.1-4.1-1.5 4.1-1.5L12 3.5z"/><path d="M18.1 14.5l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8.8-2.1z"/><path d="M5.5 15.2l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6.6-1.6z"/></svg>', color: '#ffffff', available: true, allowCustomFont: true }
 ]

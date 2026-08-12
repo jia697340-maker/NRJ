@@ -307,6 +307,9 @@ const handleTestConnectionClick = () => {
   if (!activeSettings.value.url || !activeSettings.value.key) {
     showTestModal.value = true
     testResult.value = { type: 'error', text: '请先填写 API 地址和密钥' }
+  } else if (!activeSettings.value.model) {
+    showTestModal.value = true
+    testResult.value = { type: 'error', text: '请先在“指定模型”中填入或同步模型名称' }
   } else {
     showTestModal.value = true
     testResult.value = null
@@ -341,6 +344,11 @@ const confirmTest = async () => {
     testResult.value = { type: 'error', text: '测试文本不能为空' }
     return
   }
+
+  if (!activeSettings.value.model) {
+    testResult.value = { type: 'error', text: '请先在“指定模型”中填入或同步模型名称' }
+    return
+  }
   
   testLoading.value = true
   testResult.value = null
@@ -348,8 +356,7 @@ const confirmTest = async () => {
   try {
     const baseUrl = activeSettings.value.url.replace(/\/+$/, '')
     const isEmbeddingTest = currentTab.value === 'embedding'
-    // 如果没有选择模型，则默认一个
-    const modelToUse = activeSettings.value.model || (activeSettings.value.availableModels && activeSettings.value.availableModels[0]) || 'gpt-3.5-turbo'
+    const modelToUse = activeSettings.value.model
     const prepared = isEmbeddingTest ? null : prepareAdapterRequest({
       provider: activeSettings.value.provider,
       url: baseUrl,

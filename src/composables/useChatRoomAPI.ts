@@ -46,6 +46,12 @@ const OFFLINE_BLOCKED_ACTIONS = new Set([
   'status'
 ])
 
+type TriggerChatOptions = {
+  turnId?: string
+  currentUserThought?: string
+  consumePendingThought?: boolean
+}
+
 export function useChatRoomAPI(
   mockChats: any, 
   selectedChat: any, 
@@ -172,19 +178,33 @@ export function useChatRoomAPI(
 
     const regenerateOfflineMode = getOfflineMeetMode?.() ?? false
     let removed = false
+    const removedTurnIds = new Set<string>()
     while (
       msgs.length > 0 &&
       msgs[msgs.length - 1].type === 'left' &&
       (regenerateOfflineMode !== 'separate' || msgs[msgs.length - 1].isOfflineMeetMsg)
     ) {
-      msgs.pop()
+      const removedMessage = msgs.pop()
+      if (removedMessage?.turnId) removedTurnIds.add(removedMessage.turnId)
       removed = true
     }
 
     if (removed) {
+      let regenerateTurnId = Array.from(removedTurnIds)[0] || ''
+      if (removedTurnIds.size > 0) {
+        selectedChat.value.innerThoughts = (selectedChat.value.innerThoughts || []).filter((item: any) => !removedTurnIds.has(item.turnId))
+      } else if (selectedChat.value.innerThoughts?.length) {
+        selectedChat.value.innerThoughts.shift()
+      }
+      if (!regenerateTurnId) regenerateTurnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      const previousUserThought = (selectedChat.value.userInnerThoughts || []).find((item: any) => item.turnId === regenerateTurnId)?.content || ''
       saveCustomContacts()
       showExtensionPanel.value = false
-      await triggerAPI(callMode)
+      await triggerAPI(callMode, 'default', {
+        turnId: regenerateTurnId,
+        currentUserThought: previousUserThought,
+        consumePendingThought: false
+      })
     } else {
       showToast('没有可重新生成的回复')
     }
@@ -192,7 +212,8 @@ export function useChatRoomAPI(
 
   const triggerAPI = async (
     callMode: false | 'voice' | 'video' = false,
-    apiPurpose: ChatApiPurpose = 'default'
+    apiPurpose: ChatApiPurpose = 'default',
+    triggerOptions: TriggerChatOptions = {}
   ) => {
     if (!selectedChat.value || selectedChat.value.id === 1) return
     if (isGenerating.value) return
@@ -203,6 +224,11 @@ export function useChatRoomAPI(
     
     const currentChatId = selectedChat.value.id
     const targetChat = mockChats.value.find((c: any) => c.id === currentChatId)
+    const turnId = triggerOptions.turnId || `turn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const shouldConsumePendingThought = triggerOptions.consumePendingThought ?? apiPurpose === 'default'
+    const currentUserThought = String(
+      triggerOptions.currentUserThought ?? (shouldConsumePendingThought ? targetChat?.pendingUserThought : '') ?? ''
+    ).trim()
 
     if (targetChat) {
       const presenceResult = reconcilePresence(targetChat)
@@ -234,7 +260,38 @@ export function useChatRoomAPI(
     }
 
     // 组装 Prompt (此时变为异步)，传入当前是否是语音通话状态
-    const apiMessages = await buildChatMessages(selectedChat.value, callMode, offlineMeetMode)
+    const apiMessages = await buildChatMessages(selectedChat.value, callMode, offlineMeetMode, {
+      currentUserThought,
+      currentTurnId: turnId
+    })
+    if (targetChat) {
+      const relatedMessageIds: number[] = []
+      for (let index = targetChat.messages.length - 1; index >= 0; index--) {
+        const message = targetChat.messages[index]
+        if (message.type === 'left') break
+        if (message.type === 'right' && !message.isUndelivered) {
+          message.turnId ||= turnId
+          relatedMessageIds.unshift(message.id)
+        }
+      }
+      if (currentUserThought && !(targetChat.userInnerThoughts || []).some((item: any) => item.turnId === turnId)) {
+        targetChat.userInnerThoughts ||= []
+        targetChat.userInnerThoughts.unshift({
+          id: `user_thought_${Date.now()}`,
+          content: currentUserThought,
+          createdAt: Date.now(),
+          turnId,
+          relatedMessageIds,
+          source: 'user'
+        })
+        const userThoughtStorageLimit = Math.max(1, Number(chatSettings.innerThoughtLimit) || 50)
+        if (targetChat.userInnerThoughts.length > userThoughtStorageLimit) {
+          targetChat.userInnerThoughts.splice(userThoughtStorageLimit)
+        }
+      }
+      if (shouldConsumePendingThought) targetChat.pendingUserThought = ''
+      saveCustomContacts(targetChat)
+    }
     const boundBookIds = Array.isArray(selectedChat.value.boundWorldBooks) ? selectedChat.value.boundWorldBooks : []
     const diagnosticContext = {
       chatId: selectedChat.value.id,
@@ -331,6 +388,9 @@ export function useChatRoomAPI(
           targetChat.innerThoughts.unshift({
             id: Date.now(),
             time: timeStr,
+            createdAt: Date.now(),
+            turnId,
+            source: 'character',
             hasImage: false,
             hasAudio: false,
             content: thoughtContent
@@ -416,7 +476,11 @@ export function useChatRoomAPI(
               })
               saveCustomContacts()
               console.log(`[朋友圈] 已向上下文中注入系统旁白，准备发起追问`)
-              return triggerAPI(callMode, 'moment-followup')
+              return triggerAPI(callMode, 'moment-followup', {
+                turnId,
+                currentUserThought,
+                consumePendingThought: false
+              })
             }
             
             if (isRoomActive.value && selectedChat.value && selectedChat.value.id === currentChatId) {
@@ -848,6 +912,7 @@ export function useChatRoomAPI(
             pushMsg(chatToUpdate,{
               id: Date.now() + index,
               type: 'left',
+              turnId,
               content: msgContent,
               contentLanguage: action.contentLanguage,
               translation: action.translation,
@@ -910,6 +975,11 @@ export function useChatRoomAPI(
       }
       
     } catch (err: any) {
+      if (targetChat && shouldConsumePendingThought && currentUserThought) {
+        targetChat.pendingUserThought = currentUserThought
+        targetChat.userInnerThoughts = (targetChat.userInnerThoughts || []).filter((item: any) => item.turnId !== turnId)
+        saveCustomContacts(targetChat)
+      }
       if (err.name === 'AbortError') {
         console.log('API 被主动中止')
         isGenerating.value = false

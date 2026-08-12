@@ -6,6 +6,7 @@ const props = defineProps<{
   msg: any
   direction: 'left' | 'right'
   autoTranscribeVoice: boolean
+  voicePlaybackEnabled: boolean
   expandedVoiceIds: Set<number>
   playingId?: number | null
   isSynthesizing?: boolean
@@ -31,9 +32,10 @@ const handleBubbleClick = () => {
     emit('toggle-voice-text', props.msg.id) // 再次点击收起
   }
   
-  // 2. 只有在启用了语音配置(这由外层控制)的情况下，或者我们通过某种方式判定可以播放时才触发
-  // 由于我们无法在这里直接判断 apiSettings，我们交由外层去拦截，或者在这里单纯触发
-  emit('play-voice', props.msg.id, props.msg.voiceData.text)
+  // 2. 角色语音接入关闭时只保留转写展开能力，不触发合成或密钥检查
+  if (props.voicePlaybackEnabled) {
+    emit('play-voice', props.msg.id, props.msg.voiceData.text)
+  }
 }
 </script>
 

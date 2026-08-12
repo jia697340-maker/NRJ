@@ -353,9 +353,6 @@ const handleItemClick = (item: any) => {
       
       <!-- 弥散渐变水蓝背景层 -->
       <div class="gradient-overlay"></div>
-      
-      <!-- 页面大背景英文 -->
-      <div class="deco-bg-text">Appearance</div>
 
       <!-- 装饰性返回视觉 (解耦了真正的点击) -->
       <div class="deco-back-visual">

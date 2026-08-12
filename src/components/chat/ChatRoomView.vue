@@ -7,11 +7,13 @@ import ChatMessageActionModal from './modals/ChatMessageActionModal.vue'
 import ChatMessageEditModal from './modals/ChatMessageEditModal.vue'
 import ChatTransferModal from './modals/ChatTransferModal.vue'
 import ChatVoiceModal from './modals/ChatVoiceModal.vue'
+import ChatMissingVoiceKeyModal from './modals/ChatMissingVoiceKeyModal.vue'
 import ChatImageModal from './modals/ChatImageModal.vue'
 import ChatErrorFolderModal from './modals/ChatErrorFolderModal.vue'
 import ChatMemoryModal from './modals/ChatMemoryModal.vue'
 import ChatEmojiPreviewModal from './modals/ChatEmojiPreviewModal.vue'
 import ChatInnerThoughtModal from './modals/ChatInnerThoughtModal.vue'
+import ChatUserThoughtModal from './modals/ChatUserThoughtModal.vue'
 import ChatImageGalleryModal from './modals/ChatImageGalleryModal.vue'
 import ChatOfflineSessionEndModal from './modals/ChatOfflineSessionEndModal.vue'
 import ChatVoiceCallView from './ChatVoiceCallView.vue'
@@ -109,6 +111,8 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
     if (index !== -1) {
       contacts[index].messages = targetChat.messages
       contacts[index].innerThoughts = targetChat.innerThoughts || []
+      contacts[index].userInnerThoughts = targetChat.userInnerThoughts || []
+      contacts[index].pendingUserThought = targetChat.pendingUserThought || ''
       contacts[index].memoryBook = targetChat.memoryBook || []
       contacts[index].memoryState = targetChat.memoryState || null
       contacts[index].lastSummaryMsgId = targetChat.lastSummaryMsgId || 0
@@ -214,16 +218,38 @@ const closeMissingVoiceKeyModal = () => {
   showMissingVoiceKeyModal.value = false
 }
 
+const missingVoiceKeyErrors = new Set([
+  'MISSING_API_KEY',
+  'MISSING_SEED_AUDIO_API_KEY',
+  'MISSING_GEMINI_VOICE_API_KEY',
+  'MISSING_ELEVENLABS_VOICE_API_KEY',
+  'MISSING_MICROSOFT_MAI_VOICE_API_KEY',
+  'MISSING_ALIYUN_TTS_API_KEY'
+])
+
 const handlePlayVoice = async (msgId: number, text: string) => {
-  if (isMultiSelectMode.value) return
+  if (isMultiSelectMode.value || !selectedChat.value?.enableVoiceReply) return
   try {
     await playVoice(msgId, text, selectedChat.value)
   } catch (err: any) {
-    if (['MISSING_API_KEY', 'MISSING_SEED_AUDIO_API_KEY', 'MISSING_GEMINI_VOICE_API_KEY'].includes(err.message)) {
+    if (missingVoiceKeyErrors.has(err?.message)) {
       showMissingVoiceKeyModal.value = true
+      return
     }
+    console.error('语音播放失败', err)
+    showToast(err?.message || '语音播放失败，请稍后重试')
   }
 }
+
+watch(
+  [() => selectedChat.value?.id, () => selectedChat.value?.enableVoiceReply],
+  ([chatId, voiceEnabled], [previousChatId, previousVoiceEnabled]) => {
+    if (chatId !== previousChatId || (previousVoiceEnabled === true && !voiceEnabled)) {
+      stopVoice()
+      showMissingVoiceKeyModal.value = false
+    }
+  }
+)
 
 import { useChatRoomMultiSelect } from '../../composables/useChatRoomMultiSelect'
 
@@ -693,6 +719,16 @@ const showMemoryModal = ref(false)
 const isSummarizingMemories = ref(false)
 
 const showInnerThoughtModal = ref(false)
+const showUserThoughtModal = ref(false)
+
+const handleSaveUserThought = (content: string) => {
+  if (!selectedChat.value) return
+  selectedChat.value.pendingUserThought = content
+  showUserThoughtModal.value = false
+  showExtensionPanel.value = false
+  saveCustomContacts(selectedChat.value)
+  showToast(content ? '心声已保存到本轮' : '本轮心声已清空')
+}
 
 const showCallRecordsView = ref(false)
 const handleOpenCallRecords = () => {
@@ -1234,6 +1270,7 @@ onUnmounted(() => {
       @show-image-modal="showImageModal = true"
       @show-voice-call-modal="startVoiceCall"
       @show-video-call-modal="startVideoCall"
+      @show-user-thought-modal="showUserThoughtModal = true"
       @toggle-mixed-offline="toggleMixedOfflineSession"
       @open-relationship="emit('open-relationship')"
       @advance-relationship="handleRelationshipAdvance"
@@ -1259,6 +1296,13 @@ onUnmounted(() => {
       :visible="showImageModal"
       @close="showImageModal = false"
       @send="handleSendImage"
+    />
+
+    <ChatUserThoughtModal
+      :visible="showUserThoughtModal"
+      :initial-text="selectedChat?.pendingUserThought || ''"
+      @close="showUserThoughtModal = false"
+      @save="handleSaveUserThought"
     />
     
     <ChatMemoryModal
@@ -1300,20 +1344,10 @@ onUnmounted(() => {
       @confirm="finishOfflineSession"
     />
 
-    <transition name="folder-fade">
-      <div v-if="showMissingVoiceKeyModal" class="folder-modal-overlay" @click="closeMissingVoiceKeyModal" @touchmove.prevent>
-        <div class="rp-modal" style="background: var(--bg-primary); border-radius: 16px; width: 280px; padding: 24px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.1);" @click.stop>
-          <div style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px;">无法播放语音</div>
-          <div style="font-size: 14px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 24px;">
-            因为您尚未配置语音接口密钥，所以暂时无法播放语音。<br><br>
-            您可以在「应用首页 - 语音接入」中完成配置。
-          </div>
-          <div style="display: flex; justify-content: center;">
-            <button class="glass-btn" style="width: 100%; border-radius: 20px; background: var(--theme-color, #FFB6C1); color: #fff; font-weight: 600;" @click="closeMissingVoiceKeyModal">知道了</button>
-          </div>
-        </div>
-      </div>
-    </transition>
+    <ChatMissingVoiceKeyModal
+      :visible="showMissingVoiceKeyModal"
+      @close="closeMissingVoiceKeyModal"
+    />
 
   </div>
 </template>

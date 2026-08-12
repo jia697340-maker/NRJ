@@ -12,6 +12,7 @@ import { useVoiceCall } from '../useVoiceCall'
 import { useVideoCall } from '../useVideoCall'
 import { globalPromptSettings } from '../../store'
 import { pushContextTrace, type ContextTraceCollector } from '../../services/contextTrace'
+import { buildInnerThoughtContext } from '../../services/innerThoughtContext'
 
 // 将 Blob 转为 Base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -56,6 +57,8 @@ type BuildChatMessagesOptions = {
   includeMedia?: boolean
   allowExternalMemoryLookup?: boolean
   trace?: ContextTraceCollector
+  currentUserThought?: string
+  currentTurnId?: string
 }
 
 export const buildChatMessages = async (
@@ -180,7 +183,8 @@ export const buildChatMessages = async (
   })
   const baseSystemPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode, options.trace)
   const bilingualPrompt = buildBilingualPrompt(chat)
-  const sysPrompt = baseSystemPrompt + bilingualPrompt + memoryPacket + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
+  const thoughtContext = buildInnerThoughtContext(chat, options.currentUserThought, options.currentTurnId, options.trace)
+  const sysPrompt = baseSystemPrompt + bilingualPrompt + memoryPacket + thoughtContext + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
   pushContextTrace(options.trace, { id: 'runtime:bilingual', category: 'system', group: '输出格式与协议', label: '双语对话规则', text: bilingualPrompt, reason: '当前聊天开启了双语输出' })
   pushContextTrace(options.trace, { id: 'runtime:memory', category: 'memory', group: '本轮召回', label: '按需长期记忆包', text: memoryPacket, reason: '按当前话题、重要度与时间筛选' })
   pushContextTrace(options.trace, { id: 'runtime:moments', category: 'system', group: '朋友圈能力', label: '朋友圈当前行为规则', text: momentBehaviorPrompt, reason: chat.enableCharMoments === false ? '朋友圈已关闭，注入禁用说明' : '依据当前朋友圈模式生成' })
