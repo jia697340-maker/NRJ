@@ -6,6 +6,7 @@ import type { ChatAccount } from '../../../composables/useChatAuth'
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'switched'): void
 }>()
 
 const { chatAccounts, currentAccount, login } = useChatAuth()
@@ -13,6 +14,7 @@ const { chatAccounts, currentAccount, login } = useChatAuth()
 const handleAccountSelect = (account: ChatAccount) => {
   if (account.id !== currentAccount.value?.id) {
     login(account.id)
+    emit('switched')
   }
   emit('close')
 }
@@ -49,7 +51,7 @@ const formatIndex = (index: number) => {
           <div class="account-index">{{ formatIndex(index) }}</div>
           <div class="account-info">
             <div class="account-name">{{ acc.name }}</div>
-            <div class="account-id">ID: {{ acc.accountId || acc.id.slice(0, 8) }}</div>
+            <div class="account-id">ID: {{ acc.accountId || acc.id.slice(0, 8) }}<span class="account-purpose">{{ acc.purpose === 'persona' ? '全新人设' : acc.linkedAccountIds?.length ? '关联账号' : '独立账号' }}</span></div>
           </div>
           <div class="account-status" v-if="currentAccount?.id === acc.id">
             <svg viewBox="0 0 24 24" width="20" height="20" stroke="#007aff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -235,6 +237,7 @@ const formatIndex = (index: number) => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.account-purpose{display:inline-flex;margin-left:7px;padding:2px 6px;border-radius:999px;background:rgba(0,0,0,.045);font-size:8px;letter-spacing:0;color:inherit}
 
 .account-status {
   width: 24px;

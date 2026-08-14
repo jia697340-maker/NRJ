@@ -23,6 +23,8 @@ export interface WalletPayment {
   status: 'pending' | WalletTransferResolution
   createdAt: number
   resolvedAt?: number
+  fundingSource?: 'balance' | 'credit' | 'bank_card'
+  fundingSourceId?: string
 }
 
 export interface WalletQuote {
@@ -57,8 +59,11 @@ export interface WalletCredit {
   billingDay: number
   repaymentDay: number
   transactions: WalletCreditTransaction[]
+  baseLimitCents?: number
+  evaluationMethod?: 'random' | 'ai' | 'none'
+  lastRefreshMonth?: string
 }
-export interface WalletBankCard { id: string; name: string; lastFour: string; enabled: boolean; createdAt: number }
+export interface WalletBankCard { id: string; name: string; type?: 'debit' | 'credit'; fullNumber?: string; lastFour: string; expiryDate?: string; hasCover?: boolean; hasBackCover?: boolean; coverBlur?: number; backCoverBlur?: number; isFavorite?: boolean; enabled: boolean; createdAt: number; balanceCents?: number; limitCents?: number; usedCents?: number }
 
 export interface WalletState {
   schemaVersion: 2
@@ -76,6 +81,7 @@ export interface WalletState {
   credit: WalletCredit
   bankCards: WalletBankCard[]
   hideAmounts: boolean
+  paymentPassword?: string
   market: { tick: number; lastAdvancedAt: number }
 }
 
@@ -112,7 +118,7 @@ export const createWalletState = (accountId: string, accountName = '我'): Walle
   payments: [],
   quotes: quoteSeeds.map(([code, name, sector, priceCents]) => ({ code, name, sector, priceCents, previousCloseCents: priceCents, history: [priceCents] })),
   positions: [], orders: [], watchlist: ['CLY001', 'CLY003', 'CLY006'],
-  credit: { enabled: true, limitCents: 500000, usedCents: 0, billingDay: 5, repaymentDay: 15, transactions: [] },
+  credit: { enabled: false, limitCents: 0, usedCents: 0, billingDay: 5, repaymentDay: 15, transactions: [], baseLimitCents: 0, evaluationMethod: 'none', lastRefreshMonth: '' },
   bankCards: [], hideAmounts: false,
   market: { tick: 0, lastAdvancedAt: Date.now() }
 })
@@ -134,7 +140,8 @@ const normalize = (raw: any, accountId: string, accountName = '我'): WalletStat
     payments: Array.isArray(raw.payments) ? raw.payments.map((payment: any) => ({
       id: payment.id, direction: payment.direction || (payment.senderKey === `user:${accountId}` ? 'outgoing' : 'incoming'),
       amountCents: cents(payment.amountCents), kind: payment.kind === 'red_packet' ? 'red_packet' : 'transfer',
-      remark: payment.remark || '', status: payment.status || 'pending', createdAt: payment.createdAt || Date.now(), resolvedAt: payment.resolvedAt
+      remark: payment.remark || '', status: payment.status || 'pending', createdAt: payment.createdAt || Date.now(), resolvedAt: payment.resolvedAt,
+      fundingSource: payment.fundingSource || 'balance', fundingSourceId: payment.fundingSourceId
     })) : [],
     quotes: Array.isArray(raw.quotes) && raw.quotes.length ? raw.quotes : base.quotes,
     positions: Array.isArray(raw.positions) ? raw.positions : [], orders: Array.isArray(raw.orders) ? raw.orders : [],
@@ -142,6 +149,7 @@ const normalize = (raw: any, accountId: string, accountName = '我'): WalletStat
     credit: { ...base.credit, ...(raw.credit || {}), transactions: Array.isArray(raw.credit?.transactions) ? raw.credit.transactions : [] },
     bankCards: Array.isArray(raw.bankCards) ? raw.bankCards : [],
     hideAmounts: raw.hideAmounts ?? raw.security?.hideAmounts ?? false,
+    paymentPassword: raw.paymentPassword || base.paymentPassword,
     market: { ...base.market, ...(raw.market || {}) }
   }
 }
@@ -170,19 +178,67 @@ export const setWalletBalance = (state: WalletState, targetCents: number, note =
   pushLedger(state, { category: 'adjustment', title: delta >= 0 ? '余额调增' : '余额调减', amountCents: delta, note })
 }
 
-export const adjustWalletBalance = (state: WalletState, amountCents: number, title: string, category = 'adjustment', note = '') => {
+export const adjustWalletBalance = (state: WalletState, amountCents: number, title: string, category = 'adjustment', note = '', bankCardId?: string) => {
   const amount = Math.round(Number(amountCents) || 0)
-  if (state.cashCents + amount < 0) throw new Error('可用余额不足')
+  if (state.cashCents + amount < 0) throw new Error('钱包可用余额不足')
+  
+  if (bankCardId) {
+    const card = state.bankCards.find(c => c.id === bankCardId)
+    if (!card) throw new Error('未找到指定的银行卡')
+    
+    // 如果是充值 (amount > 0)，是从银行卡扣钱到钱包
+    if (amount > 0) {
+      if (card.type === 'credit') {
+        card.usedCents = (card.usedCents || 0) + amount
+        if (card.limitCents && card.usedCents > card.limitCents) {
+          throw new Error('信用卡可用额度不足')
+        }
+      } else {
+        if ((card.balanceCents || 0) < amount) {
+          throw new Error('储蓄卡余额不足')
+        }
+        card.balanceCents = (card.balanceCents || 0) - amount
+      }
+    } 
+    // 如果是提现 (amount < 0)，是从钱包扣钱到银行卡
+    else {
+      const absAmount = Math.abs(amount)
+      if (card.type === 'credit') {
+        card.usedCents = Math.max(0, (card.usedCents || 0) - absAmount)
+      } else {
+        card.balanceCents = (card.balanceCents || 0) + absAmount
+      }
+    }
+  }
+
   state.cashCents += amount
   return pushLedger(state, { category, title, amountCents: amount, note })
 }
 
-export const createOutgoingWalletPayment = (accountId: string, amountCents: number, kind: 'transfer' | 'red_packet', remark = '') => {
+export const createOutgoingWalletPayment = (accountId: string, amountCents: number, kind: 'transfer' | 'red_packet', remark = '', fundingSource: 'balance' | 'credit' | 'bank_card' = 'balance', fundingSourceId?: string) => {
   const state = loadWalletState(accountId); const amount = cents(amountCents)
   if (!amount) throw new Error('金额必须大于 0')
-  if (state.cashCents < amount) throw new Error('钱包余额不足')
-  state.cashCents -= amount; state.heldCents += amount
-  const payment: WalletPayment = { id: uid('payment'), direction: 'outgoing', amountCents: amount, kind, remark, status: 'pending', createdAt: Date.now() }
+
+  if (fundingSource === 'credit') {
+    if (!state.credit.enabled || state.credit.limitCents - state.credit.usedCents < amount) throw new Error('花呗可用额度不足')
+    state.credit.usedCents += amount
+  } else if (fundingSource === 'bank_card' && fundingSourceId) {
+    const card = state.bankCards.find(c => c.id === fundingSourceId)
+    if (!card) throw new Error('未找到指定的银行卡')
+    if (card.type === 'credit') {
+      if (card.limitCents && (card.usedCents || 0) + amount > card.limitCents) throw new Error('信用卡可用额度不足')
+      card.usedCents = (card.usedCents || 0) + amount
+    } else {
+      if ((card.balanceCents || 0) < amount) throw new Error('储蓄卡余额不足')
+      card.balanceCents = (card.balanceCents || 0) - amount
+    }
+  } else {
+    if (state.cashCents < amount) throw new Error('钱包余额不足')
+    state.cashCents -= amount
+  }
+  
+  state.heldCents += amount
+  const payment: WalletPayment = { id: uid('payment'), direction: 'outgoing', amountCents: amount, kind, remark, status: 'pending', createdAt: Date.now(), fundingSource, fundingSourceId }
   state.payments.unshift(payment)
   pushLedger(state, { category: kind, title: kind === 'red_packet' ? '发出红包（待领取）' : '转账（待收款）', amountCents: -amount, relatedId: payment.id, note: remark })
   saveWalletState(state); return payment
@@ -195,9 +251,9 @@ export const createIncomingWalletPayment = (accountId: string, amountCents: numb
 }
 
 // 兼容聊天发送层：只允许用户方向创建冻结款，不创建任何角色账户。
-export const createWalletPayment = (input: { accountId: string; senderType: 'user' | 'character'; amountCents: number; kind: 'transfer' | 'red_packet'; remark: string }) => (
+export const createWalletPayment = (input: { accountId: string; senderType: 'user' | 'character'; amountCents: number; kind: 'transfer' | 'red_packet'; remark: string; fundingSource?: 'balance' | 'credit' | 'bank_card'; fundingSourceId?: string }) => (
   input.senderType === 'user'
-    ? createOutgoingWalletPayment(input.accountId, input.amountCents, input.kind, input.remark)
+    ? createOutgoingWalletPayment(input.accountId, input.amountCents, input.kind, input.remark, input.fundingSource, input.fundingSourceId)
     : createIncomingWalletPayment(input.accountId, input.amountCents, input.kind, input.remark)
 )
 
@@ -209,7 +265,23 @@ export const resolveWalletPayment = (accountId: string, paymentId: string, resol
   if (payment.direction === 'outgoing') {
     state.heldCents = Math.max(0, state.heldCents - payment.amountCents)
     if (resolution !== 'claimed') {
-      state.cashCents += payment.amountCents
+      if (payment.fundingSource === 'credit') {
+        state.credit.usedCents = Math.max(0, state.credit.usedCents - payment.amountCents)
+      } else if (payment.fundingSource === 'bank_card' && payment.fundingSourceId) {
+        const card = state.bankCards.find(c => c.id === payment.fundingSourceId)
+        if (card) {
+          if (card.type === 'credit') {
+            card.usedCents = Math.max(0, (card.usedCents || 0) - payment.amountCents)
+          } else {
+            card.balanceCents = (card.balanceCents || 0) + payment.amountCents
+          }
+        } else {
+          // If card was deleted, fallback to cashCents
+          state.cashCents += payment.amountCents
+        }
+      } else {
+        state.cashCents += payment.amountCents
+      }
       pushLedger(state, { category: 'refund', title: resolution === 'expired' ? '过期退款' : '款项退回', amountCents: payment.amountCents, relatedId: payment.id, note: payment.remark })
     }
   } else if (resolution === 'claimed') {
@@ -279,6 +351,26 @@ export const repayWalletCredit = (state: WalletState, amountCents: number) => {
   state.cashCents -= amount; state.credit.usedCents -= amount; let left = amount
   for (const tx of [...state.credit.transactions].reverse()) { const applied = Math.min(left, tx.amountCents - tx.repaidCents); tx.repaidCents += applied; left -= applied; if (!left) break }
   pushLedger(state, { category: 'credit_repayment', title: '花呗还款', amountCents: -amount })
+
+  if (state.credit.enabled && state.credit.baseLimitCents) {
+    const boost = Math.round(amount * (0.05 + Math.random() * 0.05))
+    state.credit.baseLimitCents += boost
+    state.credit.limitCents += boost
+  }
+}
+
+export const refreshCreditLimitIfNeeded = (state: WalletState) => {
+  if (!state.credit.enabled || !state.credit.baseLimitCents) return
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  if (state.credit.lastRefreshMonth && state.credit.lastRefreshMonth !== currentMonth) {
+    const fluctuation = 1 + (Math.random() * 0.2 - 0.1)
+    const newLimit = Math.max(state.credit.usedCents, Math.round(state.credit.baseLimitCents * fluctuation))
+    state.credit.limitCents = newLimit
+    state.credit.lastRefreshMonth = currentMonth
+  } else if (!state.credit.lastRefreshMonth) {
+    state.credit.lastRefreshMonth = currentMonth
+  }
 }
 
 export const resetWalletFinance = (state: WalletState) => {

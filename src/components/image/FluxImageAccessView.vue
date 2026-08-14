@@ -5,6 +5,8 @@ import { useFluxImage, type FluxImageFormat, type FluxImageModel } from '../../c
 import { useFluxImageHistory } from '../../composables/useFluxImageHistory'
 import { useFluxImageReference, type FluxReferenceGroup } from '../../composables/useFluxImageReference'
 
+defineEmits<{ (e: 'back'): void }>()
+
 const MODELS = [
   { value: 'flux-2-pro-preview', label: 'FLUX.2 Pro Preview（推荐）' },
   { value: 'flux-2-pro', label: 'FLUX.2 Pro（固定版本）' },
@@ -159,7 +161,16 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flux-page">
+  <div class="ia-page">
+    <div class="header-minimal">
+      <div class="header-titles">
+        <h1 class="main-title">FLUX.2 接入</h1>
+      </div>
+      <button class="back-btn" @click="$emit('back')">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+      </button>
+    </div>
+    <div class="flux-page">
     <div class="hero">
       <div>
         <span class="brand">BLACK FOREST LABS</span>
@@ -225,9 +236,12 @@ onMounted(async () => {
       <article v-for="item in historyItems" :key="item.id"><button class="history-main" @click="openHistory(item.id)"><strong>{{ item.params.model }}</strong><span>{{ new Date(item.timestamp).toLocaleString() }}</span><small>{{ item.params.width }}×{{ item.params.height }} · {{ item.params.prompt }}</small></button><button class="danger" @click="deleteHistoryItem(item.id)">删除</button></article>
       <div v-if="!historyItems.length" class="empty">暂无 FLUX 生成历史</div>
     </section>
+    </div>
   </div>
 </template>
 
+<style scoped src="../app_ImageAccess.css"></style>
 <style scoped>
+.ia-page>.flux-page{height:auto;flex:1}
 .flux-page{flex:1;overflow-y:auto;height:100%;padding:20px;box-sizing:border-box;color:var(--text-primary,#202124)}.hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:22px;border-radius:20px;background:linear-gradient(135deg,#111,#26352e);color:#fff}.hero h2{margin:5px 0;font-size:24px}.hero p,.toolbar p{margin:0;opacity:.72;font-size:12px}.brand{font-size:10px;letter-spacing:2px;color:#b9f8d0}.model-badge{padding:10px 14px;border:1px solid rgba(255,255,255,.25);border-radius:12px;font-weight:800}nav{display:flex;gap:5px;margin-bottom:14px;padding:5px;border-radius:13px;background:var(--sys-bg-secondary,#eef0f2)}nav button{flex:1;padding:10px;border:0;border-radius:9px;background:transparent;color:inherit}nav .active{background:var(--sys-bg-primary,#fff);box-shadow:0 2px 8px rgba(0,0,0,.08);font-weight:700}.workspace{display:grid;grid-template-columns:minmax(320px,1fr) minmax(300px,1fr);gap:14px}.panel{padding:18px;border:1px solid var(--border-color,#e2e4e8);border-radius:18px;background:var(--sys-bg-primary,#fff)}label{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:12px;font-weight:650}input,select,textarea,button{box-sizing:border-box;font:inherit}input,select,textarea{width:100%;padding:10px 11px;border:1px solid var(--border-color,#dfe2e6);border-radius:10px;background:var(--sys-bg-secondary,#f6f7f8);color:inherit}.inline{display:flex;gap:6px}.inline button{border:0;border-radius:9px;padding:0 12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}.switch{flex-direction:row;align-items:center}.switch input{width:auto}.actions{display:flex;justify-content:flex-end;gap:8px}.primary,.stop,.danger{border:0;border-radius:10px;padding:10px 14px}.primary{background:#176b42;color:#fff;font-weight:700}.primary:disabled{opacity:.5}.stop,.danger{background:#f5e8e8;color:#9d3030}.preview{display:grid;min-height:520px;place-items:center;background:#101411}.preview img{max-width:100%;max-height:70vh;border-radius:12px}.empty{grid-column:1/-1;padding:40px;text-align:center;color:var(--text-secondary,#888)}.hint{font-size:12px;color:var(--text-secondary,#777)}.proxy-hint{margin-top:4px;line-height:1.4;font-weight:normal}.proxy-hint strong{color:var(--text-primary,#333)}.proxy-hint code{background:var(--border-color,#e2e4e8);padding:2px 4px;border-radius:4px;font-family:monospace;font-size:11px}.error{color:#c0392b;font-size:12px}.toolbar{display:flex;justify-content:space-between;align-items:center}.toolbar h3{margin:0 0 4px}.group-editor{display:grid;grid-template-columns:1fr 1fr 2fr auto auto;gap:8px;margin:16px 0}.image-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}.image-grid article{position:relative;padding:7px;border:2px solid transparent;border-radius:12px;background:var(--sys-bg-secondary,#f5f6f7);cursor:pointer}.image-grid article.selected{border-color:#26965f}.image-grid img{width:100%;height:100px;object-fit:cover;border-radius:8px}.image-grid span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.image-grid button{position:absolute;right:3px;top:3px;border:0;border-radius:50%;background:#fff;color:#a22}.group-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:16px}.group-list label{flex-direction:row;padding:10px;border-radius:10px;background:var(--sys-bg-secondary,#f5f6f7)}.group-list input{width:auto}.group-list span{display:flex;flex-direction:column}.group-list small{color:var(--text-secondary,#777)}.history article{display:flex;gap:8px;margin-bottom:8px}.history-main{display:flex;flex:1;flex-direction:column;align-items:flex-start;padding:11px;border:0;border-radius:10px;background:var(--sys-bg-secondary,#f5f6f7);color:inherit;text-align:left}.history-main small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary,#777)}@media(max-width:760px){.workspace{grid-template-columns:1fr}.preview{min-height:340px}.group-editor{grid-template-columns:1fr}.hero{align-items:flex-start}.model-badge{font-size:10px}.grid{grid-template-columns:1fr}}
 </style>

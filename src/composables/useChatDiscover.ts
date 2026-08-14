@@ -6,6 +6,7 @@ import { useChatState } from './useChatState'
 import { sendChatMessage } from '../services/api'
 import { processMomentTags } from './useChatRoomMessage'
 import { addMomentNotification, canViewMoment, defaultMomentBehavior, getMomentBehavior } from '../services/moments'
+import { listSharedCharacterMoments, saveSharedCharacterMoments } from '../services/momentRepository'
 
 const discoverStore = localforage.createInstance({ name: 'nrt-app', storeName: 'discover_moments' })
 const avatarStore = localforage.createInstance({ name: 'nrt-app', storeName: 'avatars' })
@@ -32,7 +33,7 @@ export function useChatDiscover() {
     const accountId = avatar.slice('account-avatar:'.length)
     return chatAccounts.value.find(account => account.id === accountId)?.avatarUrl || ''
   }
-  const availableCharacters = computed(() => mockChats.value.filter((chat: any) => chat.id !== 1 && !chat.isCreate))
+  const availableCharacters = computed(() => mockChats.value.filter((chat: any) => chat.id !== 1 && !chat.isCreate && chat.contactState !== 'candidate'))
   
   const allNotifications = computed(() => mockMoments.value.flatMap(moment => (moment.notifications || []).map((notice: any) => ({ ...notice, momentId: moment.id, momentContent: moment.content }))).sort((a, b) => b.createdAt - a.createdAt))
   const unreadNotificationCount = computed(() => allNotifications.value.filter(n => !n.read).length)
@@ -101,6 +102,8 @@ export function useChatDiscover() {
           localStorage.setItem(migrationOwnerKey, String(currentChatUserId.value))
         }
       }
+      const sharedMoments = await listSharedCharacterMoments()
+      saved = [...sharedMoments, ...(saved || []).filter(moment => !sharedMoments.some(shared => String(shared.id) === String(moment.id)))]
       if (saved && Array.isArray(saved)) {
         mockMoments.value = saved.map(m => ({
           ...m,
@@ -133,7 +136,12 @@ export function useChatDiscover() {
   }
 
   const saveMoments = async () => {
-    await discoverStore.setItem(getKey('moments_list'), JSON.parse(JSON.stringify(mockMoments.value)))
+    const shared = mockMoments.value.filter(moment => moment.sharedCharacterMoment)
+    const accountOnly = mockMoments.value.filter(moment => !moment.sharedCharacterMoment)
+    await Promise.all([
+      saveSharedCharacterMoments(shared),
+      discoverStore.setItem(getKey('moments_list'), JSON.parse(JSON.stringify(accountOnly)))
+    ])
   }
 
   const refreshData = async () => {

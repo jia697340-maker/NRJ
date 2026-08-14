@@ -21,6 +21,7 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'open-create-contact'): void
   (e: 'open-chat', chat: any): void
+  (e: 'account-switched'): void
 }>()
 
 const { 
@@ -38,8 +39,9 @@ type SidebarFilter = 'all' | 'unread' | 'pinned' | 'recent'
 const activeSidebarFilter = ref<SidebarFilter>('all')
 
 const groupFilteredChats = computed(() => {
-  if (activeGroup.value === '全部') return mockChats.value
-  return mockChats.value.filter(c => c.groups && c.groups.includes(activeGroup.value))
+  const visibleChats = mockChats.value.filter(c => c.id === 1 || c.contactState !== 'candidate')
+  if (activeGroup.value === '全部') return visibleChats
+  return visibleChats.filter(c => c.groups && c.groups.includes(activeGroup.value))
 })
 
 const lastInteractionTime = (chat: any) => {
@@ -62,8 +64,8 @@ const filteredChats = computed(() => {
 })
 const pinnedChats = computed(() => activeSidebarFilter.value === 'all' ? groupFilteredChats.value.filter(c => c.isPinned) : [])
 const regularChats = computed(() => activeSidebarFilter.value === 'all' ? filteredChats.value.filter(c => !c.isPinned) : filteredChats.value)
-const unreadChatCount = computed(() => mockChats.value.filter(c => c.unread > 0).length)
-const pinnedChatCount = computed(() => mockChats.value.filter(c => c.isPinned).length)
+const unreadChatCount = computed(() => mockChats.value.filter(c => c.contactState !== 'candidate' && c.unread > 0).length)
+const pinnedChatCount = computed(() => mockChats.value.filter(c => c.contactState !== 'candidate' && c.isPinned).length)
 const filterEmptyText = computed(() => ({
   unread: '暂无未读消息',
   pinned: '暂无置顶消息',
@@ -510,7 +512,7 @@ const handleImportComplete = async (personas: any[]) => {
       <ChatListGroupManageModal v-if="groupManageModalVisible" :customGroups="customGroups" :selectedManageGroups="selectedManageGroups" @close="groupManageModalVisible = false" @toggle-all="() => { if(selectedManageGroups.size === customGroups.length) selectedManageGroups.clear(); else selectedManageGroups = new Set(customGroups) }" @toggle-group="(g) => { if(selectedManageGroups.has(g)) selectedManageGroups.delete(g); else selectedManageGroups.add(g) }" @rename-group="(g) => { showRenameGroupDialog(showDialog, g, () => {}) }" @delete-selected="deleteSelectedGroups(showDialog, selectedManageGroups, () => { groupManageModalVisible = false })" @merge-selected="mergeSelectedGroups(showDialog, selectedManageGroups, () => { groupManageModalVisible = false })" />
       <ChatListCreateChoiceModal v-if="createChoiceModalVisible" @close="createChoiceModalVisible = false" @manual-create="() => { createChoiceModalVisible = false; emit('open-create-contact') }" @import-create="() => { createChoiceModalVisible = false; importModalMode = 'card'; importModalVisible = true }" @import-doc-create="() => { createChoiceModalVisible = false; importModalMode = 'doc'; importModalVisible = true }" />
       
-      <ChatAccountSwitchModal v-if="accountSwitchModalVisible" @close="accountSwitchModalVisible = false" />
+      <ChatAccountSwitchModal v-if="accountSwitchModalVisible" @close="accountSwitchModalVisible = false" @switched="emit('account-switched')" />
 
       <!-- Native / Upload Modals -->
       <PersonaImportModal v-model:visible="importModalVisible" :mode="importModalMode" @import="handleImportComplete" />

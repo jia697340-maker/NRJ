@@ -20,6 +20,29 @@
           </div>
 
           <div class="form-group">
+            <label class="form-label">付款方式</label>
+            <select class="text-input" v-model="selectedFundingSource">
+              <option value="balance">余额 (可用: {{ formatMoney(walletState?.cashCents || 0) }})</option>
+              <option 
+                v-if="walletState?.credit?.enabled" 
+                value="credit"
+                :disabled="walletState.credit.limitCents - walletState.credit.usedCents <= 0"
+              >
+                花呗 (可用: {{ formatMoney(walletState.credit.limitCents - walletState.credit.usedCents) }})
+              </option>
+              <option 
+                v-for="card in (walletState?.bankCards || [])" 
+                :key="card.id" 
+                :value="`card_${card.id}`"
+                :disabled="card.type === 'credit' ? (card.limitCents! - card.usedCents! <= 0) : (card.balanceCents! <= 0)"
+              >
+                {{ card.name }} ({{ card.lastFour }}) - 
+                可用: {{ formatMoney(card.type === 'credit' ? (card.limitCents! - card.usedCents!) : card.balanceCents!) }}
+              </option>
+            </select>
+          </div>
+
+          <div class="form-group">
             <label class="form-label">金额</label>
             <div class="amount-input-wrapper">
               <span class="currency-symbol">￥</span>
@@ -40,7 +63,25 @@
         </div>
 
         <div class="modal-footer">
-          <button class="submit-btn" :disabled="!isValid" @click="handleSubmit">发送</button>
+          <button v-if="!showPasswordInput" class="submit-btn" :disabled="!isValid" @click="handleSubmit">发送</button>
+          
+          <div v-if="showPasswordInput" class="password-verification">
+            <label class="form-label" style="text-align: center; display: block; margin-bottom: 8px;">输入4位支付密码</label>
+            <input 
+              type="password" 
+              class="text-input password-input" 
+              v-model="paymentPasswordInput" 
+              maxlength="4"
+              inputmode="numeric"
+              placeholder="请输入密码"
+              @input="passwordError = ''"
+            />
+            <div v-if="passwordError" class="error-text">{{ passwordError }}</div>
+            <div class="password-actions">
+              <button class="cancel-btn" @click="showPasswordInput = false">取消</button>
+              <button class="verify-btn" :disabled="paymentPasswordInput.length !== 4" @click="verifyPassword">确认支付</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -49,6 +90,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { loadWalletState } from '../../../services/walletService'
+import { useChatAuth } from '../../../composables/useChatAuth'
 
 const props = defineProps<{
   visible: boolean
@@ -57,13 +100,31 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'send', data: { type: 'red_packet' | 'transfer', amount: number, remark: string, expireHours: number }): void
+  (e: 'send', data: { 
+    type: 'red_packet' | 'transfer', 
+    amount: number, 
+    remark: string, 
+    expireHours: number,
+    fundingSource: 'balance' | 'credit' | 'bank_card',
+    fundingSourceId?: string
+  }): void
 }>()
 
 const transferType = ref<'red_packet' | 'transfer'>('red_packet')
 const amount = ref<string>('')
 const remark = ref<string>('')
 const expireHours = ref<string>('24')
+const showPasswordInput = ref(false)
+const paymentPasswordInput = ref('')
+const passwordError = ref('')
+
+const walletState = ref<ReturnType<typeof loadWalletState> | null>(null)
+const selectedFundingSource = ref<string>('balance')
+const { currentChatUserId, currentAccount } = useChatAuth()
+
+const formatMoney = (cents: number) => {
+  return '￥' + (cents / 100).toFixed(2)
+}
 
 watch(() => props.visible, (newVal) => {
   if (newVal) {
@@ -71,6 +132,13 @@ watch(() => props.visible, (newVal) => {
     amount.value = ''
     remark.value = ''
     expireHours.value = '24'
+    showPasswordInput.value = false
+    paymentPasswordInput.value = ''
+    passwordError.value = ''
+    
+    const accountId = currentChatUserId.value || 'guest'
+    walletState.value = loadWalletState(accountId, currentAccount.value?.name || '我')
+    selectedFundingSource.value = 'balance'
   }
 })
 
@@ -85,16 +153,55 @@ const handleClose = () => {
 
 const handleSubmit = () => {
   if (!isValid.value) return
+
+  // 获取钱包状态，检查是否需要支付密码
+  const accountId = currentChatUserId.value || 'guest'
+  const state = loadWalletState(accountId)
+  if (state.paymentPassword) {
+    showPasswordInput.value = true
+    return
+  }
   
+  executeSend()
+}
+
+const verifyPassword = () => {
+  const accountId = currentChatUserId.value || 'guest'
+  const state = loadWalletState(accountId)
+  if (paymentPasswordInput.value !== state.paymentPassword) {
+    passwordError.value = '支付密码错误'
+    paymentPasswordInput.value = ''
+    return
+  }
+  executeSend()
+}
+
+const executeSend = () => {
   const finalRemark = remark.value.trim()
   const finalExpireHours = parseFloat(expireHours.value) || 24
+  
+  let fundingSource: 'balance' | 'credit' | 'bank_card' = 'balance'
+  let fundingSourceId: string | undefined = undefined
+
+  if (selectedFundingSource.value === 'credit') {
+    fundingSource = 'credit'
+  } else if (selectedFundingSource.value.startsWith('card_')) {
+    fundingSource = 'bank_card'
+    fundingSourceId = selectedFundingSource.value.replace('card_', '')
+  }
   
   emit('send', {
     type: transferType.value,
     amount: parseFloat(amount.value),
     remark: finalRemark,
-    expireHours: finalExpireHours
+    expireHours: finalExpireHours,
+    fundingSource,
+    fundingSourceId
   })
+  
+  showPasswordInput.value = false
+  paymentPasswordInput.value = ''
+  passwordError.value = ''
 }
 </script>
 
@@ -162,10 +269,27 @@ const handleSubmit = () => {
 }
 
 .modal-body {
-  padding: 20px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+/* 自定义滚动条 */
+.modal-body::-webkit-scrollbar {
+  width: 4px;
+}
+.modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.modal-body::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+.is-dark .modal-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .type-selector {
@@ -194,7 +318,7 @@ const handleSubmit = () => {
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .form-label {
@@ -208,7 +332,7 @@ const handleSubmit = () => {
   align-items: baseline;
   background: var(--sys-bg-secondary, rgba(0,0,0,0.03));
   border-radius: 8px;
-  padding: 12px 16px;
+  padding: 10px 14px;
 }
 .currency-symbol {
   font-size: 24px;
@@ -231,10 +355,16 @@ const handleSubmit = () => {
 }
 
 .text-input {
+  box-sizing: border-box;
+  width: 100%;
+  font-family: inherit;
+  min-width: 0;
+  height: auto;
+  flex: none;
   background: var(--sys-bg-secondary, rgba(0,0,0,0.03));
   border: none;
   border-radius: 8px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   font-size: 14px;
   color: var(--text-primary);
   outline: none;
@@ -249,7 +379,8 @@ const handleSubmit = () => {
 }
 
 .modal-footer {
-  padding: 0 20px 20px;
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.03));
 }
 
 .submit-btn {
@@ -258,7 +389,7 @@ const handleSubmit = () => {
   color: white;
   border: none;
   border-radius: 8px;
-  padding: 14px 0;
+  padding: 12px 0;
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
@@ -270,5 +401,53 @@ const handleSubmit = () => {
 }
 .submit-btn:not(:disabled):active {
   opacity: 0.9;
+}
+
+.password-verification {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: slideUp 0.2s ease;
+}
+
+.password-input {
+  text-align: center;
+  letter-spacing: 4px;
+  font-size: 20px;
+}
+
+.error-text {
+  color: #f44336;
+  font-size: 12px;
+  text-align: center;
+}
+
+.password-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.cancel-btn, .verify-btn {
+  flex: 1;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancel-btn {
+  background: var(--sys-bg-secondary, rgba(0,0,0,0.05));
+  color: var(--text-secondary);
+}
+
+.verify-btn {
+  background: #f44336;
+  color: white;
+}
+.verify-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

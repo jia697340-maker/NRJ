@@ -27,10 +27,8 @@
   bottom: -5%;
   width: 80%;
   height: 80%;
-  background-image: url('https://img.baibai.cv/f/BpZaFX/natalie-kinnear-01o_HP0wu_E-unsplash.jpg');
-  background-size: contain;
-  background-position: bottom right;
-  background-repeat: no-repeat;
+  object-fit: contain;
+  object-position: bottom right;
   pointer-events: none;
   z-index: 0;
   /* 褪色做旧调色 */

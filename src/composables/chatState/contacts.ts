@@ -5,6 +5,7 @@ import { mockChats, customGroups, avatarStore } from './state'
 import { reconcilePresence } from '../../services/presenceLifecycle'
 import { normalizeChatTransfers } from '../../services/transferLifecycle'
 import { normalizeSocialProfile } from '../../services/characterSocialProfile'
+import { getCharacterDirectoryEntry, registerAccountContactsInDirectory } from '../../services/characterDirectory'
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -20,6 +21,9 @@ export const loadCustomContacts = async () => {
   const savedStr = localStorage.getItem(contactsKey)
   const savedContacts = savedStr ? JSON.parse(savedStr) : []
   let didMigrateUserProfiles = false
+  if (currentChatUserId.value && registerAccountContactsInDirectory(savedContacts, currentChatUserId.value)) {
+    didMigrateUserProfiles = true
+  }
   savedContacts.forEach((contact: any) => {
     if (normalizeChatUserProfileState(contact)) didMigrateUserProfiles = true
     if (normalizeChatTransfers(contact)) didMigrateUserProfiles = true
@@ -80,6 +84,8 @@ export const loadCustomContacts = async () => {
 
     customChats.push({
       id: c.id,
+      characterEntityId: c.characterEntityId || String(c.id),
+      contactState: c.contactState || 'friend',
       name: c.remark || c.name,
       realName: c.name,
       remark: c.remark,
@@ -282,7 +288,7 @@ export const deleteChats = async (ids: (string | number)[]) => {
     const toDeleteContacts = contacts.filter((c: any) => idsToDelete.includes(c.id))
     
     for (const c of toDeleteContacts) {
-      if (c.avatarKey) {
+      if (c.avatarKey && !getCharacterDirectoryEntry(String(c.characterEntityId || c.id))) {
         await avatarStore.removeItem(c.avatarKey)
       }
     }

@@ -20,10 +20,16 @@ const regForm = ref({
   name: '',
   accountId: '',
   avatarUrl: '',
-  persona: ''
+  persona: '',
+  purpose: 'primary' as 'primary' | 'alternate' | 'persona',
+  linkedAccountIds: [] as string[]
 })
+const copyLinkedProfile = ref(false)
 
 const avatarModalVisible = ref(false)
+const accountIdTaken = computed(() => chatAccounts.value.some(account => (
+  account.accountId.toLowerCase() === regForm.value.accountId.trim().toLowerCase()
+)))
 
 // 删除确认弹窗状态
 const deleteConfirmVisible = ref(false)
@@ -87,8 +93,11 @@ const startRegister = () => {
     name: '',
     accountId: '',
     avatarUrl: '',
-    persona: ''
+    persona: '',
+    purpose: chatAccounts.value.length ? 'alternate' : 'primary',
+    linkedAccountIds: []
   }
+  copyLinkedProfile.value = false
   isManaging.value = false
   selectedAccounts.value.clear()
 }
@@ -98,13 +107,41 @@ const handleAvatarSaved = (url: string | null) => {
 }
 
 const nextStep = () => {
-  if (!regForm.value.name || !regForm.value.accountId) return
+  if (!regForm.value.name || !regForm.value.accountId || accountIdTaken.value) return
   registerStep.value = 2
 }
 
 const finishRegister = () => {
-  register(regForm.value)
+  if (!register(regForm.value)) return
   emit('login-success')
+}
+
+const setAccountPurpose = (purpose: 'alternate' | 'persona') => {
+  regForm.value.purpose = purpose
+  if (purpose === 'persona') {
+    regForm.value.linkedAccountIds = []
+    copyLinkedProfile.value = false
+  }
+}
+
+const selectLinkedAccount = (id: string) => {
+  regForm.value.linkedAccountIds = regForm.value.linkedAccountIds.includes(id) ? [] : [id]
+  const source = chatAccounts.value.find(account => account.id === id)
+  if (source && copyLinkedProfile.value) {
+    regForm.value.name = source.name
+    regForm.value.avatarUrl = source.avatarUrl
+    regForm.value.persona = source.persona
+  }
+}
+
+const toggleCopyLinkedProfile = () => {
+  copyLinkedProfile.value = !copyLinkedProfile.value
+  const source = chatAccounts.value.find(account => regForm.value.linkedAccountIds.includes(account.id))
+  if (source && copyLinkedProfile.value) {
+    regForm.value.name = source.name
+    regForm.value.avatarUrl = source.avatarUrl
+    regForm.value.persona = source.persona
+  }
 }
 
 const skipPersona = () => {
@@ -233,6 +270,23 @@ const handleBack = () => {
       <!-- 注册 - 第一步：基础信息 -->
       <template v-else-if="registerStep === 1">
         <div class="register-form">
+          <section v-if="chatAccounts.length" class="account-purpose-section">
+            <div class="purpose-heading"><strong>这个账号用于</strong><span>之后仍可在账号资料中查看</span></div>
+            <div class="purpose-options">
+              <button type="button" :class="{ active: regForm.purpose === 'alternate' }" @click="setAccountPurpose('alternate')"><strong>另一个账号</strong><span>大小号独立相处，可选择私密关联</span></button>
+              <button type="button" :class="{ active: regForm.purpose === 'persona' }" @click="setAccountPurpose('persona')"><strong>全新人设身份</strong><span>从陌生人开始，不关联旧身份</span></button>
+            </div>
+            <template v-if="regForm.purpose === 'alternate'">
+              <div class="linked-account-label">关联到哪个已有账号（可选）</div>
+              <div class="linked-account-options">
+                <button v-for="account in chatAccounts" :key="account.id" type="button" :class="{ selected: regForm.linkedAccountIds.includes(account.id) }" @click="selectLinkedAccount(account.id)">
+                  <span class="linked-avatar" :style="account.avatarUrl ? { backgroundImage: `url(${account.avatarUrl})` } : {}">{{ account.avatarUrl ? '' : account.name.charAt(0) }}</span><span><strong>{{ account.name }}</strong><small>ID：{{ account.accountId }}</small></span>
+                </button>
+              </div>
+              <button v-if="regForm.linkedAccountIds.length" type="button" class="copy-profile-row" :class="{ checked: copyLinkedProfile }" @click="toggleCopyLinkedProfile"><span class="copy-check"><svg v-if="copyLinkedProfile" viewBox="0 0 24 24"><path d="m5 12 4 4L19 7"/></svg></span><span><strong>复制基础资料</strong><small>复制网名、头像和人设，不复制联系人与关系</small></span></button>
+            </template>
+          </section>
+
           <div class="avatar-upload" @click="avatarModalVisible = true">
             <div class="avatar-preview" :style="regForm.avatarUrl ? { backgroundImage: `url(${regForm.avatarUrl})` } : {}">
               <svg v-if="!regForm.avatarUrl" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
@@ -259,9 +313,10 @@ const handleBack = () => {
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
               </div>
             </div>
+            <small v-if="accountIdTaken" class="input-error">这个聊天 ID 已被使用</small>
           </div>
 
-          <button class="hero-btn" :disabled="!regForm.name || !regForm.accountId" @click="nextStep">下一步</button>
+          <button class="hero-btn" :disabled="!regForm.name || !regForm.accountId || accountIdTaken" @click="nextStep">下一步</button>
         </div>
       </template>
 
@@ -825,4 +880,6 @@ const handleBack = () => {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
+.register-form{width:100%;min-width:0}.account-purpose-section{box-sizing:border-box;width:100%;min-width:0}.purpose-heading span{max-width:52%;min-width:0;text-align:right;white-space:normal}.purpose-options{grid-template-columns:repeat(2,minmax(0,1fr))}.purpose-options button{min-width:0}
+.account-purpose-section{display:flex;flex-direction:column;gap:10px;margin-bottom:22px;padding:14px;border:1px solid rgba(0,0,0,.05);border-radius:16px;background:rgba(255,255,255,.68)}.purpose-heading{display:flex;align-items:center;justify-content:space-between}.purpose-heading strong{font-size:13px;color:var(--auth-text-main)}.purpose-heading span,.linked-account-label{font-size:10px;color:var(--auth-text-sub)}.purpose-options{display:grid;grid-template-columns:1fr 1fr;gap:8px}.purpose-options button{display:flex;min-height:68px;padding:11px;border:1px solid transparent;border-radius:12px;background:rgba(245,245,247,.9);color:var(--auth-text-main);text-align:left;flex-direction:column;gap:5px}.purpose-options button.active{border-color:var(--auth-primary);background:rgba(255,255,255,.98);box-shadow:0 4px 12px rgba(0,0,0,.035)}.purpose-options strong{font-size:12px}.purpose-options span{font-size:9px;line-height:1.45;color:var(--auth-text-sub)}.linked-account-label{margin-top:2px}.linked-account-options{display:flex;gap:7px;overflow-x:auto;padding-bottom:2px}.linked-account-options>button{display:flex;align-items:center;gap:8px;min-width:145px;padding:8px;border:1px solid transparent;border-radius:11px;background:rgba(245,245,247,.9);color:var(--auth-text-main);text-align:left}.linked-account-options>button.selected{border-color:var(--auth-primary);background:#fff}.linked-avatar{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:var(--auth-bg-soft) center/cover;font-size:11px;font-weight:700}.linked-account-options button>span:last-child,.copy-profile-row>span:last-child{display:flex;min-width:0;flex-direction:column;gap:3px}.linked-account-options strong,.copy-profile-row strong{overflow:hidden;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.linked-account-options small,.copy-profile-row small{font-size:8px;color:var(--auth-text-sub)}.copy-profile-row{display:flex;align-items:center;gap:9px;width:100%;padding:9px;border:0;border-radius:11px;background:rgba(245,245,247,.9);color:var(--auth-text-main);text-align:left}.copy-check{display:grid;place-items:center;flex:0 0 20px;width:20px;height:20px;border:1px solid #ccd0d5;border-radius:6px;background:#fff}.copy-profile-row.checked .copy-check{border-color:var(--auth-primary);background:var(--auth-primary);color:#fff}.copy-check svg{width:14px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round}.input-error{display:block;margin-top:6px;color:#d75a60;font-size:10px}@media(max-width:430px){.purpose-options{grid-template-columns:1fr}.account-purpose-section{padding:12px}}
 </style>

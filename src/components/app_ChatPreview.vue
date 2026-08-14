@@ -16,6 +16,7 @@ import CharacterAutonomyView from './chat/CharacterAutonomyView.vue'
 import ChatAuthView from './chat/ChatAuthView.vue'
 import { useChatState } from '../composables/useChatState'
 import { useChatAuth } from '../composables/useChatAuth'
+import { createDirectoryCandidate, type CharacterDirectoryEntry } from '../services/characterDirectory'
 import { useChatSettingsSave } from '../composables/useChatSettingsSave'
 import { processDueRelationshipTimers } from '../composables/useChatRelationship'
 import { useRelationshipAdvance } from '../composables/useRelationshipAdvance'
@@ -284,6 +285,23 @@ const openCharacterProfile = (backView: ViewType = currentView.value) => {
   currentView.value = 'characterProfile'
 }
 
+const openContactProfile = (chat: any) => {
+  if (!chat) return
+  selectedChat.value = chat
+  characterProfileBackView.value = 'contacts'
+  currentView.value = 'characterProfile'
+}
+
+const openDirectoryCharacter = async (entry: CharacterDirectoryEntry) => {
+  createDirectoryCandidate(entry)
+  await loadCustomContacts()
+  const chat = mockChats.value.find(item => String(item.characterEntityId || item.id) === entry.entityId)
+  if (!chat) return
+  selectedChat.value = chat
+  characterProfileBackView.value = 'contacts'
+  currentView.value = 'characterProfile'
+}
+
 const handleOfflineMeetBack = () => {
   currentView.value = 'chat'
 }
@@ -458,6 +476,15 @@ const handleLoginSuccess = async () => {
   await loadCustomContacts()
 }
 
+const handleAccountSwitched = async () => {
+  hasOpenedChat.value = false
+  selectedChat.value = null
+  currentView.value = 'list'
+  activeTab.value = '消息'
+  await loadMyProfile()
+  await loadCustomContacts()
+}
+
 onMounted(async () => {
   initGlobalCallWidgetPosition()
   window.addEventListener('resize', initGlobalCallWidgetPosition)
@@ -514,6 +541,7 @@ onUnmounted(() => {
       @close="emit('close')" 
       @open-create-contact="openCreateContact"
       @open-chat="openChat"
+      @account-switched="handleAccountSwitched"
     />
 
     <!-- 2. 聊天视图 -->
@@ -569,7 +597,7 @@ onUnmounted(() => {
     <AppChatDiscover v-if="currentView === 'discover'" />
 
     <!-- 5. 联系人视图 -->
-    <AppChatContacts v-if="currentView === 'contacts'" @close="emit('close')" @open-friend-requests="currentView = 'friendRequests'" />
+    <AppChatContacts v-if="currentView === 'contacts'" @close="emit('close')" @open-friend-requests="currentView = 'friendRequests'" @open-directory-character="openDirectoryCharacter" @open-character-profile="openContactProfile" />
 
     <ChatFriendRequestsView
       v-if="currentView === 'friendRequests'"

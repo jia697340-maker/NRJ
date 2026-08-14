@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { useChatState } from './useChatState'
 import { useChatAuth } from './useChatAuth'
+import { isDirectoryOwner, saveCharacterDirectoryProfile } from '../services/characterDirectory'
 
 export function useChatSettingsSave() {
   const { selectedChat, myProfile, mockChats } = useChatState()
@@ -18,6 +19,9 @@ export function useChatSettingsSave() {
         contacts[idx].remark = selectedChat.value.remark
         contacts[idx].persona = selectedChat.value.persona
         contacts[idx].socialProfile = selectedChat.value.socialProfile || null
+        if (isDirectoryOwner(String(selectedChat.value.characterEntityId || selectedChat.value.id))) {
+          saveCharacterDirectoryProfile(selectedChat.value)
+        }
         contacts[idx].userProfile = selectedChat.value.userProfile || null
         contacts[idx].userProfileSource = selectedChat.value.userProfileSource || null
         contacts[idx].boundWorldBooks = selectedChat.value.boundWorldBooks || []

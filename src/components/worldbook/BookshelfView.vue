@@ -69,7 +69,9 @@ const getCoverTitle = (title?: string) => {
   <div class="view shelf-view">
     <!-- Hero Section with Arch Photo -->
     <div class="hero-section">
-      <div class="hero-arch" @click="emit('exitApp')" style="cursor: pointer;"></div>
+      <div class="hero-arch" @click="emit('exitApp')" style="cursor: pointer;">
+        <img src="/dove.jpg" class="hero-img-inner" alt="" />
+      </div>
       <div class="hero-content">
         <div class="quote">“我相信你的爱。”让这句话做我的最后的话。</div>
         <div class="author">—— Let this be my last word, that I trust in thy love.</div>
@@ -119,7 +121,9 @@ const getCoverTitle = (title?: string) => {
           <!-- 实体书书脊阴影 -->
           <div class="book-spine-shadow"></div>
           
-          <div v-if="bookCovers[item.id]" class="book-cover custom-cover" :style="{ backgroundImage: `url(${bookCovers[item.id]})` }"></div>
+          <div v-if="bookCovers[item.id]" class="book-cover custom-cover">
+            <img :src="bookCovers[item.id]" class="cover-img-inner" alt="" />
+          </div>
           <div v-else class="book-cover default-cover" :class="getDefaultCoverClass(index)">
             <!-- 雅致的内边框 -->
             <div class="cover-inner-border"></div>
@@ -170,10 +174,14 @@ const getCoverTitle = (title?: string) => {
 .hero-arch {
   width: 80px; height: 110px; flex-shrink: 0;
   border-radius: 40px 40px 0 0;
-  background-image: url('/dove.jpg');
-  background-size: cover; background-position: center 30%;
+  overflow: hidden;
   box-shadow: inset 0 0 0 1px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.05);
   position: relative;
+}
+.hero-img-inner {
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: center 30%;
+  display: block;
 }
 .hero-content {
   display: flex; flex-direction: column; justify-content: center;
@@ -258,7 +266,12 @@ const getCoverTitle = (title?: string) => {
 }
 
 .custom-cover {
-  background-size: cover; background-position: center;
+  overflow: hidden;
+}
+.cover-img-inner {
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: center;
+  display: block;
 }
 
 .default-cover {

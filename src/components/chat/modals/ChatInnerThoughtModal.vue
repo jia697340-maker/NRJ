@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useChatState } from '../../../composables/useChatState'
 import { useChatSettingsSave } from '../../../composables/useChatSettingsSave'
 import TextEditModal from '../../TextEditModal.vue'
+import LongTextEditModal from '../../LongTextEditModal.vue'
 
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -219,7 +220,7 @@ watch(() => props.visible, (visible) => {
   />
 
   <!-- 内容编辑弹窗 -->
-  <TextEditModal
+  <LongTextEditModal
     v-if="selectedChat && currentThought"
     v-model:visible="showContentEditModal"
     title="编辑心声"
@@ -263,8 +264,8 @@ watch(() => props.visible, (visible) => {
   flex-direction: column;
   overflow: hidden; /* 恢复日记本卡片内部溢出隐藏，避免影响滚动和背景 */
   background: #fff;
-  border-radius: 0;
-  box-shadow: 0 16px 42px rgba(0, 0, 0, .22);
+  border-radius: 4px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .22), inset 0 0 1px 1px rgba(0, 0, 0, 0.05);
 }
 
 /* 提取到最外层的头像样式，利用绝对定位破除任何容器束缚 */

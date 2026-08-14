@@ -4,7 +4,7 @@ import { useChatAuth } from './useChatAuth'
 import { mockChats } from './chatState/state'
 import { ensureMemoryState } from '../services/memoryEngine'
 
-export type FriendshipStatus = 'friends' | 'deleted_by_user' | 'deleted_by_character'
+export type FriendshipStatus = 'friends' | 'strangers' | 'deleted_by_user' | 'deleted_by_character'
 export type BlockedBy = 'none' | 'user' | 'character'
 export type RequestStatus = 'scheduled' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'superseded'
 export type RequestDirection = 'character_to_user' | 'user_to_character'
@@ -58,6 +58,7 @@ export interface ChatRelationship {
   undeliveredUserMessages: Array<{ id: number; content: string; createdAt: number }>
   requests: FriendRequestRecord[]
   events: RelationshipEvent[]
+  disclosedLinkedAccountIds: string[]
   plan: RelationshipPlan
 }
 
@@ -71,6 +72,7 @@ export const createDefaultRelationship = (): ChatRelationship => ({
   undeliveredUserMessages: [],
   requests: [],
   events: [],
+  disclosedLinkedAccountIds: [],
   plan: { action: 'none', summary: '目前没有新的打算', visibility: 'exact', status: 'completed' }
 })
 
@@ -80,6 +82,7 @@ export const ensureRelationship = (chat: any): ChatRelationship => {
   chat.relationship.undeliveredUserMessages ||= []
   chat.relationship.requests ||= []
   chat.relationship.events ||= []
+  chat.relationship.disclosedLinkedAccountIds ||= []
   chat.relationship.plan ||= createDefaultRelationship().plan
   chat.relationship.stateChangedAt ||= chat.relationship.changedAt || Date.now()
   chat.relationship.lastEventAt ||= chat.relationship.changedAt || Date.now()
@@ -101,6 +104,7 @@ export const persistRelationship = (chat: any) => {
   const index = contacts.findIndex((item: any) => item.id === chat.id)
   if (index === -1) return
   contacts[index].relationship = JSON.parse(JSON.stringify(ensureRelationship(chat)))
+  contacts[index].contactState = ensureRelationship(chat).friendship === 'friends' ? 'friend' : (contacts[index].contactState || 'candidate')
   if (chat.memoryState !== undefined) contacts[index].memoryState = JSON.parse(JSON.stringify(chat.memoryState))
   if (Array.isArray(chat.messages)) contacts[index].messages = chat.messages
   if (chat.preview !== undefined) contacts[index].preview = chat.preview
@@ -215,6 +219,7 @@ export const deleteFriendByCharacter = (chat: any, detail = '') => {
 export const restoreFriendship = (chat: any, actor: 'user' | 'character') => {
   const relationship = ensureRelationship(chat)
   relationship.friendship = 'friends'
+  chat.contactState = 'friend'
   relationship.requests.forEach(request => {
     if (request.status === 'scheduled' || request.status === 'pending' || request.status === 'viewed') request.status = 'superseded'
   })

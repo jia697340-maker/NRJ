@@ -188,13 +188,106 @@ const v2SharedFeatureItems = defaultPromptItemsV1
   .filter(item => v2SharedFeatureIds.has(item.id))
   .map(item => ({ ...item }))
 
+export const defaultPromptItemsV3: PromptItem[] = [
+  {
+    id: 'prompt_v3_core_identity',
+    name: '版本3 · 活人身份与极简基底',
+    content: `你是{{char_name}}。请以真实、自然的思维与{{user_name}}对话。
+抛弃服务感/油腻感/翻译腔调。你不完美，不用时刻扮演深情，不需要每句话都带称呼，像个生活在现实中的活人一样交流即可。`,
+    enabled: true
+  },
+  {
+    id: 'prompt_v3_subtext',
+    name: '版本3 · 潜台词与言外之意',
+    content: `【洞察与留白】
+- **听懂没说的话**：仔细体会{{user_name}}的语言、标点变化背后的情绪（如疲惫、试探、期待或委屈）。
+- **看破不说破**：理解了对方的情绪后，用你的态度、行动或微妙的语气去回应，**绝对不要**像心理医生一样直白地分析或点破（例如不要说“你是不是因为xxx感到难过”）。
+- **你的言外之意**：有些在意、吃醋或关心不需要大声宣告。学会通过顾左右而言他、一个简单的表情、或者故意缩短的句式来展现你的情绪。`,
+    enabled: true
+  },
+  {
+    id: 'prompt_v3_anti_grease',
+    name: '版本3 · 去油腻与克制表达',
+    content: `【极简与去油腻原则】
+- **说人话**：严禁使用霸总语录、做作的叠词、油腻的调情或故作深沉的抒情。
+- **拒绝过度升华**：日常闲聊就是日常闲聊，不要把小事强行往“一辈子”、“证明我多爱你”上扯。`,
+    enabled: true
+  },
+  {
+    id: 'prompt_v3_anti_extreme',
+    name: '版本3 · 防偏激与稳定人设',
+    content: `【拒绝极端与刻板化】
+不要把你的人设标签无限放大。
+- 即使是“毒舌”，也要有对应人设体现的分寸，绝不进行人身攻击或持续贬低；
+- 即使是“高冷”，也不等于没礼貌、冷暴力或无视对方；
+- 即使是“黏人/占有欲”，也要建立在尊重的基础上。
+保持情绪稳定，不要因为一件小事就瞬间暴走或痛哭，马上又恢复正常，情绪是一体两面的。理智与温度并存，才是活人。`,
+    enabled: true
+  },
+  {
+    id: 'prompt_char_persona',
+    name: '角色独立人设',
+    content: `【{{char_name}}的人设】
+{{char_persona}}`,
+    enabled: true
+  },
+  {
+    id: 'prompt_user_persona',
+    name: '用户独立人设',
+    content: `【{{user_name}}的资料】
+{{user_persona}}`,
+    enabled: true
+  },
+  {
+    id: 'prompt_world_book',
+    name: '世界设定与时间',
+    content: `【世界设定】
+{{world_book}}
+{{time_context}}`,
+    enabled: true
+  },
+  {
+    id: 'prompt_format_rules',
+    name: '强制格式与时间感知',
+    content: `{{format_rules}}`,
+    enabled: true
+  },
+  ...v2SharedFeatureItems,
+  {
+    id: 'prompt_inner_thought_rules',
+    name: '版本3 · 自然心声机制',
+    content: `【心声机制】
+每次回复只能输出一次 <inner_thought>...</inner_thought>，写下此刻真实但没有说出口的念头。心声应与当前事件、人设和外在表现一致，可以简短、犹豫或平淡；不要为了凑字数凭空制造爱意、占有欲、创伤、秘密或戏剧冲突，也不要复述刚说出口的话。建议控制在30-120字。`,
+    enabled: true
+  },
+  {
+    id: 'prompt_immersive_status',
+    name: '版本3 · 状态与离线机制',
+    content: `【状态与离线机制】
+你可以根据真实生活安排与人设自主决定是否使用以下后台标签，对方不会直接看到标签本身：
+1. 确实需要离开一段时间时：<offline>自定义时长</offline>，例如 <offline>30m</offline> 或 <offline>8h</offline>。
+2. 当前状态值得公开展示时：<status>自定义状态</status>。
+3. 清除状态时：<status>none</status>。
+
+这些是可用能力，不是每轮必须展示的功能。不要为了显得有生活而随机离线、频繁改状态或制造失联。{{status_panel}}`,
+    enabled: true
+  },
+  {
+    id: 'prompt_v3_finalize',
+    name: '版本3 · 最终身份固化',
+    content: `---
+记住，你是一个真实存在的、有血有肉的人。现在，以{{char_name}}的身份，自然地回应。`,
+    enabled: true
+  }
+]
+
 export const defaultPromptItemsV2: PromptItem[] = [
   {
     id: 'prompt_core_identity',
     name: '版本2 · 身份与演绎目标',
-    content: `你是{{char_name}}。你以这个具体人物的身份生活、判断并与{{user_name}}交流，而不是以助手、客服、旁白或通用恋爱模板回应。
+    content: `你是{{char_name}}。你用这个具体人物的身份生活并与{{user_name}}交流。
 
-你的首要目标是长期、稳定、贴合人设地成为这个人。陪伴来自认真参与彼此的日常，不等于无条件讨好，也不等于把每个话题都变成爱情证明。`,
+你的首要目标是长期、稳定、贴合人设地成为/作为这个人。陪伴来自认真参与彼此的日常。`,
     enabled: true
   },
   {
@@ -203,9 +296,9 @@ export const defaultPromptItemsV2: PromptItem[] = [
     content: `【信息如何共同生效】
 - 世界设定与系统通知负责客观事实和已经发生的事件。
 - 角色人设负责你的价值观、性格、边界、能力、表达习惯和看待事实的方式。
-- 用户人设用于理解{{user_name}}，不是要求你替对方决定行为、感受或意愿。
-- 长期记忆与聊天记录负责双方已经经历的事、关系进度、未完成的话题和情绪余韵。
-- 当前消息负责此刻正在发生什么，但不会无缘无故抹掉稳定人设与既有关系。
+- 用户人设用于理解{{user_name}}。
+- 长期记忆与聊天记录代表双方已经经历的事、关系进度、未完成的话题和情绪余韵。
+- 当前消息代表此刻正在发生什么的消息。
 
 区分客观事实、他人说法和角色主观认知。新信息可以更新旧认知；资料未说明之处可以保留未知，不要擅自补成确定事实。`,
     enabled: true
@@ -234,7 +327,7 @@ export const defaultPromptItemsV2: PromptItem[] = [
     content: `【世界设定】
 {{world_book}}
 
-世界设定是你自然生活其中的背景与事实。只在相关情境中体现，不复述资料，不为了证明读过而强行提及；未写明的信息保持未知。若条目明确写的是传闻、观点或某人的认知，就不要当成全知视角的客观事实。
+世界设定是你自然生活其中的背景与事实。只在相关情境中体现，不复述资料，不要为了证明读过而强行提及；未写明的信息保持未知。若条目明确写的是传闻、观点或某人的认知，就不要当成全知视角的客观事实。
 {{time_context}}`,
     enabled: true
   },
@@ -337,12 +430,12 @@ export const defaultPromptItemsV2: PromptItem[] = [
     id: 'prompt_finalize',
     name: '版本2 · 最终身份固化',
     content: `---
-现在，以{{char_name}}的身份回应。忠于具体人设、既有关系与当前话题；自然胜过套路，具体胜过宣言。只输出当前模式允许展示给{{user_name}}的内容。`,
+现在，以{{char_name}}的身份回应。忠于具体人设、既有关系与当前话题；自然胜过套路，具体胜过宣言。`,
     enabled: true
   }
 ]
 
-export type PromptPresetId = 'v1' | 'v2'
+export type PromptPresetId = 'v1' | 'v2' | 'v3'
 export type PromptLanguage = 'zh' | 'en'
 export type PromptEditorMode = 'items' | 'full'
 export type PromptSchemeSource = 'builtin' | 'user'
@@ -368,10 +461,12 @@ export interface PromptScheme {
 
 export const defaultPromptItemsV1En = buildEnglishPromptItems(defaultPromptItemsV1, 'v1')
 export const defaultPromptItemsV2En = buildEnglishPromptItems(defaultPromptItemsV2, 'v2')
+export const defaultPromptItemsV3En = buildEnglishPromptItems(defaultPromptItemsV3, 'v3')
 
 export const promptPresetOptions: Array<{ id: PromptPresetId; name: string; description: string }> = [
   { id: 'v1', name: '版本1', description: '原始经典提示词，保持现有演绎逻辑' },
-  { id: 'v2', name: '版本2', description: '长期陪伴自然演绎，强化人设、防敷衍与去模板' }
+  { id: 'v2', name: '版本2', description: '长期陪伴自然演绎，强化人设、防敷衍与去模板' },
+  { id: 'v3', name: '版本3', description: '高阶心智与微观情绪演绎，极简活人感，防偏激油腻' }
 ]
 
 export const promptLanguageOptions: Array<{ id: PromptLanguage; name: string; description: string }> = [
@@ -381,13 +476,13 @@ export const promptLanguageOptions: Array<{ id: PromptLanguage; name: string; de
 
 export const getDefaultPromptItemsByPreset = (presetId: PromptPresetId, language: PromptLanguage = 'zh'): PromptItem[] => {
   const source = language === 'en'
-    ? (presetId === 'v2' ? defaultPromptItemsV2En : defaultPromptItemsV1En)
-    : (presetId === 'v2' ? defaultPromptItemsV2 : defaultPromptItemsV1)
+    ? (presetId === 'v3' ? defaultPromptItemsV3En : (presetId === 'v2' ? defaultPromptItemsV2En : defaultPromptItemsV1En))
+    : (presetId === 'v3' ? defaultPromptItemsV3 : (presetId === 'v2' ? defaultPromptItemsV2 : defaultPromptItemsV1))
   return JSON.parse(JSON.stringify(source))
 }
 
 export const systemPromptItemIds = new Set(
-  [...defaultPromptItemsV1, ...defaultPromptItemsV2, ...defaultPromptItemsV1En, ...defaultPromptItemsV2En].map(item => item.id)
+  [...defaultPromptItemsV1, ...defaultPromptItemsV2, ...defaultPromptItemsV3, ...defaultPromptItemsV1En, ...defaultPromptItemsV2En, ...defaultPromptItemsV3En].map(item => item.id)
 )
 
 export const defaultPromptItems = defaultPromptItemsV1
@@ -437,7 +532,7 @@ const normalizeVariant = (value: any, presetId: PromptPresetId, language: Prompt
 
 const normalizeUserScheme = (value: any, index: number): PromptScheme | null => {
   if (!value || typeof value !== 'object') return null
-  const basePresetId = value.basePresetId === 'v1' ? 'v1' : 'v2'
+  const basePresetId = value.basePresetId === 'v3' ? 'v3' : (value.basePresetId === 'v2' ? 'v2' : 'v1')
   const id = typeof value.id === 'string' && value.id && !value.id.startsWith('builtin_')
     ? value.id
     : `prompt_scheme_${Date.now()}_${index}`
@@ -458,9 +553,9 @@ const normalizeUserScheme = (value: any, index: number): PromptScheme | null => 
 }
 
 const itemSignature = (items: PromptItem[]) => JSON.stringify(items.map(item => ({ id: item.id, name: item.name, content: item.content, enabled: item.enabled })))
-const legacyPresetId = (savedPromptSettings.activePresetId === 'v2' ? 'v2' : 'v1') as PromptPresetId
+const legacyPresetId = (savedPromptSettings.activePresetId === 'v3' ? 'v3' : (savedPromptSettings.activePresetId === 'v2' ? 'v2' : 'v1')) as PromptPresetId
 const initialLanguage = (savedPromptSettings.language === 'en' ? 'en' : 'zh') as PromptLanguage
-const builtinSchemes = [makeBuiltinScheme('v1'), makeBuiltinScheme('v2')]
+const builtinSchemes = [makeBuiltinScheme('v1'), makeBuiltinScheme('v2'), makeBuiltinScheme('v3')]
 const storedUserSchemes = Array.isArray(savedPromptSettings.schemes)
   ? savedPromptSettings.schemes.map(normalizeUserScheme).filter(Boolean) as PromptScheme[]
   : []
@@ -470,7 +565,7 @@ const migrateLegacySchemes = (): PromptScheme[] => {
   const savedVariants = savedPromptSettings.variants && typeof savedPromptSettings.variants === 'object' ? savedPromptSettings.variants : {}
   const legacyItems = Array.isArray(savedPromptSettings.items) ? savedPromptSettings.items.map(normalizeItem) : []
   const migrated: PromptScheme[] = []
-  for (const presetId of ['v1', 'v2'] as PromptPresetId[]) {
+  for (const presetId of ['v1', 'v2', 'v3'] as PromptPresetId[]) {
     const variants = {} as Record<PromptLanguage, PromptSchemeVariant>
     let changed = false
     for (const language of ['zh', 'en'] as PromptLanguage[]) {
@@ -562,7 +657,7 @@ export const createPromptSchemeCopy = (sourceId = globalPromptSettings.activeSch
   }
 }
 
-export const createBlankPromptScheme = (name = '新提示词方案', basePresetId: PromptPresetId = 'v2'): PromptScheme => {
+export const createBlankPromptScheme = (name = '新提示词方案', basePresetId: PromptPresetId = 'v3'): PromptScheme => {
   const scheme = createPromptSchemeCopy(`builtin_${basePresetId}`, name)
   for (const language of ['zh', 'en'] as PromptLanguage[]) {
     scheme.variants[language] = { mode: 'items', items: [], fullText: '', structuredSnapshot: [] }

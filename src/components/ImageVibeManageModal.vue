@@ -139,6 +139,26 @@ const handleDeleteImage = async (id: string) => {
 const selectedGroupId = ref<string | null>(null)
 const selectedGroup = computed(() => vibeGroups.value.find(g => g.id === selectedGroupId.value) || null)
 
+const groupFileInput = ref<HTMLInputElement | null>(null)
+
+const handleImportClick = () => {
+  groupFileInput.value?.click()
+}
+
+const handleFileImport = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  if (!target.files || target.files.length === 0) return
+  
+  const file = target.files[0]
+  
+  // TODO: 负责功能的同学，请在此处实现具体的解析与导入逻辑
+  // 注意：发生错误时，绝对不要使用浏览器默认的 alert！
+  // 请复用现成的美化弹窗，如：
+  // handleConfirm('导入失败，请检查文件格式是否正确。', () => {})
+  
+  target.value = ''
+}
+
 const showCreateGroup = ref(false)
 const newGroupName = ref('')
 
@@ -284,6 +304,10 @@ const getImageSrc = (id: string) => {
               <div v-if="!isSelectionMode" class="nav-item" @click="showCreateGroup = true">
                 <div class="nav-item-left" style="color: #111;">+ 新建分组</div>
               </div>
+              <div v-if="!isSelectionMode" class="nav-item" @click="handleImportClick">
+                <div class="nav-item-left" style="color: #111;">+ 导入预设文件</div>
+              </div>
+              <input type="file" ref="groupFileInput" style="display:none" @change="handleFileImport" />
             </div>
 
             <div v-if="showCreateGroup" class="create-group-prompt">

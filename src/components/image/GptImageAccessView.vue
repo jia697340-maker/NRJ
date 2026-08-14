@@ -5,6 +5,8 @@ import { useGptImage, type GptImageFormat, type GptImageModeration, type GptImag
 import { useGptImageHistory } from '../../composables/useGptImageHistory'
 import { useGptImageReference, type GptReferenceGroup } from '../../composables/useGptImageReference'
 
+defineEmits<{ (e: 'back'): void }>()
+
 interface GptApiPreset {
   id: string
   name: string
@@ -292,7 +294,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="gpt-page">
+  <div class="ia-page">
+    <div class="header-minimal">
+      <div class="header-titles">
+        <h1 class="main-title">GPT Image 接入</h1>
+      </div>
+      <button class="back-btn" @click="$emit('back')">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+      </button>
+    </div>
+    <div class="gpt-page">
     <div class="gpt-scroll">
       <section class="card">
         <div class="section-heading">
@@ -571,10 +582,13 @@ onUnmounted(() => {
     <div v-if="selectedPreview" class="overlay preview-overlay" @click="selectedPreview = ''">
       <img :src="selectedPreview" alt="大图预览">
     </div>
+    </div>
   </div>
 </template>
 
+<style scoped src="../app_ImageAccess.css"></style>
 <style scoped>
+.ia-page>.gpt-page{height:auto;flex:1}
 .gpt-page { height: 100%; min-height: 0; color: #1d1d1f; }
 .gpt-scroll { height: 100%; overflow-y: auto; padding: 10px 24px 60px; box-sizing: border-box; }
 .card { max-width: 760px; margin: 0 auto 18px; padding: 22px; border-radius: 22px; background: rgba(255,255,255,.88); box-shadow: 0 12px 40px rgba(43,56,82,.08); border: 1px solid rgba(255,255,255,.8); }

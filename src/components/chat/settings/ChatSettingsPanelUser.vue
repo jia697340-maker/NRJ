@@ -56,6 +56,7 @@ const showCallRecordsView = ref(false)
     <div class="profile-source-hint">
       当前使用：{{ selectedChat?.userProfileSource?.name || '账号人设（自动跟随）' }}
       <span v-if="selectedChat?.userProfileSource?.hasLocalChanges">（当前聊天已修改）</span>
+      <small>更换这里只会调整当前关系里的展示身份，不会清除聊天与记忆；若要完全重新认识，请创建“全新人设身份”账号。</small>
     </div>
 
     <div class="glass-panel" v-show="matchSearch('真名', '备注', '用户人设')">
@@ -207,4 +208,5 @@ const showCallRecordsView = ref(false)
   font-size: 12px;
   text-align: center;
 }
+.profile-source-hint small{display:block;max-width:430px;margin:6px auto 0;font-size:10px;line-height:1.55}
 </style>

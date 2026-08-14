@@ -1,6 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 
-export type SocialCoverStyle = 'dots' | 'grid' | 'stars' | 'plain'
 export type SocialManagementMode = 'readonly' | 'confirm' | 'autonomous'
 
 export type SocialProfilePermissions = {
@@ -29,7 +28,6 @@ export type CharacterSocialProfile = {
   nickname: string
   socialId: string
   signature: string
-  coverStyle: SocialCoverStyle
   awarenessEnabled: boolean
   managementMode: SocialManagementMode
   permissions: SocialProfilePermissions
@@ -51,7 +49,6 @@ export const defaultSocialProfile = (chat?: any): CharacterSocialProfile => ({
   nickname: String(chat?.realName || chat?.name || '').trim(),
   socialId: createSocialId(chat?.id),
   signature: '',
-  coverStyle: 'dots',
   awarenessEnabled: false,
   managementMode: 'readonly',
   permissions: {
@@ -83,7 +80,6 @@ export const normalizeSocialProfile = (chat: any): CharacterSocialProfile => {
     nickname: String(saved.nickname || defaults.nickname).trim(),
     socialId: String(saved.socialId || defaults.socialId).trim(),
     signature: String(saved.signature || ''),
-    coverStyle: ['dots', 'grid', 'stars', 'plain'].includes(saved.coverStyle) ? saved.coverStyle : defaults.coverStyle,
     managementMode: ['readonly', 'confirm', 'autonomous'].includes(saved.managementMode) ? saved.managementMode : defaults.managementMode,
     permissions: { ...defaults.permissions, ...(saved.permissions || {}) },
     generation: {
@@ -104,7 +100,7 @@ export const ensureSocialProfile = (chat: any): CharacterSocialProfile => {
 
 export const applySocialProfilePatch = (
   chat: any,
-  patch: Partial<Pick<CharacterSocialProfile, 'nickname' | 'socialId' | 'signature' | 'coverStyle'>>,
+  patch: Partial<Pick<CharacterSocialProfile, 'nickname' | 'socialId' | 'signature'>>,
   source: SocialProfileChange['source'] = 'user'
 ) => {
   const profile = ensureSocialProfile(chat)
@@ -132,9 +128,9 @@ export const buildSocialProfilePrompt = (chat: any, english = false) => {
   if (!profile.awarenessEnabled) return ''
   const permissions = Object.entries(profile.permissions).filter(([, enabled]) => enabled).map(([key]) => key).join(', ') || 'none'
   if (english) {
-    return `\n\n[Your social profile]\nNickname: ${profile.nickname || chat?.realName || chat?.name}; social ID: ${profile.socialId}; signature: ${profile.signature || '(none)'}; cover: ${profile.coverStyle}. You may remember and naturally refer to this profile. Management mode: ${profile.managementMode}; permitted fields/actions: ${permissions}. In readonly mode, never output profile-management tags. In confirm mode, changes become requests for user review. In autonomous mode, permitted changes may apply directly. To change one field, output <update_social_profile field="nickname|socialId|signature|coverStyle">new value</update_social_profile>; coverStyle must be dots, grid, stars, or plain. To edit your post, output <edit_own_moment id="moment id">new content</edit_own_moment>; to delete it, output <delete_own_moment id="moment id" />. These tags are actions outside chat messages. Do not change profile details mechanically or too often.`
+    return `\n\n[Your social profile]\nNickname: ${profile.nickname || chat?.realName || chat?.name}; social ID: ${profile.socialId}; signature: ${profile.signature || '(none)'}. You may remember and naturally refer to this profile. Management mode: ${profile.managementMode}; permitted fields/actions: ${permissions}. In readonly mode, never output profile-management tags. In confirm mode, changes become requests for user review. In autonomous mode, permitted changes may apply directly. To change one field, output <update_social_profile field="nickname|socialId|signature">new value</update_social_profile>. To edit your post, output <edit_own_moment id="moment id">new content</edit_own_moment>; to delete it, output <delete_own_moment id="moment id" />. These tags are actions outside chat messages. Do not change profile details mechanically or too often.`
   }
-  return `\n\n【你的社交主页】\n网名：${profile.nickname || chat?.realName || chat?.name}；ID：${profile.socialId}；个性签名：${profile.signature || '暂无'}；背景：${profile.coverStyle}。你知道并可以自然记住这些资料。管理模式：${profile.managementMode === 'readonly' ? '只读' : profile.managementMode === 'confirm' ? '修改需用户确认' : '自主管理'}；允许的字段与动作：${permissions}。只读模式下不得输出主页修改标签；需确认模式下修改会进入待确认；自主管理模式下允许的修改可以直接生效。修改单个资料字段时输出 <update_social_profile field="nickname|socialId|signature|coverStyle">新内容</update_social_profile>，背景只能使用 dots、grid、stars、plain。编辑自己的朋友圈输出 <edit_own_moment id="动态ID">新内容</edit_own_moment>；删除输出 <delete_own_moment id="动态ID" />。这些标签是聊天消息之外的操作，不要放进 <msg>。不要机械或频繁修改主页。`
+  return `\n\n【你的社交主页】\n网名：${profile.nickname || chat?.realName || chat?.name}；ID：${profile.socialId}；个性签名：${profile.signature || '暂无'}。你知道并可以自然记住这些资料。管理模式：${profile.managementMode === 'readonly' ? '只读' : profile.managementMode === 'confirm' ? '修改需用户确认' : '自主管理'}；允许的字段与动作：${permissions}。只读模式下不得输出主页修改标签；需确认模式下修改会进入待确认；自主管理模式下允许的修改可以直接生效。修改单个资料字段时输出 <update_social_profile field="nickname|socialId|signature">新内容</update_social_profile>。编辑自己的朋友圈输出 <edit_own_moment id="动态ID">新内容</edit_own_moment>；删除输出 <delete_own_moment id="动态ID" />。这些标签是聊天消息之外的操作，不要放进 <msg>。不要机械或频繁修改主页。`
 }
 
 export const persistSocialProfile = (chat: any) => {

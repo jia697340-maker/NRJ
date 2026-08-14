@@ -14,15 +14,14 @@ const fieldOptions: Array<{ id: SocialGenerationField; title: string; descriptio
   { id: 'nickname', title: '网名', description: '符合角色气质的社交昵称' },
   { id: 'socialId', title: '社交 ID', description: '简洁、稳定且容易辨认' },
   { id: 'signature', title: '个性签名', description: '一句自然、有辨识度的自我表达' },
-  { id: 'coverStyle', title: '背景方案', description: '从现有主题中选择合适风格' },
   { id: 'moments', title: '朋友圈草稿', description: '生成后逐条确认，不会直接发布' }
 ]
 
-const selectedFields = ref<SocialGenerationField[]>(['nickname', 'socialId', 'signature', 'coverStyle', 'moments'])
+const selectedFields = ref<SocialGenerationField[]>(['nickname', 'socialId', 'signature', 'moments'])
 const momentCount = ref(3)
 const includeRecentChat = ref(true)
 const allowChatDetails = ref(false)
-const fieldStates = ref<Record<SocialGenerationField, FieldState>>({ nickname: 'idle', socialId: 'idle', signature: 'idle', coverStyle: 'idle', moments: 'idle' })
+const fieldStates = ref<Record<SocialGenerationField, FieldState>>({ nickname: 'idle', socialId: 'idle', signature: 'idle', moments: 'idle' })
 const fieldErrors = ref<Partial<Record<SocialGenerationField, string>>>({})
 const result = ref<SocialGenerationResult>({})
 const globalError = ref('')
@@ -188,7 +187,6 @@ const applyResult = () => {
                 <p v-if="fieldStates[field] === 'error'">{{ fieldErrors[field] }}</p>
                 <input v-else-if="field === 'nickname' || field === 'socialId'" :value="result[field]" :aria-label="field === 'nickname' ? '生成的网名' : '生成的社交 ID'" @input="updateText(field, ($event.target as HTMLInputElement).value)">
                 <textarea v-else-if="field === 'signature'" :value="result.signature" aria-label="生成的个性签名" @input="updateText('signature', ($event.target as HTMLTextAreaElement).value)"></textarea>
-                <div v-else-if="field === 'coverStyle'" class="social-cover-result"><span :class="`cover-${result.coverStyle}`"></span><b>{{ { dots: '柔和波点', grid: '细线格纹', stars: '静谧星点', plain: '克制纯色' }[result.coverStyle || 'dots'] }}</b></div>
                 <div v-else-if="field === 'moments'" class="social-moment-results">
                   <div v-for="(moment, index) in result.moments" :key="index"><textarea :value="moment" :aria-label="`朋友圈草稿 ${index + 1}`" @input="updateMoment(index, ($event.target as HTMLTextAreaElement).value)"></textarea><button type="button" aria-label="删除这条草稿" @click="removeMoment(index)"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button></div>
                 </div>

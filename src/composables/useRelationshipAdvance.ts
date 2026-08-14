@@ -20,6 +20,7 @@ import {
   type FriendRequestRecord,
   type RelationPlanAction
 } from './useChatRelationship'
+import { useChatAuth } from './useChatAuth'
 
 type AdvanceTrigger =
   | 'user_blocked_character'
@@ -72,11 +73,16 @@ export function useRelationshipAdvance() {
     const relationship = ensureRelationship(chat)
     const elapsedMinutes = Math.max(0, Math.floor((Date.now() - Number(relationship.stateChangedAt || relationship.changedAt)) / 60000))
     const relationshipHistory = formatRecentRelationshipHistory(chat)
+    const disclosedAccounts = (relationship.disclosedLinkedAccountIds || []).map((id: string) => {
+      const account = useChatAuth().chatAccounts.value.find(item => item.id === id)
+      return account ? `${account.name}（ID：${account.accountId}）` : id
+    })
 
     const chinesePrompt = `你正在扮演“${chat.realName || chat.name}”，人物设定如下：\n${chat.persona || '无额外设定'}\n\n` +
       `这是一次好友关系事件，不是普通聊天续写。请按照人物性格自主决定下一步，不要讨好用户，也不要默认一定会复合。\n` +
       `当前好友关系：${relationship.friendship}；拉黑状态：${relationship.blockedBy}；当前状态已经持续约 ${elapsedMinutes} 分钟。\n` +
       (relationshipHistory ? `最近的重要关系经历：\n${relationshipHistory}\n` : '') +
+      (disclosedAccounts.length ? `用户已主动说明这些账号也属于自己：${disclosedAccounts.join('、')}。你可以相信、怀疑或自行决定如何回应，不得读取这些账号的私聊记忆。\n` : '') +
       `本次触发：${trigger}。\n` +
       (relatedRequest ? `相关申请：${relatedRequest.message}；状态：${relatedRequest.status}；拒绝理由：${relatedRequest.rejectionReason || '无'}。\n` : '') +
       `最近对话：\n${recentChatText(chat) || '暂无'}\n\n` +
@@ -89,7 +95,7 @@ export function useRelationshipAdvance() {
       `reconsiderMinutes：如果暂不行动，多少分钟后重新考虑；\n` +
       `visibility：exact、vague、hidden；planSummary：一句话描述后续打算。`
     const prompt = globalPromptSettings.language === 'en'
-      ? `You are portraying “${chat.realName || chat.name}”. Persona:\n${chat.persona || 'No additional persona provided'}\n\nThis is a friendship-state event, not an ordinary chat continuation. Independently choose the next step according to the persona. Do not appease the user or assume reconciliation is inevitable.\nCurrent friendship: ${relationship.friendship}; blocked by: ${relationship.blockedBy}; this state has lasted about ${elapsedMinutes} minutes.\n${relationshipHistory ? `Recent important relationship history:\n${relationshipHistory}\n` : ''}Trigger: ${trigger}.\n${relatedRequest ? `Related request: ${relatedRequest.message}; status: ${relatedRequest.status}; rejection reason: ${relatedRequest.rejectionReason || 'none'}.\n` : ''}Recent conversation:\n${recentChatText(chat) || 'None'}\n\nOutput exactly one JSON object with no Markdown. Natural-language fields must use the conversation's primary language. Fields:\nobservableReaction: a brief externally observable reaction, never analysis;\nmessage: a message the character genuinely attempts to send now, or an empty string;\naction: one of none, send_request, block_user, unblock_user, delete_friend, accept_request, reject_request;\nrequestMessage; rejectionReason;\ndelayMinutes: minutes before executing action, where 0 means immediate;\nreconsiderMinutes: minutes before reconsidering when taking no action now;\nvisibility: exact, vague, or hidden; planSummary: one sentence describing the later intention.`
+      ? `You are portraying “${chat.realName || chat.name}”. Persona:\n${chat.persona || 'No additional persona provided'}\n\nThis is a friendship-state event, not an ordinary chat continuation. Independently choose the next step according to the persona. Do not appease the user or assume reconciliation is inevitable.\nCurrent friendship: ${relationship.friendship}; blocked by: ${relationship.blockedBy}; this state has lasted about ${elapsedMinutes} minutes.\n${relationshipHistory ? `Recent important relationship history:\n${relationshipHistory}\n` : ''}${disclosedAccounts.length ? `The user explicitly disclosed that these accounts are also theirs: ${disclosedAccounts.join(', ')}. You may believe or doubt this, but never read private chat memories from those accounts.\n` : ''}Trigger: ${trigger}.\n${relatedRequest ? `Related request: ${relatedRequest.message}; status: ${relatedRequest.status}; rejection reason: ${relatedRequest.rejectionReason || 'none'}.\n` : ''}Recent conversation:\n${recentChatText(chat) || 'None'}\n\nOutput exactly one JSON object with no Markdown. Natural-language fields must use the conversation's primary language. Fields:\nobservableReaction: a brief externally observable reaction, never analysis;\nmessage: a message the character genuinely attempts to send now, or an empty string;\naction: one of none, send_request, block_user, unblock_user, delete_friend, accept_request, reject_request;\nrequestMessage; rejectionReason;\ndelayMinutes: minutes before executing action, where 0 means immediate;\nreconsiderMinutes: minutes before reconsidering when taking no action now;\nvisibility: exact, vague, or hidden; planSummary: one sentence describing the later intention.`
       : chinesePrompt
 
     try {

@@ -8,6 +8,7 @@ import { useChatAuth } from './useChatAuth'
 import { generateMomentImage } from './useMomentImageGen'
 import { canViewMoment, canPerformMomentAction, recordMomentAction, addMomentNotification, getMomentBehavior } from '../services/moments'
 import { applySocialProfilePatch, ensureSocialProfile, persistSocialProfile } from '../services/characterSocialProfile'
+import { getCharacterDirectoryEntry, isDirectoryOwner, saveCharacterDirectoryProfile } from '../services/characterDirectory'
 import { deleteCharacterMoment, listMomentsByAuthor, updateCharacterMoment } from '../services/momentRepository'
 import { createWalletPayment } from '../services/walletService'
 
@@ -209,6 +210,15 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
       applySocialProfilePatch(selectedChat, { [field]: value }, 'character')
     }
     persistSocialProfile(selectedChat)
+    if (isDirectoryOwner(String(selectedChat.characterEntityId || selectedChat.id))) {
+      try {
+        saveCharacterDirectoryProfile(selectedChat)
+      } catch {
+        const directoryEntry = getCharacterDirectoryEntry(String(selectedChat.characterEntityId || selectedChat.id))
+        if (directoryEntry) selectedChat.socialProfile = JSON.parse(JSON.stringify(directoryEntry.socialProfile))
+        persistSocialProfile(selectedChat)
+      }
+    }
   }
   newContent = newContent.replace(updateProfileRegex, '')
 

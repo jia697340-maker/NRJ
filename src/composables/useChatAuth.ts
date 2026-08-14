@@ -13,6 +13,8 @@ export interface ChatAccount {
   avatarUrl: string
   accountId: string // 聊天ID号
   persona: string // 用户人设
+  purpose?: 'primary' | 'alternate' | 'persona'
+  linkedAccountIds?: string[]
 }
 
 const currentChatUserId = ref<string | null>(localStorage.getItem(AUTH_STORAGE_KEY) || null)
@@ -34,9 +36,24 @@ export function useChatAuth() {
   }
 
   const register = (account: ChatAccount) => {
-    chatAccounts.value.push(account)
+    const normalizedAccountId = account.accountId.trim()
+    if (!normalizedAccountId || chatAccounts.value.some(item => item.accountId.toLowerCase() === normalizedAccountId.toLowerCase())) {
+      return false
+    }
+    const normalizedAccount = {
+      ...account,
+      accountId: normalizedAccountId,
+      purpose: account.purpose || (chatAccounts.value.length ? 'alternate' : 'primary'),
+      linkedAccountIds: Array.from(new Set(account.linkedAccountIds || [])).filter(id => id !== account.id)
+    }
+    chatAccounts.value.push(normalizedAccount)
+    normalizedAccount.linkedAccountIds.forEach(linkedId => {
+      const linked = chatAccounts.value.find(item => item.id === linkedId)
+      if (linked) linked.linkedAccountIds = Array.from(new Set([...(linked.linkedAccountIds || []), normalizedAccount.id]))
+    })
     localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(chatAccounts.value))
     login(account.id)
+    return true
   }
 
   const updateAccount = (id: string, updates: Partial<ChatAccount>) => {
@@ -49,6 +66,9 @@ export function useChatAuth() {
 
   const deleteAccount = (id: string) => {
     chatAccounts.value = chatAccounts.value.filter(a => a.id !== id)
+    chatAccounts.value.forEach(account => {
+      account.linkedAccountIds = (account.linkedAccountIds || []).filter(linkedId => linkedId !== id)
+    })
     localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(chatAccounts.value))
     if (currentChatUserId.value === id) {
       logout()

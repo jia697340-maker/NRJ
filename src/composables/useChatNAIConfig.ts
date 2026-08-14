@@ -30,7 +30,7 @@ export const DEFAULT_LLM_PROMPT_ITEMS = [
     id: 'i4', name: '标签生成结构', enabled: true,
     content: `当你接收到描述时，必须按以下顺序构建提示词，确保AI画图时人设最稳定：
 【Tier 1: 核心、画质与分级】(放在最前, 如 masterpiece, best quality, otome game, nsfw)
-【Tier 2: 镜头与构图】(如 upper body, looking at viewer)
+【Tier 2: 镜头与构图美感创意】(如 upper body, looking at viewer)
 【Tier 3: 角色极致人设】(如 1boy, {beautiful face}, silver hair, dark skin, black suit)
 【Tier 4: 身材细节与手部】(如 {collarbone}, lean muscle, {beautiful hands})
 【Tier 5: 动作表情与互动】(如 kabedon, blush, wet clothes)

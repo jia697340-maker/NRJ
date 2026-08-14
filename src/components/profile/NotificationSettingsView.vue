@@ -172,7 +172,7 @@ export default {
   left: 0;
   width: 100%;
   height: 100%;
-  background: var(--sys-bg-primary, #ffffff);
+  background: #ffffff;
   display: flex;
   flex-direction: column;
   z-index: 100;
@@ -184,7 +184,7 @@ export default {
   display: flex;
   align-items: center;
   padding: 8px 12px;
-  background: #f3f3f3;
+  background: #ffffff;
   border-bottom: 1px solid #e5e5e5;
   padding-top: calc(8px + env(safe-area-inset-top, 40px)); /* 适配刘海屏 */
   gap: 8px;
@@ -268,12 +268,12 @@ export default {
 /* 主体区域 */
 .appearance-main {
   flex: 1;
-  background: var(--sys-bg-primary, #f3f3f3); /* 还原图中的浅灰色背景 */
+  background: #ffffff;
   padding: 24px 16px;
 }
 
 .appearance-settings-list {
-  background: var(--sys-bg-primary, #ffffff); /* 卡片纯白 */
+  background: #ffffff;
   border-radius: 12px;
   padding: 0 16px;
 }

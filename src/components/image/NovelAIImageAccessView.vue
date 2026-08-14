@@ -744,3 +744,5 @@ const resetPrompts = () => {
     </Transition>
   </div>
 </template>
+
+<style scoped src="../app_ImageAccess.css"></style>

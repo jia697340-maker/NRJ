@@ -15,6 +15,8 @@ import {
   type GeminiReferenceKind
 } from '../../composables/useGeminiImageReference'
 
+defineEmits<{ (e: 'back'): void }>()
+
 interface GeminiApiPreset {
   id: string
   name: string
@@ -246,7 +248,16 @@ onUnmounted(() => Object.values(historyImageUrls.value).forEach(url => url.start
 </script>
 
 <template>
-  <div class="gemini-page">
+  <div class="ia-page">
+    <div class="header-minimal">
+      <div class="header-titles">
+        <h1 class="main-title">Gemini Image 接入</h1>
+      </div>
+      <button class="back-btn" @click="$emit('back')">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+      </button>
+    </div>
+    <div class="gemini-page">
     <div class="scroll">
       <section class="card">
         <div class="heading">
@@ -391,9 +402,12 @@ onUnmounted(() => Object.values(historyImageUrls.value).forEach(url => url.start
       <div class="modal small"><h3>保存 Gemini API 预设</h3><input v-model="newPresetName" autofocus placeholder="预设名称" @keyup.enter="confirmSavePreset"><button class="primary" :disabled="!newPresetName.trim()" @click="confirmSavePreset">保存</button></div>
     </div>
     <div v-if="selectedPreview" class="overlay preview" @click="selectedPreview = ''"><img :src="selectedPreview"></div>
+    </div>
   </div>
 </template>
 
+<style scoped src="../app_ImageAccess.css"></style>
 <style scoped>
+.ia-page>.gemini-page{height:auto;flex:1}
 .gemini-page{height:100%;min-height:0;color:#1d1d1f}.scroll{height:100%;overflow-y:auto;padding:10px 24px 60px;box-sizing:border-box}.card{max-width:760px;margin:0 auto 18px;padding:22px;border-radius:22px;background:rgba(255,255,255,.9);box-shadow:0 12px 40px rgba(43,56,82,.08)}h3{margin:0 0 14px;font-size:18px}.heading,.row{display:flex;align-items:center;justify-content:space-between;gap:10px}.heading p,.hint{margin:3px 0;color:#7a7f89;font-size:12px;line-height:1.5}.field{display:flex;flex-direction:column;gap:7px;margin-top:14px;font-size:13px;font-weight:600}input,select,textarea{width:100%;box-sizing:border-box;border:1px solid #e2e5ea;border-radius:12px;padding:11px 12px;background:#f8f9fb;color:#222;font:inherit;outline:none}textarea{resize:vertical;line-height:1.55}.soft-btn,.upload{flex:0 0 auto;border:0;border-radius:11px;padding:10px 14px;background:#eceef0;color:#4c5158;cursor:pointer;font-weight:600}.danger{color:#b23c45;background:#fff0f1}.block{display:block;width:100%;margin:8px 0}.transport-tabs,.tabs{display:flex;padding:4px;border-radius:14px;background:#f0f2f6}.transport-tabs button,.tabs button{flex:1;border:0;padding:10px;border-radius:11px;background:transparent;color:#777;cursor:pointer}.transport-tabs button.active,.tabs button.active{background:#fff;color:#41454b;box-shadow:0 2px 8px #00000012;font-weight:700}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px;padding-top:8px}.full{grid-column:1/-1}.switch-field{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding:12px;border-radius:13px;background:#f7f8fb}.switch-field span{display:flex;flex-direction:column;font-size:13px}.switch-field small,.group-option small{color:#7c818c;font-weight:400}.switch-field input,.group-option input,.check input{width:auto}.reference-panel{padding-top:12px}.group-option{display:flex;gap:10px;align-items:flex-start;margin-top:9px;padding:12px;border-radius:13px;background:#f7f8fb}.group-option span{display:flex;flex-direction:column;gap:3px}.primary{width:100%;margin-top:18px;border:0;border-radius:14px;padding:14px;color:#fff;background:#4d5259;font-weight:700;cursor:pointer}.primary.cancel{background:#6b7077}.primary:disabled{opacity:.45}.error{margin-top:10px;padding:10px 12px;border-radius:10px;background:#fff0f1;color:#c63d48;font-size:12px}.image-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.image-grid article{overflow:hidden;border:1px solid #eceef2;border-radius:14px;background:#fafbfc}.image-grid img{width:100%;aspect-ratio:1;object-fit:cover;display:block;cursor:zoom-in}.image-grid button{width:100%;border:0;padding:9px;color:#555b63;background:transparent;cursor:pointer}.image-grid small{display:block;padding:8px;color:#777}.check{display:flex;gap:5px;padding:8px;font-size:12px}.empty{padding:30px 10px;text-align:center;color:#999;font-size:13px}.overlay{position:fixed;z-index:12000;inset:0;display:grid;place-items:center;padding:18px;background:#1619237a;backdrop-filter:blur(10px)}.modal{width:min(720px,calc(100vw - 36px));max-height:84vh;overflow-y:auto;padding:22px;box-sizing:border-box;border-radius:22px;background:#fff}.modal.wide{width:min(980px,calc(100vw - 36px))}.modal.small{width:min(420px,calc(100vw - 36px))}.close{border:0;background:transparent;font-size:30px;cursor:pointer}.manager{display:grid;grid-template-columns:220px 1fr;gap:18px;margin-top:18px}.manager aside{display:flex;flex-direction:column;gap:8px;padding-right:14px;border-right:1px solid #eceef2}.group-nav{width:100%;border:0;border-radius:10px;padding:10px;text-align:left;background:#f3f4f7;color:#555;cursor:pointer}.group-nav.active{background:#e5e7e9;font-weight:700}.upload{display:inline-block;margin-bottom:10px}.preview img{max-width:95vw;max-height:92vh;object-fit:contain;border-radius:12px}@media(max-width:640px){.scroll{padding:10px 12px 48px}.card{padding:16px}.grid{grid-template-columns:1fr}.image-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.manager{grid-template-columns:1fr}.manager aside{padding-right:0;padding-bottom:12px;border-right:0;border-bottom:1px solid #eceef2}}
 </style>

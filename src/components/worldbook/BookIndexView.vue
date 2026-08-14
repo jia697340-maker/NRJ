@@ -53,15 +53,19 @@ const toggleManageMode = () => {
 <template>
   <div class="view detail-view">
     <div class="detail-bg-blur" 
-          :class="{ 'no-cover-bg': !bookBackgrounds[activeBook.id] && !bookCovers[activeBook.id] }" 
-          :style="{ 
-            backgroundImage: bookBackgrounds[activeBook.id] ? `url(${bookBackgrounds[activeBook.id]})` : (bookCovers[activeBook.id] ? `url(${bookCovers[activeBook.id]})` : ''),
-            filter: `blur(${activeBook.bgBlur ?? 40}px) brightness(1.2)`
-          }"></div>
+          :class="{ 'no-cover-bg': !bookBackgrounds[activeBook.id] && !bookCovers[activeBook.id] }">
+      <img v-if="bookBackgrounds[activeBook.id] || bookCovers[activeBook.id]" 
+           :src="bookBackgrounds[activeBook.id] || bookCovers[activeBook.id]" 
+           class="detail-bg-img-inner"
+           :style="{ filter: `blur(${activeBook.bgBlur ?? 40}px) brightness(1.2)` }"
+           alt="" />
+    </div>
     
     <div class="detail-header">
       <div class="detail-cover-box">
-        <div v-if="bookCovers[activeBook.id]" class="detail-cover-img" :style="{ backgroundImage: `url(${bookCovers[activeBook.id]})` }"></div>
+        <div v-if="bookCovers[activeBook.id]" class="detail-cover-img">
+          <img :src="bookCovers[activeBook.id]" class="detail-cover-img-inner" alt="" />
+        </div>
         <div v-else class="detail-cover-placeholder">无封面</div>
       </div>
       
@@ -166,10 +170,12 @@ const toggleManageMode = () => {
 .detail-view { background: var(--sys-bg-secondary); }
 .detail-bg-blur {
   position: absolute; top: -56px; left: 0; right: 0; height: 350px;
-  background-size: cover; background-position: center;
-  filter: blur(40px) brightness(1.2); z-index: 0; opacity: 0.6;
+  z-index: 0; opacity: 0.6; overflow: hidden;
   mask-image: linear-gradient(to bottom, rgba(255,255,255,1) 30%, rgba(255,255,255,0) 100%);
   -webkit-mask-image: linear-gradient(to bottom, rgba(255,255,255,1) 30%, rgba(255,255,255,0) 100%);
+}
+.detail-bg-img-inner {
+  width: 100%; height: 100%; object-fit: cover; object-position: center; display: block;
 }
 .detail-bg-blur.no-cover-bg {
   background-color: #64748b;
@@ -182,7 +188,8 @@ const toggleManageMode = () => {
   width: 110px; height: 146px; border-radius: 6px; overflow: hidden; flex-shrink: 0;
   box-shadow: 0 8px 24px rgba(0,0,0,0.1); background: var(--sys-bg-primary);
 }
-.detail-cover-img { width: 100%; height: 100%; background-size: cover; background-position: center; }
+.detail-cover-img { width: 100%; height: 100%; overflow: hidden; }
+.detail-cover-img-inner { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
 .detail-cover-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-tertiary); font-size: 12px; }
 
 .clickable { transition: opacity 0.2s; cursor: pointer; border-radius: 8px; margin: -4px; padding: 4px; }
