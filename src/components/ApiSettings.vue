@@ -5,7 +5,14 @@ import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, mom
 import SearchableSelect from './SearchableSelect.vue'
 import TextEditModal from './TextEditModal.vue'
 import ApiPresetManageModal from './ApiPresetManageModal.vue'
+import NewApiImportModal from './NewApiImportModal.vue'
+import NewApiNoticeModal from './NewApiNoticeModal.vue'
+import NewApiNodeStatusCard from './NewApiNodeStatusCard.vue'
 import { parseAdapterResponse, prepareAdapterRequest } from '../services/modelAdapters'
+import {
+  detectNewApiNode,
+  type NewApiDetectionResult
+} from '../services/newApiNode'
 
 const currentTab = ref<'global' | 'summary' | 'vision' | 'moment' | 'embedding' | 'character'>('global')
 
@@ -297,6 +304,114 @@ const togglePassword = () => {
   showPassword.value = !showPassword.value
 }
 
+// --- New API 导入逻辑 ---
+const showNewApiImportModal = ref(false)
+
+const handleOpenNewApiImport = () => {
+  showNewApiImportModal.value = true
+}
+
+const targetNodeName = computed(() => {
+  const map: Record<string, string> = {
+    global: '全局节点',
+    summary: '总结节点',
+    vision: '识图节点',
+    moment: '朋友圈节点',
+    embedding: '向量节点',
+    character: '角色生成节点'
+  }
+  return map[currentTab.value] || '未知节点'
+})
+
+const importedNodeInfo = computed(() => activeSettings.value.newApiNode || null)
+const isRefreshingImportedNode = ref(false)
+
+const handleNewApiDetect = (_data: { baseUrl: string, apiKey: string }) => {}
+
+const handleNewApiConfirm = (result: NewApiDetectionResult) => {
+  const settings = activeSettings.value
+  const { baseUrl, apiKey } = result.credentials
+
+  settings.provider = 'custom'
+  settings.url = baseUrl
+  settings.key = apiKey
+  settings.customUrl = baseUrl
+  settings.customKey = apiKey
+  settings.availableModels = [...result.models]
+  if (!settings.model || !result.models.includes(settings.model)) {
+    settings.model = result.models[0] || ''
+  }
+  settings.newApiNode = { ...result.nodeInfo }
+
+  if (!Array.isArray(settings.presets)) settings.presets = []
+  const existingPreset = settings.presets.find((preset: ApiPreset) => (
+    preset.provider === 'custom' && preset.url === baseUrl && preset.key === apiKey
+  ))
+  const presetData: ApiPreset = {
+    id: existingPreset?.id || `new-api_${Date.now()}`,
+    name: `${result.nodeInfo.systemName} · New API`,
+    provider: 'custom',
+    url: baseUrl,
+    key: apiKey,
+    model: settings.model,
+    customUrl: baseUrl,
+    customKey: apiKey,
+    enableTemperature: settings.enableTemperature,
+    temperature: settings.temperature,
+    enableMaxTokens: settings.enableMaxTokens,
+    maxTokens: settings.maxTokens,
+    enableTopP: settings.enableTopP,
+    topP: settings.topP,
+    enableFrequencyPenalty: settings.enableFrequencyPenalty,
+    frequencyPenalty: settings.frequencyPenalty,
+    enablePresencePenalty: settings.enablePresencePenalty,
+    presencePenalty: settings.presencePenalty,
+    enableStream: settings.enableStream,
+    batchSize: currentTab.value === 'embedding' ? settings.batchSize : undefined
+  }
+
+  if (existingPreset) Object.assign(existingPreset, presetData)
+  else settings.presets.push(presetData)
+  settings.currentPresetId = presetData.id
+}
+
+const handleRefreshImportedNode = async () => {
+  const settings = activeSettings.value
+  if (!settings.newApiNode || !settings.key || isRefreshingImportedNode.value) return
+
+  isRefreshingImportedNode.value = true
+  try {
+    const result = await detectNewApiNode({
+      baseUrl: settings.newApiNode.baseUrl || settings.url,
+      apiKey: settings.key
+    })
+    settings.newApiNode = { ...result.nodeInfo }
+    settings.availableModels = [...result.models]
+    if (!settings.model || !result.models.includes(settings.model)) {
+      settings.model = result.models[0] || ''
+    }
+  } catch (error: any) {
+    settings.newApiNode = {
+      ...settings.newApiNode,
+      connected: false,
+      checkedAt: Date.now(),
+      errorMessage: error?.message || '刷新节点信息失败'
+    }
+  } finally {
+    isRefreshingImportedNode.value = false
+  }
+}
+
+const handleUnbindNode = () => {
+  activeSettings.value.newApiNode = null
+}
+
+const handleNodeDetail = () => {
+  const baseUrl = importedNodeInfo.value?.baseUrl
+  if (!baseUrl) return
+  window.open(`${baseUrl}/console/token`, '_blank', 'noopener,noreferrer')
+}
+
 // --- 真实 API 连通性测试逻辑 ---
 const showTestModal = ref(false)
 const testLoading = ref(false)
@@ -412,9 +527,11 @@ const confirmTest = async () => {
     <div class="content-scroll">
       
       <div class="page-header">
-        <div class="title-wrapper" @click="emit('close')" role="button" title="点击返回">
-          <h1 class="en-title">Destiny</h1>
-          <span class="cn-subtitle">API 节点配置</span>
+        <div class="page-title-group">
+          <div class="title-wrapper" @click="emit('close')" role="button" title="点击返回">
+            <h1 class="en-title">Destiny</h1>
+            <span class="cn-subtitle">API 节点配置</span>
+          </div>
         </div>
 
         <div class="minimal-search" :class="{ 'is-active': searchQuery || isSearchFocused }">
@@ -565,7 +682,7 @@ const confirmTest = async () => {
           <div class="section-desc" v-else>仅接管角色创建、补全与试演。配置不完整时自动回退全局节点，不影响日常聊天。</div>
         </div>
 
-        <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled) || (currentTab === 'moment' && momentApiSettings.enabled) || (currentTab === 'embedding' && embeddingApiSettings.enabled)">
+        <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled) || (currentTab === 'moment' && momentApiSettings.enabled) || (currentTab === 'embedding' && embeddingApiSettings.enabled) || (currentTab === 'character' && characterApiSettings.enabled)">
           
           <!-- 预设方案区域 -->
           <div class="settings-section" v-show="isMatch('预设 方案 管理')">
@@ -647,6 +764,16 @@ const confirmTest = async () => {
                 </div>
               </div>
 
+              <!-- 导入 New API 节点入口按钮 -->
+              <div class="form-row border-none import-btn-row">
+                <div class="form-value full-width">
+                  <button class="import-new-api-btn" type="button" @click="handleOpenNewApiImport">
+                    <span class="cn-text">导入 New API 节点</span>
+                    <span class="en-text">IMPORT NEW API</span>
+                  </button>
+                </div>
+              </div>
+
               <div class="form-row form-row-footer" v-show="isMatch('服务商 接口地址 api密钥 测试 重置')">
                 <div class="footer-actions">
                   <button class="text-action-btn test-btn" @click="handleTestConnectionClick">
@@ -662,6 +789,18 @@ const confirmTest = async () => {
 
             </div>
             <div class="section-desc">您的凭证仅保存在本地设备，确保极致隐私安全。</div>
+
+            <!-- 导入成功后的节点状态卡片 -->
+            <NewApiNodeStatusCard
+              v-if="importedNodeInfo"
+              :dark-mode="globalSettings.darkMode"
+              :node-info="importedNodeInfo"
+              :refreshing="isRefreshingImportedNode"
+              @refresh="handleRefreshImportedNode"
+              @detail="handleNodeDetail"
+              @reimport="handleOpenNewApiImport"
+              @unbind="handleUnbindNode"
+            />
           </div>
 
           <div class="settings-section" v-show="isMatch('可用模型 指定模型')">
@@ -893,6 +1032,16 @@ const confirmTest = async () => {
       :currentPresetId="activeSettings.currentPresetId"
       @delete="handleDeletePresets"
       @close="showManagePresetModal = false"
+    />
+
+    <!-- New API 一键导入弹窗 -->
+    <NewApiImportModal
+      :visible="showNewApiImportModal"
+      :dark-mode="globalSettings.darkMode"
+      :target-name="targetNodeName"
+      @close="showNewApiImportModal = false"
+      @detect="handleNewApiDetect"
+      @confirm="handleNewApiConfirm"
     />
 
     <!-- 极简排版风格的测试连通性弹窗 -->

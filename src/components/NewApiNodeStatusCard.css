@@ -1,0 +1,208 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+
+.node-status-card {
+  margin-top: 24px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+  padding: 20px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.node-status-card.is-dark {
+  background: rgba(30, 30, 30, 0.4);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.is-dark .logo {
+  background: #fff;
+  color: #1a1a1a;
+}
+
+.name-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.is-dark .name {
+  color: #fff;
+}
+
+.tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 4px;
+  color: #666;
+}
+
+.is-dark .tag {
+  background: rgba(255,255,255,0.1);
+  color: #999;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.status-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.status-indicator.normal { color: #2e7d32; }
+.status-indicator.normal .dot { background-color: #2e7d32; }
+.is-dark .status-indicator.normal { color: #81c784; }
+.is-dark .status-indicator.normal .dot { background-color: #81c784; }
+
+.status-indicator.warning { color: #f57c00; }
+.status-indicator.warning .dot { background-color: #f57c00; }
+.is-dark .status-indicator.warning { color: #ffb74d; }
+.is-dark .status-indicator.warning .dot { background-color: #ffb74d; }
+
+.status-indicator.error { color: #d32f2f; }
+.status-indicator.error .dot { background-color: #d32f2f; }
+.is-dark .status-indicator.error { color: #ff5252; }
+.is-dark .status-indicator.error .dot { background-color: #ff5252; }
+
+.data-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.data-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.data-item .label {
+  font-size: 11px;
+  color: #999;
+  letter-spacing: 0.1em;
+}
+
+.data-item .value {
+  font-size: 13px;
+  color: #1a1a1a;
+  font-weight: 500;
+}
+
+.is-dark .data-item .value {
+  color: #fff;
+}
+
+.data-item .value.code {
+  font-family: "Courier New", Courier, monospace;
+  font-weight: normal;
+  color: #666;
+}
+
+.is-dark .data-item .value.code {
+  color: #aaa;
+}
+
+.data-item .value.normal { color: #2e7d32; }
+.is-dark .data-item .value.normal { color: #81c784; }
+
+.data-item .value.warning { color: #f57c00; }
+.is-dark .data-item .value.warning { color: #ffb74d; }
+
+.data-item .value.error { color: #d32f2f; }
+.is-dark .data-item .value.error { color: #ff5252; }
+
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0,0,0,0.05);
+}
+
+.is-dark .card-footer {
+  border-top-color: rgba(255,255,255,0.05);
+}
+
+.update-time {
+  font-size: 11px;
+  color: #999;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+.action-btn {
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+  background: rgba(0,0,0,0.05);
+  color: #1a1a1a;
+}
+
+.is-dark .action-btn {
+  color: #999;
+}
+
+.is-dark .action-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+.action-btn.danger:hover {
+  background: rgba(211,47,47,0.1);
+  color: #d32f2f;
+}
+
+.is-dark .action-btn.danger:hover {
+  background: rgba(255,82,82,0.15);
+  color: #ff5252;
+}

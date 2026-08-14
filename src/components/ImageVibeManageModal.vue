@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useNovelAIVibe, type VibeGroup, type VibeImage } from '../composables/useNovelAIVibe'
+import { parseNovelAIVibeFile } from '../services/novelAIVibeFile'
 
 const emit = defineEmits(['close'])
 
@@ -9,6 +10,7 @@ const {
   vibeImages,
   vibeGroups,
   addImage,
+  addImportedGroup,
   removeImage,
   addGroup,
   removeGroup,
@@ -150,13 +152,34 @@ const handleFileImport = async (event: Event) => {
   if (!target.files || target.files.length === 0) return
   
   const file = target.files[0]
-  
-  // TODO: 负责功能的同学，请在此处实现具体的解析与导入逻辑
-  // 注意：发生错误时，绝对不要使用浏览器默认的 alert！
-  // 请复用现成的美化弹窗，如：
-  // handleConfirm('导入失败，请检查文件格式是否正确。', () => {})
-  
-  target.value = ''
+
+  try {
+    const parsed = await parseNovelAIVibeFile(file)
+    const group = await addImportedGroup(
+      parsed.groupName,
+      parsed.items.map(item => ({
+        image: {
+          base64: item.base64,
+          mimeType: item.mimeType,
+          previewBase64: item.previewBase64,
+          previewMimeType: item.previewMimeType,
+          name: item.name,
+          externalId: item.externalId,
+          sourceFilename: item.sourceFilename,
+          encodings: item.encodings
+        },
+        strength: item.strength,
+        extracted: item.informationExtracted
+      }))
+    )
+    selectedGroupId.value = group.id
+    handleConfirm(`已导入氛围组“${group.name}”，共 ${group.items.length} 个氛围。`, () => {})
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '未知错误'
+    handleConfirm(`导入失败：${message}`, () => {})
+  } finally {
+    target.value = ''
+  }
 }
 
 const showCreateGroup = ref(false)
@@ -245,10 +268,21 @@ const handleUpdateItemParams = async (imageId: string, field: 'strength' | 'extr
   }
 }
 
+const EMPTY_PREVIEW = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+
+const getVibeImageSrc = (img: VibeImage | undefined) => {
+  if (!img) return EMPTY_PREVIEW
+  if (img.previewBase64) {
+    return `data:${img.previewMimeType || 'image/png'};base64,${img.previewBase64}`
+  }
+  if (img.base64) {
+    return `data:${img.mimeType || 'image/jpeg'};base64,${img.base64}`
+  }
+  return EMPTY_PREVIEW
+}
+
 const getImageSrc = (id: string) => {
-  const img = vibeImages.value.find(i => i.id === id)
-  if (!img) return ''
-  return `data:image/jpeg;base64,${img.base64}`
+  return getVibeImageSrc(vibeImages.value.find(i => i.id === id))
 }
 </script>
 
@@ -307,7 +341,7 @@ const getImageSrc = (id: string) => {
               <div v-if="!isSelectionMode" class="nav-item" @click="handleImportClick">
                 <div class="nav-item-left" style="color: #111;">+ 导入预设文件</div>
               </div>
-              <input type="file" ref="groupFileInput" style="display:none" @change="handleFileImport" />
+              <input type="file" ref="groupFileInput" accept=".naiv4vibe,.naiv4vibebundle" style="display:none" @change="handleFileImport" />
             </div>
 
             <div v-if="showCreateGroup" class="create-group-prompt">
@@ -327,7 +361,7 @@ const getImageSrc = (id: string) => {
             
             <div class="lib-grid">
               <div v-for="img in vibeImages" :key="img.id" class="lib-img-wrapper" @click="isSelectionMode ? toggleImageSelection(img.id) : null" :class="{ 'selectable-mode': isSelectionMode }">
-                <img :src="`data:image/jpeg;base64,${img.base64}`" />
+                <img :src="getVibeImageSrc(img)" />
                 <div v-if="isSelectionMode" class="selection-circle" :class="{ 'is-selected': selectedImageIds.includes(img.id) }">
                   <svg v-if="selectedImageIds.includes(img.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 </div>
@@ -427,7 +461,7 @@ const getImageSrc = (id: string) => {
         <div class="pb-grid">
           <div class="lib-grid">
             <div v-for="img in vibeImages" :key="img.id" class="lib-img-wrapper selectable" @click="handleAddImageToGroup(img)">
-              <img :src="`data:image/jpeg;base64,${img.base64}`" />
+              <img :src="getVibeImageSrc(img)" />
               <div v-if="selectedGroup?.items.some(i => i.imageId === img.id)" class="selected-mask">已添加</div>
             </div>
           </div>

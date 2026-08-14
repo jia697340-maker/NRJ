@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import CharacterProfileAiModal from './CharacterProfileAiModal.vue'
-import { applySocialProfilePatch, ensureSocialProfile, type CharacterSocialProfile, type SocialCoverStyle, type SocialManagementMode } from '../../../services/characterSocialProfile'
+import { applySocialProfilePatch, ensureSocialProfile, type CharacterSocialProfile, type SocialManagementMode } from '../../../services/characterSocialProfile'
 import { createCharacterMoment, deleteCharacterMoment, listMomentsByAuthor, updateCharacterMoment } from '../../../services/momentRepository'
 import type { SocialGenerationResult } from '../../../services/characterSocialGenerator'
 import { isDirectoryOwner, saveCharacterDirectoryProfile } from '../../../services/characterDirectory'
@@ -32,7 +32,7 @@ const toast = ref('')
 const showRequestComposer = ref(false)
 const requestMessage = ref('')
 const lastRequestAt = ref(0)
-const manageSnapshot = ref({ nickname: profile.value.nickname, socialId: profile.value.socialId, signature: profile.value.signature, coverStyle: profile.value.coverStyle })
+const manageSnapshot = ref({ nickname: profile.value.nickname, socialId: profile.value.socialId, signature: profile.value.signature })
 let toastTimer: number | null = null
 
 const now = ref(Date.now())

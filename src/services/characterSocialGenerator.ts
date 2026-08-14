@@ -21,7 +21,9 @@ const extractJson = (raw: string) => {
 
 const recentChatText = (chat: any, allowDetails: boolean) => {
   if (!allowDetails) {
-    const summaries = Array.isArray(chat?.memoryBook) ? chat.memoryBook.slice(-5) : []
+    const summaries = Array.isArray(chat?.memoryBook)
+      ? chat.memoryBook.filter((item: any) => item.enabled !== false && !item.archived).slice(-5)
+      : []
     return summaries.map((item: any) => String(item.content || item.summary || '')).filter(Boolean).join('\n').slice(0, 3000)
   }
   return (Array.isArray(chat?.messages) ? chat.messages.slice(-30) : [])

@@ -5,6 +5,7 @@ import { useGptImageReference } from './useGptImageReference'
 import { useGeminiImageReference } from './useGeminiImageReference'
 import { useFluxImageReference } from './useFluxImageReference'
 import { useSeedreamImageReference } from './useSeedreamImageReference'
+import { buildNovelAIVibeReferences, type VibeGroup, type VibeImage } from './useNovelAIVibe'
 
 export function useChatRoomImageGen(
   selectedChat: any,
@@ -600,31 +601,15 @@ export function useChatRoomImageGen(
     if (vibe_group_ids && vibe_group_ids.length > 0) {
       try {
         const vibeStore = localforage.createInstance({ name: 'app_vibe_storage' })
-        const vibeGroups = await vibeStore.getItem<any[]>('vibeGroups') || []
-        const vibeImages = await vibeStore.getItem<any[]>('vibeImages') || []
+        const vibeGroups = await vibeStore.getItem<VibeGroup[]>('vibeGroups') || []
+        const vibeImages = await vibeStore.getItem<VibeImage[]>('vibeImages') || []
+        const references = buildNovelAIVibeReferences(vibeGroups, vibeImages, vibe_group_ids, model)
 
-        const refImages: string[] = []
-        const refStrengths: number[] = []
-        const refExtracteds: number[] = []
-
-        for (const gid of vibe_group_ids) {
-          const g = vibeGroups.find((vg: any) => vg.id === gid)
-          if (g) {
-            for (const item of g.items) {
-              const img = vibeImages.find((vi: any) => vi.id === item.imageId)
-              if (img) {
-                refImages.push(img.base64)
-                refStrengths.push(item.strength)
-                refExtracteds.push(item.extracted)
-              }
-            }
-          }
-        }
-
-        if (refImages.length > 0) {
-          genParams.reference_image_multiple = refImages
-          genParams.reference_strength_multiple = refStrengths
-          genParams.reference_information_extracted_multiple = refExtracteds
+        if (references.images.length > 0) {
+          genParams.reference_image_multiple = references.images
+          genParams.reference_encoding_multiple = references.encodings
+          genParams.reference_strength_multiple = references.strengths
+          genParams.reference_information_extracted_multiple = references.informationExtracted
         }
       } catch (e) {
         console.error('加载 Vibe 图片失败', e)

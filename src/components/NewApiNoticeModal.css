@@ -1,0 +1,310 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+
+.notice-modal-content {
+  box-sizing: border-box;
+  width: calc(100% - 40px);
+  max-height: min(90vh, 760px);
+  padding-top: 32px;
+  padding-bottom: 28px;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+}
+
+.is-dark .notice-modal-content {
+  background: #1e1e1e;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+.modal-close-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.04);
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  z-index: 10;
+}
+
+.is-dark .modal-close-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: #999;
+}
+
+.modal-close-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #1a1a1a;
+  transform: rotate(90deg);
+}
+
+.is-dark .modal-close-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.notice-state-container {
+  min-height: 0;
+  gap: 20px;
+  flex: 1;
+}
+
+.notice-scroll {
+  min-height: 0;
+  max-height: min(54vh, 440px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px 12px 20px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+.is-dark .notice-scroll {
+  border-color: rgba(255, 255, 255, 0.08);
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.notice-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.notice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.notice-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+}
+
+.is-dark .notice-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.notice-section {
+  color: #666;
+  font-family: "Noto Serif SC", serif;
+  font-size: 12px;
+  line-height: 1.85;
+  letter-spacing: 0.02em;
+  text-align: left;
+}
+
+.notice-section + .notice-section {
+  margin-top: 22px;
+}
+
+.is-dark .notice-section {
+  color: #999;
+}
+
+.notice-section h3 {
+  margin: 0 0 8px;
+  color: #1a1a1a;
+  font-family: "Noto Serif SC", serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+}
+
+.is-dark .notice-section h3 {
+  color: #f0f0f0;
+}
+
+.notice-section p {
+  margin: 0;
+}
+
+.notice-section p + p {
+  margin-top: 10px;
+}
+
+.notice-emphasis {
+  color: #1a1a1a;
+  font-weight: 500;
+}
+
+.is-dark .notice-emphasis {
+  color: #f0f0f0;
+}
+
+.notice-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice-list li {
+  position: relative;
+  padding-left: 14px;
+}
+
+.notice-list li + li {
+  margin-top: 8px;
+}
+
+.notice-list li::before {
+  position: absolute;
+  top: 0.78em;
+  left: 1px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #c62828;
+  content: "";
+}
+
+.notice-warning {
+  padding: 14px 16px;
+  border-left: 2px solid #c62828;
+  background: rgba(198, 40, 40, 0.035);
+}
+
+.is-dark .notice-warning {
+  background: rgba(198, 40, 40, 0.09);
+}
+
+.notice-reminder-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  cursor: pointer;
+}
+
+.notice-reminder-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notice-reminder-title {
+  color: #1a1a1a;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.is-dark .notice-reminder-title {
+  color: #f0f0f0;
+}
+
+.notice-reminder-desc {
+  color: #999;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.notice-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.notice-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.notice-slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  background: #e0e0e0;
+  cursor: pointer;
+  transition: background-color 0.35s ease;
+}
+
+.is-dark .notice-slider {
+  background: #333;
+}
+
+.notice-slider::before {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  content: "";
+  transition: transform 0.35s ease;
+}
+
+.notice-switch input:focus-visible + .notice-slider {
+  outline: 1px solid #1a1a1a;
+  outline-offset: 3px;
+}
+
+.notice-switch input:checked + .notice-slider {
+  background: #1a1a1a;
+}
+
+.is-dark .notice-switch input:checked + .notice-slider {
+  background: #e6e6e6;
+}
+
+.is-dark .notice-switch input:checked + .notice-slider::before {
+  background: #111;
+}
+
+.notice-switch input:checked + .notice-slider::before {
+  transform: translateX(18px);
+}
+
+.notice-actions {
+  margin-top: 0;
+}
+
+.notice-actions .primary-btn {
+  padding-right: 24px;
+  padding-left: 24px;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .notice-modal-content {
+    width: calc(100% - 32px);
+    max-height: 80dvh;
+    padding: 24px 24px 20px;
+  }
+
+  .notice-state-container {
+    gap: 16px;
+  }
+
+  .notice-scroll {
+    max-height: 48dvh;
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
+  .notice-actions {
+    gap: 8px;
+  }
+
+  .notice-actions .text-btn {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .notice-actions .primary-btn {
+    padding: 11px 20px;
+    font-size: 11px;
+  }
+}

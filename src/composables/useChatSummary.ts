@@ -244,36 +244,39 @@ export function useChatSummary(selectedChat: any, saveCustomContacts: () => void
 
     isSummarizing.value = true
     try {
-      const memoriesPayload = memoriesToSummarize.map((m, index) => {
-        return `[记忆 ${index + 1} - ${m.date}]:\n${m.content}`
+      const orderedMemories = [...memoriesToSummarize].sort((left, right) =>
+        Number(left.fromMsgId || left.createdAt || left.id || 0) - Number(right.fromMsgId || right.createdAt || right.id || 0)
+      )
+      const memoriesPayload = orderedMemories.map((m, index) => {
+        const evidenceIds = Array.isArray(m.evidenceMessageIds) ? m.evidenceMessageIds.join(',') : ''
+        return `[记忆 ${index + 1}｜${m.date || '日期未知'}｜原始消息ID:${evidenceIds || '无'}]:\n${m.content}`
       }).join('\n\n')
 
-      const prompt = `请你作为一个记忆整理助手，将以下多条零散的历史记忆，融合成一段精简、连贯的长期记忆。
+      const prompt = `你是长期记忆刷新助手。以下记忆已经按从旧到新的顺序排列，请把它们刷新为一份当前有效、精简且不冲突的长期记忆。
 要求：
-1. 提炼并保留核心事件、重要设定和人物关系的发展。
-2. 剔除重复啰嗦的细节，将内容高度浓缩。
-3. 必须以第三人称客观视角书写。
-4. 字数控制在100-300字以内，作为一段连贯的文本输出。
+1. 后面的明确信息若修改、取消或替代前面的信息，必须以较新的明确说法作为当前状态；旧值只能作为必要的变更经过，不能继续写成有效状态。
+2. 例如“原定14号见面，后来改为20号”，当前有效日期只能是20号。
+3. 保留重要事件、承诺、边界、人物关系及其变化，删除重复和已经失效的冗余描述，不得补写不存在的事实。
+4. narrative 使用第三人称客观视角，控制在100-300字。
+5. evidence.messageIds 只能使用每条记忆标出的原始消息ID；没有ID时返回空数组。
+6. 只输出合法 JSON，不要 Markdown、解释或思维过程。没有内容的数组返回 []，没有文本返回空字符串。
+
+JSON结构：
+{"narrative":"刷新后的长期记忆","subjective":"","events":[{"title":"","summary":"","startTime":"","endTime":"","participants":[],"location":"","result":"","decisions":[],"unresolved":[],"tags":[],"importance":1,"emotionBefore":"","emotionAfter":"","relationshipChange":"","evidence":{"messageIds":[],"excerpt":""}}],"variables":[{"category":"身份/称呼/日期/喜好/禁忌/习惯/人物/工作学校/位置/关系/计划/承诺/矛盾/状态/其他","key":"","value":"","confidence":0.8,"validFrom":"","validTo":"","evidence":{"messageIds":[],"excerpt":""}}],"tableRows":[{"table":"people/preferences/events/commitments/gifts/relationships/timeline/conflicts/places","title":"","value":"","status":"有效","time":"","tags":[],"importance":1,"evidence":{"messageIds":[],"excerpt":""}}],"relations":[{"source":"","target":"","relation":"","startTime":"","endTime":"","confidence":0.8,"evidence":{"messageIds":[],"excerpt":""}}]}
 
 历史记忆：
 ${memoriesPayload}`
 
       const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
       
-      let summaryContent = ''
-      if (typeof result === 'string') {
-        summaryContent = result
-      } else {
-        summaryContent = result.content
-      }
-
-      summaryContent = summaryContent.replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, '').trim() || summaryContent
-
-      if (!summaryContent) throw new Error('精简生成的记忆内容为空')
-      return summaryContent
+      const rawContent = typeof result === 'string' ? result : result.content
+      if (!rawContent) throw new Error('刷新生成的记忆内容为空')
+      const extraction = parseMemoryExtraction(rawContent)
+      if (!extraction.narrative) throw new Error('刷新生成的记忆内容为空')
+      return extraction
     } catch (err: any) {
-      console.error('精简记忆失败:', err)
-      showToast(`精简失败: ${err.message}`)
+      console.error('刷新记忆失败:', err)
+      showToast(`刷新失败: ${err.message}`)
       return null
     } finally {
       isSummarizing.value = false

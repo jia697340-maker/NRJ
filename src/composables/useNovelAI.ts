@@ -32,6 +32,7 @@ export interface NovelAIGenerateParams {
   reference_strength?: number
   reference_fidelity?: number
   reference_image_multiple?: string[]
+  reference_encoding_multiple?: Array<string | null>
   reference_strength_multiple?: number[]
   reference_information_extracted_multiple?: number[]
 }
@@ -108,7 +109,10 @@ export function useNovelAI() {
     try {
       const isV4 = params.model.startsWith('nai-diffusion-4')
       
-      lastGeneratedParams.value = JSON.parse(JSON.stringify(params))
+      const historyParams = JSON.parse(JSON.stringify(params))
+      delete historyParams.reference_image_multiple
+      delete historyParams.reference_encoding_multiple
+      lastGeneratedParams.value = historyParams
       
       const payload: any = {
         input: params.input,
@@ -158,12 +162,27 @@ export function useNovelAI() {
       if (params.reference_fidelity !== undefined) payload.parameters.reference_fidelity = params.reference_fidelity
 
       let hasVibe = false
-      if (params.reference_image_multiple && params.reference_image_multiple.length > 0) {
+      const vibeCount = Math.max(
+        params.reference_image_multiple?.length ?? 0,
+        params.reference_encoding_multiple?.length ?? 0
+      )
+      if (vibeCount > 0) {
         hasVibe = true
-        // 预编码氛围图 (encode-vibe)
+        if (vibeCount > 16) throw new Error('NovelAI 最多同时使用 16 个氛围')
+
         const encodedVibes: string[] = []
-        for (let i = 0; i < params.reference_image_multiple.length; i++) {
-          let rawB64 = params.reference_image_multiple[i]
+        for (let i = 0; i < vibeCount; i++) {
+          const cachedEncoding = params.reference_encoding_multiple?.[i]
+          if (cachedEncoding) {
+            encodedVibes.push(cachedEncoding)
+            continue
+          }
+
+          let rawB64 = params.reference_image_multiple?.[i] || ''
+          if (!rawB64) {
+            const extractRate = params.reference_information_extracted_multiple?.[i] ?? 1.0
+            throw new Error(`第 ${i + 1} 个氛围没有适用于当前模型、IE ${extractRate} 的预编码，也没有原图可重新编码`)
+          }
           if (rawB64.includes(',')) rawB64 = rawB64.split(',', 2)[1]
           
           const extractRate = params.reference_information_extracted_multiple?.[i] ?? 1.0
@@ -220,7 +239,7 @@ export function useNovelAI() {
         }
       }
 
-      // 存在氛围图时强制关闭流式，避免各种未知 500 或格式解析错误
+      // 存在氛围时强制关闭流式，避免各种未知 500 或格式解析错误
       const useStream = hasVibe ? false : (config.useStream !== false)
       const endpoint = useStream ? '/ai/generate-image-stream' : '/ai/generate-image'
       const url = `${config.baseUrl.replace(/\/$/, '')}${endpoint}`

@@ -47,7 +47,7 @@ const getMemoryIndexRangeStr = (mem: any) => {
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'update-memories', memories: any[]): void
-  (e: 'summarize-memories', selectedIds: number[]): void
+  (e: 'summarize-memories', selectedIds: number[], strategy: 'replace' | 'archive'): void
 }>()
 
 const isMultiSelectMode = ref(false)
@@ -78,6 +78,7 @@ const selectAll = () => {
 }
 
 const showDeleteConfirm = ref(false)
+const showRefreshOptions = ref(false)
 
 const triggerDeleteSelected = () => {
   if (selectedIds.value.length === 0) return
@@ -107,11 +108,18 @@ const showToast = (msg: string) => {
 }
 
 const condenseSelected = () => {
-  if (selectedIds.value.length < 2) {
-    showToast('请至少选择两条记忆进行精简')
+  if (selectedIds.value.length === 0) {
+    showToast('请先选择要刷新的记忆')
     return
   }
-  emit('summarize-memories', [...selectedIds.value])
+  showRefreshOptions.value = true
+}
+
+const confirmRefresh = (strategy: 'replace' | 'archive') => {
+  emit('summarize-memories', [...selectedIds.value], strategy)
+  showRefreshOptions.value = false
+  selectedIds.value = []
+  isMultiSelectMode.value = false
 }
 
 // 详情/编辑模式
@@ -387,12 +395,12 @@ const handleBookClick = (mem: any) => {
                   {{ mem.date }}
                 </div>
                 
-                <div class="book-badge" v-if="mem.messageCount && memoryStyles[mem.id]?.showBadge !== false" :style="{ 
+                <div class="book-badge" v-if="(mem.messageCount || mem.archived) && memoryStyles[mem.id]?.showBadge !== false" :style="{
                   backgroundColor: memoryStyles[mem.id]?.badgeBgColor || 'rgba(255,255,255,0.6)',
                   color: memoryStyles[mem.id]?.badgeTextColor || '#333333',
                   borderRadius: `${memoryStyles[mem.id]?.badgeRadius ?? 10}px`
                 }">
-                  {{ mem.messageCount }}条记录
+                  {{ mem.archived ? '历史版本' : `${mem.messageCount}条记录` }}
                 </div>
                 
                 <!-- 多选遮罩 -->
@@ -410,8 +418,8 @@ const handleBookClick = (mem: any) => {
         <transition name="slide-up">
           <div v-if="isMultiSelectMode" class="memory-bottom-bar">
             <div class="bar-btn" @click="selectAll">全选</div>
-            <div class="bar-btn primary" :class="{ disabled: selectedIds.length < 2 || isSummarizing }" @click="condenseSelected">
-              {{ isSummarizing ? '精简中...' : '归纳精简' }}
+            <div class="bar-btn primary" :class="{ disabled: selectedIds.length === 0 || isSummarizing }" @click="condenseSelected">
+              {{ isSummarizing ? '刷新中...' : '刷新总结' }}
             </div>
             <div class="bar-btn danger" :class="{ disabled: selectedIds.length === 0 }" @click="triggerDeleteSelected">删除</div>
           </div>
@@ -427,6 +435,33 @@ const handleBookClick = (mem: any) => {
                 <div class="confirm-btn cancel" @click="showDeleteConfirm = false">取消</div>
                 <div class="confirm-btn danger" @click="confirmDeleteSelected">确认删除</div>
               </div>
+            </div>
+          </div>
+        </transition>
+
+        <!-- 刷新方式：复用相邻总结设置页的选择列表结构 -->
+        <transition name="folder-fade">
+          <div v-if="showRefreshOptions" class="confirm-modal-overlay" @click.self="showRefreshOptions = false">
+            <div class="choice-modal" @click.stop>
+              <div class="choice-title">怎样保存刷新结果？</div>
+              <div class="choice-intro">系统会按先后顺序合并所选记忆；较新的明确修改会替代旧内容。</div>
+              <div class="choice-list">
+                <div class="choice-item" @click="confirmRefresh('replace')">
+                  <div>
+                    <div class="choice-name">覆盖所选记忆（推荐）</div>
+                    <div class="choice-desc">删除所选旧总结，只保留刷新后的当前版本，最节省记忆空间。</div>
+                  </div>
+                  <div class="choice-arrow">›</div>
+                </div>
+                <div class="choice-item" @click="confirmRefresh('archive')">
+                  <div>
+                    <div class="choice-name">保留历史版本</div>
+                    <div class="choice-desc">旧总结仍留在书架，但不再参与聊天记忆；同时生成新的当前版本。</div>
+                  </div>
+                  <div class="choice-arrow">›</div>
+                </div>
+              </div>
+              <div class="choice-cancel" @click="showRefreshOptions = false">取消</div>
             </div>
           </div>
         </transition>
@@ -448,7 +483,7 @@ const handleBookClick = (mem: any) => {
 
         <div class="memory-body detail-body">
           <div class="detail-meta">
-            {{ getMemoryIndexRangeStr(detailMemory) }}
+            {{ detailMemory.archived ? '历史版本 · 不参与后续聊天记忆' : getMemoryIndexRangeStr(detailMemory) }}
           </div>
           
           <div v-if="!editMode" class="detail-content-view">
@@ -976,6 +1011,27 @@ const handleBookClick = (mem: any) => {
   color: #FF4D4F;
   font-weight: bold;
 }
+
+/* 与“总结设置”的选择弹窗保持同一视觉结构 */
+.choice-modal {
+  width: 88%;
+  max-width: 380px;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--sys-bg-secondary);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  animation: modalScaleIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.choice-title { padding: 18px 20px 8px; font-size: 17px; font-weight: 600; color: var(--text-primary); }
+.choice-intro { padding: 0 20px 10px; color: var(--text-tertiary); font-size: 11px; line-height: 1.55; }
+.choice-list { padding: 0 10px 12px; }
+.choice-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 10px; border-radius: 11px; cursor: pointer; }
+.choice-item:active { background: var(--sys-bg-primary); }
+.choice-name { font-size: 14px; color: var(--text-primary); }
+.choice-desc { margin-top: 3px; font-size: 11px; line-height: 1.4; color: var(--text-tertiary); }
+.choice-arrow { flex: none; color: var(--text-tertiary); font-size: 22px; line-height: 1; }
+.choice-cancel { height: 44px; display: flex; align-items: center; justify-content: center; border-top: 1px solid var(--border-color); color: var(--text-secondary); font-size: 14px; cursor: pointer; }
+.choice-cancel:active { background: var(--sys-bg-primary); }
 
 /* Toast */
 .memory-toast {

@@ -5,7 +5,20 @@ import localforage from 'localforage'
 export interface VibeImage {
   id: string
   base64: string // without prefix, to save space and for API
+  mimeType?: string
+  previewBase64?: string
+  previewMimeType?: string
+  name?: string
+  externalId?: string
+  sourceFilename?: string
+  encodings?: VibeEncoding[]
   addedAt: number
+}
+
+export interface VibeEncoding {
+  model: string
+  informationExtracted: number
+  encoding: string
 }
 
 export interface VibeGroupItem {
@@ -18,6 +31,78 @@ export interface VibeGroup {
   id: string
   name: string
   items: VibeGroupItem[]
+}
+
+export interface VibeImportItem {
+  image: Omit<VibeImage, 'id' | 'addedAt'>
+  strength: number
+  extracted: number
+}
+
+const createId = (prefix: string) => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}-${crypto.randomUUID()}`
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+}
+
+export const novelAIModelToVibeKey = (model: string): string => {
+  switch (model) {
+    case 'nai-diffusion-4-curated-preview': return 'v4curated'
+    case 'nai-diffusion-4-full': return 'v4full'
+    case 'nai-diffusion-4-5-curated': return 'v4-5curated'
+    case 'nai-diffusion-4-5-full': return 'v4-5full'
+    default: return model
+  }
+}
+
+export const findVibeEncoding = (
+  image: Pick<VibeImage, 'encodings'>,
+  model: string,
+  informationExtracted: number
+): string | null => {
+  const expectedModel = novelAIModelToVibeKey(model).toLowerCase()
+  const match = image.encodings?.find(item => (
+    novelAIModelToVibeKey(item.model).toLowerCase() === expectedModel
+    && Math.abs(item.informationExtracted - informationExtracted) < 0.000001
+  ))
+  return match?.encoding || null
+}
+
+export interface NovelAIVibeReferencePayload {
+  images: string[]
+  encodings: Array<string | null>
+  strengths: number[]
+  informationExtracted: number[]
+}
+
+export const buildNovelAIVibeReferences = (
+  groups: VibeGroup[],
+  images: VibeImage[],
+  groupIds: string[],
+  model: string
+): NovelAIVibeReferencePayload => {
+  const result: NovelAIVibeReferencePayload = {
+    images: [],
+    encodings: [],
+    strengths: [],
+    informationExtracted: []
+  }
+
+  for (const groupId of groupIds) {
+    const group = groups.find(item => item.id === groupId)
+    if (!group) continue
+    for (const item of group.items) {
+      const image = images.find(candidate => candidate.id === item.imageId)
+      if (!image) continue
+      result.images.push(image.base64 || '')
+      result.encodings.push(findVibeEncoding(image, model, item.extracted))
+      result.strengths.push(item.strength)
+      result.informationExtracted.push(item.extracted)
+    }
+  }
+
+  return result
 }
 
 // Singleton state
@@ -57,8 +142,9 @@ export function useNovelAIVibe() {
     // remove prefix if exists
     const base64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data
     const newImage: VibeImage = {
-      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+      id: createId('vibe-image'),
       base64,
+      mimeType: 'image/jpeg',
       addedAt: Date.now()
     }
     vibeImages.value.push(newImage)
@@ -85,10 +171,33 @@ export function useNovelAIVibe() {
 
   const addGroup = async (name: string) => {
     const newGroup: VibeGroup = {
-      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+      id: createId('vibe-group'),
       name,
       items: []
     }
+    vibeGroups.value.push(newGroup)
+    await saveData()
+    return newGroup
+  }
+
+  const addImportedGroup = async (name: string, items: VibeImportItem[]) => {
+    if (items.length === 0) throw new Error('没有可导入的氛围')
+    const now = Date.now()
+    const importedImages = items.map((item, index): VibeImage => ({
+      ...item.image,
+      id: createId('vibe-image'),
+      addedAt: now + index
+    }))
+    const newGroup: VibeGroup = {
+      id: createId('vibe-group'),
+      name,
+      items: importedImages.map((image, index) => ({
+        imageId: image.id,
+        strength: items[index].strength,
+        extracted: items[index].extracted
+      }))
+    }
+    vibeImages.value.push(...importedImages)
     vibeGroups.value.push(newGroup)
     await saveData()
     return newGroup
@@ -123,6 +232,7 @@ export function useNovelAIVibe() {
     removeImage,
     removeImages,
     addGroup,
+    addImportedGroup,
     removeGroup,
     removeGroups,
     updateGroup,

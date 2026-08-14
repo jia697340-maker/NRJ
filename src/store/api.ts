@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { reactive, watch } from 'vue'
 import { readStoredJSON } from './utils'
+import type { NewApiNodeInfo } from '../services/newApiNode'
 
 export interface ApiPreset {
   id: string
@@ -50,6 +51,7 @@ export const apiSettings = reactive({
   enableStream: savedApiSettings.enableStream ?? false,
   presets: (savedApiSettings.presets || []) as ApiPreset[],
   currentPresetId: savedApiSettings.currentPresetId ?? '',
+  newApiNode: (savedApiSettings.newApiNode || null) as NewApiNodeInfo | null,
   enableApiLogging: savedApiSettings.enableApiLogging ?? false,
   apiLogMaxCount: savedApiSettings.apiLogMaxCount ?? 1000
 })
@@ -82,7 +84,8 @@ export const visionApiSettings = reactive({
   presencePenalty: savedVisionApiSettings.presencePenalty ?? 0,
   enableStream: savedVisionApiSettings.enableStream ?? false,
   presets: (savedVisionApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedVisionApiSettings.currentPresetId ?? ''
+  currentPresetId: savedVisionApiSettings.currentPresetId ?? '',
+  newApiNode: (savedVisionApiSettings.newApiNode || null) as NewApiNodeInfo | null
 })
 
 watch(visionApiSettings, (newVal) => {
@@ -113,7 +116,8 @@ export const summaryApiSettings = reactive({
   presencePenalty: savedSummaryApiSettings.presencePenalty ?? 0,
   enableStream: savedSummaryApiSettings.enableStream ?? false,
   presets: (savedSummaryApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedSummaryApiSettings.currentPresetId ?? ''
+  currentPresetId: savedSummaryApiSettings.currentPresetId ?? '',
+  newApiNode: (savedSummaryApiSettings.newApiNode || null) as NewApiNodeInfo | null
 })
 
 watch(summaryApiSettings, (newVal) => {
@@ -135,7 +139,8 @@ export const embeddingApiSettings = reactive({
   customKey: savedEmbeddingApiSettings.customKey ?? '',
   batchSize: savedEmbeddingApiSettings.batchSize ?? 20,
   presets: (savedEmbeddingApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedEmbeddingApiSettings.currentPresetId ?? ''
+  currentPresetId: savedEmbeddingApiSettings.currentPresetId ?? '',
+  newApiNode: (savedEmbeddingApiSettings.newApiNode || null) as NewApiNodeInfo | null
 })
 
 watch(embeddingApiSettings, (newVal) => {
@@ -168,7 +173,8 @@ export const momentApiSettings = reactive({
   presencePenalty: savedMomentApiSettings.presencePenalty ?? 0,
   enableStream: savedMomentApiSettings.enableStream ?? false,
   presets: (savedMomentApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedMomentApiSettings.currentPresetId ?? ''
+  currentPresetId: savedMomentApiSettings.currentPresetId ?? '',
+  newApiNode: (savedMomentApiSettings.newApiNode || null) as NewApiNodeInfo | null
 })
 
 watch(momentApiSettings, (newVal) => {
@@ -200,7 +206,8 @@ export const characterApiSettings = reactive({
   presencePenalty: savedCharacterApiSettings.presencePenalty ?? 0,
   enableStream: savedCharacterApiSettings.enableStream ?? false,
   presets: (savedCharacterApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedCharacterApiSettings.currentPresetId ?? ''
+  currentPresetId: savedCharacterApiSettings.currentPresetId ?? '',
+  newApiNode: (savedCharacterApiSettings.newApiNode || null) as NewApiNodeInfo | null
 })
 
 watch(characterApiSettings, value => {

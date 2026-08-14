@@ -193,15 +193,13 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
   let handledMomentAction = false
 
   const socialProfile = ensureSocialProfile(selectedChat)
-  const updateProfileRegex = /<update_social_profile\s+field="(nickname|socialId|signature|coverStyle)">([\s\S]*?)<\/update_social_profile>/g
+  const updateProfileRegex = /<update_social_profile\s+field="(nickname|socialId|signature)">([\s\S]*?)<\/update_social_profile>/g
   let profileMatch
   while ((profileMatch = updateProfileRegex.exec(newContent)) !== null) {
     handledMomentAction = true
-    const field = profileMatch[1] as 'nickname' | 'socialId' | 'signature' | 'coverStyle'
+    const field = profileMatch[1] as 'nickname' | 'socialId' | 'signature'
     let value = profileMatch[2].trim()
-    const permissionKey = field === 'coverStyle' ? 'cover' : field
-    if (!socialProfile.awarenessEnabled || socialProfile.managementMode === 'readonly' || !socialProfile.permissions[permissionKey]) continue
-    if (field === 'coverStyle' && !['dots', 'grid', 'stars', 'plain'].includes(value)) continue
+    if (!socialProfile.awarenessEnabled || socialProfile.managementMode === 'readonly' || !socialProfile.permissions[field]) continue
     if (field === 'socialId') value = value.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)
     if (!value) continue
     if (socialProfile.managementMode === 'confirm') {

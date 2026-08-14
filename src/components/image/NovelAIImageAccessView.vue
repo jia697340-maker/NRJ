@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import { useNovelAI } from '../../composables/useNovelAI'
-import { useNovelAIVibe } from '../../composables/useNovelAIVibe'
+import { buildNovelAIVibeReferences, useNovelAIVibe } from '../../composables/useNovelAIVibe'
 import { useNovelAIHistory } from '../../composables/useNovelAIHistory'
 import ImageVibeManageModal from '../ImageVibeManageModal.vue'
 import ImageHistoryModal from '../ImageHistoryModal.vue'
@@ -303,28 +303,17 @@ const handleGenerate = () => {
   }
 
   if (vibe_group_ids && vibe_group_ids.length > 0) {
-    const refImages: string[] = []
-    const refStrengths: number[] = []
-    const refExtracteds: number[] = []
-
-    for (const gid of vibe_group_ids) {
-      const g = vibeGroups.value.find(vg => vg.id === gid)
-      if (g) {
-        for (const item of g.items) {
-          const img = vibeImages.value.find(vi => vi.id === item.imageId)
-          if (img) {
-            refImages.push(img.base64)
-            refStrengths.push(item.strength)
-            refExtracteds.push(item.extracted)
-          }
-        }
-      }
-    }
-
-    if (refImages.length > 0) {
-      finalParams.reference_image_multiple = refImages
-      finalParams.reference_strength_multiple = refStrengths
-      finalParams.reference_information_extracted_multiple = refExtracteds
+    const references = buildNovelAIVibeReferences(
+      vibeGroups.value,
+      vibeImages.value,
+      vibe_group_ids,
+      params.value.model
+    )
+    if (references.images.length > 0) {
+      finalParams.reference_image_multiple = references.images
+      finalParams.reference_encoding_multiple = references.encodings
+      finalParams.reference_strength_multiple = references.strengths
+      finalParams.reference_information_extracted_multiple = references.informationExtracted
     }
   }
 

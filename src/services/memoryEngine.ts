@@ -210,12 +210,18 @@ const evidenceFrom = (value: any, fallbackIds: Array<number | string>): MemoryEv
   excerpt: typeof value?.excerpt === 'string' ? value.excerpt.slice(0, 240) : ''
 })
 
-export const applyMemoryExtraction = (chat: any, result: MemoryExtractionResult, sourceMessages: any[], mode: MemoryMode) => {
+export const applyMemoryExtraction = (
+  chat: any,
+  result: MemoryExtractionResult,
+  sourceMessages: any[],
+  mode: MemoryMode,
+  options: { includeNarrative?: boolean; addCoverage?: boolean } = {}
+) => {
   const state = ensureMemoryState(chat)
   const now = Date.now()
   const evidenceIds = sourceMessages.map(item => item.id).filter((id: any) => id !== undefined)
 
-  if (result.narrative || result.subjective) {
+  if (options.includeNarrative !== false && (result.narrative || result.subjective)) {
     const content = mode === 'subjective' && result.subjective ? result.subjective : (result.narrative || result.subjective)
     chat.memoryBook.push({
       id: now,
@@ -339,7 +345,34 @@ export const applyMemoryExtraction = (chat: any, result: MemoryExtractionResult,
     }
   }
   state.lastConsolidatedAt = now
-  addCoverage(chat, sourceMessages, mode)
+  if (options.addCoverage !== false) addCoverage(chat, sourceMessages, mode)
+}
+
+const evidenceOverlaps = (evidence: MemoryEvidence | undefined, ids: Set<number | string>) =>
+  Boolean(evidence?.messageIds?.some(id => ids.has(id) || ids.has(Number(id)) || ids.has(String(id))))
+
+export const replaceStructuredMemoriesForEvidence = (
+  chat: any,
+  result: MemoryExtractionResult,
+  sourceMessages: any[],
+  mode: MemoryMode
+) => {
+  const state = ensureMemoryState(chat)
+  const evidenceIds = new Set<number | string>(sourceMessages.flatMap(item =>
+    Array.isArray(item?.evidenceMessageIds) ? item.evidenceMessageIds : []
+  ))
+
+  if (evidenceIds.size > 0) {
+    state.events = state.events.filter(item => !evidenceOverlaps(item.evidence, evidenceIds))
+    state.variables = state.variables.filter(item => !evidenceOverlaps(item.evidence, evidenceIds))
+    state.tableRows = state.tableRows.filter(item => !evidenceOverlaps(item.evidence, evidenceIds))
+    state.relations = state.relations.filter(item => !evidenceOverlaps(item.evidence, evidenceIds))
+  }
+
+  const evidenceMessages = sourceMessages.flatMap(item =>
+    (item.evidenceMessageIds || []).map((id: number | string) => ({ id }))
+  )
+  applyMemoryExtraction(chat, result, evidenceMessages, mode, { includeNarrative: false, addCoverage: false })
 }
 
 export const formatMessagesForMemory = (messages: any[]) => messages.map(message => {

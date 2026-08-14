@@ -751,7 +751,7 @@ const {
 )
 
 import { useChatSummary } from '../../composables/useChatSummary'
-import { indexChatMemories } from '../../services/memoryEngine'
+import { indexChatMemories, replaceStructuredMemoriesForEvidence } from '../../services/memoryEngine'
 const { summarizeMemories, handleAutoSummary, handleManualSummaryLatest } = useChatSummary(selectedChat, saveCustomContacts, showToast)
 let autoSummaryTimer: any = null
 let idleSummaryTimer: any = null
@@ -896,37 +896,77 @@ const handleUpdateMemories = (newMemories: any[]) => {
   }
 }
 
-const handleSummarizeMemories = async (selectedIds: number[]) => {
+const handleSummarizeMemories = async (selectedIds: number[], strategy: 'replace' | 'archive' = 'replace') => {
   if (!selectedChat.value || !selectedChat.value.memoryBook) return
-  
-  const memoriesToSummarize = selectedChat.value.memoryBook.filter((m: any) => selectedIds.includes(m.id))
-  if (memoriesToSummarize.length < 2) return
+
+  const chat = selectedChat.value
+  const validMessages = (chat.messages || []).filter((message: any) =>
+    message.type === 'left' || message.type === 'right' || message.type === 'system'
+  )
+  const memoriesToSummarize = chat.memoryBook
+    .filter((memory: any) => selectedIds.includes(memory.id))
+    .map((memory: any) => {
+      if (Array.isArray(memory.evidenceMessageIds) && memory.evidenceMessageIds.length > 0) return memory
+      const fromId = Number(memory.fromMsgId)
+      const toId = Number(memory.toMsgId)
+      if (!Number.isFinite(fromId) || !Number.isFinite(toId)) return memory
+      return {
+        ...memory,
+        evidenceMessageIds: validMessages
+          .filter((message: any) => Number(message.id) >= fromId && Number(message.id) <= toId)
+          .map((message: any) => message.id)
+      }
+    })
+  if (memoriesToSummarize.length === 0) return
 
   isSummarizingMemories.value = true
   try {
-    const newContent = await summarizeMemories(memoriesToSummarize)
-    if (newContent) {
-      let totalMessageCount = 0
-      memoriesToSummarize.forEach((m: any) => {
-        totalMessageCount += (m.messageCount || 0)
-      })
+    const extraction = await summarizeMemories(memoriesToSummarize)
+    if (extraction?.narrative) {
+      const now = Date.now()
+      const evidenceMessageIds = [...new Set(memoriesToSummarize.flatMap((memory: any) => memory.evidenceMessageIds || []))]
+      const fromIds = memoriesToSummarize.map((memory: any) => Number(memory.fromMsgId)).filter(Number.isFinite)
+      const toIds = memoriesToSummarize.map((memory: any) => Number(memory.toMsgId)).filter(Number.isFinite)
 
       const newMemory = {
-        id: Date.now(),
+        id: now,
         date: new Date().toLocaleDateString('zh-CN'),
-        content: newContent,
-        messageCount: totalMessageCount,
-        isCondensed: true
+        content: extraction.narrative,
+        subjectiveContent: extraction.subjective || '',
+        messageCount: evidenceMessageIds.length || memoriesToSummarize.reduce((total: number, memory: any) => total + Number(memory.messageCount || 0), 0),
+        fromMsgId: fromIds.length ? Math.min(...fromIds) : undefined,
+        toMsgId: toIds.length ? Math.max(...toIds) : undefined,
+        evidenceMessageIds,
+        childMemoryIds: memoriesToSummarize.map((memory: any) => memory.id),
+        isCondensed: true,
+        memoryLevel: Math.max(2, ...memoriesToSummarize.map((memory: any) => Number(memory.memoryLevel || 1))),
+        memoryMode: chat.memoryMode || 'hybrid',
+        version: 2,
+        createdAt: now,
+        updatedAt: now,
+        enabled: true
       }
 
-      const filteredMemories = selectedChat.value.memoryBook.filter((m: any) => !selectedIds.includes(m.id))
-      filteredMemories.push(newMemory)
-      
-      filteredMemories.sort((a: any, b: any) => a.id - b.id)
+      const nextMemories = strategy === 'replace'
+        ? chat.memoryBook.filter((memory: any) => !selectedIds.includes(memory.id))
+        : chat.memoryBook.map((memory: any) => selectedIds.includes(memory.id)
+          ? { ...memory, archived: true, enabled: false, archivedAt: now }
+          : memory)
+      nextMemories.push(newMemory)
+      nextMemories.sort((left: any, right: any) => Number(left.id) - Number(right.id))
 
-      selectedChat.value.memoryBook = filteredMemories
+      chat.memoryBook = nextMemories
+      const structuredItemCount = extraction.events.length + extraction.variables.length + extraction.tableRows.length + extraction.relations.length
+      if (structuredItemCount > 0) {
+        replaceStructuredMemoriesForEvidence(chat, extraction, memoriesToSummarize, chat.memoryMode || 'hybrid')
+      }
       saveCustomContacts()
-      showToast('精简记忆成功！')
+      try {
+        await indexChatMemories(chat)
+      } catch (error) {
+        console.warn('刷新总结已保存，向量同步稍后重试', error)
+      }
+      showToast(strategy === 'replace' ? '总结已覆盖刷新' : '已生成新版本，旧版已归档')
     }
   } catch (err) {
     console.error(err)
