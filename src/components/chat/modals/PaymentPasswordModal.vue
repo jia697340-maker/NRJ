@@ -15,10 +15,10 @@
 
         <div class="modal-body">
           <label class="form-label">输入4位支付密码</label>
-          <input 
-            type="password" 
-            class="text-input password-input" 
-            v-model="paymentPasswordInput" 
+          <input
+            type="password"
+            class="text-input password-input"
+            v-model="paymentPasswordInput"
             maxlength="4"
             inputmode="numeric"
             placeholder="请输入密码"
