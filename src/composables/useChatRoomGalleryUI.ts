@@ -12,6 +12,8 @@ import { useNijiImage } from './useNijiImage'
 import { useSeedreamImage } from './useSeedreamImage'
 import { useSeedreamImageReference } from './useSeedreamImageReference'
 import { buildNovelAIVibeReferences, type VibeGroup, type VibeImage } from './useNovelAIVibe'
+import { resolveIdentityContext } from '../services/identityProfile'
+import { addIdentityAsset, loadIdentityProfile, saveIdentityProfile } from '../services/identityProfile'
 
 export function useChatRoomGalleryUI(
   selectedChat: Ref<any>,
@@ -51,6 +53,7 @@ export function useChatRoomGalleryUI(
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('seedream_img_') ? 'seedream' : '')
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('nai_img_') ? 'novelai' : '')
     const provider = storedProvider || selectedChat.value.imageGenProvider || 'novelai'
+    const identity = await resolveIdentityContext('character', String(selectedChat.value.characterEntityId || selectedChat.value.id), provider === 'seedream' ? 10 : 8)
     if (provider === 'seedream') {
       const seedreamConfig = selectedChat.value.seedreamImageConfig || {}
       showToast('正在使用 Seedream 5.0 重新生成...')
@@ -61,7 +64,7 @@ export function useChatRoomGalleryUI(
         const instructions = referenceGroups.value
           .filter(group => groupIds.includes(group.id) && group.description?.trim())
           .map(group => `参考组“${group.name}”：${group.description.trim()}`)
-        const finalPrompt = [seedreamConfig.promptPrefix, ...instructions, prompt].filter(Boolean).join('\n')
+        const finalPrompt = [seedreamConfig.promptPrefix, ...instructions, identity.prompt, prompt].filter(Boolean).join('\n')
         const { generateImage } = useSeedreamImage()
         const image = await generateImage({
           apiKey: seedreamConfig.apiKey || localStorage.getItem('app_seedream_image_apikey') || '',
@@ -73,7 +76,7 @@ export function useChatRoomGalleryUI(
           outputFormat: seedreamConfig.outputFormat || localStorage.getItem('app_seedream_image_format') || 'png',
           watermark: seedreamConfig.watermark ?? localStorage.getItem('app_seedream_image_watermark') === 'true',
           seed: seedreamConfig.seed === '' || seedreamConfig.seed === undefined ? null : Number(seedreamConfig.seed),
-          referenceImages: getImagesForGroups(groupIds).map(item => item.dataUrl)
+          referenceImages: [...identity.referenceImages, ...getImagesForGroups(groupIds).map(item => item.dataUrl)].slice(0, 10)
         })
         const imageId = `seedream_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
         const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
@@ -106,7 +109,7 @@ export function useChatRoomGalleryUI(
       const nijiConfig = selectedChat.value.nijiImageConfig || {}
       showToast('正在使用 Niji 7 重新生成...')
       try {
-        const finalPrompt = [nijiConfig.promptPrefix, prompt].filter(Boolean).join('\n')
+        const finalPrompt = [nijiConfig.promptPrefix, identity.prompt, prompt].filter(Boolean).join('\n')
         const { generateImage } = useNijiImage()
         const image = await generateImage({
           apiKey: nijiConfig.apiKey || localStorage.getItem('app_niji_image_apikey') || '',
@@ -156,7 +159,7 @@ export function useChatRoomGalleryUI(
         const instructions = referenceGroups.value
           .filter(group => groupIds.includes(group.id) && group.description?.trim())
           .map(group => `参考组“${group.name}”：${group.description.trim()}`)
-        const finalPrompt = [fluxConfig.promptPrefix, ...instructions, prompt].filter(Boolean).join('\n')
+        const finalPrompt = [fluxConfig.promptPrefix, ...instructions, identity.prompt, prompt].filter(Boolean).join('\n')
         const { generateImage } = useFluxImage()
         const image = await generateImage({
           apiKey: fluxConfig.apiKey || localStorage.getItem('app_flux_image_apikey') || '',
@@ -170,7 +173,7 @@ export function useChatRoomGalleryUI(
           safetyTolerance: fluxConfig.safetyTolerance ?? Number(localStorage.getItem('app_flux_image_safety') || 2),
           seed: fluxConfig.seed === '' || fluxConfig.seed === undefined ? null : Number(fluxConfig.seed),
           disablePromptUpsampling: fluxConfig.disablePromptUpsampling ?? localStorage.getItem('app_flux_image_disable_pup') === 'true',
-          referenceImages: getImagesForGroups(groupIds).map(item => item.dataUrl)
+          referenceImages: [...identity.referenceImages, ...getImagesForGroups(groupIds).map(item => item.dataUrl)].slice(0, 8)
         })
         const imageId = `flux_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
         const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
@@ -210,7 +213,7 @@ export function useChatRoomGalleryUI(
         const instructions = referenceGroups.value
           .filter(group => groupIds.includes(group.id))
           .map(group => `${group.kind === 'character' ? '角色一致性' : group.kind === 'style' ? '画风参考' : group.kind === 'scene' ? '场景参考' : '物体参考'}“${group.name}”：${group.description || '按该组图片进行参考'}。`)
-        const finalPrompt = [geminiConfig.promptPrefix, ...instructions, prompt].filter(Boolean).join('\n')
+        const finalPrompt = [geminiConfig.promptPrefix, ...instructions, identity.prompt, prompt].filter(Boolean).join('\n')
         const { generateImage } = useGeminiImage()
         const image = await generateImage({
           apiKey: geminiConfig.apiKey || localStorage.getItem('app_gemini_image_apikey') || '',
@@ -225,7 +228,7 @@ export function useChatRoomGalleryUI(
           thinkingLevel: geminiConfig.thinkingLevel || localStorage.getItem('app_gemini_image_thinking_level') || 'minimal',
           useGoogleSearch: geminiConfig.useGoogleSearch ?? localStorage.getItem('app_gemini_image_google_search') === 'true',
           useImageSearch: geminiConfig.useImageSearch ?? localStorage.getItem('app_gemini_image_image_search') === 'true',
-          referenceImages: getImagesForGroups(groupIds).map(item => item.dataUrl)
+          referenceImages: [...identity.referenceImages, ...getImagesForGroups(groupIds).map(item => item.dataUrl)].slice(0, 8)
         })
         const imageId = `gemini_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
         const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
@@ -264,7 +267,7 @@ export function useChatRoomGalleryUI(
         const instructions = referenceGroups.value
           .filter(group => groupIds.includes(group.id) && group.description?.trim())
           .map(group => `参考组“${group.name}”的用途：${group.description.trim()}`)
-        const finalPrompt = [gptConfig.promptPrefix, ...instructions, prompt].filter(Boolean).join('\n')
+        const finalPrompt = [gptConfig.promptPrefix, ...instructions, identity.prompt, prompt].filter(Boolean).join('\n')
         const { generateImage } = useGptImage()
         const image = await generateImage({
           apiKey: gptConfig.apiKey || localStorage.getItem('app_gpt_image_apikey') || '',
@@ -277,7 +280,7 @@ export function useChatRoomGalleryUI(
           output_format: gptConfig.outputFormat || localStorage.getItem('app_gpt_image_format') || 'png',
           output_compression: gptConfig.outputCompression ?? Number(localStorage.getItem('app_gpt_image_compression') || 90),
           moderation: gptConfig.moderation || localStorage.getItem('app_gpt_image_moderation') || 'auto',
-          referenceImages: getImagesForGroups(groupIds).map(item => item.dataUrl)
+          referenceImages: [...identity.referenceImages, ...getImagesForGroups(groupIds).map(item => item.dataUrl)].slice(0, 8)
         })
 
         const imageId = `gpt_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
@@ -316,7 +319,7 @@ export function useChatRoomGalleryUI(
     
     const genParams: any = {
       ...restConfig,
-      input: prompt
+      input: [identity.prompt, prompt].filter(Boolean).join(', ')
     }
     
     if (genParams.n_samples === undefined) {
@@ -327,6 +330,9 @@ export function useChatRoomGalleryUI(
     }
     if (negativePrompt) {
       genParams.negative_prompt = negativePrompt
+    }
+    if (identity.negativePrompt) {
+      genParams.negative_prompt = [genParams.negative_prompt, identity.negativePrompt].filter(Boolean).join(', ')
     }
     if (seed) {
       genParams.seed = parseInt(seed as string)
@@ -425,11 +431,29 @@ export function useChatRoomGalleryUI(
     }
   }
 
+  const handleGalleryAddReference = async (item: any) => {
+    if (!selectedChat.value || !item?.imageId) return
+    const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+    const dataUrl = await imageStore.getItem<string>(item.imageId)
+    if (!dataUrl) return showToast('图片数据已失效，无法收录')
+    const profile = await loadIdentityProfile('character', String(selectedChat.value.characterEntityId || selectedChat.value.id), selectedChat.value.realName || selectedChat.value.name)
+    await addIdentityAsset(profile, dataUrl, 'face', '生成结果精选')
+    profile.enabled = true
+    await saveIdentityProfile(profile)
+    showToast('已加入角色固定形象，后续生图会自动参考')
+  }
+
+  const handleGalleryCorrection = async ({ prompt, correction }: { prompt: string; correction: string }) => {
+    await handleGalleryRegenerate([prompt, correction].filter(Boolean).join('\n'))
+  }
+
   return {
     showImageGalleryModal,
     galleryTargetMessage,
     handleOpenGallery,
     handleGalleryRegenerate,
-    handleGalleryDelete
+    handleGalleryDelete,
+    handleGalleryAddReference,
+    handleGalleryCorrection
   }
 }

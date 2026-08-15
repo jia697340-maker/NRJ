@@ -12,6 +12,8 @@ const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
   (e: 'regenerate', prompt: string): void
   (e: 'delete', index: number): void
+  (e: 'add-reference', item: any): void
+  (e: 'correct', data: { prompt: string; correction: string }): void
 }>()
 
 const currentIndex = ref(0)
@@ -99,6 +101,7 @@ const handleRegenerate = () => {
   if (!promptInput.value.trim()) return
   emit('regenerate', promptInput.value.trim())
 }
+const correct = (correction: string) => emit('correct', { prompt: promptInput.value.trim(), correction })
 
 const handleDelete = () => {
   showDeleteConfirm.value = true
@@ -222,6 +225,11 @@ const handleSaveLongText = (newText: string) => {
                   </svg>
                   基于此参数重构
                 </button>
+                <div class="correction-row">
+                  <button @click="correct('面容与身份特征不一致，请加强角色身份约束')">脸不像</button>
+                  <button @click="correct('发型或发色错误，请严格保持形象档案中的发型发色')">发型错误</button>
+                  <button @click="correct('服装或配饰错误，请严格保持已锁定的服装配饰')">服装错误</button>
+                </div>
               </div>
             </div>
           </div>
@@ -237,6 +245,7 @@ const handleSaveLongText = (newText: string) => {
           </button>
           
           <div class="ext-actions-right">
+            <button class="ext-btn btn-reference" @click="emit('add-reference', currentItem)" title="将这张加入当前形象档案">收录形象</button>
             <!-- 下载按钮 -->
             <button class="ext-btn btn-download" @click="downloadImage" title="保存到本地">
               <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -628,6 +637,7 @@ const handleSaveLongText = (newText: string) => {
   align-items: center;
   gap: 12px;
 }
+.btn-reference{height:40px;padding:0 14px;background:#eef7f2;color:#176b42;border:1px solid #cde4d7;font-size:12px;font-weight:600}.correction-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.correction-row button{border:1px solid rgba(239,68,68,.18);border-radius:7px;padding:7px 3px;background:#fff7f7;color:#b44343;font-size:11px;cursor:pointer}
 
 .btn-download, .btn-danger {
   width: 40px;

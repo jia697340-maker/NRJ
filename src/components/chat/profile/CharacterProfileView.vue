@@ -9,6 +9,7 @@ import { isDirectoryOwner, saveCharacterDirectoryProfile } from '../../../servic
 import { appendRelationshipEvent, blockCharacter, createFriendRequest, deleteFriendByUser, ensureRelationship, persistRelationship, unblockCharacter, type FriendRequestRecord } from '../../../composables/useChatRelationship'
 import { useRelationshipAdvance } from '../../../composables/useRelationshipAdvance'
 import { useChatAuth } from '../../../composables/useChatAuth'
+import ChatIdentityProfileModal from '../modals/ChatIdentityProfileModal.vue'
 
 const props = defineProps<{ chat: any }>()
 const emit = defineEmits<{ (event: 'back'): void; (event: 'open-chat'): void; (event: 'save'): void | Promise<void> }>()
@@ -22,6 +23,7 @@ const showManage = ref(false)
 const manageTab = ref<'profile' | 'permissions' | 'history'>('profile')
 const showMoreMenu = ref(false)
 const showAi = ref(false)
+const showIdentityProfile = ref(false)
 const showManualMoment = ref(false)
 const manualMomentText = ref('')
 const manualSubmitting = ref(false)
@@ -417,6 +419,11 @@ onUnmounted(() => {
             <div><strong>{{ profile.awarenessEnabled ? '角色已感知自己的主页' : '主页目前仅对你可见' }}</strong><span>{{ profile.awarenessEnabled ? `管理模式：${profile.managementMode === 'readonly' ? '只读' : profile.managementMode === 'confirm' ? '修改需确认' : '自主管理'}` : '开启后角色才能感知' }}</span></div>
             <button type="button" @click="openManage('permissions')">设置</button>
           </section>
+          <section v-if="canManageProfile" class="editorial-note character-awareness-note">
+            <svg viewBox="0 0 24 24"><path d="M4 21v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <div><strong>角色固定形象</strong><span>管理形象版本、参考素材与一致性约束</span></div>
+            <button type="button" @click="showIdentityProfile = true">设置</button>
+          </section>
 
           <section v-if="linkedAccounts.length" class="editorial-links character-account-links">
             <header><strong>关联账号</strong><span>默认保密，只在你选择后告诉这个角色</span></header>
@@ -559,6 +566,14 @@ onUnmounted(() => {
     </Teleport>
 
     <CharacterProfileAiModal :visible="showAi" :chat="props.chat" :existing-moments="moments" @close="showAi = false" @apply="applyAiResult" />
+    <ChatIdentityProfileModal
+      v-model:visible="showIdentityProfile"
+      owner-type="character"
+      :owner-id="String(props.chat.characterEntityId || props.chat.id)"
+      :owner-name="props.chat.realName || props.chat.name"
+      :owner-avatar="props.chat.avatarUrl"
+      :provider="props.chat.imageGenProvider || 'novelai'"
+    />
   </div>
 </template>
 

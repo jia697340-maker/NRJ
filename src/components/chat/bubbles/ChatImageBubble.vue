@@ -19,6 +19,7 @@ const emit = defineEmits<{
   <div v-if="msg.imageData.imageId || (msg.imageData.history && msg.imageData.history.length > 0)" class="emoji-message-container" @click="emit('toggle-image-text', msg.id)" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move')" @contextmenu.prevent>
     <img v-if="msg._localImageUrl" :src="msg._localImageUrl" class="emoji-message-img" style="border-radius: 8px; max-width: 200px; object-fit: contain;" loading="lazy" />
     <div v-else style="padding: 12px; color: #999;">[图片加载中...]</div>
+    <span v-if="msg.imageData.identityProfileIds?.length" class="identity-badge">已使用固定形象</span>
   </div>
   <!-- 只有文字描述时渲染占位符 -->
   <div v-else class="image-message-placeholder" :style="currentMediaThumb ? { backgroundImage: `url(${currentMediaThumb})`, backgroundSize: 'cover', backgroundPosition: 'center', border: 'none' } : {}" @click="emit('toggle-image-text', msg.id)" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move')" @contextmenu.prevent>
@@ -33,4 +34,5 @@ const emit = defineEmits<{
 
 <style scoped>
 @import '../../app_ChatPreview.css';
+.emoji-message-container{position:relative}.identity-badge{position:absolute;left:7px;bottom:7px;padding:3px 7px;border-radius:8px;background:rgba(20,20,20,.55);backdrop-filter:blur(4px);color:#fff;font-size:9px;line-height:1.2;pointer-events:none}
 </style>

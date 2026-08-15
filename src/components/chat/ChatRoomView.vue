@@ -742,7 +742,9 @@ const {
   galleryTargetMessage,
   handleOpenGallery,
   handleGalleryRegenerate,
-  handleGalleryDelete
+  handleGalleryDelete,
+  handleGalleryAddReference,
+  handleGalleryCorrection
 } = useChatRoomGalleryUI(
   selectedChat,
   isMultiSelectMode,
@@ -1376,6 +1378,8 @@ onUnmounted(() => {
       :message="galleryTargetMessage"
       @regenerate="handleGalleryRegenerate"
       @delete="handleGalleryDelete"
+      @add-reference="handleGalleryAddReference"
+      @correct="handleGalleryCorrection"
     />
 
     <ChatOfflineSessionEndModal

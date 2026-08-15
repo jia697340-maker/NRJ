@@ -63,33 +63,22 @@
         </div>
 
         <div class="modal-footer">
-          <button v-if="!showPasswordInput" class="submit-btn" :disabled="!isValid" @click="handleSubmit">发送</button>
-          
-          <div v-if="showPasswordInput" class="password-verification">
-            <label class="form-label" style="text-align: center; display: block; margin-bottom: 8px;">输入4位支付密码</label>
-            <input 
-              type="password" 
-              class="text-input password-input" 
-              v-model="paymentPasswordInput" 
-              maxlength="4"
-              inputmode="numeric"
-              placeholder="请输入密码"
-              @input="passwordError = ''"
-            />
-            <div v-if="passwordError" class="error-text">{{ passwordError }}</div>
-            <div class="password-actions">
-              <button class="cancel-btn" @click="showPasswordInput = false">取消</button>
-              <button class="verify-btn" :disabled="paymentPasswordInput.length !== 4" @click="verifyPassword">确认支付</button>
-            </div>
-          </div>
+          <button class="submit-btn" :disabled="!isValid" @click="handleSubmit">发送</button>
         </div>
       </div>
     </div>
   </transition>
+
+  <PaymentPasswordModal
+    :visible="showPasswordInput"
+    @close="showPasswordInput = false"
+    @success="handlePasswordSuccess"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import PaymentPasswordModal from './PaymentPasswordModal.vue'
 import { loadWalletState } from '../../../services/walletService'
 import { useChatAuth } from '../../../composables/useChatAuth'
 
@@ -115,8 +104,6 @@ const amount = ref<string>('')
 const remark = ref<string>('')
 const expireHours = ref<string>('24')
 const showPasswordInput = ref(false)
-const paymentPasswordInput = ref('')
-const passwordError = ref('')
 
 const walletState = ref<ReturnType<typeof loadWalletState> | null>(null)
 const selectedFundingSource = ref<string>('balance')
@@ -133,8 +120,6 @@ watch(() => props.visible, (newVal) => {
     remark.value = ''
     expireHours.value = '24'
     showPasswordInput.value = false
-    paymentPasswordInput.value = ''
-    passwordError.value = ''
     
     const accountId = currentChatUserId.value || 'guest'
     walletState.value = loadWalletState(accountId, currentAccount.value?.name || '我')
@@ -165,14 +150,8 @@ const handleSubmit = () => {
   executeSend()
 }
 
-const verifyPassword = () => {
-  const accountId = currentChatUserId.value || 'guest'
-  const state = loadWalletState(accountId)
-  if (paymentPasswordInput.value !== state.paymentPassword) {
-    passwordError.value = '支付密码错误'
-    paymentPasswordInput.value = ''
-    return
-  }
+const handlePasswordSuccess = () => {
+  showPasswordInput.value = false
   executeSend()
 }
 
@@ -200,8 +179,6 @@ const executeSend = () => {
   })
   
   showPasswordInput.value = false
-  paymentPasswordInput.value = ''
-  passwordError.value = ''
 }
 </script>
 
@@ -401,53 +378,5 @@ const executeSend = () => {
 }
 .submit-btn:not(:disabled):active {
   opacity: 0.9;
-}
-
-.password-verification {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  animation: slideUp 0.2s ease;
-}
-
-.password-input {
-  text-align: center;
-  letter-spacing: 4px;
-  font-size: 20px;
-}
-
-.error-text {
-  color: #f44336;
-  font-size: 12px;
-  text-align: center;
-}
-
-.password-actions {
-  display: flex;
-  gap: 12px;
-}
-
-.cancel-btn, .verify-btn {
-  flex: 1;
-  border: none;
-  border-radius: 8px;
-  padding: 12px 0;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.cancel-btn {
-  background: var(--sys-bg-secondary, rgba(0,0,0,0.05));
-  color: var(--text-secondary);
-}
-
-.verify-btn {
-  background: #f44336;
-  color: white;
-}
-.verify-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>

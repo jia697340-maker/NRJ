@@ -6,6 +6,7 @@ import { reconcilePresence } from '../../services/presenceLifecycle'
 import { normalizeChatTransfers } from '../../services/transferLifecycle'
 import { normalizeSocialProfile } from '../../services/characterSocialProfile'
 import { getCharacterDirectoryEntry, registerAccountContactsInDirectory } from '../../services/characterDirectory'
+import { deleteIdentityProfile } from '../../services/identityProfile'
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -288,6 +289,7 @@ export const deleteChats = async (ids: (string | number)[]) => {
     const toDeleteContacts = contacts.filter((c: any) => idsToDelete.includes(c.id))
     
     for (const c of toDeleteContacts) {
+      await deleteIdentityProfile('character', String(c.characterEntityId || c.id))
       if (c.avatarKey && !getCharacterDirectoryEntry(String(c.characterEntityId || c.id))) {
         await avatarStore.removeItem(c.avatarKey)
       }

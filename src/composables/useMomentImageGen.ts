@@ -10,9 +10,12 @@ import { useNijiImage } from './useNijiImage'
 import { useSeedreamImage } from './useSeedreamImage'
 import { useSeedreamImageReference } from './useSeedreamImageReference'
 import { sendChatMessage } from '../services/api'
+import { resolveIdentityContext } from '../services/identityProfile'
 
 // 朋友圈与聊天共用已有 NovelAI 接入；每次生成使用独立实例，避免影响聊天室中的生成状态。
 export async function generateMomentImage(description: string, character: any): Promise<string> {
+  const provider = character?.imageGenProvider || 'novelai'
+  const identity = await resolveIdentityContext('character', String(character?.characterEntityId || character?.id), provider === 'seedream' ? 10 : 8)
   if (character?.imageGenProvider === 'seedream') {
     const seedreamConfig = character?.seedreamImageConfig || {}
     const apiKey = seedreamConfig.apiKey || localStorage.getItem('app_seedream_image_apikey') || ''
@@ -23,7 +26,7 @@ export async function generateMomentImage(description: string, character: any): 
     const instructions = referenceGroups.value
       .filter(group => groupIds.includes(group.id) && group.description?.trim())
       .map(group => `参考组“${group.name}”：${group.description.trim()}`)
-    const prompt = [seedreamConfig.promptPrefix, ...instructions, description.trim()].filter(Boolean).join('\n')
+    const prompt = [seedreamConfig.promptPrefix, ...instructions, identity.prompt, description.trim()].filter(Boolean).join('\n')
     const { generateImage } = useSeedreamImage()
     return generateImage({
       apiKey,
@@ -35,7 +38,7 @@ export async function generateMomentImage(description: string, character: any): 
       outputFormat: seedreamConfig.outputFormat || localStorage.getItem('app_seedream_image_format') || 'png',
       watermark: seedreamConfig.watermark ?? localStorage.getItem('app_seedream_image_watermark') === 'true',
       seed: seedreamConfig.seed === '' || seedreamConfig.seed === undefined ? null : Number(seedreamConfig.seed),
-      referenceImages: getImagesForGroups(groupIds).map(image => image.dataUrl)
+      referenceImages: [...identity.referenceImages, ...getImagesForGroups(groupIds).map(image => image.dataUrl)].slice(0, 10)
     })
   }
 
@@ -43,7 +46,7 @@ export async function generateMomentImage(description: string, character: any): 
     const nijiConfig = character?.nijiImageConfig || {}
     const apiKey = nijiConfig.apiKey || localStorage.getItem('app_niji_image_apikey') || ''
     if (!apiKey) throw new Error('未配置 Niji 第三方中转密钥')
-    const prompt = [nijiConfig.promptPrefix, description.trim()].filter(Boolean).join('\n')
+    const prompt = [nijiConfig.promptPrefix, identity.prompt, description.trim()].filter(Boolean).join('\n')
     const { generateImage } = useNijiImage()
     return generateImage({
       apiKey,
@@ -77,7 +80,7 @@ export async function generateMomentImage(description: string, character: any): 
     const instructions = referenceGroups.value
       .filter(group => groupIds.includes(group.id) && group.description?.trim())
       .map(group => `参考组“${group.name}”：${group.description.trim()}`)
-    const prompt = [fluxConfig.promptPrefix, ...instructions, description.trim()].filter(Boolean).join('\n')
+    const prompt = [fluxConfig.promptPrefix, ...instructions, identity.prompt, description.trim()].filter(Boolean).join('\n')
     const { generateImage } = useFluxImage()
     return generateImage({
       apiKey,
@@ -91,7 +94,7 @@ export async function generateMomentImage(description: string, character: any): 
       safetyTolerance: fluxConfig.safetyTolerance ?? Number(localStorage.getItem('app_flux_image_safety') || 2),
       seed: fluxConfig.seed === '' || fluxConfig.seed === undefined ? null : Number(fluxConfig.seed),
       disablePromptUpsampling: fluxConfig.disablePromptUpsampling ?? localStorage.getItem('app_flux_image_disable_pup') === 'true',
-      referenceImages: getImagesForGroups(groupIds).map(image => image.dataUrl)
+      referenceImages: [...identity.referenceImages, ...getImagesForGroups(groupIds).map(image => image.dataUrl)].slice(0, 8)
     })
   }
 
@@ -106,7 +109,7 @@ export async function generateMomentImage(description: string, character: any): 
     const instructions = referenceGroups.value
       .filter(group => groupIds.includes(group.id))
       .map(group => `${group.kind === 'character' ? '角色一致性' : group.kind === 'style' ? '画风参考' : group.kind === 'scene' ? '场景参考' : '物体参考'}“${group.name}”：${group.description || '按该组图片进行参考'}。`)
-    const prompt = [geminiConfig.promptPrefix, ...instructions, description.trim()].filter(Boolean).join('\n')
+    const prompt = [geminiConfig.promptPrefix, ...instructions, identity.prompt, description.trim()].filter(Boolean).join('\n')
     const { generateImage } = useGeminiImage()
     return generateImage({
       apiKey,
@@ -121,7 +124,7 @@ export async function generateMomentImage(description: string, character: any): 
       thinkingLevel: geminiConfig.thinkingLevel || localStorage.getItem('app_gemini_image_thinking_level') || 'minimal',
       useGoogleSearch: geminiConfig.useGoogleSearch ?? localStorage.getItem('app_gemini_image_google_search') === 'true',
       useImageSearch: geminiConfig.useImageSearch ?? localStorage.getItem('app_gemini_image_image_search') === 'true',
-      referenceImages: getImagesForGroups(groupIds).map(image => image.dataUrl)
+      referenceImages: [...identity.referenceImages, ...getImagesForGroups(groupIds).map(image => image.dataUrl)].slice(0, 8)
     })
   }
 
@@ -136,7 +139,7 @@ export async function generateMomentImage(description: string, character: any): 
     const groupInstructions = referenceGroups.value
       .filter(group => groupIds.includes(group.id) && group.description?.trim())
       .map(group => `参考组“${group.name}”的用途：${group.description.trim()}`)
-    const prompt = [gptConfig.promptPrefix, ...groupInstructions, description.trim()].filter(Boolean).join('\n')
+    const prompt = [gptConfig.promptPrefix, ...groupInstructions, identity.prompt, description.trim()].filter(Boolean).join('\n')
     const { generateImage } = useGptImage()
     return generateImage({
       apiKey,
@@ -149,7 +152,7 @@ export async function generateMomentImage(description: string, character: any): 
       output_format: gptConfig.outputFormat || localStorage.getItem('app_gpt_image_format') || 'png',
       output_compression: gptConfig.outputCompression ?? Number(localStorage.getItem('app_gpt_image_compression') || 90),
       moderation: gptConfig.moderation || localStorage.getItem('app_gpt_image_moderation') || 'auto',
-      referenceImages: getImagesForGroups(groupIds).map(image => image.dataUrl)
+      referenceImages: [...identity.referenceImages, ...getImagesForGroups(groupIds).map(image => image.dataUrl)].slice(0, 8)
     })
   }
 
@@ -168,7 +171,7 @@ export async function generateMomentImage(description: string, character: any): 
     // 支持直接将中文描述交给兼容的图像服务，翻译失败不阻断发帖。
   }
 
-  prompt = [naiConfig.positivePrompt, naiConfig.vibeText, prompt].filter(Boolean).join(', ')
+  prompt = [naiConfig.positivePrompt, naiConfig.vibeText, identity.prompt, prompt].filter(Boolean).join(', ')
   const { generateImage } = useNovelAI()
   const image = await generateImage({
     apiKey,
@@ -185,7 +188,7 @@ export async function generateMomentImage(description: string, character: any): 
     steps: naiConfig.steps || 28,
     n_samples: 1,
     noise_schedule: naiConfig.noise_schedule || 'karras',
-    negative_prompt: naiConfig.negativePrompt || ''
+    negative_prompt: [naiConfig.negativePrompt, identity.negativePrompt].filter(Boolean).join(', ')
   })
   if (!image) throw new Error('图像引擎未返回图片')
   return image

@@ -8,13 +8,15 @@ import GeminiImageAccessView from './image/GeminiImageAccessView.vue'
 import FluxImageAccessView from './image/FluxImageAccessView.vue'
 import NijiImageAccessView from './image/NijiImageAccessView.vue'
 import SeedreamImageAccessView from './image/SeedreamImageAccessView.vue'
+import IdentityProfileLibraryView from './image/IdentityProfileLibraryView.vue'
 
 const emit = defineEmits(['close'])
 
-const currentView = ref<'platforms' | 'novelai' | 'gptimage' | 'gemini' | 'flux' | 'niji' | 'seedream'>('platforms')
+const currentView = ref<'platforms' | 'identity' | 'novelai' | 'gptimage' | 'gemini' | 'flux' | 'niji' | 'seedream'>('platforms')
 
 const activeIndex = ref(0)
 const platforms = [
+  { id: 'identity', name: '固定形象库', desc: '跨引擎管理角色形象、\n版本与参考素材', action: '进入管理', disabled: false },
   { id: 'novelai', name: 'NovelAI', desc: '二次元及丰富画风的\n图像生成引擎', action: '进入配置', disabled: false },
   { id: 'gptimage', name: 'GPT Image', desc: '支持最新与兼容模型的\n图像生成与编辑', action: '进入配置', disabled: false },
   { id: 'gemini', name: 'Gemini Image', desc: 'Nano Banana 2\n原生生图与多图编辑', action: '进入配置', disabled: false },
@@ -30,8 +32,8 @@ const handleNext = () => {
   if (activeIndex.value < platforms.length - 1) activeIndex.value++
 }
 const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && (id === 'novelai' || id === 'gptimage' || id === 'gemini' || id === 'flux' || id === 'niji' || id === 'seedream')) {
-    currentView.value = id as 'novelai' | 'gptimage' | 'gemini' | 'flux' | 'niji' | 'seedream'
+  if (!disabled && (id === 'identity' || id === 'novelai' || id === 'gptimage' || id === 'gemini' || id === 'flux' || id === 'niji' || id === 'seedream')) {
+    currentView.value = id as 'identity' | 'novelai' | 'gptimage' | 'gemini' | 'flux' | 'niji' | 'seedream'
   }
 }
 </script>
@@ -70,8 +72,9 @@ const handleSelect = (id: string, disabled: boolean) => {
                 <div class="ripple r2"></div>
               </div>
               
-              <div class="capsule-icon" :style="item.id === 'novelai' ? 'background: #111; color: #fff;' : item.id === 'gptimage' ? 'background: #555a61; color: #fff;' : item.id === 'gemini' ? 'background: linear-gradient(135deg,#4285f4,#a142f4); color: #fff;' : item.id === 'flux' ? 'background: linear-gradient(135deg,#111,#287a50); color: #fff;' : item.id === 'niji' ? 'background: linear-gradient(135deg,#27213e,#765e9b); color: #fff;' : item.id === 'seedream' ? 'background: linear-gradient(135deg,#1c3570,#3566a8); color: #fff;' : ''">
-                <span v-if="item.id === 'novelai'" style="font-weight: 800; font-style: italic; font-size: 16px;">NAI</span>
+              <div class="capsule-icon" :style="item.id === 'identity' ? 'background: linear-gradient(135deg,#176b42,#64a47f); color: #fff;' : item.id === 'novelai' ? 'background: #111; color: #fff;' : item.id === 'gptimage' ? 'background: #555a61; color: #fff;' : item.id === 'gemini' ? 'background: linear-gradient(135deg,#4285f4,#a142f4); color: #fff;' : item.id === 'flux' ? 'background: linear-gradient(135deg,#111,#287a50); color: #fff;' : item.id === 'niji' ? 'background: linear-gradient(135deg,#27213e,#765e9b); color: #fff;' : item.id === 'seedream' ? 'background: linear-gradient(135deg,#1c3570,#3566a8); color: #fff;' : ''">
+                <span v-if="item.id === 'identity'" style="font-weight: 800; font-size: 16px;">ID</span>
+                <span v-else-if="item.id === 'novelai'" style="font-weight: 800; font-style: italic; font-size: 16px;">NAI</span>
                 <span v-else-if="item.id === 'gptimage'" style="font-weight: 800; font-size: 13px;">GPT</span>
                 <span v-else-if="item.id === 'gemini'" style="font-weight: 800; font-size: 12px;">GEM</span>
                 <span v-else-if="item.id === 'flux'" style="font-weight: 800; font-size: 12px;">FLX</span>
@@ -101,6 +104,7 @@ const handleSelect = (id: string, disabled: boolean) => {
     </div>
 
     <!-- 子视图 -->
+    <IdentityProfileLibraryView v-else-if="currentView === 'identity'" @back="currentView = 'platforms'" />
     <NovelAIImageAccessView v-else-if="currentView === 'novelai'" @back="currentView = 'platforms'" />
     <GptImageAccessView v-else-if="currentView === 'gptimage'" @back="currentView = 'platforms'" />
     <GeminiImageAccessView v-else-if="currentView === 'gemini'" @back="currentView = 'platforms'" />

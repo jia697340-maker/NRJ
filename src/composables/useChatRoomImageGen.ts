@@ -6,6 +6,7 @@ import { useGeminiImageReference } from './useGeminiImageReference'
 import { useFluxImageReference } from './useFluxImageReference'
 import { useSeedreamImageReference } from './useSeedreamImageReference'
 import { buildNovelAIVibeReferences, type VibeGroup, type VibeImage } from './useNovelAIVibe'
+import { resolveIdentityContext } from '../services/identityProfile'
 
 export function useChatRoomImageGen(
   selectedChat: any,
@@ -36,6 +37,7 @@ export function useChatRoomImageGen(
     const vibeText = naiConfig.vibeText || ''
     const positivePrompt = naiConfig.positivePrompt || ''
     const visualProfile = naiConfig.visualProfile?.enabled ? naiConfig.visualProfile : null
+    const identity = await resolveIdentityContext('character', String(chatToUpdate.characterEntityId || chatToUpdate.id), provider === 'seedream' ? 10 : 8)
     
     // 给用户一个 "正在构思画面..." 的状态
     chatToUpdate.messages.push({
@@ -45,7 +47,9 @@ export function useChatRoomImageGen(
       isGeneratingImage: true,
       imageData: {
         text: actionContent,
-        prompt: '' // 等翻译完再填入
+        prompt: '', // 等翻译完再填入
+        identityProfileIds: identity.profiles.map(profile => profile.id),
+        identityWarnings: identity.warnings
       }
     })
     chatToUpdate.preview = '[正在作画中...]'
@@ -85,7 +89,7 @@ export function useChatRoomImageGen(
       const instructions = referenceGroups.value
         .filter(group => groupIds.includes(group.id) && group.description?.trim())
         .map(group => `参考组“${group.name}”：${group.description.trim()}`)
-      const finalSeedreamPrompt = [seedreamConfig.promptPrefix?.trim(), ...instructions, scenePrompt].filter(Boolean).join('\n')
+      const finalSeedreamPrompt = [seedreamConfig.promptPrefix?.trim(), ...instructions, identity.prompt, scenePrompt].filter(Boolean).join('\n')
       const references = getImagesForGroups(groupIds)
       const msgRef = chatToUpdate.messages.find((message: any) => message.id === baseMessageId)
       if (msgRef) {
@@ -107,7 +111,7 @@ export function useChatRoomImageGen(
           outputFormat: seedreamConfig.outputFormat || localStorage.getItem('app_seedream_image_format') || 'png',
           watermark: seedreamConfig.watermark ?? localStorage.getItem('app_seedream_image_watermark') === 'true',
           seed: seedreamConfig.seed === '' || seedreamConfig.seed === undefined ? null : Number(seedreamConfig.seed),
-          referenceImages: references.map(image => image.dataUrl)
+          referenceImages: [...identity.referenceImages, ...references.map(image => image.dataUrl)].slice(0, 10)
         })
         const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
         if (message) {
@@ -158,7 +162,7 @@ export function useChatRoomImageGen(
         }
       }
 
-      const finalNijiPrompt = [nijiConfig.promptPrefix?.trim(), scenePrompt].filter(Boolean).join('\n')
+      const finalNijiPrompt = [nijiConfig.promptPrefix?.trim(), identity.prompt, scenePrompt].filter(Boolean).join('\n')
       const msgRef = chatToUpdate.messages.find((message: any) => message.id === baseMessageId)
       if (msgRef) {
         msgRef.content = '正在使用 Niji 7 绘制图像...'
@@ -243,7 +247,7 @@ export function useChatRoomImageGen(
       const instructions = referenceGroups.value
         .filter(group => groupIds.includes(group.id) && group.description?.trim())
         .map(group => `参考组“${group.name}”：${group.description.trim()}`)
-      const finalFluxPrompt = [fluxConfig.promptPrefix?.trim(), ...instructions, scenePrompt].filter(Boolean).join('\n')
+      const finalFluxPrompt = [fluxConfig.promptPrefix?.trim(), ...instructions, identity.prompt, scenePrompt].filter(Boolean).join('\n')
       const references = getImagesForGroups(groupIds)
       const msgRef = chatToUpdate.messages.find((message: any) => message.id === baseMessageId)
       if (msgRef) {
@@ -271,7 +275,7 @@ export function useChatRoomImageGen(
           disablePromptUpsampling: fluxConfig.enableLlmAssist
             ? true
             : (fluxConfig.disablePromptUpsampling ?? localStorage.getItem('app_flux_image_disable_pup') === 'true'),
-          referenceImages: references.map(image => image.dataUrl)
+          referenceImages: [...identity.referenceImages, ...references.map(image => image.dataUrl)].slice(0, 8)
         })
         const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
         if (message) {
@@ -314,6 +318,7 @@ export function useChatRoomImageGen(
       const finalGeminiPrompt = [
         geminiConfig.promptPrefix?.trim(),
         ...groupInstructions,
+        identity.prompt,
         recentMessages && `最近聊天上下文：\n${recentMessages}`,
         `本次需要绘制的画面：${actionContent.trim()}`
       ].filter(Boolean).join('\n\n')
@@ -342,7 +347,7 @@ export function useChatRoomImageGen(
           thinkingLevel: geminiConfig.thinkingLevel || localStorage.getItem('app_gemini_image_thinking_level') || 'minimal',
           useGoogleSearch: geminiConfig.useGoogleSearch ?? localStorage.getItem('app_gemini_image_google_search') === 'true',
           useImageSearch: geminiConfig.useImageSearch ?? localStorage.getItem('app_gemini_image_image_search') === 'true',
-          referenceImages: references.map(image => image.dataUrl)
+          referenceImages: [...identity.referenceImages, ...references.map(image => image.dataUrl)].slice(0, 8)
         })
         const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
         if (message) {
@@ -403,6 +408,7 @@ export function useChatRoomImageGen(
       const finalGptPrompt = [
         gptConfig.promptPrefix?.trim(),
         ...groupInstructions,
+        identity.prompt,
         gptPrompt
       ].filter(Boolean).join('\n')
       const references = getImagesForGroups(groupIds)
@@ -428,7 +434,7 @@ export function useChatRoomImageGen(
           output_format: gptConfig.outputFormat || localStorage.getItem('app_gpt_image_format') || 'png',
           output_compression: gptConfig.outputCompression ?? Number(localStorage.getItem('app_gpt_image_compression') || 90),
           moderation: gptConfig.moderation || localStorage.getItem('app_gpt_image_moderation') || 'auto',
-          referenceImages: references.map(image => image.dataUrl)
+          referenceImages: [...identity.referenceImages, ...references.map(image => image.dataUrl)].slice(0, 8)
         })
 
         const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
@@ -548,6 +554,9 @@ export function useChatRoomImageGen(
     if (positivePrompt) {
       finalPrompt = [positivePrompt, finalPrompt].filter(Boolean).join(', ')
     }
+    if (identity.prompt) {
+      finalPrompt = [identity.prompt, finalPrompt].filter(Boolean).join(', ')
+    }
     if (visualProfile?.promptEn) {
       finalPrompt = [visualProfile.promptEn, finalPrompt].filter(Boolean).join(', ')
     }
@@ -561,6 +570,9 @@ export function useChatRoomImageGen(
     }
     if (visualProfile?.negativeEn) {
       finalNegative = [finalNegative, visualProfile.negativeEn].filter(Boolean).join(', ')
+    }
+    if (identity.negativePrompt) {
+      finalNegative = [finalNegative, identity.negativePrompt].filter(Boolean).join(', ')
     }
 
     const msgRef = chatToUpdate.messages.find((m: any) => m.id === baseMessageId)

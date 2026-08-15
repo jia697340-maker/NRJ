@@ -26,6 +26,7 @@ const emit = defineEmits<{
   (e: 'show-niji-image-detail-modal'): void
   (e: 'show-seedream-image-detail-modal'): void
   (e: 'show-image-provider-modal'): void
+  (e: 'show-identity-profile-modal', target: 'character'): void
   (e: 'show-world-book-bind-selector'): void
   (e: 'show-bilingual-option-modal', kind: 'mode' | 'display'): void
   (e: 'show-bilingual-language-modal', kind: 'output' | 'translation'): void
@@ -244,7 +245,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </template>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('开启角色生图', '生图引擎', 'NAI生图详细配置', 'GPT生图详细配置', 'Gemini生图详细配置', 'FLUX生图详细配置', 'Niji生图详细配置', 'Seedream生图详细配置')">
+    <div class="glass-panel" v-show="matchSearch('开启角色生图', '固定形象', '锁脸', '生图引擎', 'NAI生图详细配置', 'GPT生图详细配置', 'Gemini生图详细配置', 'FLUX生图详细配置', 'Niji生图详细配置', 'Seedream生图详细配置')">
       <div class="glass-list-item" v-show="matchSearch('开启角色生图')">
         <div class="item-label">开启角色生图</div>
         <div class="item-value">
@@ -255,6 +256,10 @@ watch(() => props.selectedChat, calculateMomentTokens)
         </div>
       </div>
       <template v-if="selectedChat.enableNAIImageGen">
+        <div class="glass-list-item" v-show="matchSearch('固定形象', '锁脸', '角色一致性')" @click="emit('show-identity-profile-modal', 'character')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 角色固定形象</div>
+          <div class="item-value"><span class="item-value-text">形象版本、参考素材与多人同框</span><span class="arrow">></span></div>
+        </div>
         <div class="glass-list-item" v-show="matchSearch('生图引擎', 'NovelAI', 'GPT Image', 'Gemini Image', 'FLUX.2', 'Niji 7', 'Seedream 5.0')" @click="emit('show-image-provider-modal')">
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 生图引擎</div>
           <div class="item-value">

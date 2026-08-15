@@ -67,6 +67,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'memory-covers', group: '世界书与记忆', name: '聊天记忆封面', description: '记忆卡封面', stores: [{ dbName: 'nrt-app', storeName: 'memoryCovers' }] },
   { id: 'memory-styles', group: '世界书与记忆', name: '聊天记忆样式', description: '记忆卡样式配置', stores: [{ dbName: 'nrt-app', storeName: 'memoryStyles' }] },
   { id: 'avatars', group: '图片与媒体', name: '头像库', description: '角色与用户头像', stores: [{ dbName: 'nrt-app', storeName: 'avatars' }] },
+  { id: 'identity-profiles', group: '联系人与角色', name: '固定形象档案', description: '角色与用户的形象版本、参考素材和同框绑定', stores: [{ dbName: 'nrt-app', storeName: 'identityProfiles' }] },
   { id: 'media-thumbs', group: '图片与媒体', name: '媒体缩略图', description: '图片和媒体的缩略图', stores: [{ dbName: 'nrt-app', storeName: 'media-thumbs' }, { dbName: 'nrt-app', storeName: 'mediaThumbs' }] },
   { id: 'image-history', group: '图片与媒体', name: '图片生成历史', description: 'NovelAI 图片生成历史', stores: [{ dbName: 'app_novelai_history', storeName: 'keyvaluepairs' }, { dbName: 'nrt-app', storeName: 'history_items' }] },
   { id: 'gpt-image-history', group: '图片与媒体', name: 'GPT 图片生成历史', description: 'GPT Image 2 独立生成历史', stores: [{ dbName: 'app_gpt_image_history', storeName: 'history_items' }] },

@@ -53,6 +53,7 @@ import ChatFluxImageDetailModal from './modals/ChatFluxImageDetailModal.vue'
 import ChatNijiImageDetailModal from './modals/ChatNijiImageDetailModal.vue'
 import ChatSeedreamImageDetailModal from './modals/ChatSeedreamImageDetailModal.vue'
 import ChatImageProviderModal from './modals/ChatImageProviderModal.vue'
+import ChatIdentityProfileModal from './modals/ChatIdentityProfileModal.vue'
 
 const searchQuery = ref('')
 const matchSearch = (...keywords: (string | undefined | null)[]) => {
@@ -85,6 +86,10 @@ const emit = defineEmits<{
 }>()
 
 const { selectedChat, myProfile, effectiveMyProfile, mockChats, loadMyProfile, saveMyProfile } = useChatState()
+const { currentChatUserId } = useChatAuth()
+const identityUserOwnerId = computed(() => selectedChat.value?.userProfileSource?.personaId
+  ? `persona-${selectedChat.value.userProfileSource.personaId}`
+  : (currentChatUserId.value || 'default-user'))
 const { saveCurrentChat } = useChatSettingsSave()
 const { tokenStats, refreshTokenStats } = useChatTokenStats()
 const { getTimezoneLabel } = useTimezone()
@@ -199,6 +204,12 @@ const showFluxImageDetailModal = ref(false)
 const showNijiImageDetailModal = ref(false)
 const showSeedreamImageDetailModal = ref(false)
 const showImageProviderModal = ref(false)
+const showIdentityProfileModal = ref(false)
+const identityProfileTarget = ref<'character' | 'user'>('character')
+const openIdentityProfile = (target: 'character' | 'user') => {
+  identityProfileTarget.value = target
+  showIdentityProfileModal.value = true
+}
 
 const presetVoices = [
   { id: 'female-yujie', name: '温柔御姐' },
@@ -803,6 +814,7 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @show-niji-image-detail-modal="showNijiImageDetailModal = true"
         @show-seedream-image-detail-modal="showSeedreamImageDetailModal = true"
         @show-image-provider-modal="showImageProviderModal = true"
+        @show-identity-profile-modal="openIdentityProfile"
         @show-world-book-bind-selector="showWorldBookBindSelector = true"
         @show-bilingual-option-modal="openBilingualOptionModal"
         @show-bilingual-language-modal="openBilingualLanguageModal"
@@ -859,6 +871,7 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @open-timezone-modal="openTimezoneModal"
         @delete-call-records="handleDeleteCallRecords"
         @resummarize-call-record="handleResummarizeCallRecord"
+        @show-identity-profile-modal="openIdentityProfile"
       />
 
       <!-- 时区选择弹窗 -->
@@ -980,6 +993,16 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         v-model:visible="showImageProviderModal"
         :current-provider="selectedChat.imageGenProvider || 'novelai'"
         @select="selectImageProvider"
+      />
+
+      <ChatIdentityProfileModal
+        v-model:visible="showIdentityProfileModal"
+        :owner-type="identityProfileTarget"
+        :owner-id="identityProfileTarget === 'character' ? String(selectedChat.characterEntityId || selectedChat.id) : identityUserOwnerId"
+        :owner-name="identityProfileTarget === 'character' ? (selectedChat.realName || selectedChat.name) : (effectiveMyProfile.name || '我')"
+        :owner-avatar="identityProfileTarget === 'character' ? selectedChat.avatarUrl : effectiveMyProfile.avatarUrl"
+        :provider="selectedChat.imageGenProvider || 'novelai'"
+        :available-characters="mockChats"
       />
 
       <!-- 语音详细配置弹窗 -->

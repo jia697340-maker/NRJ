@@ -21,6 +21,7 @@ const emit = defineEmits<{
   (e: 'create-user-persona'): void
   (e: 'delete-call-records', ids: (string | number)[]): void
   (e: 'resummarize-call-record', id: string | number): void
+  (e: 'show-identity-profile-modal', target: 'user'): void
 }>()
 
 const showCallRecordsView = ref(false)
@@ -78,6 +79,13 @@ const showCallRecordsView = ref(false)
       <div class="glass-list-item" v-show="matchSearch('用户时区')" :class="{ 'disabled-block': !selectedChat.timePerception }" @click="emit('open-timezone-modal', 'user')">
         <div class="item-label">用户时区</div>
         <div class="item-value"><span class="item-value-text">{{ getTimezoneLabel(myProfile.timezone) || '默认' }}</span><span class="arrow">></span></div>
+      </div>
+    </div>
+
+    <div class="glass-panel" v-show="matchSearch('我的固定形象', '用户形象', '合照', '情侣照')">
+      <div class="glass-list-item" @click="emit('show-identity-profile-modal', 'user')">
+        <div class="item-label">我的固定形象</div>
+        <div class="item-value"><span class="item-value-text">用于合照、情侣照与约会画面</span><span class="arrow">></span></div>
       </div>
     </div>
 

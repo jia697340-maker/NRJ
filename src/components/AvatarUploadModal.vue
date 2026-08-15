@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <template>
-  <div class="modal-overlay" v-if="visible" @click.self="close">
+  <Teleport to="body">
+    <div class="modal-overlay" v-if="visible" @click.self="close">
     <div class="modal-content">
       <button class="close-btn" @click="close" aria-label="关闭">
         <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -42,6 +43,7 @@
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -169,7 +171,7 @@ const saveAvatar = () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 20000;
   animation: fadeIn 0.2s ease-out;
 }
 
