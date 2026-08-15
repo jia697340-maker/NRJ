@@ -714,7 +714,7 @@ export function useAdvancedSettingsStorage(showConfirm: (message: string, title?
       }
       for (let index = 0; index < localStorage.length; index++) {
         const key = localStorage.key(index)
-        if (!key || !(key === 'chats' || key === 'clingy_system_messages' || key.startsWith('clingy_custom_contacts'))) continue
+        if (!key || !(key === 'chats' || key === 'clingy_system_messages' || key.startsWith('clingy_custom_contacts') || key.startsWith('clingy_group_chats'))) continue
         const rawChats = localStorage.getItem(key)
         if (!rawChats) continue
         try {

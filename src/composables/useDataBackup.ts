@@ -12,6 +12,7 @@ export interface BackupCatalogItem {
   description: string
   sensitive?: boolean
   localKeys?: string[]
+  localKeyPrefixes?: string[]
   stores?: Array<{ dbName: string; storeName: string }>
 }
 
@@ -33,7 +34,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'microsoft-mai-voice', group: '账号与安全', name: 'Microsoft MAI Voice 配置', description: '独立的 Azure Speech 官方与中转服务配置', sensitive: true, localKeys: ['microsoft_mai_voice_config_v1'] },
   { id: 'aliyun-tts', group: '账号与安全', name: '阿里云 TTS 配置', description: '独立的阿里云百炼官方与中转服务配置', sensitive: true, localKeys: ['aliyun_tts_config_v1'] },
   { id: 'llm-presets', group: 'AI 与生成设置', name: 'LLM 预设列表', description: '模型预设与参数', localKeys: ['app_llm_presets'] },
-  { id: 'system-prompt-schemes', group: 'AI 与生成设置', name: '系统提示词方案', description: '常规聊天方案、线下预设与特殊任务提示词', localKeys: ['clingy_global_prompt_settings', 'clingy_offline_prompt_presets', 'clingy_task_prompt_settings'] },
+  { id: 'system-prompt-schemes', group: 'AI 与生成设置', name: '系统提示词方案', description: '常规聊天、群聊、线下预设与特殊任务提示词', localKeys: ['clingy_global_prompt_settings', 'clingy_group_prompt_settings_v1', 'clingy_group_prompt_settings_v2', 'clingy_offline_prompt_presets', 'clingy_task_prompt_settings'] },
   { id: 'novelai-presets', group: 'AI 与生成设置', name: 'NovelAI 预设列表', description: '图像生成预设', localKeys: ['app_novelai_presets'] },
   { id: 'current-ai-preset', group: 'AI 与生成设置', name: '当前 AI 预设', description: '当前使用的模型与图像预设', localKeys: ['app_novelai_current_preset', 'app_novelai_current_prompt_preset'] },
   { id: 'prompt-presets', group: 'AI 与生成设置', name: '提示词预设', description: '正向提示词预设', localKeys: ['app_novelai_prompt_presets'] },
@@ -55,6 +56,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'personas', group: '联系人与角色', name: '角色列表', description: '角色资料与头像关联', localKeys: ['app_chat_personas'] },
   { id: 'active-persona', group: '联系人与角色', name: '当前角色', description: '当前选中的角色', localKeys: ['app_chat_active_persona_index'] },
   { id: 'chat-records', group: '聊天内容', name: '聊天会话与消息', description: '全部聊天会话和消息内容', localKeys: ['chats'] },
+  { id: 'group-chat-records', group: '聊天内容', name: '群聊会话与记忆', description: '各账号的群聊、成员配置、聊天记录与群记忆', localKeyPrefixes: ['clingy_group_chats'] },
   { id: 'chat-groups', group: '聊天内容', name: '聊天分组', description: '聊天分组与排序', localKeys: ['clingy_chat_groups'] },
   { id: 'chat-settings', group: '聊天内容', name: '聊天设置', description: '聊天显示、通话及交互设置', localKeys: ['clingy_chat_settings'] },
   { id: 'system-messages', group: '聊天内容', name: '系统消息与通知', description: '系统消息、置顶和已读状态', localKeys: ['clingy_system_messages', 'clingy_system_notice_pinned', 'clingy_system_notice_read'] },
@@ -206,7 +208,7 @@ export function useDataBackup() {
       
       // 完整备份不依赖 key 的命名规则，避免新增数据因命名差异被静默遗漏。
       // 自定义导出才按模块规则进行筛选。
-      let shouldInclude = fullBackup || BACKUP_CATALOG.some(item => modules.includes(item.id) && item.localKeys?.includes(key))
+      let shouldInclude = fullBackup || BACKUP_CATALOG.some(item => modules.includes(item.id) && (item.localKeys?.includes(key) || item.localKeyPrefixes?.some(prefix => key.startsWith(prefix))))
       if (modules.includes('chats') && (key.includes('chat') || key.includes('persona'))) {
         shouldInclude = true
         if (key === 'chats') {

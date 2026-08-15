@@ -4,7 +4,9 @@ import { computed, reactive, ref } from 'vue'
 import {
   activateTaskPromptLanguage,
   globalPromptSettings,
+  groupPromptSettings,
   offlinePresetSettings,
+  resetGroupPromptSettings,
   taskPromptSettings,
   taskSystemPromptItemIds,
   type PromptItem
@@ -16,7 +18,7 @@ import ChatOfflinePresetModal from '../chat/modals/ChatOfflinePresetModal.vue'
 import SearchableSelect from '../SearchableSelect.vue'
 
 const props = defineProps<{ showConfirm: any }>()
-const activePromptTab = ref<'normal' | 'offline' | 'task'>('normal')
+const activePromptTab = ref<'normal' | 'group' | 'offline' | 'task'>('normal')
 const variablesVisible = ref(false)
 const variableScope = ref<PromptVariableScope>('global')
 const offlineModalVisible = ref(false)
@@ -94,6 +96,30 @@ const taskDragOver = (event: DragEvent, index: number) => {
 }
 const taskTokenLabel = computed(() => formatEstimatedTokens(estimateTextTokens(taskPromptSettings.items.filter(item => item.enabled).map(item => item.content).join('\n\n'))))
 
+const groupEditorVisible = ref(false)
+const groupDraft = ref<PromptItem | null>(null)
+const groupEditIndex = ref(-1)
+const openGroupEditor = (index = -1) => {
+  groupEditIndex.value = index
+  groupDraft.value = index >= 0
+    ? JSON.parse(JSON.stringify(groupPromptSettings.items[index]))
+    : { id: `group_custom_${Date.now()}`, name: '新群聊提示词', content: '', enabled: true }
+  groupEditorVisible.value = true
+}
+const saveGroupEditor = () => {
+  if (!groupDraft.value?.name.trim() || !groupDraft.value.content.trim()) return prompt.showToast('名称和内容不能为空')
+  if (groupEditIndex.value >= 0) groupPromptSettings.items[groupEditIndex.value] = groupDraft.value
+  else groupPromptSettings.items.push(groupDraft.value)
+  groupEditorVisible.value = false
+}
+const deleteGroupItem = async (index: number) => {
+  if (await props.showConfirm('确定删除这个群聊提示词吗？', '删除条目', true, 'danger')) groupPromptSettings.items.splice(index, 1)
+}
+const resetGroupItems = async () => {
+  if (await props.showConfirm('恢复官方群聊提示词吗？当前修改会被覆盖。', '恢复默认')) resetGroupPromptSettings()
+}
+const groupTokenLabel = computed(() => formatEstimatedTokens(estimateTextTokens(groupPromptSettings.items.filter(item => item.enabled).map(item => item.content).join('\n\n'))))
+
 const viewingUnknownVariables = computed(() => {
   const variant = prompt.viewingVariant.value
   if (!variant) return []
@@ -116,11 +142,12 @@ const allSchemeOptions = computed(() => {
   <div class="settings-panel">
     <div class="mag-header">
       <div class="mag-title-box"><span class="mag-title">全局提示词</span><span class="mag-subtitle">System Prompts</span></div>
-      <div class="mag-desc">管理常规聊天、线下互动与特殊任务的底层提示词。内置方案只读，修改将自动保存为副本。</div>
+      <div class="mag-desc">管理常规聊天、群聊、线下互动与特殊任务的底层提示词。群聊规则独立生效，不会改变单聊提示词。</div>
     </div>
 
     <div class="mag-tabs main-tabs">
       <button class="mag-tab-btn" :class="{ active: activePromptTab === 'normal' }" @click="activePromptTab = 'normal'">常规聊天</button>
+      <button class="mag-tab-btn" :class="{ active: activePromptTab === 'group' }" @click="activePromptTab = 'group'">群聊</button>
       <button class="mag-tab-btn" :class="{ active: activePromptTab === 'offline' }" @click="activePromptTab = 'offline'">线下互动</button>
       <button class="mag-tab-btn" :class="{ active: activePromptTab === 'task' }" @click="activePromptTab = 'task'">特殊任务</button>
     </div>
@@ -221,6 +248,24 @@ const allSchemeOptions = computed(() => {
       </div>
     </template>
 
+    <template v-else-if="activePromptTab === 'group'">
+      <div class="prompt-version-card">
+        <div class="prompt-version-copy"><span class="mag-list-label">群聊专属提示词</span><span class="prompt-version-desc">每次群聊只调用一次模型，由模型在同一次返回中自然决定谁发言、顺序、条数和篇幅 · {{ groupTokenLabel }}</span></div>
+        <button class="mag-btn primary" @click="openGroupEditor()">+ 新增</button>
+      </div>
+      <div class="mag-settings-card">
+        <div class="readonly-notice">角色不是围绕用户工作的助手。群背景为空时不会注入任何群背景段落；本页不提供发言概率、人数、顺序或句数等数值控制。</div>
+        <div class="cot-list">
+          <div v-for="(item, index) in groupPromptSettings.items" :key="item.id" class="cot-item-card compact">
+            <div class="cot-card-top"><span class="cot-item-name">{{ item.name }}</span><div class="spacer"></div><label class="toggle-switch mini"><input v-model="item.enabled" type="checkbox"><span class="slider"></span></label></div>
+            <div class="entry-preview">{{ item.content.slice(0, 160) || '暂无内容' }}</div>
+            <div class="cot-card-bottom"><span class="cot-tag">仅群聊生效</span><div class="cot-item-actions"><button class="icon-btn edit" @click="openGroupEditor(index)">编辑</button><button class="icon-btn delete" @click="deleteGroupItem(index)">删除</button></div></div>
+          </div>
+        </div>
+        <div class="library-footer"><button class="mag-icon-text-btn" @click="resetGroupItems">恢复官方群聊提示词</button></div>
+      </div>
+    </template>
+
     <template v-else-if="activePromptTab === 'offline'">
       <div class="prompt-version-card">
         <div class="prompt-version-copy"><span class="mag-list-label">线下专属提示词</span><span class="prompt-version-desc">线下规则会在全局方案之后、聊天记录前后分别注入；单个角色仍可在聊天设置中覆盖默认选择。</span></div>
@@ -293,6 +338,10 @@ const allSchemeOptions = computed(() => {
     <div v-if="prompt.conversionVisible.value" class="simple-modal-overlay" @click.self="prompt.conversionVisible.value = false">
       <div class="cot-edit-modal"><div class="cot-modal-header"><div><h3>转换为条目</h3><span class="modal-subtitle">已按标题识别 {{ prompt.conversionItems.value.length }} 个条目，确认后替换当前条目列表。</span></div><button class="close-btn" @click="prompt.conversionVisible.value = false">关闭</button></div><div class="cot-modal-body conversion-list"><div v-for="item in prompt.conversionItems.value" :key="item.id" class="conversion-card"><strong>{{ item.name }}</strong><span>{{ item.content.slice(0, 100) }}{{ item.content.length > 100 ? '…' : '' }}</span></div></div><div class="cot-modal-footer"><button class="simple-modal-btn" @click="prompt.conversionVisible.value = false">取消</button><button class="simple-modal-btn primary" @click="prompt.confirmFullTextConversion">确认转换</button></div></div>
     </div>
+  </Transition>
+
+  <Transition name="fade">
+    <div v-if="groupEditorVisible && groupDraft" class="simple-modal-overlay" @click.self="groupEditorVisible = false"><div class="cot-edit-modal"><div class="cot-modal-header"><h3>编辑群聊提示词</h3><button class="close-btn" @click="groupEditorVisible = false">关闭</button></div><div class="cot-modal-body"><div class="form-row"><div class="form-label">条目名称</div><input v-model="groupDraft.name" class="simple-modal-input"></div><div class="form-row"><div class="form-label">提示词内容</div><textarea v-model="groupDraft.content" class="simple-modal-input textarea" spellcheck="false"></textarea></div><div class="form-row horizontal"><div class="form-label">启用此条目</div><label class="toggle-switch"><input v-model="groupDraft.enabled" type="checkbox"><span class="slider"></span></label></div></div><div class="cot-modal-footer"><button class="simple-modal-btn" @click="groupEditorVisible = false">取消</button><button class="simple-modal-btn primary" @click="saveGroupEditor">保存并生效</button></div></div></div>
   </Transition>
 
   <Transition name="fade">

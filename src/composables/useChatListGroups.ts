@@ -1,12 +1,18 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
 import { useChatAuth } from './useChatAuth'
+import { readGroupChats, writeGroupChats } from '../services/groupChat'
 
 export function useChatListGroups(customGroups: any, activeGroup: any, loadCustomContacts: () => void) {
   const { currentChatUserId } = useChatAuth()
   
   const getGroupsKey = () => currentChatUserId.value ? `clingy_chat_groups_${currentChatUserId.value}` : 'clingy_chat_groups'
   const getContactsKey = () => currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
+  const updateGroupChats = (mutate: (chat: any) => void) => {
+    const chats = readGroupChats(currentChatUserId.value)
+    chats.forEach(mutate)
+    writeGroupChats(currentChatUserId.value, chats)
+  }
 
   const showAddGroupDialog = (showDialog: any) => {
     showDialog({
@@ -61,6 +67,10 @@ export function useChatListGroups(customGroups: any, activeGroup: any, loadCusto
                 loadCustomContacts()
               }
             }
+            updateGroupChats(chat => {
+              if (chat.groups?.includes(oldName)) chat.groups = [...chat.groups.filter((group: string) => group !== oldName), newName]
+            })
+            loadCustomContacts()
           }
         }
       }
@@ -96,6 +106,8 @@ export function useChatListGroups(customGroups: any, activeGroup: any, loadCusto
             loadCustomContacts()
           }
         }
+        updateGroupChats(chat => { chat.groups = (chat.groups || []).filter((item: string) => item !== group) })
+        loadCustomContacts()
       }
     })
   }
@@ -120,6 +132,12 @@ export function useChatListGroups(customGroups: any, activeGroup: any, loadCusto
       localStorage.setItem(getContactsKey(), JSON.stringify(contacts))
       loadCustomContacts()
     }
+    updateGroupChats(chat => {
+      if (!idsToAssign.includes(chat.id)) return
+      chat.groups ||= []
+      groupsArray.forEach(group => { if (!chat.groups.includes(group)) chat.groups.push(group) })
+    })
+    loadCustomContacts()
     
     onSuccess()
   }
@@ -157,6 +175,8 @@ export function useChatListGroups(customGroups: any, activeGroup: any, loadCusto
             loadCustomContacts()
           }
         }
+        updateGroupChats(chat => { chat.groups = (chat.groups || []).filter((group: string) => !toDelete.includes(group)) })
+        loadCustomContacts()
         onSuccess()
       }
     })
@@ -205,6 +225,12 @@ export function useChatListGroups(customGroups: any, activeGroup: any, loadCusto
               loadCustomContacts()
             }
           }
+          updateGroupChats(chat => {
+            if (!(chat.groups || []).some((group: string) => toMerge.includes(group))) return
+            chat.groups = chat.groups.filter((group: string) => !toMerge.includes(group))
+            if (!chat.groups.includes(newName)) chat.groups.push(newName)
+          })
+          loadCustomContacts()
           onSuccess()
         }
       }

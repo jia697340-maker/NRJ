@@ -21,6 +21,7 @@ const props = defineProps<{
   currentMediaThumb: string | null
   voicePlayingId: number | null
   isVoiceSynthesizing: boolean
+  resolveSender?: (message: any) => any
 }>()
 
 const emit = defineEmits([
@@ -39,6 +40,7 @@ const emit = defineEmits([
   'cancel-image-generation'
 ])
 const translationExpanded = ref(false)
+const messageSender = computed(() => props.resolveSender?.(props.msg) || props.selectedChat || {})
 const translationDisplay = computed(() => props.selectedChat?.translationDisplay || 'tap')
 const hasTranslation = computed(() => typeof props.msg?.translation === 'string' && props.msg.translation.trim().length > 0)
 const showOriginal = computed(() => translationDisplay.value !== 'translated_only' || !hasTranslation.value)
@@ -54,6 +56,7 @@ const toggleTranslation = () => {
 
 const shouldShowAvatar = (msg: any) => {
   if (msg.type !== 'left' && msg.type !== 'right') return false
+  if (props.selectedChat?.chatType === 'group' && props.selectedChat?.showMemberAvatars === false) return false
   const style = chatSettings.avatarDisplayStyle || 'all'
   if (style === 'none') return false
   if (style === 'all') return true
@@ -64,6 +67,7 @@ const shouldShowAvatar = (msg: any) => {
 
 const shouldShowName = (msg: any) => {
   if (msg.type !== 'left' && msg.type !== 'right') return false
+  if (props.selectedChat?.chatType === 'group' && props.selectedChat?.showMemberNames === false) return false
   const style = chatSettings.nameDisplayStyle || 'all'
   if (style === 'none') return false
   if (style === 'all') return true
@@ -79,13 +83,14 @@ const formatMsgTime = (timestamp: number) => {
   const h = String(date.getHours()).padStart(2, '0')
   const m = String(date.getMinutes()).padStart(2, '0')
   const s = String(date.getSeconds()).padStart(2, '0')
-  if (chatSettings.timeDisplayStyle === 'hm') {
+  if (chatSettings.timeDisplayStyle === 'hm' || (props.selectedChat?.chatType === 'group' && props.selectedChat?.showMessageTime && chatSettings.timeDisplayStyle === 'none')) {
     return `${h}:${m}`
   } else if (chatSettings.timeDisplayStyle === 'hms') {
     return `${h}:${m}:${s}`
   }
   return ''
 }
+const shouldShowTime = computed(() => props.selectedChat?.chatType === 'group' ? props.selectedChat?.showMessageTime === true : chatSettings.timeDisplayStyle !== 'none')
 </script>
 
 <template>
@@ -157,22 +162,22 @@ const formatMsgTime = (timestamp: number) => {
              @touchend="emit('touch-end')"
              @touchmove="emit('touch-move', $event)"
              @contextmenu.prevent>
-          <span class="msg-recalled-text">{{ selectedChat?.name || '对方' }}撤回了一条消息</span>
+          <span class="msg-recalled-text">{{ messageSender?.name || '对方' }}撤回了一条消息</span>
         </div>
       </template>
       <template v-else>
         <div class="msg-avatar-col" v-if="shouldShowAvatar(msg)">
-          <div class="msg-avatar" :role="selectedChat?.id === 1 ? undefined : 'button'" :tabindex="selectedChat?.id === 1 ? -1 : 0" :aria-label="selectedChat?.id === 1 ? undefined : '查看角色主页'" :style="[
-            selectedChat?.avatarUrl ? { backgroundImage: `url(${selectedChat.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}
-          ]" @click.stop="selectionMode === null && selectedChat?.id !== 1 && emit('open-character-profile')" @keydown.enter.stop="selectionMode === null && selectedChat?.id !== 1 && emit('open-character-profile')" @keydown.space.prevent.stop="selectionMode === null && selectedChat?.id !== 1 && emit('open-character-profile')">{{ selectedChat?.avatarText || '伴' }}</div>
-          <div v-if="chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'avatar_bottom'" class="msg-time-inline">
+          <div class="msg-avatar" role="button" tabindex="0" aria-label="查看角色主页" :style="[
+            messageSender?.avatarUrl ? { backgroundImage: `url(${messageSender.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}
+          ]" @click.stop="selectionMode === null && emit('open-character-profile', msg.senderId)" @keydown.enter.stop="selectionMode === null && emit('open-character-profile', msg.senderId)" @keydown.space.prevent.stop="selectionMode === null && emit('open-character-profile', msg.senderId)">{{ messageSender?.avatarText || '伴' }}</div>
+          <div v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'avatar_bottom'" class="msg-time-inline">
             {{ formatMsgTime(msg.timestamp || msg.id) }}
           </div>
         </div>
         <div class="msg-content-col">
-          <div v-if="shouldShowName(msg) || (chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'name_side')" class="msg-name">
-            <span v-if="shouldShowName(msg)" class="msg-name-text">@{{ selectedChat?.name }}</span>
-            <span v-if="chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'name_side'" class="msg-time-inline-side">
+          <div v-if="shouldShowName(msg) || (shouldShowTime && chatSettings.timeDisplayPosition === 'name_side')" class="msg-name">
+            <span v-if="shouldShowName(msg)" class="msg-name-text">@{{ messageSender?.name }}</span>
+            <span v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'name_side'" class="msg-time-inline-side">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
             </span>
           </div>
@@ -280,7 +285,7 @@ const formatMsgTime = (timestamp: number) => {
               >{{ translationExpanded ? '收起翻译' : '翻译' }}</div>
               <div v-if="showTranslation" class="message-translation">{{ msg.translation }}</div>
             </div>
-            <div v-if="chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'bubble_outer'" class="msg-time-inline-outer left">
+          <div v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'bubble_outer'" class="msg-time-inline-outer left">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
             </div>
           </div>
@@ -301,9 +306,9 @@ const formatMsgTime = (timestamp: number) => {
       </template>
       <template v-else>
         <div class="msg-content-col align-right">
-          <div v-if="shouldShowName(msg) || (chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'name_side')" class="msg-name" style="justify-content: flex-end;">
+          <div v-if="shouldShowName(msg) || (shouldShowTime && chatSettings.timeDisplayPosition === 'name_side')" class="msg-name" style="justify-content: flex-end;">
             <span v-if="shouldShowName(msg)" class="msg-name-text">@{{ myProfile.name }}</span>
-            <span v-if="chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'name_side'" class="msg-time-inline-side right">
+            <span v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'name_side'" class="msg-time-inline-side right">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
             </span>
           </div>
@@ -379,7 +384,7 @@ const formatMsgTime = (timestamp: number) => {
 
           <!-- 普通消息气泡 -->
           <div style="display: flex; align-items: flex-end;">
-            <div v-if="chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'bubble_outer'" class="msg-time-inline-outer right">
+          <div v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'bubble_outer'" class="msg-time-inline-outer right">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
             </div>
             <div v-if="!msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-right" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
@@ -399,7 +404,7 @@ const formatMsgTime = (timestamp: number) => {
           <div class="msg-avatar" :style="[
             myProfile.avatarUrl ? { backgroundImage: `url(${myProfile.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}
           ]">{{ myProfile.avatarUrl ? '' : (myProfile.name.charAt(0) || '我') }}</div>
-          <div v-if="chatSettings.timeDisplayStyle !== 'none' && chatSettings.timeDisplayPosition === 'avatar_bottom'" class="msg-time-inline">
+          <div v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'avatar_bottom'" class="msg-time-inline">
             {{ formatMsgTime(msg.timestamp || msg.id) }}
           </div>
         </div>
@@ -410,7 +415,7 @@ const formatMsgTime = (timestamp: number) => {
   <div v-if="msg.costTime && msg.type === 'left' && selectedChat?.showCostTime !== false" class="cost-time-row">
     <div class="cost-line-v"></div>
     <div class="cost-line-h"></div>
-    <div class="cost-avatar" :style="selectedChat?.avatarUrl ? { backgroundImage: `url(${selectedChat.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}">{{ selectedChat?.avatarText || '伴' }}</div>
+            <div class="cost-avatar" :style="messageSender?.avatarUrl ? { backgroundImage: `url(${messageSender.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}">{{ messageSender?.avatarText || '伴' }}</div>
     <div class="cost-text">本次耗时 {{ msg.costTime }} 秒</div>
   </div>
 </template>

@@ -9,6 +9,7 @@ import PersonaImportModal from '../PersonaImportModal.vue'
 import { useChatListMultiSelect } from '../../composables/useChatListMultiSelect'
 import { useChatListGroups } from '../../composables/useChatListGroups'
 import { useChatAuth } from '../../composables/useChatAuth'
+import { saveGroupChat } from '../../services/groupChat'
 
 // -- 拆分出的 Modals --
 import ChatListActionMenuModal from './modals/ChatListActionMenuModal.vue'
@@ -20,6 +21,7 @@ import ChatAccountSwitchModal from './modals/ChatAccountSwitchModal.vue'
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'open-create-contact'): void
+  (e: 'open-create-group'): void
   (e: 'open-chat', chat: any): void
   (e: 'account-switched'): void
 }>()
@@ -171,7 +173,9 @@ const handleChatClick = (chat: any) => {
   if (chat.unread > 0) {
     chat.unread = 0
     if (chat.id === 1) localStorage.setItem('clingy_system_notice_read', '1')
-    else {
+    else if (chat.chatType === 'group') {
+      saveGroupChat(currentChatUserId.value, chat)
+    } else {
       const saved = localStorage.getItem(getContactsKey())
       if (saved) {
         let contacts = JSON.parse(saved)
@@ -185,7 +189,9 @@ const handleChatClick = (chat: any) => {
 
 const toggleUnread = (chat: any) => {
   chat.unread = chat.unread > 0 ? 0 : 1
-  if (chat.id !== 1) {
+  if (chat.chatType === 'group') {
+    saveGroupChat(currentChatUserId.value, chat)
+  } else if (chat.id !== 1) {
     const saved = localStorage.getItem(getContactsKey())
     if (saved) {
       let contacts = JSON.parse(saved)
@@ -197,7 +203,9 @@ const toggleUnread = (chat: any) => {
 }
 const togglePin = (chat: any) => {
   chat.isPinned = !chat.isPinned
-  if (chat.id !== 1) {
+  if (chat.chatType === 'group') {
+    saveGroupChat(currentChatUserId.value, chat)
+  } else if (chat.id !== 1) {
     const saved = localStorage.getItem(getContactsKey())
     if (saved) {
       let contacts = JSON.parse(saved)
@@ -211,7 +219,7 @@ const togglePin = (chat: any) => {
 const deleteSingleChat = async (chat: any) => {
   if (chat.id === 1) { showDialog({ content: '系统通知无法删除', showCancel: false }); activeMenuChat.value = null; return }
   showDialog({
-    title: '删除角色', content: `确定要删除角色"${chat.name}"吗？`, confirmText: '删除',
+    title: chat.chatType === 'group' ? '解散群聊' : '删除角色', content: `确定要${chat.chatType === 'group' ? '解散群聊' : '删除角色'}“${chat.name}”吗？`, confirmText: '删除',
     onConfirm: async () => { await deleteChats([chat.id]); activeMenuChat.value = null },
     onCancel: () => { activeMenuChat.value = null }
   })
@@ -312,7 +320,10 @@ const handleImportComplete = async (personas: any[]) => {
         <div class="nav-center chat-normal-title">
           <span>Messages</span>
         </div>
-        <div class="nav-right">
+        <div class="nav-right chat-create-actions">
+          <button class="chat-normal-add" type="button" aria-label="创建群聊" @click="emit('open-create-group')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><path d="M20 8v6"></path><path d="M23 11h-6"></path></svg>
+          </button>
           <button class="chat-normal-add" type="button" aria-label="新建角色" @click="createChoiceModalVisible = true">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.8" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           </button>
@@ -395,7 +406,7 @@ const handleImportComplete = async (personas: any[]) => {
           @click="handleChatClick(chat)"
         >
           <div class="pinned-avatar-ring">
-            <div class="pinned-avatar" :style="chat.avatarUrl ? { backgroundImage: `url(${chat.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}">{{ chat.avatarText }}</div>
+            <div class="pinned-avatar" :style="chat.avatarUrl ? { backgroundImage: `url(${chat.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}">{{ chat.avatarText || '群' }}</div>
             <div v-if="chat.unread > 0" class="pinned-unread-dot">{{ chat.unread > 99 ? '99+' : chat.unread }}</div>
           </div>
           <div class="pinned-name">{{ chat.name }}</div>
@@ -449,7 +460,7 @@ const handleImportComplete = async (personas: any[]) => {
 
           <div class="chat-item" :class="{ 'is-pinned': chat.isPinned }" @mousedown="startLongPress($event, chat)" @touchstart="startLongPress($event, chat)" @mouseup="clearLongPress" @touchend="clearLongPress" @mouseleave="clearLongPress" @touchmove="clearLongPress" @click="handleChatClick(chat)">
             <div class="chat-avatar-wrapper">
-              <div class="chat-avatar" :style="chat.avatarUrl ? { backgroundImage: `url(${chat.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}">{{ chat.avatarText }}</div>
+              <div class="chat-avatar" :style="chat.avatarUrl ? { backgroundImage: `url(${chat.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}">{{ chat.avatarText || '群' }}</div>
               <div v-if="chat.isTyping" class="typing-dots-indicator">
                 <span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>
               </div>

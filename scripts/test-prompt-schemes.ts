@@ -16,7 +16,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 const promptStore = await import('../src/store/prompt.ts')
 const variables = await import('../src/services/promptVariables.ts')
 
-assert.equal(promptStore.globalPromptSettings.schemes.filter(item => item.source === 'builtin').length, 2)
+assert.equal(promptStore.globalPromptSettings.schemes.filter(item => item.source === 'builtin').length, 3)
 assert.equal(promptStore.getActivePromptScheme()?.id, 'builtin_v1')
 
 const builtinBefore = JSON.stringify(promptStore.getPromptScheme('builtin_v2'))

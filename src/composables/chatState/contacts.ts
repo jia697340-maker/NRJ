@@ -7,6 +7,7 @@ import { normalizeChatTransfers } from '../../services/transferLifecycle'
 import { normalizeSocialProfile } from '../../services/characterSocialProfile'
 import { getCharacterDirectoryEntry, registerAccountContactsInDirectory } from '../../services/characterDirectory'
 import { deleteIdentityProfile } from '../../services/identityProfile'
+import { deleteGroupChat, readGroupChats } from '../../services/groupChat'
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -41,7 +42,7 @@ export const loadCustomContacts = async () => {
     })
   }
   
-  const customChats = []
+  const customChats: any[] = []
   for (const c of savedContacts) {
     if (reconcilePresence(c).changed) didMigrateUserProfiles = true
     let avatarUrl = null
@@ -264,6 +265,22 @@ export const loadCustomContacts = async () => {
     }
   }
 
+  const groupChats = readGroupChats(currentChatUserId.value).map(group => {
+    const memberSnapshots = group.memberIds.map(memberId => {
+      const member = customChats.find((chat: any) => String(chat.characterEntityId || chat.id) === String(memberId))
+      return member ? { id: memberId, name: member.name, avatarUrl: member.avatarUrl || '', avatarText: member.avatarText || member.name?.charAt(0) || '伴' } : { id: memberId, name: '已移除成员', avatarUrl: '', avatarText: '?' }
+    })
+    const lastMessage = group.messages[group.messages.length - 1]
+    const lastSender = lastMessage?.senderId ? memberSnapshots.find(item => item.id === lastMessage.senderId)?.name : ''
+    const preview = lastMessage ? `${lastSender ? `${lastSender}：` : ''}${lastMessage.content || ''}` : '群聊已创建'
+    const date = new Date(Number(lastMessage?.id || group.updatedAt || Date.now()))
+    const now = new Date()
+    const time = date.toDateString() === now.toDateString()
+      ? date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      : `${date.getMonth() + 1}/${date.getDate()}`
+    return { ...group, preview, time, avatarText: '群', memberSnapshots, isTyping: currentTypingState.get(group.id) || false }
+  })
+
   const baseMock = [
     { 
       id: 1, name: '系统通知', realName: '系统通知', remark: '', persona: '系统内置的通知助手。', preview: sysPreview, time: sysTime, unread: sysRead ? 0 : 1, avatarText: '通', isPinned: sysPinned,
@@ -273,7 +290,7 @@ export const loadCustomContacts = async () => {
     }
   ]
   
-  mockChats.value = [...baseMock, ...customChats]
+  mockChats.value = [...baseMock, ...groupChats, ...customChats]
   sortChats()
 }
 
@@ -282,11 +299,13 @@ export const deleteChats = async (ids: (string | number)[]) => {
   if (idsToDelete.length === 0) return
   
   const { currentChatUserId } = useChatAuth()
+  idsToDelete.filter(id => String(id).startsWith('group_')).forEach(id => deleteGroupChat(currentChatUserId.value, String(id)))
+  const contactIdsToDelete = idsToDelete.filter(id => !String(id).startsWith('group_'))
   const contactsKey = currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
   const savedStr = localStorage.getItem(contactsKey)
   if (savedStr) {
     let contacts = JSON.parse(savedStr)
-    const toDeleteContacts = contacts.filter((c: any) => idsToDelete.includes(c.id))
+    const toDeleteContacts = contacts.filter((c: any) => contactIdsToDelete.includes(c.id))
     
     for (const c of toDeleteContacts) {
       await deleteIdentityProfile('character', String(c.characterEntityId || c.id))
@@ -295,7 +314,7 @@ export const deleteChats = async (ids: (string | number)[]) => {
       }
     }
     
-    contacts = contacts.filter((c: any) => !idsToDelete.includes(c.id))
+    contacts = contacts.filter((c: any) => !contactIdsToDelete.includes(c.id))
     localStorage.setItem(contactsKey, JSON.stringify(contacts))
   }
   

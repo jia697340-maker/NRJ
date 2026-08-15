@@ -15,6 +15,7 @@ const props = defineProps<{
   currentMediaThumb: string | null
   voicePlayingId: number | null
   isVoiceSynthesizing: boolean
+  resolveSender?: (message: any) => any
 }>()
 
 const emit = defineEmits()
@@ -54,6 +55,7 @@ defineExpose({
         :currentMediaThumb="currentMediaThumb"
         :voicePlayingId="voicePlayingId"
         :isVoiceSynthesizing="isVoiceSynthesizing"
+        :resolveSender="resolveSender"
         @click-message="emit('click-message', $event)"
         @toggle-selection="emit('toggle-selection', $event)"
         @touch-start="emit('touch-start', $event)"

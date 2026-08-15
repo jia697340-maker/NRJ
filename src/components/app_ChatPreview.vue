@@ -8,6 +8,9 @@ import AppChatProfile from './app_ChatProfile.vue'
 import ChatListView from './chat/ChatListView.vue'
 import ChatRoomView from './chat/ChatRoomView.vue'
 import ChatSettingsView from './chat/ChatSettingsView.vue'
+import GroupChatCreateView from './chat/GroupChatCreateView.vue'
+import GroupChatRoomView from './chat/GroupChatRoomView.vue'
+import GroupChatSettingsView from './chat/GroupChatSettingsView.vue'
 import ChatOfflineMeetView from './chat/ChatOfflineMeetView.vue'
 import ChatFriendRequestsView from './chat/ChatFriendRequestsView.vue'
 import ChatRelationshipView from './chat/ChatRelationshipView.vue'
@@ -22,6 +25,7 @@ import { processDueRelationshipTimers } from '../composables/useChatRelationship
 import { useRelationshipAdvance } from '../composables/useRelationshipAdvance'
 import { persistAutonomyChat } from '../services/characterAutonomy'
 import { acknowledgeAutonomyDeliveries } from '../services/autonomyDelivery'
+import { saveGroupChat, type GroupChatRecord } from '../services/groupChat'
 
 import {
   ACCOUNT_PROFILE_SOURCE_NAME,
@@ -53,7 +57,7 @@ const {
   loadMyProfile
 } = useChatState()
 
-type ViewType = 'list' | 'chat' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'relationship' | 'autonomy' | 'characterProfile' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
+type ViewType = 'list' | 'chat' | 'groupCreate' | 'groupSettings' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'relationship' | 'autonomy' | 'characterProfile' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
 type VoiceCallState = {
   active: boolean
   minimized: boolean
@@ -107,14 +111,20 @@ const syncPageVisibility = () => {
   pageIsVisible.value = document.visibilityState === 'visible'
 }
 
-const characterContextViews = new Set<ViewType>(['chat', 'chatSettings', 'autonomy', 'relationship', 'offlineMeet', 'characterProfile'])
+const characterContextViews = new Set<ViewType>(['chat', 'chatSettings', 'groupSettings', 'autonomy', 'relationship', 'offlineMeet', 'characterProfile'])
 
 watch(
   [() => props.isActive, pageIsVisible, currentView, () => selectedChat.value?.id, () => selectedChat.value?.unread],
   ([appActive, visible, view]) => {
     const inCharacterContext = Boolean(appActive && visible && characterContextViews.has(view as ViewType) && selectedChat.value)
-    setActiveChatContext(inCharacterContext ? selectedChat.value.id : null)
-    if (inCharacterContext && selectedChat.value) {
+    setActiveChatContext(inCharacterContext && selectedChat.value?.chatType !== 'group' ? selectedChat.value.id : null)
+    if (inCharacterContext && selectedChat.value?.chatType === 'group') {
+      const unreadChanged = selectedChat.value.unread > 0
+      if (unreadChanged) {
+        selectedChat.value.unread = 0
+        saveGroupChat(currentChatUserId.value, selectedChat.value)
+      }
+    } else if (inCharacterContext && selectedChat.value) {
       const deliveryChanged = acknowledgeAutonomyDeliveries(selectedChat.value)
       const unreadChanged = selectedChat.value.unread > 0
       if (unreadChanged) selectedChat.value.unread = 0
@@ -316,6 +326,20 @@ const openChat = (chat: any) => {
   hasOpenedChat.value = true
   selectedChat.value = chat
   currentView.value = 'chat'
+}
+
+const createGroup = async (group: GroupChatRecord) => {
+  saveGroupChat(currentChatUserId.value, group)
+  await loadCustomContacts()
+  selectedChat.value = mockChats.value.find(item => item.id === group.id) || group
+  hasOpenedChat.value = true
+  currentView.value = 'chat'
+}
+
+const handleGroupDeleted = async () => {
+  selectedChat.value = null
+  await loadCustomContacts()
+  currentView.value = 'list'
 }
 
 const handleProfileViewUpdate = (newView: ViewType | 'profile_from_create_save' | 'profile_from_create_cancel') => {
@@ -521,7 +545,7 @@ onUnmounted(() => {
 
     <template v-else>
       <!-- 底部 TabBar -->
-    <footer v-show="!['chat', 'personaLibrary', 'createUserPersona', 'chatSettings', 'offlineMeet', 'friendRequests', 'relationship', 'autonomy', 'characterProfile'].includes(currentView)" class="floating-tabbar glass">
+    <footer v-show="!['chat', 'groupCreate', 'groupSettings', 'personaLibrary', 'createUserPersona', 'chatSettings', 'offlineMeet', 'friendRequests', 'relationship', 'autonomy', 'characterProfile'].includes(currentView)" class="floating-tabbar glass">
       <div 
         v-for="tab in tabs" 
         :key="tab"
@@ -540,13 +564,22 @@ onUnmounted(() => {
       v-if="currentView === 'list'" 
       @close="emit('close')" 
       @open-create-contact="openCreateContact"
+      @open-create-group="currentView = 'groupCreate'"
       @open-chat="openChat"
       @account-switched="handleAccountSwitched"
     />
 
+    <GroupChatCreateView
+      v-if="currentView === 'groupCreate'"
+      :chats="mockChats"
+      :user-profile="effectiveMyProfile"
+      @back="currentView = 'list'"
+      @create="createGroup"
+    />
+
     <!-- 2. 聊天视图 -->
     <ChatRoomView 
-      v-if="hasOpenedChat"
+      v-if="hasOpenedChat && selectedChat?.chatType !== 'group'"
       v-show="currentView === 'chat'"
       :is-visible="props.isActive && currentView === 'chat'"
       ref="chatRoomRef"
@@ -556,6 +589,15 @@ onUnmounted(() => {
       @open-offline-meet="openOfflineMeet"
       @open-character-profile="openCharacterProfile('chat')"
       @voice-call-state-change="handleVoiceCallStateChange"
+    />
+
+    <GroupChatRoomView
+      v-if="hasOpenedChat && selectedChat?.chatType === 'group'"
+      v-show="currentView === 'chat'"
+      :group="selectedChat"
+      :is-visible="props.isActive && currentView === 'chat'"
+      @back="currentView = 'list'"
+      @open-settings="currentView = 'groupSettings'"
     />
 
     <CharacterProfileView
@@ -568,7 +610,7 @@ onUnmounted(() => {
 
     <!-- 3. 设置视图 -->
     <ChatSettingsView 
-      v-if="currentView === 'chatSettings'"
+      v-if="currentView === 'chatSettings' && selectedChat?.chatType !== 'group'"
       ref="chatSettingsRef"
       @back="currentView = 'chat'"
       @open-avatar-upload="openAvatarUpload"
@@ -579,6 +621,14 @@ onUnmounted(() => {
       @open-relationship="openRelationship(selectedChat, 'chatSettings')"
       @open-autonomy="currentView = 'autonomy'"
       @open-character-profile="openCharacterProfile('chatSettings')"
+    />
+
+    <GroupChatSettingsView
+      v-if="currentView === 'groupSettings' && selectedChat?.chatType === 'group'"
+      :group="selectedChat"
+      :chats="mockChats"
+      @back="currentView = 'chat'"
+      @deleted="handleGroupDeleted"
     />
 
     <CharacterAutonomyView

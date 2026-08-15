@@ -5,20 +5,22 @@ import { useChatSettingsSave } from '../../../composables/useChatSettingsSave'
 import TextEditModal from '../../TextEditModal.vue'
 import LongTextEditModal from '../../LongTextEditModal.vue'
 
-const props = defineProps<{ visible: boolean }>()
-const emit = defineEmits<{ (e: 'close'): void }>()
+const props = defineProps<{ visible: boolean; chat?: any }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'save'): void }>()
 const { selectedChat } = useChatState()
 const { saveCurrentChat } = useChatSettingsSave()
+const activeChat = computed(() => props.chat || selectedChat.value)
+const persist = () => props.chat ? emit('save') : saveCurrentChat()
 
 const realDaysKnown = computed(() => {
-  const messages = selectedChat.value?.messages
+  const messages = activeChat.value?.messages
   if (!messages?.length) return 1
   const firstTime = messages[0].id > 1000000000000 ? messages[0].id : Date.now()
   return Math.floor(Math.max(0, Date.now() - firstTime) / (1000 * 60 * 60 * 24)) + 1
 })
 
 const daysKnown = computed(() => {
-  const offset = selectedChat.value?.daysOffset || 0
+  const offset = activeChat.value?.daysOffset || 0
   return realDaysKnown.value + offset
 })
 
@@ -26,22 +28,22 @@ const showDaysEditModal = ref(false)
 
 const handleDaysSaved = (newVal: string) => {
   const num = parseInt(newVal, 10)
-  if (!isNaN(num) && selectedChat.value) {
-    selectedChat.value.daysOffset = num - realDaysKnown.value
-    saveCurrentChat()
+  if (!isNaN(num) && activeChat.value) {
+    activeChat.value.daysOffset = num - realDaysKnown.value
+    persist()
   }
 }
 
 const currentIndex = ref(0)
-const currentThought = computed(() => selectedChat.value?.innerThoughts?.[currentIndex.value] ?? null)
-const thoughtCount = computed(() => selectedChat.value?.innerThoughts?.length ?? 0)
+const currentThought = computed(() => activeChat.value?.innerThoughts?.[currentIndex.value] ?? null)
+const thoughtCount = computed(() => activeChat.value?.innerThoughts?.length ?? 0)
 
 const showContentEditModal = ref(false)
 
 const handleContentSaved = (newVal: string) => {
-  if (selectedChat.value?.innerThoughts && currentThought.value) {
-    selectedChat.value.innerThoughts[currentIndex.value].content = newVal
-    saveCurrentChat()
+  if (activeChat.value?.innerThoughts && currentThought.value) {
+    activeChat.value.innerThoughts[currentIndex.value].content = newVal
+    persist()
   }
 }
 const hasPrevious = computed(() => currentIndex.value > 0)
@@ -67,26 +69,26 @@ const toggleSelectAll = () => {
   if (isAllSelected.value) {
     selectedThoughts.value.clear()
   } else {
-    selectedThoughts.value = new Set(selectedChat.value?.innerThoughts?.map((_: any, i: number) => i) || [])
+    selectedThoughts.value = new Set(activeChat.value?.innerThoughts?.map((_: any, i: number) => i) || [])
   }
 }
 
 const executeDelete = (indexes: number[]) => {
-  if (!selectedChat.value || !selectedChat.value.innerThoughts) return
+  if (!activeChat.value || !activeChat.value.innerThoughts) return
   
   const sorted = [...indexes].sort((a, b) => b - a)
   for (const idx of sorted) {
-    selectedChat.value.innerThoughts.splice(idx, 1)
+    activeChat.value.innerThoughts.splice(idx, 1)
   }
   
-  if (currentIndex.value >= (selectedChat.value.innerThoughts.length || 0)) {
-    currentIndex.value = Math.max(0, (selectedChat.value.innerThoughts.length || 0) - 1)
+  if (currentIndex.value >= (activeChat.value.innerThoughts.length || 0)) {
+    currentIndex.value = Math.max(0, (activeChat.value.innerThoughts.length || 0) - 1)
   }
   
   selectedThoughts.value.clear()
-  saveCurrentChat()
+  persist()
   
-  if (selectedChat.value.innerThoughts.length === 0) {
+  if (activeChat.value.innerThoughts.length === 0) {
     isManageMode.value = false
   }
 }
@@ -115,7 +117,7 @@ watch(() => props.visible, (visible) => {
 
         <!-- 头像节点提取到了外部，作为 shell 的绝对定位层 -->
         <!-- 头像节点提取到了外部，作为 shell 的绝对定位层 -->
-        <div v-if="selectedChat" class="avatar-wrapper-outer">
+        <div v-if="activeChat" class="avatar-wrapper-outer">
           <svg class="paperclip-svg" viewBox="0 0 1280 1280" preserveAspectRatio="xMidYMid meet">
             <defs>
               <linearGradient id="metal-grad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -131,17 +133,17 @@ watch(() => props.visible, (visible) => {
           </svg>
           <div class="stamp-bg">
             <div class="stamp-inner">
-              <img v-if="selectedChat.avatarUrl" :src="selectedChat.avatarUrl" class="avatar-img" />
-              <div v-else class="avatar-text-fallback">{{ selectedChat.avatarText || '?' }}</div>
+              <img v-if="currentThought?.senderAvatar || activeChat.avatarUrl" :src="currentThought?.senderAvatar || activeChat.avatarUrl" class="avatar-img" />
+              <div v-else class="avatar-text-fallback">{{ currentThought?.senderName?.charAt(0) || activeChat.avatarText || '?' }}</div>
             </div>
           </div>
         </div>
 
         <article class="thought-card">
           <div class="scrollable-content">
-            <header v-if="selectedChat" class="profile-header">
+            <header v-if="activeChat" class="profile-header">
               <div class="profile-info">
-                <div class="char-name">{{ selectedChat.remark || selectedChat.name }}</div>
+                <div class="char-name">{{ currentThought?.senderName || activeChat.remark || activeChat.name }}</div>
                 <div class="char-signature clickable-days" @click="showDaysEditModal = true" title="点击修改天数">
                   相识第 {{ daysKnown }} 天
                 </div>
@@ -155,7 +157,7 @@ watch(() => props.visible, (visible) => {
               </template>
               <template v-else>
                 <div v-if="thoughtCount > 0" class="thought-list">
-                  <div v-for="(t, idx) in selectedChat?.innerThoughts" :key="t.id || idx" class="thought-list-item" @click="toggleSelect(idx)">
+                  <div v-for="(t, idx) in activeChat?.innerThoughts" :key="t.id || idx" class="thought-list-item" @click="toggleSelect(idx)">
                     <div class="checkbox" :class="{ 'is-checked': selectedThoughts.has(idx) }">
                       <svg v-if="selectedThoughts.has(idx)" viewBox="0 0 24 24" width="14" height="14" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     </div>
@@ -210,7 +212,7 @@ watch(() => props.visible, (visible) => {
 
   <!-- 天数修改弹窗 -->
   <TextEditModal
-    v-if="selectedChat"
+    v-if="activeChat"
     v-model:visible="showDaysEditModal"
     title="修改相识天数"
     :current-text="String(daysKnown)"
@@ -221,7 +223,7 @@ watch(() => props.visible, (visible) => {
 
   <!-- 内容编辑弹窗 -->
   <LongTextEditModal
-    v-if="selectedChat && currentThought"
+    v-if="activeChat && currentThought"
     v-model:visible="showContentEditModal"
     title="编辑心声"
     :current-text="currentThought.content"
