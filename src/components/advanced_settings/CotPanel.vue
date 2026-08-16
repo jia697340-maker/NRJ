@@ -1,7 +1,9 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { cotSettings } from '../../store'
+import { computed } from 'vue'
+import { apiSettings, cotSettings } from '../../store'
 import { useAdvancedSettingsCot } from '../../composables/useAdvancedSettingsCot'
+import { resolveModelAdapterProfile } from '../../services/modelAdapters'
 
 const props = defineProps<{
   showConfirm: any
@@ -28,6 +30,12 @@ const getPositionLabel = (pos: string) => {
   }
   return map[pos] || pos
 }
+const currentAdapter = computed(() => resolveModelAdapterProfile(apiSettings.provider, apiSettings.model, (apiSettings.adapterProfile || 'auto') as any))
+const currentAdapterLabel = computed(() => ({
+  gemini: 'Gemini Native', claude: 'Claude Native', 'openai-responses': 'OpenAI Responses',
+  'deepseek-reasoner': 'DeepSeek Reasoner', glm: '智谱 GLM', 'deepseek-chat': 'DeepSeek Chat',
+  'openai-compatible': 'OpenAI 兼容'
+}[currentAdapter.value] || currentAdapter.value))
 
 </script>
 
@@ -39,7 +47,7 @@ const getPositionLabel = (pos: string) => {
         <span class="mag-title">思维链</span>
         <span class="mag-subtitle">Chain of Thought</span>
       </div>
-      <div class="mag-desc">开启后将通过 Prompt 和 Prefill 强制接管模型原生思维链过程。</div>
+      <div class="mag-desc">按模型能力使用官方思考摘要，并为普通兼容模型保留提示词降级。</div>
     </div>
     
     <div class="mag-settings-card">
@@ -52,10 +60,39 @@ const getPositionLabel = (pos: string) => {
             <span class="slider"></span>
           </label>
         </div>
-        <div class="mag-subdesc">开启后将拦截模型默认行为并注入自定义思维逻辑</div>
+        <div class="mag-subdesc">仅作用于聊天回复；后台总结、识图和结构化任务不会注入思考提示</div>
       </div>
 
       <template v-if="cotSettings.enabled">
+        <div class="mag-form-row vertical">
+          <div class="row-main">
+            <div class="mag-label">当前节点</div>
+            <span class="cot-tag role">{{ currentAdapterLabel }}</span>
+          </div>
+          <div class="mag-subdesc">系统会按当前接口协议选择原生摘要或提示词降级，不再假设所有模型返回同一种字段</div>
+        </div>
+        <div class="mag-form-row vertical">
+          <div class="row-main">
+            <div class="mag-label">Gemini 原生适配</div>
+            <label class="toggle-switch">
+              <input type="checkbox" v-model="cotSettings.geminiNativeEnabled">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="mag-subdesc">使用 Google 官方思考摘要协议；自动避开 Gemini 3.6/3.7 不支持的预填充与采样参数</div>
+        </div>
+
+        <div class="mag-form-row vertical">
+          <div class="row-main">
+            <div class="mag-label">Claude 原生适配</div>
+            <label class="toggle-switch">
+              <input type="checkbox" v-model="cotSettings.claudeNativeEnabled">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="mag-subdesc">使用 Anthropic 官方 adaptive / extended thinking，并读取可展示的思考摘要</div>
+        </div>
+
         <!-- 思考模式切换 -->
         <div class="mag-form-row vertical">
           <div class="row-main">
@@ -74,8 +111,20 @@ const getPositionLabel = (pos: string) => {
             </div>
           </div>
           <div class="mag-subdesc">
-            {{ cotSettings.mode === 'skip' ? '直接伪装完成思考，强迫模型只输出正文。' : '强制模型按照自定义的拆分条目进行阶段性思考。' }}
+            {{ cotSettings.mode === 'skip' ? '优先通过模型原生参数降低或关闭思考；不支持时只要求直接回复。' : '原生模型展示官方思考摘要，普通模型使用自定义条目降级。' }}
           </div>
+        </div>
+
+        <div class="mag-form-row vertical" v-if="cotSettings.mode === 'custom'">
+          <div class="row-main">
+            <div class="mag-label">原生思考强度</div>
+            <div class="mag-mode-switch">
+              <button v-for="level in ['low', 'medium', 'high']" :key="level" class="mag-mode-btn" :class="{ active: cotSettings.reasoningEffort === level }" @click="cotSettings.reasoningEffort = level">
+                {{ level === 'low' ? '低' : level === 'medium' ? '中' : '高' }}
+              </button>
+            </div>
+          </div>
+          <div class="mag-subdesc">仅用于支持强度控制的原生推理模型；兼容降级模型会忽略此项</div>
         </div>
 
         <!-- 界面显示开关 -->
@@ -87,7 +136,7 @@ const getPositionLabel = (pos: string) => {
               <span class="slider"></span>
             </label>
           </div>
-          <div class="mag-subdesc">在聊天中展示提取到的思考过程</div>
+          <div class="mag-subdesc">在聊天中展示模型提供的思考摘要或兼容模型生成的分析文本</div>
         </div>
 
         <div class="mag-list-container" v-if="cotSettings.mode === 'custom'">

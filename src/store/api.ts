@@ -10,6 +10,7 @@ export interface ApiPreset {
   url: string
   key: string
   model: string
+  adapterProfile?: string
   customUrl: string
   customKey: string
   enableTemperature?: boolean
@@ -35,6 +36,7 @@ export const apiSettings = reactive({
   key: savedApiSettings.key ?? '',
   model: savedApiSettings.model ?? '',
   availableModels: savedApiSettings.availableModels || [],
+  adapterProfile: savedApiSettings.adapterProfile || 'auto',
   apiClassicTheme: savedApiSettings.apiClassicTheme || 'default',
   customUrl: savedApiSettings.customUrl ?? '',
   customKey: savedApiSettings.customKey ?? '',
@@ -70,6 +72,7 @@ export const visionApiSettings = reactive({
   key: savedVisionApiSettings.key ?? '',
   model: savedVisionApiSettings.model ?? '',
   availableModels: savedVisionApiSettings.availableModels || [],
+  adapterProfile: savedVisionApiSettings.adapterProfile || 'auto',
   customUrl: savedVisionApiSettings.customUrl ?? '',
   customKey: savedVisionApiSettings.customKey ?? '',
   enableTemperature: savedVisionApiSettings.enableTemperature ?? false,
@@ -102,6 +105,7 @@ export const summaryApiSettings = reactive({
   key: savedSummaryApiSettings.key ?? '',
   model: savedSummaryApiSettings.model ?? '',
   availableModels: savedSummaryApiSettings.availableModels || [],
+  adapterProfile: savedSummaryApiSettings.adapterProfile || 'auto',
   customUrl: savedSummaryApiSettings.customUrl ?? '',
   customKey: savedSummaryApiSettings.customKey ?? '',
   enableTemperature: savedSummaryApiSettings.enableTemperature ?? false,
@@ -159,6 +163,7 @@ export const momentApiSettings = reactive({
   key: savedMomentApiSettings.key ?? '',
   model: savedMomentApiSettings.model ?? '',
   availableModels: savedMomentApiSettings.availableModels || [],
+  adapterProfile: savedMomentApiSettings.adapterProfile || 'auto',
   customUrl: savedMomentApiSettings.customUrl ?? '',
   customKey: savedMomentApiSettings.customKey ?? '',
   enableTemperature: savedMomentApiSettings.enableTemperature ?? false,
@@ -192,6 +197,7 @@ export const characterApiSettings = reactive({
   key: savedCharacterApiSettings.key ?? '',
   model: savedCharacterApiSettings.model ?? '',
   availableModels: savedCharacterApiSettings.availableModels || [],
+  adapterProfile: savedCharacterApiSettings.adapterProfile || 'auto',
   customUrl: savedCharacterApiSettings.customUrl ?? '',
   customKey: savedCharacterApiSettings.customKey ?? '',
   enableTemperature: savedCharacterApiSettings.enableTemperature ?? true,

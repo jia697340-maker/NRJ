@@ -1,27 +1,42 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, characterApiSettings, cotSettings, globalPromptSettings, appStats, type ApiPreset } from '../store'
 import { apiLogger } from './apiLogger'
-import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest } from './modelAdapters'
+import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest, resolveModelAdapterProfile } from './modelAdapters'
 import type { ModelAdapterProfile } from './modelAdapters'
+import { extractEmbeddedReasoning, isGeminiPrefillUnsupported, mergeProviderReasoningState, type ProviderReasoningState, type ReasoningPolicy, type ReasoningSource } from './reasoning'
 import { saveTokenUsageSnapshot } from './tokenUsageSnapshot'
 import { commitDiagnosticTrace, createDiagnosticDraft, type DiagnosticContextMeta } from './diagnosticTrace'
+import { isRawApiConsoleLoggingEnabled, logApiFallback, logApiRequest, logApiResponse } from './apiDebug'
 
 export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global' | 'prompt-generation'
 
 export const decorateChatPayload = (
   messages: { role: string; content: string | any[] }[],
   isSummary = false,
-  purpose: ChatApiPurpose = 'default'
+  purpose: ChatApiPurpose = 'default',
+  options: { profile?: Exclude<ModelAdapterProfile, 'auto'>; model?: string; applyCot?: boolean } = {}
 ) => {
   const payloadMessages = JSON.parse(JSON.stringify(messages))
-  if (isSummary || purpose.startsWith('character-') || purpose === 'prompt-generation' || !cotSettings.enabled) return payloadMessages
+  if (isSummary || purpose.startsWith('character-') || purpose === 'prompt-generation' || options.applyCot === false || !cotSettings.enabled) return payloadMessages
+  const profile = options.profile
+  const nativeMode = profile === 'openai-responses' || profile === 'deepseek-reasoner' || profile === 'glm' ||
+    (profile === 'gemini' && cotSettings.geminiNativeEnabled) ||
+    (profile === 'claude' && cotSettings.claudeNativeEnabled)
+  const mergeSystem = (content: string) => {
+    if (!content) return
+    const system = payloadMessages.find((item: any) => item.role === 'system')
+    if (!system) {
+      payloadMessages.unshift({ role: 'system', content })
+    } else if (Array.isArray(system.content)) {
+      system.content.push({ type: 'text', text: content })
+    } else {
+      system.content = `${system.content || ''}\n\n${content}`.trim()
+    }
+  }
   if (cotSettings.mode === 'skip') {
-    payloadMessages.push({
-      role: 'assistant',
-      content: globalPromptSettings.language === 'en'
-        ? '[incipere]\n<thinking>\nSkip ECoT and focus on the reply.\n</thinking>\n[finire]\n'
-        : '[incipere]\n<thinking>\n跳过ECoT，专注回复。\n</thinking>\n[finire]\n'
-    })
+    if (!nativeMode) mergeSystem(globalPromptSettings.language === 'en'
+      ? 'Reply directly. Do not output analysis, hidden reasoning, or <thinking> tags.'
+      : '请直接回复正文，不要输出分析过程、隐藏推理或 <thinking> 标签。')
     return payloadMessages
   }
   if (cotSettings.mode !== 'custom' || !cotSettings.items) return payloadMessages
@@ -30,15 +45,31 @@ export const decorateChatPayload = (
     cot_default_3: '</thinking>\n[finire]\n<msg>\nYour final visible reply\n</msg>',
     cot_default_4: '[incipere]\n<thinking>\n'
   }
-  const enabledItems = cotSettings.items.filter(item => item.enabled).map(item => (
+  let enabledItems = cotSettings.items.filter(item => item.enabled).map(item => (
     globalPromptSettings.language === 'en' && englishCotContent[item.id] ? { ...item, content: englishCotContent[item.id] } : item
   ))
-  const systemContent = ['system_top', 'system_middle', 'system_bottom']
-    .flatMap(position => enabledItems.filter(item => item.position === position).map(item => item.content))
-    .filter(Boolean).join('\n')
-  if (systemContent && payloadMessages[0]?.role === 'system') payloadMessages[0].content += `\n\n${systemContent}`
-  const prefillContent = enabledItems.filter(item => item.position === 'assistant_prefill').map(item => item.content).join('\n')
-  if (prefillContent) payloadMessages.push({ role: 'assistant', content: prefillContent })
+  if (nativeMode) enabledItems = enabledItems.filter(item => !item.id.startsWith('cot_default_'))
+  const ordered = ['system_top', 'system_middle', 'system_bottom', 'assistant_prefill']
+    .flatMap(position => enabledItems.filter(item => item.position === position))
+  const deferred: any[] = []
+  let prefill: any | undefined
+  for (const item of ordered) {
+    if (!item.content) continue
+    if (item.role === 'system') mergeSystem(item.content)
+    else if (item.position === 'assistant_prefill') {
+      const forbidden = profile === 'claude' && cotSettings.claudeNativeEnabled ||
+        profile === 'gemini' && isGeminiPrefillUnsupported(options.model || '')
+      if (!forbidden) prefill = { role: item.role, content: item.content }
+    } else {
+      deferred.push({ role: item.role, content: item.content })
+    }
+  }
+  if (deferred.length) {
+    const lastUserIndex = payloadMessages.map((item: any) => item.role).lastIndexOf('user')
+    const insertAt = lastUserIndex >= 0 ? lastUserIndex : payloadMessages.length
+    payloadMessages.splice(insertAt, 0, ...deferred)
+  }
+  if (prefill) payloadMessages.push(prefill)
   return payloadMessages
 }
 
@@ -74,6 +105,7 @@ export async function sendChatMessage(
     key: string
     model: string
     availableModels: string[]
+    adapterProfile?: ModelAdapterProfile
     apiClassicTheme?: string // 只有 global 有
     customUrl: string
     customKey: string
@@ -111,25 +143,36 @@ export async function sendChatMessage(
     throw new Error('API 设置不完整，请先在设置中配置 API。')
   }
 
+  const effectiveAdapter = adapterOverride !== 'auto' ? adapterOverride : (activeSettings.adapterProfile || 'auto')
+  const resolvedProfile = resolveModelAdapterProfile(activeSettings.provider, model, effectiveAdapter)
+  const reasoningPolicy: ReasoningPolicy = {
+    enabled: cotSettings.enabled && purpose === 'default' && Boolean(diagnosticContext?.chatId),
+    mode: cotSettings.mode === 'custom' ? 'custom' : 'skip',
+    showThinking: cotSettings.showThinking,
+    effort: ['low', 'medium', 'high'].includes(cotSettings.reasoningEffort) ? cotSettings.reasoningEffort : 'medium',
+    geminiNativeEnabled: cotSettings.geminiNativeEnabled,
+    claudeNativeEnabled: cotSettings.claudeNativeEnabled
+  }
   // payloadReady 表示调用方已完成相同装饰，避免二次注入。
-  const payloadMessages = payloadReady ? JSON.parse(JSON.stringify(messages)) : decorateChatPayload(messages, isSummary, purpose)
-
-  console.log('--- 发送给 AI 的请求数据 ---')
-  console.log('Messages:', payloadMessages)
-  console.log('----------------------------')
+  const payloadMessages = payloadReady ? JSON.parse(JSON.stringify(messages)) : decorateChatPayload(messages, isSummary, purpose, {
+    profile: resolvedProfile,
+    model,
+    applyCot: reasoningPolicy.enabled
+  })
 
   const preparedRequest = prepareAdapterRequest({
     provider: activeSettings.provider,
     url,
     key,
     model,
-    profile: adapterOverride,
+    profile: effectiveAdapter,
     stream: activeSettings.enableStream,
     maxTokens: activeSettings.enableMaxTokens ? activeSettings.maxTokens : undefined,
     temperature: activeSettings.enableTemperature ? activeSettings.temperature : undefined,
     topP: activeSettings.enableTopP ? activeSettings.topP : undefined,
     frequencyPenalty: activeSettings.enableFrequencyPenalty ? activeSettings.frequencyPenalty : undefined,
-    presencePenalty: activeSettings.enablePresencePenalty ? activeSettings.presencePenalty : undefined
+    presencePenalty: activeSettings.enablePresencePenalty ? activeSettings.presencePenalty : undefined,
+    reasoning: reasoningPolicy
   }, payloadMessages)
 
   let diagnosticType = 'Chat'
@@ -147,8 +190,18 @@ export async function sendChatMessage(
     provider: activeSettings.provider,
     model,
     adapter: preparedRequest.profile,
+    protocol: preparedRequest.protocol,
     stream: activeSettings.enableStream,
     context: diagnosticContext,
+    reasoning: {
+      enabled: reasoningPolicy.enabled,
+      mode: reasoningPolicy.mode,
+      effort: reasoningPolicy.effort,
+      nativeEnabled: resolvedProfile === 'gemini' ? reasoningPolicy.geminiNativeEnabled
+        : resolvedProfile === 'claude' ? reasoningPolicy.claudeNativeEnabled
+          : ['openai-responses', 'deepseek-reasoner', 'glm'].includes(resolvedProfile),
+      showThinking: reasoningPolicy.showThinking
+    },
     requestOptions: {
       temperature: activeSettings.enableTemperature ? activeSettings.temperature : undefined,
       maxTokens: activeSettings.enableMaxTokens ? activeSettings.maxTokens : undefined,
@@ -214,20 +267,37 @@ export async function sendChatMessage(
   // ----------------------------------------------------
 
   let response: Response
+  let activeRequest = preparedRequest
   let tokensUsage = 0
   let inputTokensUsage = 0
   let outputTokensUsage = 0
   try {
-    response = await fetch(preparedRequest.endpoint, {
+    logApiRequest(activeRequest)
+    response = await fetch(activeRequest.endpoint, {
       signal,
       method: 'POST',
-      headers: preparedRequest.headers,
-      body: JSON.stringify(preparedRequest.body)
+      headers: activeRequest.headers,
+      body: JSON.stringify(activeRequest.body)
     })
+    if (!response.ok && activeRequest.fallback && [400, 404, 405, 422, 501].includes(response.status)) {
+      const fallbackError = await response.clone().json().catch(() => ({}))
+      logApiResponse({ protocol: activeRequest.protocol, status: response.status, raw: fallbackError })
+      const previousProtocol = activeRequest.protocol
+      activeRequest = activeRequest.fallback
+      logApiFallback(previousProtocol, activeRequest.protocol, response.status)
+      logApiRequest(activeRequest)
+      response = await fetch(activeRequest.endpoint, {
+        signal,
+        method: 'POST',
+        headers: activeRequest.headers,
+        body: JSON.stringify(activeRequest.body)
+      })
+    }
   } catch (e: any) {
     appStats.apiFailures++
     commitDiagnosticTrace(diagnosticDraft, {
       status: e?.name === 'AbortError' ? 'aborted' : 'error',
+      protocol: activeRequest.protocol,
       errorMessage: e?.message || 'API 请求异常中断'
     }).catch(() => {})
     if (e?.name === 'AbortError') throw e
@@ -241,7 +311,8 @@ export async function sendChatMessage(
     appStats.apiFailures++
     const errorData = await response.json().catch(() => ({}))
     const errorMsg = errorData.error?.message || `API 请求失败 (${response.status})`
-    console.error('--- AI 接口请求失败 ---', errorData)
+    logApiResponse({ protocol: activeRequest.protocol, status: response.status, raw: errorData })
+    console.error(`AI 接口请求失败：${errorMsg}`)
     
     // 记录失败日志
     let logType = 'Chat'
@@ -262,6 +333,7 @@ export async function sendChatMessage(
 
     commitDiagnosticTrace(diagnosticDraft, {
       status: 'error',
+      protocol: activeRequest.protocol,
       errorMessage: errorMsg
     }).catch(() => {})
 
@@ -271,6 +343,9 @@ export async function sendChatMessage(
   let content = ''
   let thinking = ''
   let stopReason = ''
+  let reasoningSource: ReasoningSource = 'none'
+  let providerState: ProviderReasoningState | undefined
+  const rawStreamEvents: unknown[] | null = isRawApiConsoleLoggingEnabled() ? [] : null
 
   if (activeSettings.enableStream) {
     if (!response.body) throw new Error('流式请求失败：无法读取响应体')
@@ -278,8 +353,6 @@ export async function sendChatMessage(
     const decoder = new TextDecoder('utf-8')
     let buffer = ''
     
-    console.log('--- 开始静默接收流式数据 ---')
-
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
@@ -296,9 +369,12 @@ export async function sendChatMessage(
           
           try {
             const dataObj = JSON.parse(dataStr)
-            const delta = consumeAdapterStreamEvent(preparedRequest.profile, dataObj)
+            if (rawStreamEvents) rawStreamEvents.push(dataObj)
+            const delta = consumeAdapterStreamEvent(activeRequest.profile, dataObj, activeRequest.protocol)
             if (delta.content) content += delta.content
             if (delta.thinking) thinking += delta.thinking
+            if (delta.reasoningSource) reasoningSource = delta.reasoningSource
+            if (delta.providerState) providerState = mergeProviderReasoningState(providerState, delta.providerState)
             if (delta.stopReason) stopReason = delta.stopReason
             if (delta.tokens) tokensUsage = delta.tokens
             if (delta.inputTokens) inputTokensUsage = delta.inputTokens
@@ -313,9 +389,12 @@ export async function sendChatMessage(
     if (buffer.startsWith('data: ') && buffer.trim() !== 'data: [DONE]') {
       try {
         const dataObj = JSON.parse(buffer.slice(6))
-        const delta = consumeAdapterStreamEvent(preparedRequest.profile, dataObj)
+        if (rawStreamEvents) rawStreamEvents.push(dataObj)
+        const delta = consumeAdapterStreamEvent(activeRequest.profile, dataObj, activeRequest.protocol)
         if (delta.content) content += delta.content
         if (delta.thinking) thinking += delta.thinking
+        if (delta.reasoningSource) reasoningSource = delta.reasoningSource
+        if (delta.providerState) providerState = mergeProviderReasoningState(providerState, delta.providerState)
         if (delta.stopReason) stopReason = delta.stopReason
         if (delta.tokens) tokensUsage = delta.tokens
         if (delta.inputTokens) inputTokensUsage = delta.inputTokens
@@ -323,17 +402,14 @@ export async function sendChatMessage(
       } catch (e) {}
     }
     
-    console.log('--- 完整流式文本接收完毕 ---')
-    console.log(content)
-    console.log('----------------------------')
   } else {
     const data = await response.json()
-    console.log('--- AI 接口原始返回数据 ---')
-    console.log(data)
-    console.log('----------------------------')
-    const parsed = parseAdapterResponse(preparedRequest.profile, data)
+    const parsed = parseAdapterResponse(activeRequest.profile, data, activeRequest.protocol)
+    logApiResponse({ protocol: activeRequest.protocol, status: response.status, raw: data, parsed })
     content = parsed.content
     thinking = parsed.thinking
+    reasoningSource = parsed.reasoningSource || (thinking ? 'native' : 'none')
+    providerState = parsed.providerState
     if (parsed.tokens) tokensUsage = parsed.tokens
     if (parsed.inputTokens) inputTokensUsage = parsed.inputTokens
     if (parsed.outputTokens) outputTokensUsage = parsed.outputTokens
@@ -342,6 +418,14 @@ export async function sendChatMessage(
 
   if (inputTokensUsage > 0 || outputTokensUsage > 0) {
     tokensUsage = inputTokensUsage + outputTokensUsage
+  }
+  if (rawStreamEvents) {
+    logApiResponse({
+      protocol: activeRequest.protocol,
+      status: response.status,
+      raw: rawStreamEvents,
+      parsed: { content, thinking, reasoningSource, stopReason, tokens: tokensUsage }
+    })
   }
 
   // 记录成功日志
@@ -361,26 +445,38 @@ export async function sendChatMessage(
     tokens: tokensUsage > 0 ? tokensUsage : undefined
   }).catch(() => {})
 
-  // --- COT 响应动态解析逻辑 ---
-  if (cotSettings.enabled) {
-    if (cotSettings.mode === 'skip' || cotSettings.mode === 'custom') {
-      // 只要开了大开关（不管是 skip 还是 custom），就需要提取 thinking
-      const thinkSplit = content.split('</thinking>')
-      if (thinkSplit.length > 1) {
-        thinking = thinkSplit[0].replace(/<thinking>/g, '').trim()
-        // 提取正文内容，去掉结尾引导标签，但保留里面的所有其他内容（包括 <narration> 等）
-        let rawContent = thinkSplit.slice(1).join('</thinking>').trim() // 防御性拼合，以防模型多次输出
-        rawContent = rawContent.replace(/\[finire\]/g, '').trim()
-        content = rawContent
+  // 原生摘要优先；只有供应商没有返回摘要时，才把完整闭合的兼容标签识别为分析文本。
+  if (reasoningPolicy.enabled) {
+    const embedded = extractEmbeddedReasoning(content)
+    if (embedded.found) {
+      content = embedded.content
+      if (!thinking && embedded.thinking) {
+        thinking = embedded.thinking
+        reasoningSource = 'prompt'
       }
     }
+  }
+  if (reasoningPolicy.enabled && reasoningPolicy.mode === 'skip') {
+    thinking = ''
+    reasoningSource = 'none'
+    providerState = undefined
+  }
+  if (providerState?.provider === 'claude' && providerState.blocks?.length) {
+    const thinkingBlock = providerState.blocks.find((item: any) => item.type === 'thinking')
+    if (thinkingBlock && !thinkingBlock.thinking) thinkingBlock.thinking = thinking
+    if (!providerState.blocks.some((item: any) => item.type === 'text')) providerState.blocks.push({ type: 'text', text: content })
+  }
+  if (providerState?.provider === 'gemini' && providerState.parts?.length && !providerState.parts.some((item: any) => !item.thought && item.text)) {
+    providerState.parts.unshift(...(thinking ? [{ text: thinking, thought: true }] : []), { text: content })
   }
   // --- 结束解析逻辑 ---
 
   commitDiagnosticTrace(diagnosticDraft, {
     status: 'success',
+    protocol: activeRequest.protocol,
     response: content,
     thinking,
+    reasoningSource,
     tokens: tokensUsage > 0 ? tokensUsage : undefined,
     stopReason,
     truncated: ['length', 'max_tokens', 'MAX_TOKENS'].includes(stopReason)
@@ -402,6 +498,8 @@ export async function sendChatMessage(
   return {
     content,
     thinking,
+    reasoningSource,
+    providerState,
     stopReason,
     truncated: ['length', 'max_tokens', 'MAX_TOKENS'].includes(stopReason)
   }

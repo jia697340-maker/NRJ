@@ -6,6 +6,7 @@ import { estimateMessageTokens, estimateTextTokens, getTokenEstimateMethodLabel 
 import type { ContextTraceCategory, ContextTraceFragment } from '../services/contextTrace'
 import { getTokenUsageSnapshot, type TokenUsageSnapshot } from '../services/tokenUsageSnapshot'
 import { decorateChatPayload } from '../services/api'
+import { resolveModelAdapterProfile } from '../services/modelAdapters'
 import { buildGroupChatMessages } from '../services/groupChat'
 
 export interface TokenDetailItem {
@@ -130,7 +131,8 @@ export function useChatTokenStats() {
           trace: fragment => fragments.push(fragment)
         })
       }
-      const apiMessages = decorateChatPayload(assembledMessages, false, 'default')
+      const adapter = resolveModelAdapterProfile(apiSettings.provider, apiSettings.model, (apiSettings.adapterProfile || 'auto') as any)
+      const apiMessages = decorateChatPayload(assembledMessages, false, 'default', { profile: adapter, model: apiSettings.model, applyCot: true })
       const baseSystemText = assembledMessages[0] ? extractText(assembledMessages[0].content) : ''
       const decoratedSystemText = apiMessages[0] ? extractText(apiMessages[0].content) : ''
       const cotSystemText = decoratedSystemText.startsWith(baseSystemText) ? decoratedSystemText.slice(baseSystemText.length) : ''

@@ -46,6 +46,10 @@ export const cotSettings = reactive({
   enabled: savedCotSettings.enabled ?? false,
   mode: savedCotSettings.mode ?? 'skip', // 'skip' | 'custom' 保留兼容性
   showThinking: savedCotSettings.showThinking ?? true,
+  // 原生协议适配默认关闭，避免升级后改变既有节点的请求形态。
+  geminiNativeEnabled: savedCotSettings.geminiNativeEnabled ?? false,
+  claudeNativeEnabled: savedCotSettings.claudeNativeEnabled ?? false,
+  reasoningEffort: savedCotSettings.reasoningEffort ?? 'medium',
   items: (savedCotSettings.items || defaultCotItems) as CotItem[]
 })
 

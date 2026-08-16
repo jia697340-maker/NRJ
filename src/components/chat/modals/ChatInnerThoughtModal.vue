@@ -71,14 +71,14 @@ const handleContentSaved = (newVal: string) => {
 
 const effectiveAvatarUrl = computed(() => {
   if (isGroup.value && selectedMemberId.value) {
-    const member = groupMembers.value.find(m => String(m.characterEntityId || m.id) === selectedMemberId.value)
+    const member = groupMembers.value.find((m: any) => String(m.characterEntityId || m.id) === selectedMemberId.value)
     return member?.avatarUrl || ''
   }
   return currentThought.value?.senderAvatar || activeChat.value?.avatarUrl
 })
 const effectiveAvatarText = computed(() => {
   if (isGroup.value && selectedMemberId.value) {
-    const member = groupMembers.value.find(m => String(m.characterEntityId || m.id) === selectedMemberId.value)
+    const member = groupMembers.value.find((m: any) => String(m.characterEntityId || m.id) === selectedMemberId.value)
     return member?.name?.charAt(0) || '?'
   }
   return currentThought.value?.senderName?.charAt(0) || activeChat.value?.avatarText || '?'
@@ -86,7 +86,7 @@ const effectiveAvatarText = computed(() => {
 
 const effectiveName = computed(() => {
   if (isGroup.value && selectedMemberId.value) {
-    const member = groupMembers.value.find(m => String(m.characterEntityId || m.id) === selectedMemberId.value)
+    const member = groupMembers.value.find((m: any) => String(m.characterEntityId || m.id) === selectedMemberId.value)
     return activeChat.value?.memberNicknames?.[selectedMemberId.value] || member?.name || '群成员'
   }
   return currentThought.value?.senderName || activeChat.value?.remark || activeChat.value?.name

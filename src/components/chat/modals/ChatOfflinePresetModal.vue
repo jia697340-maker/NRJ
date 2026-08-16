@@ -43,7 +43,7 @@ const aiUnknownVariables = ref<string[]>([])
 let aiController: AbortController | null = null
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
-const modelProfiles: OfflineModelProfile[] = ['auto', 'openai-compatible', 'deepseek-chat', 'deepseek-reasoner', 'claude', 'gemini']
+const modelProfiles: OfflineModelProfile[] = ['auto', 'openai-compatible', 'openai-responses', 'deepseek-chat', 'deepseek-reasoner', 'glm', 'claude', 'gemini']
 const selectedPresetId = computed(() => props.selectedChat?.offlinePresetId || offlinePresetSettings.currentPresetId || 'offline_default')
 
 const officialPresets = computed(() => offlinePresetSettings.presets.filter(p => p.source === 'builtin'))

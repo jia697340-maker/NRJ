@@ -18,6 +18,7 @@ import { useVoicePlayer } from './useVoicePlayer'
 import { createChatMessageId, createTransferData, resolveTransfer } from '../services/transferLifecycle'
 import { useChatAuth } from './useChatAuth'
 import { createIncomingWalletPayment } from '../services/walletService'
+import { extractEmbeddedReasoning } from '../services/reasoning'
 
 // 引入拆分的逻辑模块
 import { useChatRoomError } from './useChatRoomError'
@@ -349,12 +350,16 @@ export function useChatRoomAPI(
       
       let replyText = ''
       let thinkingText = ''
+      let thinkingSource: 'native' | 'prompt' | 'none' = 'none'
+      let providerState: any
       
       if (typeof result === 'string') {
         replyText = result
       } else {
         replyText = result.content
         thinkingText = result.thinking || ''
+        thinkingSource = result.reasoningSource || (thinkingText ? 'native' : 'none')
+        providerState = result.providerState
       }
       
       // 优先拦截并处理朋友圈相关的特殊标签
@@ -367,16 +372,15 @@ export function useChatRoomAPI(
       const aiContext = processMomentRes.aiContext
       const handledMomentAction = Boolean(processMomentRes.handledMomentAction)
 
-      // 提取被包裹在文本中的 thinking 内容（针对部分未原生分离 thinking 字段的模型）
-      const embeddedThinkingRegex = /<thinking>([\s\S]*?)<\/thinking>/i
-      const embeddedThinkingMatch = replyText.match(embeddedThinkingRegex)
-      if (embeddedThinkingMatch && !thinkingText) {
-        thinkingText = embeddedThinkingMatch[1].trim()
+      // 防御调用方绕过统一 API 解析的情况；不完整标签保持原文，避免误删正文。
+      const embeddedReasoning = extractEmbeddedReasoning(replyText)
+      if (embeddedReasoning.found) {
+        replyText = embeddedReasoning.content
+        if (!thinkingText) {
+          thinkingText = embeddedReasoning.thinking
+          thinkingSource = 'prompt'
+        }
       }
-      
-      // 清理思考过程与包裹标签，防止内部的格式示例被后续的正则错误解析为气泡
-      replyText = replyText.replace(/\[incipere\][\s\S]*?\[finire\]/gi, '')
-      replyText = replyText.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
       
       // 独立提取心声标签 <inner_thought>
       const innerThoughtRegex = /<inner_thought>([\s\S]*?)<\/inner_thought>/i
@@ -929,6 +933,8 @@ export function useChatRoomAPI(
               translationLanguage: action.translationLanguage,
               translationStatus: action.translation ? 'ready' : undefined,
               thinking: thinking,
+              thinkingSource: index === 0 ? thinkingSource : undefined,
+              providerState: index === 0 ? providerState : undefined,
               costTime: isLastMsg ? costSeconds : undefined,
               quote: action.quote,
               isVoiceCallProcessMsg: callMode === 'voice',

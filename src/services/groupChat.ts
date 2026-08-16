@@ -178,7 +178,7 @@ export const normalizeGroupChat = (raw: any): GroupChatRecord => ({
   roleThoughtHistoryCount: Math.max(1, Number(raw.roleThoughtHistoryCount || 12)), enableUserThoughtHistory: raw.enableUserThoughtHistory !== false,
   userThoughtHistoryCount: Math.max(1, Number(raw.userThoughtHistoryCount || 12)), innerThoughtLimit: Math.max(1, Math.min(1000, Number(raw.innerThoughtLimit || 50))), offlineMeetEnabled: raw.offlineMeetEnabled === true,
   offlineMeetMode: raw.offlineMeetMode === 'separate' ? 'separate' : 'mixed', offlinePresetId: String(raw.offlinePresetId || ''),
-  offlineModelProfile: (['auto', 'openai-compatible', 'deepseek-chat', 'deepseek-reasoner', 'claude', 'gemini'].includes(raw.offlineModelProfile) ? raw.offlineModelProfile : 'auto') as OfflineModelProfile, offlineMeetLocationMode: raw.offlineMeetLocationMode === 'continuous' ? 'continuous' : 'vague', isMixedOfflineActive: raw.isMixedOfflineActive === true,
+  offlineModelProfile: (['auto', 'openai-compatible', 'openai-responses', 'deepseek-chat', 'deepseek-reasoner', 'glm', 'claude', 'gemini'].includes(raw.offlineModelProfile) ? raw.offlineModelProfile : 'auto') as OfflineModelProfile, offlineMeetLocationMode: raw.offlineMeetLocationMode === 'continuous' ? 'continuous' : 'vague', isMixedOfflineActive: raw.isMixedOfflineActive === true,
   activeCallType: raw.activeCallType === 'voice' || raw.activeCallType === 'video' ? raw.activeCallType : null,
   activeCallStartedAt: Math.max(0, Number(raw.activeCallStartedAt || 0)), activeCallStartMessageId: Math.max(0, Number(raw.activeCallStartMessageId || 0)),
   callSummaries: Array.isArray(raw.callSummaries) ? raw.callSummaries : []
@@ -333,9 +333,11 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
       const timeAttr = includeTime
         ? ` time="${new Date(timestamp).toISOString()}"`
         : ''
-      const encoded = message.type === 'right'
+      const encoded: any = message.type === 'right'
         ? { role: 'user', content: `<group_user_msg id="${message.id}"${timeAttr} kind="${message.messageType || 'text'}" reply_to="${message.replyToMessageId || ''}" mentions="${(message.mentions || []).map((item: any) => item.id).join(',')}">${escapeXml(describeMessage(message))}</group_user_msg>` }
         : { role: message.type === 'system' ? 'system' : 'assistant', content: message.type === 'system' ? escapeXml(message.content) : `<group_history_msg id="${message.id}"${timeAttr} sender="${message.senderId}" kind="${message.messageType || 'text'}" reply_to="${message.replyToMessageId || ''}">${escapeXml(describeMessage(message))}</group_history_msg>` }
+      encoded._turnId = message.turnId
+      encoded._providerState = message.providerState
       if (message.type === 'right' && message.imageData?.imageId) {
         const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
         const imageUrl = await imageStore.getItem<string>(message.imageData.imageId)
@@ -401,5 +403,10 @@ export const requestGroupReply = async (group: GroupChatRecord, allChats: any[],
   const offlineActive = group.offlineMeetEnabled && (group.offlineMeetMode === 'separate' || group.isMixedOfflineActive)
   const result = await sendChatMessage(payload, signal, false, false, 'default', offlineActive ? (group.offlineModelProfile || 'auto') : 'auto', { chatId: group.id, chatName: group.name, memoryEntries: group.memoryBook.map((item: any) => item.content || '') })
   const raw = typeof result === 'string' ? result : result.content
-  return { ...parseGroupResponse(raw, group.memberIds), thinking: typeof result === 'string' ? '' : (result.thinking || '') }
+  return {
+    ...parseGroupResponse(raw, group.memberIds),
+    thinking: typeof result === 'string' ? '' : (result.thinking || ''),
+    reasoningSource: typeof result === 'string' ? 'none' : (result.reasoningSource || (result.thinking ? 'native' : 'none')),
+    providerState: typeof result === 'string' ? undefined : result.providerState
+  }
 }

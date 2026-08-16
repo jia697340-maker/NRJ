@@ -85,6 +85,11 @@ const toggleEnabled = () => {
   announceSetting(settings.value.enabled ? '诊断记录已开启' : '诊断记录已关闭，已有记录不会自动删除')
 }
 
+const toggleRawConsoleLogging = () => {
+  settings.value = saveDiagnosticSettings({ ...settings.value, rawConsoleLogging: !settings.value.rawConsoleLogging })
+  announceSetting(settings.value.rawConsoleLogging ? 'API 原始日志已开启' : 'API 原始日志已关闭')
+}
+
 const saveRetention = async () => {
   settingError.value = ''
   const parsed = Number(retentionInput.value)
@@ -233,6 +238,28 @@ onBeforeUnmount(() => {
         ><span></span></button>
       </div>
 
+      <div class="control-main raw-console-row">
+        <div class="control-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9l2 2-2 2M12 14h4"/></svg>
+        </div>
+        <div class="control-copy">
+          <div class="control-title-row">
+            <strong>API 原始日志</strong>
+            <span :class="['state-chip', settings.rawConsoleLogging ? 'on' : 'off']">{{ settings.rawConsoleLogging ? '输出中' : '默认关闭' }}</span>
+          </div>
+          <p>仅在浏览器控制台输出脱敏后的请求、原始返回与解析结果；聊天正文仍会完整显示，请仅在排查时开启。</p>
+        </div>
+        <button
+          type="button"
+          class="switch"
+          :class="{ active: settings.rawConsoleLogging }"
+          role="switch"
+          :aria-checked="settings.rawConsoleLogging"
+          :aria-label="settings.rawConsoleLogging ? '关闭 API 原始日志' : '开启 API 原始日志'"
+          @click="toggleRawConsoleLogging"
+        ><span></span></button>
+      </div>
+
       <div class="retention-row">
         <label for="diagnostic-retention">
           <span>保留条数</span>
@@ -358,12 +385,15 @@ onBeforeUnmount(() => {
               <div class="token-bar" aria-label="上下文 Token 分布"><span :style="{ width: `${selectedTrace.estimatedTokens ? systemTokens / selectedTrace.estimatedTokens * 100 : 0}%` }"></span></div>
               <div class="token-legend"><span><i class="system"></i>系统提示词 <strong>{{ systemTokens.toLocaleString() }}</strong></span><span><i class="history"></i>对话与预填充 <strong>{{ historyTokens.toLocaleString() }}</strong></span></div>
             </div>
-            <dl class="definition-list">
-              <div><dt>服务提供方</dt><dd>{{ selectedTrace.provider }}</dd></div>
-              <div><dt>模型适配</dt><dd>{{ selectedTrace.adapter }}</dd></div>
-              <div><dt>响应模式</dt><dd>{{ selectedTrace.stream ? '流式响应' : '完整响应' }}</dd></div>
-              <div><dt>停止原因</dt><dd>{{ selectedTrace.stopReason || '未返回' }}<span v-if="selectedTrace.truncated" class="warning-chip">可能被截断</span></dd></div>
-            </dl>
+              <dl class="definition-list">
+                <div><dt>服务提供方</dt><dd>{{ selectedTrace.provider }}</dd></div>
+                <div><dt>模型适配</dt><dd>{{ selectedTrace.adapter }}</dd></div>
+                <div><dt>实际协议</dt><dd>{{ selectedTrace.protocol || '旧记录未记录' }}</dd></div>
+                <div><dt>响应模式</dt><dd>{{ selectedTrace.stream ? '流式响应' : '完整响应' }}</dd></div>
+                <div><dt>思考配置</dt><dd>{{ selectedTrace.reasoning ? `${selectedTrace.reasoning.mode === 'custom' ? '自定义' : '跳过'} · ${selectedTrace.reasoning.effort} · ${selectedTrace.reasoning.nativeEnabled ? '原生开启' : '原生关闭'}` : '旧记录未记录' }}</dd></div>
+                <div><dt>摘要字符</dt><dd>{{ (selectedTrace.thinkingCharacters || 0).toLocaleString() }}</dd></div>
+                <div><dt>停止原因</dt><dd>{{ selectedTrace.stopReason || '未返回' }}<span v-if="selectedTrace.truncated" class="warning-chip">可能被截断</span></dd></div>
+              </dl>
             <div v-if="selectedTrace.errorMessage" class="inline-error"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 17h.01"/></svg><div><strong>调用失败</strong><p>{{ selectedTrace.errorMessage }}</p></div></div>
           </template>
 
@@ -391,7 +421,7 @@ onBeforeUnmount(() => {
 
           <template v-else>
             <div v-if="selectedTrace.response" class="response-section"><div class="section-title"><span>模型返回</span><small>{{ selectedTrace.responseCharacters.toLocaleString() }} 字</small></div><pre>{{ selectedTrace.response }}</pre></div>
-            <div v-if="selectedTrace.thinking" class="response-section"><div class="section-title"><span>思考内容</span><small>仅本地查看</small></div><pre>{{ selectedTrace.thinking }}</pre></div>
+            <div v-if="selectedTrace.thinking" class="response-section"><div class="section-title"><span>{{ selectedTrace.reasoningSource === 'prompt' ? '兼容分析文本' : '模型思考摘要' }}</span><small>仅本地查看</small></div><pre>{{ selectedTrace.thinking }}</pre></div>
             <div v-if="!selectedTrace.response && !selectedTrace.thinking" class="response-empty">没有可展示的返回内容。</div>
           </template>
         </div>
@@ -443,6 +473,7 @@ onBeforeUnmount(() => {
 .control-card { border:1px solid var(--line); background:var(--paper); transition:border-color .2s,box-shadow .2s; }
 .control-card.enabled { border-color:#d9e6df; box-shadow:0 5px 20px rgba(56,120,90,.055); }
 .control-main { gap:16px; padding:20px; }
+.raw-console-row { border-top:1px solid #f0f0f0; background:#fdfdfd; }
 .control-icon { flex:0 0 42px; display:grid; place-items:center; width:42px; height:42px; border:1px solid #e7e7e7; background:#fbfbfb; }
 .control-icon svg,.text-action svg,.detail-actions svg,.replay-button svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 .control-copy { flex:1; min-width:0; }

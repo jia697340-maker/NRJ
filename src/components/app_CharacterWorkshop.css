@@ -5,8 +5,8 @@
   --cw-ink: var(--text-primary);
   --cw-muted: var(--text-secondary);
   --cw-faint: var(--text-tertiary);
-  --cw-paper: var(--sys-bg-primary);
-  --cw-surface: var(--sys-bg-secondary);
+  --cw-paper: #ffffff;
+  --cw-surface: #ffffff;
   --cw-line: rgba(61, 52, 48, .11);
   --cw-shadow: 0 12px 34px rgba(43, 35, 31, .07);
   position: absolute; inset: 0; z-index: 55; display: flex; flex-direction: column;
@@ -14,7 +14,7 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   animation: cw-app-open .3s cubic-bezier(.2,.8,.2,1);
 }
-.character-workshop.is-dark { --cw-line: rgba(255,255,255,.11); --cw-shadow: 0 16px 40px rgba(0,0,0,.28); --cw-accent-soft: rgba(190,91,98,.14); }
+.character-workshop.is-dark { --cw-paper: var(--sys-bg-primary); --cw-surface: var(--sys-bg-secondary); --cw-line: rgba(255,255,255,.11); --cw-shadow: 0 16px 40px rgba(0,0,0,.28); --cw-accent-soft: rgba(190,91,98,.14); }
 .character-workshop button,.character-workshop input,.character-workshop textarea { font: inherit; color: inherit; }
 .character-workshop button { border: 0; }
 .character-workshop button:focus-visible,.character-workshop input:focus-visible,.character-workshop textarea:focus-visible { outline: 2px solid rgba(143,47,53,.55); outline-offset: 2px; }

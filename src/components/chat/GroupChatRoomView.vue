@@ -190,7 +190,11 @@ const runReply = async () => {
         item.transferData = { ...createTransferData({ type: message.messageType, amount: message.amount || 0, remark: message.remark || message.content, expireHours: 24, sender: 'character', walletPaymentId: walletPayment.id, walletAccountId }), senderId: message.senderId }
       }
       if (message.messageType === 'call') item.callData = { callType: 'voice', status: 'ended' }
-      if (index === 0 && result.thinking) item.thinking = result.thinking
+      if (index === 0 && result.thinking) {
+        item.thinking = result.thinking
+        item.thinkingSource = result.reasoningSource
+        item.providerState = result.providerState
+      }
       if (index === result.messages.length - 1) item.costTime = ((Date.now() - requestStartedAt) / 1000).toFixed(1)
       const imageMember = memberMap.value.get(String(message.senderId))
       if (message.messageType === 'image' && imageMember?.enableNAIImageGen) imageJobs.push({ item, member: imageMember })

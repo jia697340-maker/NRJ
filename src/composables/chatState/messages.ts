@@ -429,12 +429,16 @@ export const buildChatMessages = async (
           content: [
             { type: 'text', text: formattedContent },
             { type: 'image_url', image_url: { url: mediaBase64 } }
-          ]
+          ],
+          _turnId: msg.turnId,
+          _providerState: msg.providerState
         })
       } else {
         messages.push({
           role: msg.type === 'left' || msg.type === 'narration' ? 'assistant' : 'user',
-          content: formattedContent
+          content: formattedContent,
+          _turnId: msg.turnId,
+          _providerState: msg.providerState
         })
       }
       pushContextTrace(options.trace, {

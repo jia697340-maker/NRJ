@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { resolvePromptVariables } from './promptVariables'
 
-export type OfflineModelProfile = 'auto' | 'openai-compatible' | 'deepseek-chat' | 'deepseek-reasoner' | 'claude' | 'gemini'
+export type OfflineModelProfile = 'auto' | 'openai-compatible' | 'openai-responses' | 'deepseek-chat' | 'deepseek-reasoner' | 'glm' | 'claude' | 'gemini'
 export type OfflinePresetSource = 'builtin' | 'user'
 export type OfflinePromptSection = 'main' | 'mode' | 'postHistory'
 
@@ -238,8 +238,10 @@ export const replacePromptVariables = (content: string, values: Record<string, s
 export const getOfflineModelProfileLabel = (profile: OfflineModelProfile) => ({
   auto: '自动适配（推荐）',
   'openai-compatible': 'OpenAI 兼容',
+  'openai-responses': 'OpenAI Responses',
   'deepseek-chat': 'DeepSeek Chat',
   'deepseek-reasoner': 'DeepSeek Reasoner',
+  glm: '智谱 GLM',
   claude: 'Claude Native',
   gemini: 'Gemini Native'
 }[profile])

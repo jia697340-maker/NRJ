@@ -9,6 +9,7 @@ import NewApiImportModal from './NewApiImportModal.vue'
 import NewApiNoticeModal from './NewApiNoticeModal.vue'
 import NewApiNodeStatusCard from './NewApiNodeStatusCard.vue'
 import { parseAdapterResponse, prepareAdapterRequest } from '../services/modelAdapters'
+import type { ModelAdapterProfile } from '../services/modelAdapters'
 import {
   detectNewApiNode,
   type NewApiDetectionResult
@@ -45,6 +46,16 @@ const providers = [
 ]
 
 const providerOptions = providers.map(p => ({ value: p.id, label: p.name }))
+const adapterOptions: { value: ModelAdapterProfile; label: string }[] = [
+  { value: 'auto', label: '自动识别（推荐）' },
+  { value: 'openai-compatible', label: 'OpenAI Chat Completions' },
+  { value: 'openai-responses', label: 'OpenAI Responses' },
+  { value: 'deepseek-chat', label: 'DeepSeek Chat' },
+  { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner' },
+  { value: 'glm', label: '智谱 GLM' },
+  { value: 'gemini', label: 'Gemini Native' },
+  { value: 'claude', label: 'Claude Native' }
+]
 
 const modelOptions = computed(() => {
   return (activeSettings.value.availableModels || []).map((m: string) => ({ value: m, label: m }))
@@ -85,6 +96,7 @@ const applyPreset = (presetId: string) => {
   activeSettings.value.url = preset.url
   activeSettings.value.key = preset.key
   activeSettings.value.model = preset.model
+  activeSettings.value.adapterProfile = preset.adapterProfile || 'auto'
   activeSettings.value.customUrl = preset.customUrl || ''
   activeSettings.value.customKey = preset.customKey || ''
   
@@ -116,6 +128,7 @@ const handleSavePreset = (name: string) => {
     url: activeSettings.value.url,
     key: activeSettings.value.key,
     model: activeSettings.value.model,
+    adapterProfile: activeSettings.value.adapterProfile || 'auto',
     customUrl: activeSettings.value.customUrl || '',
     customKey: activeSettings.value.customKey || '',
     enableTemperature: activeSettings.value.enableTemperature,
@@ -477,6 +490,7 @@ const confirmTest = async () => {
       url: baseUrl,
       key: activeSettings.value.key,
       model: modelToUse,
+      profile: activeSettings.value.adapterProfile || 'auto',
       maxTokens: 50,
       stream: false
     }, [{ role: 'user', content: testInputText.value }])
@@ -737,6 +751,18 @@ const confirmTest = async () => {
                     v-model="activeSettings.provider"
                     :options="providerOptions"
                     @change="onProviderChange"
+                    :is-dark="globalSettings.darkMode"
+                    currentStyle="editorial"
+                  />
+                </div>
+              </div>
+
+              <div class="form-row" v-show="activeSettings.provider === 'custom' && currentTab !== 'embedding' && isMatch('协议 适配')">
+                <div class="form-label">接口协议</div>
+                <div class="form-value full-width">
+                  <SearchableSelect
+                    v-model="activeSettings.adapterProfile"
+                    :options="adapterOptions"
                     :is-dark="globalSettings.darkMode"
                     currentStyle="editorial"
                   />

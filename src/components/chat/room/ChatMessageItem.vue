@@ -5,7 +5,8 @@ import ChatImageBubble from '../bubbles/ChatImageBubble.vue'
 import ChatVoiceBubble from '../bubbles/ChatVoiceBubble.vue'
 import ChatTransferBubble from '../bubbles/ChatTransferBubble.vue'
 import ChatCallRecordBubble from '../bubbles/ChatCallRecordBubble.vue'
-import { chatSettings } from '../../../store'
+import { chatSettings, cotSettings } from '../../../store'
+import { shouldDisplayThinking } from '../../../services/reasoning'
 
 const props = defineProps<{
   msg: any
@@ -91,14 +92,19 @@ const formatMsgTime = (timestamp: number) => {
   return ''
 }
 const shouldShowTime = computed(() => props.selectedChat?.chatType === 'group' ? props.selectedChat?.showMessageTime === true : chatSettings.timeDisplayStyle !== 'none')
+const showThinkingContent = computed(() => shouldDisplayThinking({
+  enabled: cotSettings.enabled,
+  mode: cotSettings.mode === 'custom' ? 'custom' : 'skip',
+  showThinking: cotSettings.showThinking
+}, props.msg))
 </script>
 
 <template>
   <!-- 独立块模式下的思考过程（彻底移出 message-row，独立一行紧贴左侧） -->
-  <div v-if="!chatSettings.cotInSameBubble && msg.thinking && msg.type === 'left'" class="thinking-standalone-wrapper">
+  <div v-if="showThinkingContent && !chatSettings.cotInSameBubble" class="thinking-standalone-wrapper">
     <div class="thinking-standalone">
       <details>
-        <summary class="thinking-summary magazine-slogan">Code. Love. Be.</summary>
+        <summary class="thinking-summary magazine-slogan">{{ msg.thinkingSource === 'prompt' ? '分析文本' : '思考摘要' }}</summary>
         <div class="thinking-content">{{ msg.thinking }}</div>
       </details>
     </div>
@@ -263,9 +269,9 @@ const shouldShowTime = computed(() => props.selectedChat?.chatType === 'group' ?
           <div style="display: flex; align-items: flex-end;">
             <div v-if="!msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-left" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
               <!-- 同气泡模式下的思考过程 -->
-              <div v-if="chatSettings.cotInSameBubble && msg.thinking" class="thinking-block">
+              <div v-if="showThinkingContent && chatSettings.cotInSameBubble" class="thinking-block">
                 <details>
-                  <summary class="thinking-summary magazine-slogan">Code. Love. Be.</summary>
+                  <summary class="thinking-summary magazine-slogan">{{ msg.thinkingSource === 'prompt' ? '分析文本' : '思考摘要' }}</summary>
                   <div class="thinking-content">{{ msg.thinking }}</div>
                 </details>
               </div>

@@ -6,13 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "check": "npm run typecheck && npm run lint && npm run test:wallet && npm run test:transfer && npm run test:prompt && npm run test:group && npm run build",
+    "check": "npm run typecheck && npm run lint && npm run test:wallet && npm run test:transfer && npm run test:prompt && npm run test:group && npm run test:reasoning && npm run build",
     "lint": "eslint src scripts vite.config.ts --max-warnings 0",
     "preview": "vite preview",
     "test:transfer": "node scripts/test-transfer-lifecycle.mjs",
     "test:wallet": "node scripts/test-wallet.mjs",
     "test:prompt": "tsx scripts/test-prompt-schemes.ts",
     "test:group": "tsx scripts/test-group-chat.ts",
+    "test:reasoning": "tsx scripts/test-reasoning-adapters.ts",
     "typecheck": "vue-tsc -p tsconfig.app.json --noEmit --incremental false"
   },
   "dependencies": {

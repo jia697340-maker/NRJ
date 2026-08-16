@@ -9,6 +9,7 @@ const DIAGNOSTIC_INDEX_KEY = 'clingy_diagnostic_index_v1'
 export interface DiagnosticSettings {
   enabled: boolean
   maxRecords: number
+  rawConsoleLogging: boolean
 }
 
 export interface DiagnosticContextMeta {
@@ -38,6 +39,7 @@ export interface DiagnosticTrace {
   provider: string
   model: string
   adapter: string
+  protocol: string
   stream: boolean
   duration: number
   tokens?: number
@@ -48,6 +50,15 @@ export interface DiagnosticTrace {
   errorMessage?: string
   response?: string
   thinking?: string
+  reasoningSource?: 'native' | 'prompt' | 'none'
+  thinkingCharacters: number
+  reasoning: {
+    enabled: boolean
+    mode: 'skip' | 'custom'
+    effort: 'low' | 'medium' | 'high'
+    nativeEnabled: boolean
+    showThinking: boolean
+  }
   messages: DiagnosticMessage[]
   worldBookEntries: string[]
   memoryEntries: string[]
@@ -70,14 +81,16 @@ export interface DiagnosticDraft {
   provider: string
   model: string
   adapter: string
+  protocol: string
   stream: boolean
   messages: DiagnosticMessage[]
   worldBookEntries: string[]
   memoryEntries: string[]
   requestOptions: DiagnosticTrace['requestOptions']
+  reasoning: DiagnosticTrace['reasoning']
 }
 
-const DEFAULT_SETTINGS: DiagnosticSettings = { enabled: false, maxRecords: 50 }
+const DEFAULT_SETTINGS: DiagnosticSettings = { enabled: false, maxRecords: 50, rawConsoleLogging: false }
 const MIN_RECORDS = 1
 const MAX_RECORDS = 500
 const traceStore = localforage.createInstance({ name: 'clingy_app', storeName: 'diagnostic_traces' })
@@ -95,7 +108,8 @@ export const getDiagnosticSettings = (): DiagnosticSettings => {
     const parsed = JSON.parse(raw)
     return {
       enabled: parsed?.enabled === true,
-      maxRecords: clampRecordCount(parsed?.maxRecords)
+      maxRecords: clampRecordCount(parsed?.maxRecords),
+      rawConsoleLogging: parsed?.rawConsoleLogging === true
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
@@ -103,7 +117,11 @@ export const getDiagnosticSettings = (): DiagnosticSettings => {
 }
 
 export const saveDiagnosticSettings = (settings: DiagnosticSettings) => {
-  const normalized = { enabled: settings.enabled === true, maxRecords: clampRecordCount(settings.maxRecords) }
+  const normalized = {
+    enabled: settings.enabled === true,
+    maxRecords: clampRecordCount(settings.maxRecords),
+    rawConsoleLogging: settings.rawConsoleLogging === true
+  }
   localStorage.setItem(DIAGNOSTIC_SETTINGS_KEY, JSON.stringify(normalized))
   window.dispatchEvent(new CustomEvent(DIAGNOSTIC_UPDATED_EVENT, { detail: { kind: 'settings' } }))
   return normalized
@@ -168,9 +186,11 @@ export const createDiagnosticDraft = (input: {
   provider: string
   model: string
   adapter: string
+  protocol: string
   stream: boolean
   context?: DiagnosticContextMeta
   requestOptions?: DiagnosticTrace['requestOptions']
+  reasoning: DiagnosticTrace['reasoning']
 }): DiagnosticDraft | null => {
   // 关闭时只读取一个很小的 localStorage 设置值，不创建快照、不克隆上下文、不访问 IndexedDB。
   if (!getDiagnosticSettings().enabled) return null
@@ -185,11 +205,13 @@ export const createDiagnosticDraft = (input: {
     provider: input.provider,
     model: input.model,
     adapter: input.adapter,
+    protocol: input.protocol,
     stream: input.stream,
     messages,
     worldBookEntries: uniqueLabels(input.context?.worldBookEntries),
     memoryEntries: uniqueLabels(input.context?.memoryEntries),
-    requestOptions: input.requestOptions || {}
+    requestOptions: input.requestOptions || {},
+    reasoning: input.reasoning
   }
 }
 
@@ -211,8 +233,10 @@ export const commitDiagnosticTrace = async (
   draft: DiagnosticDraft | null,
   outcome: {
     status: DiagnosticTrace['status']
+    protocol?: string
     response?: string
     thinking?: string
+    reasoningSource?: 'native' | 'prompt' | 'none'
     tokens?: number
     stopReason?: string
     truncated?: boolean
@@ -228,14 +252,17 @@ export const commitDiagnosticTrace = async (
   const thinking = redactText(String(outcome.thinking || ''))
   const trace: DiagnosticTrace = {
     ...draft,
+    protocol: outcome.protocol || draft.protocol,
     completedAt,
     status: outcome.status,
     duration: completedAt - draft.createdAt,
     tokens: outcome.tokens,
     estimatedTokens: draft.messages.reduce((sum, item) => sum + item.estimatedTokens, 0),
     responseCharacters: response.length,
+    thinkingCharacters: thinking.length,
     response: response || undefined,
     thinking: thinking || undefined,
+    reasoningSource: outcome.reasoningSource,
     stopReason: outcome.stopReason,
     truncated: outcome.truncated,
     errorMessage: outcome.errorMessage ? redactText(String(outcome.errorMessage)) : undefined
