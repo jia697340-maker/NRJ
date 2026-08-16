@@ -1,11 +1,12 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
-import { apiSettings, defaultPromptItemsV1, defaultPromptItemsV1En, defaultPromptItemsV2, defaultPromptItemsV2En, getActivePromptItems, getActivePromptScheme, globalPromptSettings } from '../store'
+import { apiSettings, defaultPromptItemsV1, defaultPromptItemsV1En, defaultPromptItemsV2, defaultPromptItemsV2En, getActivePromptItems, getActivePromptScheme, globalPromptSettings, worldBooks } from '../store'
 import { useChatState } from './useChatState'
 import { estimateMessageTokens, estimateTextTokens, getTokenEstimateMethodLabel } from '../utils/tokenEstimate'
 import type { ContextTraceCategory, ContextTraceFragment } from '../services/contextTrace'
 import { getTokenUsageSnapshot, type TokenUsageSnapshot } from '../services/tokenUsageSnapshot'
 import { decorateChatPayload } from '../services/api'
+import { buildGroupChatMessages } from '../services/groupChat'
 
 export interface TokenDetailItem {
   id: string
@@ -96,7 +97,7 @@ const makeComparisons = () => {
 }
 
 export function useChatTokenStats() {
-  const { selectedChat, buildChatMessages } = useChatState()
+  const { selectedChat, buildChatMessages, mockChats, effectiveMyProfile } = useChatState()
 
   const refreshTokenStats = async () => {
     const chat = selectedChat.value
@@ -105,11 +106,30 @@ export function useChatTokenStats() {
     isCalculating.value = true
     try {
       const fragments: ContextTraceFragment[] = []
-      const assembledMessages = await buildChatMessages(chat, false, false, {
-        includeMedia: false,
-        allowExternalMemoryLookup: false,
-        trace: fragment => fragments.push(fragment)
-      })
+      let assembledMessages: any[]
+      if (chat.chatType === 'group') {
+        const worldText = worldBooks
+          .filter((book: any) => book.enabled && (chat.boundWorldBooks?.includes(book.id) || (book.groupIds || []).some((groupId: string) => chat.boundWorldBookGroups?.includes(groupId))))
+          .flatMap((book: any) => (book.entries || []).filter((entry: any) => entry.enabled).map((entry: any) => `${entry.title}: ${entry.content}`))
+          .join('\n')
+        assembledMessages = await buildGroupChatMessages(chat, mockChats.value, chat.userProfile || effectiveMyProfile.value, worldText)
+        assembledMessages.forEach((message: any, index: number) => fragments.push({
+          id: index === 0 ? 'group:system' : `group:history:${index}`,
+          category: index === 0 ? 'system' : 'history',
+          group: index === 0 ? '群聊系统与成员上下文' : '群聊历史',
+          label: index === 0 ? '群聊完整系统提示词' : `群聊历史消息 ${index}`,
+          text: extractText(message.content),
+          messageRole: message.role,
+          counted: true,
+          reason: index === 0 ? '群聊成员设定、协议、记忆、时间与世界书的最终组合' : '位于群聊当前历史保留范围内'
+        }))
+      } else {
+        assembledMessages = await buildChatMessages(chat, false, false, {
+          includeMedia: false,
+          allowExternalMemoryLookup: false,
+          trace: fragment => fragments.push(fragment)
+        })
+      }
       const apiMessages = decorateChatPayload(assembledMessages, false, 'default')
       const baseSystemText = assembledMessages[0] ? extractText(assembledMessages[0].content) : ''
       const decoratedSystemText = apiMessages[0] ? extractText(apiMessages[0].content) : ''

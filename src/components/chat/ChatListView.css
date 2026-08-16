@@ -1498,15 +1498,24 @@
 .chat-list-view .chat-normal-add {
   width: 32px;
   height: 32px;
-  border: 1px solid #dfe3e9;
-  border-radius: 50%;
-  background: #ffffff;
+  border: none;
+  background: transparent;
   color: #20242b;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 6px 16px rgba(42, 50, 62, 0.04);
+  box-shadow: none;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.chat-list-view .chat-normal-add:hover {
+  opacity: 1;
+}
+
+.chat-list-view .chat-normal-add:active {
+  opacity: 0.6;
 }
 
 .chat-create-actions {

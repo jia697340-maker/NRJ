@@ -12,7 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'save', payload: { messageId?: number, content: string, type: string, clearMedia: boolean }): void
+  (e: 'save', payload: { messageId?: number, content: string, type: string, clearMedia: boolean, action: 'replace' | 'insert_above' | 'insert_below' }): void
 }>()
 
 const editContent = ref('')
@@ -31,12 +31,13 @@ const handleOverlayClick = () => {
   emit('close')
 }
 
-const handleSave = () => {
+const handleSave = (action: 'replace' | 'insert_above' | 'insert_below' = 'replace') => {
   emit('save', {
     messageId: props.messageId,
     content: editContent.value,
     type: editType.value,
-    clearMedia: willClearMedia.value
+    clearMedia: willClearMedia.value,
+    action
   })
 }
 
@@ -47,21 +48,30 @@ const handleClearMedia = () => {
 </script>
 
 <template>
-  <transition name="journal-fade">
-    <div v-if="visible" class="journal-modal-overlay" @click="handleOverlayClick" @touchmove.prevent>
-      <div class="journal-modal-container" @click.stop>
-        <!-- 装饰性纸胶带 -->
-        <div class="washi-tape top-left"></div>
-        <div class="washi-tape top-right"></div>
+  <transition name="ticket-fade">
+    <div v-if="visible" class="ticket-modal-overlay" @click="handleOverlayClick" @touchmove.prevent>
+      <div class="ticket-modal-container" @click.stop>
+        
+        <!-- 压凹印记/防伪线条 (极简) -->
+        <div class="ticket-watermark">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 4H8V6H4V4ZM16 4H20V6H16V4ZM4 18H8V20H4V18ZM16 18H20V20H16V18ZM10 10H14V14H10V10Z" fill="currentColor"/>
+          </svg>
+        </div>
 
-        <div class="close-btn" @click="handleOverlayClick">
-          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <!-- 顶部装饰虚线 -->
+        <div class="ticket-perforation top-perf"></div>
+
+        <!-- 关闭按钮 -->
+        <div class="ticket-close-btn" @click="handleOverlayClick">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
         </div>
 
-        <h3 class="modal-title">编辑消息</h3>
+        <h3 class="info-title">编 辑 消 息</h3>
+        <div class="info-divider"></div>
 
         <div class="edit-form">
           <div class="form-group">
@@ -94,113 +104,141 @@ const handleClearMedia = () => {
           </div>
         </div>
 
-        <div class="modal-actions">
-          <button class="modal-btn cancel" @click="handleOverlayClick">取消</button>
-          <button class="modal-btn save" @click="handleSave">保存</button>
+        <div class="info-actions-grid">
+          <button class="info-btn cancel" @click="handleOverlayClick"><span class="btn-text">取 消</span></button>
+          <button class="info-btn confirm" @click="handleSave('replace')"><span class="btn-text">替 换 覆 盖</span></button>
+          <button class="info-btn insert" @click="handleSave('insert_above')"><span class="btn-text">向 上 插 入</span></button>
+          <button class="info-btn insert" @click="handleSave('insert_below')"><span class="btn-text">向 下 插 入</span></button>
         </div>
+
+        <!-- 底部打孔线 -->
+        <div class="ticket-perforation bottom-perf"></div>
       </div>
     </div>
   </transition>
 </template>
 
 <style scoped>
-.journal-modal-overlay {
+.ticket-modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background-color: rgba(0, 0, 0, 0.45);
+  background-color: rgba(0, 0, 0, 0.2);
   z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
 }
 
-.journal-modal-container {
+.ticket-modal-container {
   position: relative;
-  background: #faf8f5;
-  border-radius: 16px;
-  padding: 32px 20px 24px;
+  background: #ffffff;
   width: 85%;
-  max-width: 360px;
+  max-width: 320px;
+  padding: 32px 24px 28px;
   box-shadow: 
-    0 10px 25px rgba(0,0,0,0.1),
-    inset 0 0 0 1px rgba(255,255,255,0.6),
-    inset 0 0 20px rgba(0,0,0,0.02);
-  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><filter id="noiseFilter"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noiseFilter)" opacity="0.04"/></svg>');
+    0 20px 40px -10px rgba(0, 0, 0, 0.08),
+    0 0 1px rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-.is-dark .journal-modal-container {
-  background: #2a2826;
+.is-dark .ticket-modal-container {
+  background: #1a1a1a;
   box-shadow: 
-    0 10px 25px rgba(0,0,0,0.3),
-    inset 0 0 0 1px rgba(255,255,255,0.05);
+    0 20px 40px -10px rgba(0, 0, 0, 0.3),
+    0 0 1px rgba(255, 255, 255, 0.1);
 }
 
-.washi-tape {
+.ticket-watermark {
   position: absolute;
-  width: 60px;
-  height: 18px;
-  background-color: rgba(220, 200, 180, 0.6);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  top: 16px;
+  right: 16px;
+  color: #f4f4f4;
   opacity: 0.8;
-  backdrop-filter: blur(2px);
-  z-index: 2;
-  border-radius: 2px;
+  pointer-events: none;
 }
-.washi-tape.top-left {
-  top: -8px;
-  left: 10px;
-  transform: rotate(-3deg);
-  background-color: rgba(240, 190, 180, 0.7);
-}
-.washi-tape.top-right {
-  top: -6px;
-  right: 15px;
-  transform: rotate(5deg);
-  background-color: rgba(180, 210, 220, 0.7);
-}
-.is-dark .washi-tape {
-  background-color: rgba(255, 255, 255, 0.1);
+.is-dark .ticket-watermark {
+  color: #2a2a2a;
 }
 
-.close-btn {
+.ticket-perforation {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.05);
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background-image: linear-gradient(to right, #e8e8e8 40%, rgba(255,255,255,0) 20%);
+  background-position: top;
+  background-size: 5px 1px;
+  background-repeat: repeat-x;
+  opacity: 0.8;
+}
+.ticket-perforation.top-perf {
+  top: 12px;
+}
+.ticket-perforation.bottom-perf {
+  bottom: 12px;
+}
+.is-dark .ticket-perforation {
+  background-image: linear-gradient(to right, #333 40%, rgba(255,255,255,0) 20%);
+}
+
+.ticket-close-btn {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: #999;
   cursor: pointer;
   z-index: 10;
-  transition: background 0.2s ease;
+  transition: color 0.2s ease;
 }
-.close-btn:active {
-  background: rgba(0, 0, 0, 0.1);
+.ticket-close-btn:hover, .ticket-close-btn:active {
+  color: #333;
 }
-.is-dark .close-btn {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
+.is-dark .ticket-close-btn {
+  color: #666;
+}
+.is-dark .ticket-close-btn:hover, .is-dark .ticket-close-btn:active {
+  color: #ccc;
 }
 
-.modal-title {
-  margin: 0 0 20px;
-  font-size: 18px;
-  color: var(--text-primary);
+.info-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+  letter-spacing: 2px;
   text-align: center;
-  font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif;
+}
+.is-dark .info-title {
+  color: #eee;
+}
+
+.info-divider {
+  width: 40px;
+  height: 1px;
+  background-color: #e0e0e0;
+  margin-bottom: 20px;
+}
+.is-dark .info-divider {
+  background-color: #333;
 }
 
 .edit-form {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin-bottom: 24px;
+  width: 100%;
+  margin-bottom: 28px;
 }
 
 .form-group {
@@ -210,9 +248,11 @@ const handleClearMedia = () => {
 }
 
 .form-label {
-  font-size: 14px;
-  color: var(--text-secondary);
-  font-weight: 500;
+  font-size: 12px;
+  color: #777;
+}
+.is-dark .form-label {
+  color: #999;
 }
 
 .label-with-action {
@@ -222,154 +262,167 @@ const handleClearMedia = () => {
 }
 
 .clear-media-btn {
-  font-size: 12px;
+  font-size: 11px;
   color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
+  background: transparent;
   border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 12px;
-  padding: 2px 8px;
+  border-radius: 4px;
+  padding: 2px 6px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
-
 .clear-media-btn:active {
-  background: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .media-cleared-text {
-  font-size: 12px;
+  font-size: 11px;
   color: #ef4444;
   font-style: italic;
 }
 
 .role-selector {
   display: flex;
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 8px;
-  padding: 4px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  padding: 2px;
 }
-
 .is-dark .role-selector {
-  background: rgba(255, 255, 255, 0.05);
+  border-color: #333;
 }
 
 .role-option {
   flex: 1;
   text-align: center;
-  padding: 8px 0;
-  font-size: 14px;
-  color: var(--text-secondary);
-  border-radius: 6px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: #777;
+  border-radius: 2px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
-
-.role-option.active {
-  background: #fff;
-  color: var(--text-primary);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  font-weight: 500;
+.is-dark .role-option {
+  color: #999;
 }
 
+.role-option.active {
+  background: #f5f5f5;
+  color: #333;
+}
 .is-dark .role-option.active {
-  background: #3a3836;
-  color: var(--text-primary);
+  background: #333;
+  color: #eee;
 }
 
 .edit-textarea {
   width: 100%;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  background: #fff;
-  color: var(--text-primary);
-  font-size: 14px;
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid #eee;
+  background: transparent;
+  color: #333;
+  font-size: 13px;
   resize: none;
   outline: none;
   font-family: inherit;
   line-height: 1.5;
+  transition: border-color 0.2s ease;
 }
-
 .is-dark .edit-textarea {
-  background: #3a3836;
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: #333;
+  color: #eee;
 }
 
 .edit-textarea:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  border-color: #ccc;
+}
+.is-dark .edit-textarea:focus {
+  border-color: #555;
 }
 
-.modal-actions {
-  display: flex;
-  gap: 12px;
+.info-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  width: 100%;
 }
 
-.modal-btn {
-  flex: 1;
+.info-btn {
+  width: 100%;
   padding: 10px 0;
-  border-radius: 20px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
+  background: transparent;
+  position: relative;
+  transition: all 0.2s ease;
+  color: #555;
+}
+
+.info-btn::before, .info-btn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 10px;
+  border-left: 1px solid transparent;
   transition: all 0.2s ease;
 }
+.info-btn::before { left: 0; }
+.info-btn::after { right: 0; }
 
-.modal-btn.cancel {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--text-secondary);
+.info-btn.cancel:active::before, .info-btn.cancel:active::after {
+  border-color: #999;
+  height: 14px;
 }
-
-.modal-btn.cancel:active {
-  background: rgba(0, 0, 0, 0.1);
+.info-btn.confirm {
+  color: #3b82f6;
 }
-
-.is-dark .modal-btn.cancel {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-}
-
-.modal-btn.save {
-  background: #3b82f6;
-  color: white;
-  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+.info-btn.confirm:active::before, .info-btn.confirm:active::after {
+  border-color: #3b82f6;
+  height: 14px;
 }
 
-.modal-btn.save:active {
-  transform: translateY(2px);
-  box-shadow: 0 2px 5px rgba(59, 130, 246, 0.3);
+.is-dark .info-btn {
+  color: #aaa;
+}
+.is-dark .info-btn.confirm {
+  color: #60a5fa;
+}
+.info-btn.insert {
+  color: #10b981;
+}
+.info-btn.insert:active::before, .info-btn.insert:active::after {
+  border-color: #10b981;
+  height: 14px;
+}
+.is-dark .info-btn.insert {
+  color: #34d399;
 }
 
-.modal-btn.save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
+.ticket-fade-enter-active,
+.ticket-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.ticket-fade-enter-active .ticket-modal-container {
+  animation: ticketSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ticket-fade-leave-active .ticket-modal-container {
+  animation: ticketSlideDown 0.2s ease forwards;
 }
 
-.journal-fade-enter-active,
-.journal-fade-leave-active {
-  transition: opacity 0.25s ease;
-}
-.journal-fade-enter-active .journal-modal-container {
-  animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-.journal-fade-leave-active .journal-modal-container {
-  animation: popOut 0.25s ease forwards;
-}
-
-.journal-fade-enter-from,
-.journal-fade-leave-to {
+.ticket-fade-enter-from,
+.ticket-fade-leave-to {
   opacity: 0;
 }
 
-@keyframes popIn {
-  from { opacity: 0; transform: scale(0.8) translateY(10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+@keyframes ticketSlideUp {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-@keyframes popOut {
-  from { transform: scale(1); opacity: 1; }
-  to { transform: scale(0.9); opacity: 0; }
+@keyframes ticketSlideDown {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(10px); opacity: 0; }
 }
 </style>

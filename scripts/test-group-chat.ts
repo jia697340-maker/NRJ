@@ -12,7 +12,8 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true
 })
 
-const { buildGroupChatMessages, createGroupChat, parseGroupResponse } = await import('../src/services/groupChat.ts')
+const { buildGroupChatMessages, createGroupChat, normalizeGroupChat, parseGroupResponse } = await import('../src/services/groupChat.ts')
+const { applyMemoryExtraction, buildExtractionPrompt, formatMessagesForMemory, getUncoveredMessages, invalidateMemoriesForMessages } = await import('../src/services/memoryEngine.ts')
 
 const contacts = [
   { id: 'a', name: '阿岚', persona: '直率，习惯先回应朋友的玩笑。', memoryBook: [] },
@@ -24,7 +25,9 @@ assert.equal(payload.length, 1)
 assert.doesNotMatch(payload[0].content, /可选群背景/)
 assert.match(payload[0].content, /用户只是群成员之一/)
 assert.match(payload[0].content, /display_name="阿岚"/)
-assert.match(payload[0].content, /单聊全局提示词/)
+assert.doesNotMatch(payload[0].content, /单聊全局提示词|单聊设置|应用组合/)
+assert.doesNotMatch(payload[0].content, /<\/?msg(?:\s|>)/)
+assert.doesNotMatch(payload[0].content, /<\/?send_(?:image|voice|emoji|transfer|red_packet)/)
 
 group.groupContext = '这是一起旅行前临时建的群。'
 payload = await buildGroupChatMessages(group, contacts, { name: '小满' })
@@ -37,5 +40,138 @@ assert.equal(parsed.messages[1].replyToMessageId, '12')
 assert.deepEqual(parsed.messages[1].mentions, ['b'])
 assert.equal(parseGroupResponse('<group_msg sender="unknown">越权消息</group_msg><group_idle />', ['a', 'b']).messages.length, 0)
 assert.equal(parseGroupResponse('<group_idle />', ['a', 'b']).idle, true)
+
+const configured = normalizeGroupChat({ ...group, autoSummaryEnabled: true, autoSummaryThreshold: 137, autoSummaryTokenThreshold: 4321, autoSummaryTrigger: 'token', memoryBatchSize: 87, memoryTokenBudget: 777, memorySummaryRetryCount: 3 })
+assert.equal(configured.autoSummaryThreshold, 137)
+assert.equal(configured.autoSummaryTokenThreshold, 4321)
+assert.equal(configured.autoSummaryTrigger, 'token')
+assert.equal(configured.memoryBatchSize, 87)
+assert.equal(configured.memoryTokenBudget, 777)
+assert.equal(configured.memorySummaryRetryCount, 3)
+
+const parityConfigured = normalizeGroupChat({
+  ...group,
+  bilingualEnabled: true,
+  bilingualMode: 'forced',
+  dialogueLanguage: 'ja',
+  translationLanguage: 'zh-CN',
+  translationDisplay: 'always',
+  timePerception: true,
+  sendCharacterTime: false,
+  memberTimezones: { a: 'Asia/Tokyo', b: 'Europe/London' }
+})
+assert.equal(parityConfigured.bilingualMode, 'forced')
+assert.equal(parityConfigured.dialogueLanguage, 'ja')
+assert.equal(parityConfigured.translationLanguage, 'zh-CN')
+assert.equal(parityConfigured.translationDisplay, 'always')
+assert.equal(parityConfigured.sendCharacterTime, false)
+assert.equal(parityConfigured.memberTimezones.a, 'Asia/Tokyo')
+assert.equal(parityConfigured.bubbleNarrationEnabled, false)
+assert.equal(parityConfigured.enableMsgCountLimit, false)
+
+const parityContacts = [
+  { ...contacts[0], bilingualEnabled: false, timePerception: false, timezone: 'America/New_York' },
+  { ...contacts[1], bilingualEnabled: false, timePerception: false, timezone: 'America/Los_Angeles' }
+]
+parityConfigured.userProfile = { name: '小满', timezone: 'Asia/Shanghai' }
+parityConfigured.messages = [{ id: 1723456789000, timestamp: 1723456789000, type: 'right', content: '测试时间' }]
+payload = await buildGroupChatMessages(parityConfigured, parityContacts, parityConfigured.userProfile)
+assert.match(payload[0].content, /所有对白必须使用日语/)
+assert.match(payload[0].content, /简体中文翻译/)
+assert.match(payload[0].content, /Asia\/Shanghai/)
+assert.match(payload[0].content, /Asia\/Tokyo/)
+assert.match(payload[0].content, /Europe\/London/)
+assert.match(payload[1].content, /time="2024-/)
+
+const parityOff = normalizeGroupChat({ ...parityConfigured, bilingualEnabled: false, timePerception: false })
+payload = await buildGroupChatMessages(parityOff, [
+  { ...parityContacts[0], bilingualEnabled: true, timePerception: true },
+  { ...parityContacts[1], bilingualEnabled: true, timePerception: true }
+], parityOff.userProfile)
+assert.doesNotMatch(payload[0].content, /双语对话规则|Bilingual dialogue rules/)
+assert.doesNotMatch(payload[0].content, /群聊当前时间/)
+assert.doesNotMatch(payload[1].content, /\stime=/)
+
+const capabilityGroup = normalizeGroupChat({
+  ...group,
+  bubbleNarrationEnabled: true,
+  enableMsgCountLimit: true,
+  minMsgCount: 2,
+  maxMsgCount: 5,
+  boundWorldBookGroups: ['lore_group'],
+  memberSettings: { a: { enableVoiceReply: true, enableNAIImageGen: true } },
+  messages: [
+    { id: 201, type: 'right', content: '[语音消息]', voiceData: { text: '能听见吗', seconds: 3 } },
+    { id: 202, type: 'right', content: '[发来一笔转账]', transferData: { type: 'transfer', amount: 88, remark: '晚饭', status: 'pending' } },
+    { id: 203, type: 'right', content: '[图片]', imageData: { text: '海边的合照', summary: '' } }
+  ]
+})
+payload = await buildGroupChatMessages(capabilityGroup, contacts, { name: '小满' })
+assert.match(payload[0].content, /群聊气泡叙事/)
+assert.match(payload[0].content, /2 到 5 个 group_msg/)
+assert.match(payload[1].content, /能听见吗/)
+assert.match(payload[2].content, /88/)
+assert.match(payload[2].content, /晚饭/)
+assert.match(payload[3].content, /海边的合照/)
+assert.deepEqual(capabilityGroup.boundWorldBookGroups, ['lore_group'])
+assert.equal(capabilityGroup.memberSettings.a.enableVoiceReply, true)
+
+const callGroup = normalizeGroupChat({
+  ...group,
+  activeCallType: 'voice',
+  activeCallStartedAt: 1723456789000,
+  activeCallStartMessageId: 301,
+  memberSettings: { a: { enableVoiceCall: true }, b: { enableVoiceCall: false } },
+  messages: [
+    { id: 300, type: 'right', content: '通话前的普通消息' },
+    { id: 301, type: 'right', content: '群语音内容', isVoiceCallProcessMsg: true },
+    { id: 302, type: 'right', content: '旧视频内容', isVideoCallProcessMsg: true }
+  ]
+})
+payload = await buildGroupChatMessages(callGroup, contacts, { name: '小满' })
+assert.match(payload[0].content, /当前群通话/)
+assert.match(payload[0].content, /语音通话/)
+assert.match(payload[0].content, /display_name="阿岚"/)
+assert.doesNotMatch(payload[0].content, /display_name="白露"/)
+assert.ok(payload.some(item => typeof item.content === 'string' && item.content.includes('群语音内容')))
+assert.ok(!payload.some(item => typeof item.content === 'string' && item.content.includes('旧视频内容')))
+callGroup.activeCallType = null
+payload = await buildGroupChatMessages(callGroup, contacts, { name: '小满' })
+assert.ok(!payload.some(item => typeof item.content === 'string' && item.content.includes('群语音内容')))
+assert.equal(normalizeGroupChat({ id: 'legacy', memberIds: [] }).userProfile.name, '我')
+
+const sourceMessages = [
+  { id: 101, type: 'right', content: '周六一起去海边吧' },
+  { id: 102, type: 'left', senderId: 'a', senderNameSnapshot: '阿岚', content: '好，我带相机。' },
+  { id: 103, type: 'left', senderId: 'b', senderNameSnapshot: '白露', content: '我下午才能到。' }
+]
+group.messages.push(...sourceMessages)
+assert.match(formatMessagesForMemory(sourceMessages), /阿岚: 好，我带相机/)
+assert.match(formatMessagesForMemory(sourceMessages), /白露: 我下午才能到/)
+assert.match(buildExtractionPrompt(sourceMessages, 'hybrid', '', { name: group.name, members: [{ id: 'a', name: '阿岚' }, { id: 'b', name: '白露' }] }), /memberMemories/)
+
+applyMemoryExtraction(group, {
+  narrative: '群里约定周六去海边，阿岚带相机，白露下午到。',
+  subjective: '',
+  memberMemories: { a: '我答应周六去海边并带相机。', b: '我会在周六下午到海边。', unknown: '不应保存' },
+  events: [{ title: '周六海边计划', summary: '群成员约定周六去海边。', participants: ['用户', '阿岚', '白露'], evidence: { messageIds: [101, 102, 103] } }],
+  variables: [], tableRows: [], relations: []
+}, sourceMessages, 'hybrid')
+assert.equal(group.memoryBook.length, 1)
+assert.equal(group.memberMemories.a.length, 1)
+assert.equal(group.memberMemories.b.length, 1)
+assert.equal(group.memberMemories.unknown, undefined)
+assert.equal(getUncoveredMessages(group).length, 0)
+
+group.messages.push({ id: 104, type: 'left', senderId: 'a', senderNameSnapshot: '阿岚', content: '我把相机借出去了。' })
+assert.deepEqual(getUncoveredMessages(group).map(item => item.id), [104])
+invalidateMemoriesForMessages(group, [102])
+assert.equal(group.memoryBook.length, 0)
+assert.equal(group.memberMemories.a.length, 0)
+assert.ok(getUncoveredMessages(group).some(item => item.id === 101))
+
+for (let index = 0; index < 30; index++) group.messages.push({ id: 200 + index, type: index % 2 ? 'left' : 'right', senderId: 'a', content: `消息${index}` })
+payload = await buildGroupChatMessages(group, contacts, { name: '小满' })
+assert.doesNotMatch(payload[0].content, /group_memory_delta|同次记忆整理|每经过 24/)
 
 console.log('Group chat prompt and response protocol tests passed.')

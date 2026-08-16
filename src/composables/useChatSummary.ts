@@ -9,6 +9,7 @@ import {
   detectTopicBoundary,
   getUncoveredMessages,
   indexChatMemories,
+  isMemoryMessage,
   parseMemoryExtraction,
   type MemoryMode
 } from '../services/memoryEngine'
@@ -40,6 +41,29 @@ export function useChatSummary(selectedChat: any, saveCustomContacts: () => void
     })
   }
 
+  const consolidateGroupMemberMemories = async (chat: any) => {
+    if (chat.chatType !== 'group' || chat.autoMemoryConsolidation === false || !chat.memberMemories) return
+    const threshold = Math.max(4, Math.min(20, Number(chat.memoryConsolidationThreshold || 8)))
+    for (const memberId of Object.keys(chat.memberMemories)) {
+      const candidates = (chat.memberMemories[memberId] || []).filter((item: any) => item.enabled !== false && !item.archived && !item.isCondensed)
+      if (candidates.length < threshold) continue
+      const children = candidates.slice(0, threshold)
+      const memberName = chat.memberNicknames?.[memberId] || memberId
+      const prompt = `你是群聊成员主观记忆巩固助手。请把“${memberName}”的以下第一人称阶段记忆压缩成一条更高层的第一人称长期记忆。保留重要事件、感受变化、承诺、边界、关系发展与尚未完成的事情；较新的明确信息覆盖旧状态；不得添加新事实。只输出 JSON：{"narrative":"100-300字第一人称巩固记忆"}\n\n${children.map((item: any, index: number) => `[${index + 1}] ${item.date || ''} ${item.content || ''}`).join('\n')}`
+      const response = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+      const extraction = parseMemoryExtraction(typeof response === 'string' ? response : response.content)
+      if (!extraction.narrative) continue
+      children.forEach((item: any) => { item.archived = true })
+      chat.memberMemories[memberId].push({
+        id: `member_condensed_${memberId}_${Date.now()}`, date: new Date().toLocaleDateString('zh-CN'),
+        content: extraction.narrative, evidenceMessageIds: children.flatMap((item: any) => item.evidenceMessageIds || []),
+        childMemoryIds: children.map((item: any) => item.id), isCondensed: true, memoryLevel: 2,
+        memoryMode: 'subjective', version: 2, sourceGroupId: chat.id,
+        createdAt: Date.now(), updatedAt: Date.now(), enabled: true
+      })
+    }
+  }
+
   const generateSummary = async (messagesToSummarize: any[], isAuto = false, requestedMode?: MemoryMode) => {
     if (isSummarizing.value || messagesToSummarize.length === 0) return
 
@@ -56,17 +80,38 @@ export function useChatSummary(selectedChat: any, saveCustomContacts: () => void
 
       let completed = 0
       for (const batch of batches) {
-        const prompt = buildExtractionPrompt(batch, mode, chat.summaryPrompt?.trim() || '')
-        const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
-        const rawContent = typeof result === 'string' ? result : result.content
-        if (!rawContent) throw new Error('总结生成内容为空')
-        const extraction = parseMemoryExtraction(rawContent)
+        const groupContext = chat.chatType === 'group'
+          ? {
+              name: chat.name,
+              members: (chat.memberIds || []).map((id: string) => ({ id: String(id), name: chat.memberNicknames?.[id] || chat.memoryMemberNames?.[id] || String(id) }))
+            }
+          : undefined
+        const prompt = buildExtractionPrompt(batch, mode, chat.summaryPrompt?.trim() || '', groupContext)
+        const maxAttempts = Math.max(1, Math.min(4, Number(chat.memorySummaryRetryCount || 2)))
+        let extraction: any = null
+        let lastError: any = null
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+            const rawContent = typeof result === 'string' ? result : result.content
+            if (!rawContent) throw new Error('总结生成内容为空')
+            extraction = parseMemoryExtraction(rawContent)
+            if (!extraction.narrative && !extraction.subjective && !(extraction.events || []).length && !(extraction.variables || []).length && !(extraction.tableRows || []).length && !Object.keys(extraction.memberMemories || {}).length) {
+              throw new Error('总结未返回可保存的记忆')
+            }
+            break
+          } catch (error) {
+            lastError = error
+          }
+        }
+        if (!extraction) throw lastError || new Error('总结失败')
         applyMemoryExtraction(chat, extraction, batch, mode)
         completed++
         saveCustomContacts()
       }
 
       await consolidateNarrativeHierarchy(chat)
+      await consolidateGroupMemberMemories(chat)
       saveCustomContacts()
 
       try {
@@ -123,7 +168,7 @@ export function useChatSummary(selectedChat: any, saveCustomContacts: () => void
     }
 
     const slicedMsgs = msgs.slice(startCount - 1, endCount)
-    const validMsgs = slicedMsgs.filter((m: any) => m.type === 'left' || m.type === 'right' || m.type === 'system')
+    const validMsgs = slicedMsgs.filter((m: any) => isMemoryMessage(m) && !m.isRecalled && !m.isUndelivered)
 
     if (validMsgs.length === 0) {
       showToast('选定区间内没有有效的聊天记录')

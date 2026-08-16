@@ -8,6 +8,7 @@ import { normalizeSocialProfile } from '../../services/characterSocialProfile'
 import { getCharacterDirectoryEntry, registerAccountContactsInDirectory } from '../../services/characterDirectory'
 import { deleteIdentityProfile } from '../../services/identityProfile'
 import { deleteGroupChat, readGroupChats } from '../../services/groupChat'
+import localforage from 'localforage'
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -265,11 +266,14 @@ export const loadCustomContacts = async () => {
     }
   }
 
-  const groupChats = readGroupChats(currentChatUserId.value).map(group => {
-    const memberSnapshots = group.memberIds.map(memberId => {
+  const groupMainAvatarStore = localforage.createInstance({ name: 'nrt-app', storeName: 'groupMainAvatars' })
+  const groupMemberAvatarStore = localforage.createInstance({ name: 'nrt-app', storeName: 'groupMemberAvatars' })
+  const groupChats = await Promise.all(readGroupChats(currentChatUserId.value).map(async group => {
+    const memberSnapshots = await Promise.all(group.memberIds.map(async memberId => {
       const member = customChats.find((chat: any) => String(chat.characterEntityId || chat.id) === String(memberId))
-      return member ? { id: memberId, name: member.name, avatarUrl: member.avatarUrl || '', avatarText: member.avatarText || member.name?.charAt(0) || '伴' } : { id: memberId, name: '已移除成员', avatarUrl: '', avatarText: '?' }
-    })
+      const groupAvatar = group.memberHasCustomAvatar?.[memberId] ? await groupMemberAvatarStore.getItem<string>(`${group.id}_${memberId}`) : ''
+      return member ? { id: memberId, name: group.memberNicknames?.[memberId] || member.name, avatarUrl: groupAvatar || member.avatarUrl || '', avatarText: member.avatarText || member.name?.charAt(0) || '伴' } : { id: memberId, name: '已移除成员', avatarUrl: groupAvatar || '', avatarText: '?' }
+    }))
     const lastMessage = group.messages[group.messages.length - 1]
     const lastSender = lastMessage?.senderId ? memberSnapshots.find(item => item.id === lastMessage.senderId)?.name : ''
     const preview = lastMessage ? `${lastSender ? `${lastSender}：` : ''}${lastMessage.content || ''}` : '群聊已创建'
@@ -278,8 +282,9 @@ export const loadCustomContacts = async () => {
     const time = date.toDateString() === now.toDateString()
       ? date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
       : `${date.getMonth() + 1}/${date.getDate()}`
-    return { ...group, preview, time, avatarText: '群', memberSnapshots, isTyping: currentTypingState.get(group.id) || false }
-  })
+    const groupAvatar = group.hasCustomAvatar ? await groupMainAvatarStore.getItem<string>(group.id) : ''
+    return { ...group, preview, time, avatarText: '群', avatarUrl: groupAvatar || group.avatarUrl || '', memberSnapshots, isTyping: currentTypingState.get(group.id) || false }
+  }))
 
   const baseMock = [
     { 

@@ -313,9 +313,8 @@
   width: 100%;
   padding: 0 4px;
   margin-top: 10px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .capsule-tab-container::-webkit-scrollbar {
@@ -329,20 +328,25 @@
   background: var(--sys-bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 999px;
-  padding: 6px 12px;
+  padding: 6px 0;
   box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
   box-sizing: border-box;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.capsule-tab-bar::-webkit-scrollbar {
+  display: none;
 }
 
 .capsule-tab-item {
-  flex: 1;
+  flex: 0 0 20%;
   text-align: center;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-tertiary);
-  padding: 8px 16px;
+  padding: 8px 0;
   border-radius: 999px;
   cursor: pointer;
   transition: all 0.2s ease;

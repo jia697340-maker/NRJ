@@ -66,6 +66,8 @@ export function useChatRoomMessage(
     selectedChat.value.messages.push({
       id: msgId,
       type: 'right',
+      messageType: 'image',
+      timestamp: msgId,
       content: '[图片]',
       imageData: {
         text: data.text || '', // 可选的文字说明
@@ -89,9 +91,12 @@ export function useChatRoomMessage(
       selectedChat.value.messages = []
     }
 
+    const messageId = Date.now()
     selectedChat.value.messages.push({
-      id: Date.now(),
+      id: messageId,
       type: 'right',
+      messageType: 'voice',
+      timestamp: messageId,
       content: '[语音消息]',
       voiceData: {
         text: data.text,
@@ -134,6 +139,8 @@ export function useChatRoomMessage(
     selectedChat.value.messages.push({
       id: createChatMessageId(),
       type: 'right',
+      messageType: data.type,
+      timestamp: Date.now(),
       content: text,
       transferData: createTransferData({
         type: data.type,

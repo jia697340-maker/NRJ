@@ -96,6 +96,7 @@ export interface StructuredMemoryState {
 export interface MemoryExtractionResult {
   narrative: string
   subjective: string
+  memberMemories: Record<string, string>
   events: Array<Partial<MemoryEvent>>
   variables: Array<Partial<MemoryVariable>>
   tableRows: Array<Partial<MemoryTableRow>>
@@ -163,7 +164,7 @@ export const ensureMemoryState = (chat: any): StructuredMemoryState => {
 }
 
 export const isMemoryMessage = (message: any) =>
-  Boolean(message && (message.type === 'left' || message.type === 'right' || message.type === 'system'))
+  Boolean(message && (message.type === 'left' || message.type === 'right' || message.type === 'system' || message.type === 'narration'))
 
 const isCovered = (id: number, coverage: MemoryCoverage[]) =>
   coverage.some(range => id >= range.fromMsgId && id <= range.toMsgId)
@@ -172,6 +173,8 @@ export const getUncoveredMessages = (chat: any) => {
   const state = ensureMemoryState(chat)
   return (chat.messages || []).filter((message: any) =>
     isMemoryMessage(message) &&
+    message.isRecalled !== true &&
+    message.isUndelivered !== true &&
     message.excludeFromGeneralMemory !== true &&
     typeof message.id === 'number' &&
     !isCovered(message.id, state.coverage)
@@ -221,8 +224,11 @@ export const applyMemoryExtraction = (
   const now = Date.now()
   const evidenceIds = sourceMessages.map(item => item.id).filter((id: any) => id !== undefined)
 
-  if (options.includeNarrative !== false && (result.narrative || result.subjective)) {
-    const content = mode === 'subjective' && result.subjective ? result.subjective : (result.narrative || result.subjective)
+  const narrativeContent = chat.chatType === 'group'
+    ? result.narrative
+    : (mode === 'subjective' && result.subjective ? result.subjective : (result.narrative || result.subjective))
+  if (options.includeNarrative !== false && narrativeContent) {
+    const content = narrativeContent
     chat.memoryBook.push({
       id: now,
       date: new Date().toLocaleDateString('zh-CN'),
@@ -238,6 +244,22 @@ export const applyMemoryExtraction = (
       updatedAt: now,
       enabled: true
     })
+  }
+
+  if (chat.chatType === 'group' && result.memberMemories && typeof result.memberMemories === 'object') {
+    if (!chat.memberMemories || typeof chat.memberMemories !== 'object') chat.memberMemories = {}
+    for (const [memberId, rawContent] of Object.entries(result.memberMemories)) {
+      const content = String(rawContent || '').trim()
+      if (!content || !Array.isArray(chat.memberIds) || !chat.memberIds.map(String).includes(String(memberId))) continue
+      if (!Array.isArray(chat.memberMemories[memberId])) chat.memberMemories[memberId] = []
+      chat.memberMemories[memberId].push({
+        id: safeId(`member_${memberId}`, content), date: new Date().toLocaleDateString('zh-CN'), content,
+        memoryMode: mode, messageCount: sourceMessages.length,
+        fromMsgId: sourceMessages[0]?.id, toMsgId: sourceMessages[sourceMessages.length - 1]?.id,
+        evidenceMessageIds: evidenceIds, sourceGroupId: chat.id, version: 2,
+        createdAt: now, updatedAt: now, enabled: true
+      })
+    }
   }
 
   for (const raw of result.events || []) {
@@ -377,7 +399,10 @@ export const replaceStructuredMemoriesForEvidence = (
 
 export const formatMessagesForMemory = (messages: any[]) => messages.map(message => {
   const english = globalPromptSettings.language === 'en'
-  const speaker = message.type === 'left' ? (english ? 'Character' : '角色') : message.type === 'right' ? (english ? 'User' : '用户') : (english ? 'System' : '系统')
+  const groupSpeaker = message.senderNameSnapshot || message.senderName || message.senderId
+  const speaker = message.type === 'left'
+    ? (groupSpeaker ? String(groupSpeaker) : (english ? 'Character' : '角色'))
+    : message.type === 'right' ? (english ? 'User' : '用户') : (english ? 'System' : '系统')
   const marked = message.isMarked ? (english ? '[Important] ' : '【重要标记】') : ''
   const time = message.timestamp || message.time || ''
   const media = message.imageData?.summary ? ` [${english ? 'Image' : '图片'}: ${message.imageData.summary}]`
@@ -387,7 +412,15 @@ export const formatMessagesForMemory = (messages: any[]) => messages.map(message
   return `[${english ? 'Message ID' : '消息ID'}:${message.id}${time ? ` ${english ? 'Time' : '时间'}:${time}` : ''}] ${speaker}: ${marked}${String(message.content || '')}${media}`
 }).join('\n')
 
-export const buildExtractionPrompt = (messages: any[], mode: MemoryMode, customPrompt = '') => {
+export const buildExtractionPrompt = (
+  messages: any[],
+  mode: MemoryMode,
+  customPrompt = '',
+  groupContext?: { name?: string; members?: Array<{ id: string; name: string }> }
+) => {
+  const groupRules = groupContext
+    ? `\n这是群聊“${groupContext.name || '未命名群聊'}”。成员清单：${(groupContext.members || []).map(item => `${item.name}(ID:${item.id})`).join('、')}。\n群聊附加要求：客观记忆必须保留真实发言者和参与者。JSON 顶层额外输出 memberMemories 对象，键只能使用成员 ID，值为该成员的第一人称主观记忆。只记录该成员亲历、听见或被明确告知的内容，不得让成员知道其未接触的信息；没有内容的成员不要生成键。`
+    : ''
   if (globalPromptSettings.language === 'en') {
     const modeInstruction: Record<MemoryMode, string> = {
       narrative: 'Prioritize an objective narrative summary. Extract events, variables, and table rows only when explicit and important.',
@@ -397,7 +430,7 @@ export const buildExtractionPrompt = (messages: any[], mode: MemoryMode, customP
       table: 'Prioritize records suitable for table management and assign the specified table category.',
       hybrid: 'Produce a short narrative, character-subjective memory, event cards, variable updates, and table rows together.'
     }
-    return `You are a long-term memory organization engine. Build memory only from the original conversation and never add facts absent from the source.\n${modeInstruction[mode]}\n${customPrompt ? `Additional user requirements:\n${customPrompt}\n` : ''}
+    return `You are a long-term memory organization engine. Build memory only from the original conversation and never add facts absent from the source.\n${modeInstruction[mode]}${groupRules}\n${customPrompt ? `Additional user requirements:\n${customPrompt}\n` : ''}
 Requirements:
 1. Leave unclear times blank. Any uncertain fact must have confidence below 0.7.
 2. Never turn a temporary emotion into a permanent personality trait.
@@ -420,7 +453,7 @@ ${formatMessagesForMemory(messages)}`
     table: '重点生成适合表格管理的记录行，按指定 table 分类。',
     hybrid: '同时生成简短叙事、角色主观记忆、事件卡、变量更新和表格行。'
   }
-  return `你是长期记忆整理引擎。只能依据聊天原文建立记忆，不得补写原文不存在的事实。\n${modeInstruction[mode]}\n${customPrompt ? `用户补充要求：\n${customPrompt}\n` : ''}
+  return `你是长期记忆整理引擎。只能依据聊天原文建立记忆，不得补写原文不存在的事实。\n${modeInstruction[mode]}${groupRules}\n${customPrompt ? `用户补充要求：\n${customPrompt}\n` : ''}
 要求：\n1. 时间不明确就留空；不确定事实的 confidence 必须低于 0.7。\n2. 临时情绪不得写成永久性格。\n3. 每项都保留 evidence.messageIds。\n4. 只输出合法 JSON，不要 Markdown、解释或思维过程。\n5. 没有内容的数组返回 []，没有文本返回空字符串。\n\nJSON 结构：\n{"narrative":"100-300字客观摘要","subjective":"角色第一人称主观记忆","events":[{"title":"","summary":"","startTime":"","endTime":"","participants":[],"location":"","result":"","decisions":[],"unresolved":[],"tags":[],"importance":1,"emotionBefore":"","emotionAfter":"","relationshipChange":"","evidence":{"messageIds":[],"excerpt":""}}],"variables":[{"category":"身份/称呼/日期/喜好/禁忌/习惯/人物/工作学校/位置/关系/计划/承诺/矛盾/状态/其他","key":"","value":"","confidence":0.8,"validFrom":"","validTo":"","evidence":{"messageIds":[],"excerpt":""}}],"tableRows":[{"table":"people/preferences/events/commitments/gifts/relationships/timeline/conflicts/places","title":"","value":"","status":"有效","time":"","tags":[],"importance":1,"evidence":{"messageIds":[],"excerpt":""}}],"relations":[{"source":"人物或实体","target":"人物或实体","relation":"关系或作用","startTime":"","endTime":"","confidence":0.8,"evidence":{"messageIds":[],"excerpt":""}}]}\n\n聊天记录：\n${formatMessagesForMemory(messages)}`
 }
 
@@ -433,13 +466,14 @@ export const parseMemoryExtraction = (raw: string): MemoryExtractionResult => {
     return {
       narrative: typeof parsed.narrative === 'string' ? parsed.narrative.trim() : '',
       subjective: typeof parsed.subjective === 'string' ? parsed.subjective.trim() : '',
+      memberMemories: parsed.memberMemories && typeof parsed.memberMemories === 'object' && !Array.isArray(parsed.memberMemories) ? parsed.memberMemories : {},
       events: Array.isArray(parsed.events) ? parsed.events : [],
       variables: Array.isArray(parsed.variables) ? parsed.variables : [],
       tableRows: Array.isArray(parsed.tableRows) ? parsed.tableRows : [],
       relations: Array.isArray(parsed.relations) ? parsed.relations : []
     }
   } catch {
-    return { narrative: cleaned, subjective: '', events: [], variables: [], tableRows: [], relations: [] }
+    return { narrative: cleaned, subjective: '', memberMemories: {}, events: [], variables: [], tableRows: [], relations: [] }
   }
 }
 
@@ -604,6 +638,38 @@ export const buildMemoryPacket = async (
   return globalPromptSettings.language === 'en'
     ? `\n\n[Relevant long-term memory]\nThe system selected these memories by current topic, importance, and recency. If they conflict with the latest conversation, follow the latest explicit statement.\n${selected.map(item => `- [${item.type}] ${item.text}`).join('\n')}`
     : `\n\n【按需长期记忆】\n以下记忆由系统按当前话题、重要度和时间筛选；若与最新对话冲突，以最新明确表达为准。\n${selected.map(item => `- [${item.type}] ${item.text}`).join('\n')}`
+}
+
+export const invalidateMemoriesForMessages = (chat: any, messageIds: Array<number | string>) => {
+  if (!chat || messageIds.length === 0) return { narratives: 0, structured: 0, memberMemories: 0 }
+  const ids = new Set<number | string>(messageIds.flatMap(id => [id, String(id), Number(id)]))
+  const overlaps = (values: any[] | undefined) => Boolean(values?.some(id => ids.has(id) || ids.has(String(id)) || ids.has(Number(id))))
+  const state = ensureMemoryState(chat)
+  const beforeStructured = state.events.length + state.variables.length + state.tableRows.length + state.relations.length
+  state.events = state.events.filter(item => !overlaps(item.evidence?.messageIds))
+  state.variables = state.variables.filter(item => !overlaps(item.evidence?.messageIds))
+  state.tableRows = state.tableRows.filter(item => !overlaps(item.evidence?.messageIds))
+  state.relations = state.relations.filter(item => !overlaps(item.evidence?.messageIds))
+  state.coverage = state.coverage.filter(range => !messageIds.some(id => Number(id) >= range.fromMsgId && Number(id) <= range.toMsgId))
+
+  const beforeNarratives = Array.isArray(chat.memoryBook) ? chat.memoryBook.length : 0
+  const isUnverifiableLegacy = (item: any) => chat.chatType === 'group' && item?.version !== 2 && (!Array.isArray(item?.evidenceMessageIds) || item.evidenceMessageIds.length === 0)
+  chat.memoryBook = (chat.memoryBook || []).filter((item: any) => !overlaps(item.evidenceMessageIds) && !isUnverifiableLegacy(item))
+  let removedMemberMemories = 0
+  if (chat.memberMemories && typeof chat.memberMemories === 'object') {
+    for (const memberId of Object.keys(chat.memberMemories)) {
+      const list = Array.isArray(chat.memberMemories[memberId]) ? chat.memberMemories[memberId] : []
+      const next = list.filter((item: any) => !overlaps(item.evidenceMessageIds) && !isUnverifiableLegacy(item))
+      removedMemberMemories += list.length - next.length
+      chat.memberMemories[memberId] = next
+    }
+  }
+  chat.lastSummaryMsgId = Math.max(0, ...state.coverage.map(range => range.toMsgId))
+  return {
+    narratives: beforeNarratives - chat.memoryBook.length,
+    structured: beforeStructured - (state.events.length + state.variables.length + state.tableRows.length + state.relations.length),
+    memberMemories: removedMemberMemories
+  }
 }
 
 export const clearChatVectors = async (chatId: string | number) => {

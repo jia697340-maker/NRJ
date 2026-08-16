@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import localforage from 'localforage'
 import { sendChatMessage } from '../services/api'
 import { useChatState } from './useChatState'
+import { indexChatMemories, invalidateMemoriesForMessages } from '../services/memoryEngine'
 
 export function useChatRoomMultiSelect(
   selectedChat: any,
@@ -184,7 +185,9 @@ export function useChatRoomMultiSelect(
     })
     
     if (hasRecalled) {
+      invalidateMemoriesForMessages(selectedChat.value, [...selectedMessageIds.value])
       saveCustomContacts()
+      void indexChatMemories(selectedChat.value)
     }
     exitMultiSelectMode()
   }
@@ -228,7 +231,7 @@ export function useChatRoomMultiSelect(
 
   const deleteSelectedMessages = () => {
     if (!selectedChat.value || selectedMessageIds.value.size === 0) return
-    
+    invalidateMemoriesForMessages(selectedChat.value, [...selectedMessageIds.value])
     selectedChat.value.messages = selectedChat.value.messages.filter((m: any) => !selectedMessageIds.value.has(m.id))
     
     // 手动更新外部 mockChats 里的状态
@@ -253,6 +256,7 @@ export function useChatRoomMultiSelect(
         }
       }
       saveCustomContacts()
+      void indexChatMemories(selectedChat.value)
       exitMultiSelectMode()
     }
   }

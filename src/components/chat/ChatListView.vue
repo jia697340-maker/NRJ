@@ -37,7 +37,7 @@ const {
 } = useChatState()
 
 const groups = computed(() => ['全部', ...customGroups.value])
-type SidebarFilter = 'all' | 'unread' | 'pinned' | 'recent'
+type SidebarFilter = 'all' | 'unread' | 'pinned' | 'recent' | 'group'
 const activeSidebarFilter = ref<SidebarFilter>('all')
 
 const groupFilteredChats = computed(() => {
@@ -62,6 +62,7 @@ const filteredChats = computed(() => {
       .slice()
       .sort((a, b) => lastInteractionTime(b) - lastInteractionTime(a))
   }
+  if (activeSidebarFilter.value === 'group') return chats.filter(c => c.chatType === 'group')
   return chats
 })
 const pinnedChats = computed(() => activeSidebarFilter.value === 'all' ? groupFilteredChats.value.filter(c => c.isPinned) : [])
@@ -72,6 +73,7 @@ const filterEmptyText = computed(() => ({
   unread: '暂无未读消息',
   pinned: '暂无置顶消息',
   recent: '暂无最近互动',
+  group: '暂无群聊',
   all: '暂无消息'
 }[activeSidebarFilter.value]))
 
@@ -384,6 +386,12 @@ const handleImportComplete = async (personas: any[]) => {
               <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.8" fill="none"><circle cx="12" cy="12" r="8"></circle><polyline points="12 8 12 12 15 14"></polyline></svg>
             </div>
             <span class="sidebar-shortcut-name">最近</span>
+          </div>
+          <div class="sidebar-shortcut" :class="{ active: activeSidebarFilter === 'group' }" @click="handleSidebarFilter('group')">
+            <div class="sidebar-shortcut-icon">
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            </div>
+            <span class="sidebar-shortcut-name">群聊</span>
           </div>
         </div>
       </aside>

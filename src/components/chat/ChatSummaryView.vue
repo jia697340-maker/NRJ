@@ -13,8 +13,13 @@ import { clearChatVectors, ensureMemoryState, indexChatMemories, isEmbeddingRead
 const emit = defineEmits<{
   (e: 'back'): void
 }>()
+const viewProps = defineProps<{
+  chat?: any
+  saveChat?: () => void | Promise<void>
+}>()
 
-const { selectedChat, mockChats } = useChatState()
+const { selectedChat: storeSelectedChat, mockChats } = useChatState()
+const selectedChat = computed(() => viewProps.chat || storeSelectedChat.value)
 
 const defaultSummaryPrompt = `优先保留明确的时间、事件、人物、喜好、边界、承诺、情绪变化和关系发展。尤其注意【重要标记】，但不得把猜测写成事实。`
 
@@ -37,6 +42,10 @@ function showToast(msg: string) {
 
 const saveCurrentChat = async () => {
   if (!selectedChat.value) return
+  if (viewProps.saveChat) {
+    await viewProps.saveChat()
+    return
+  }
   const { currentChatUserId } = useChatAuth()
   const contactsKey = currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
   const savedStr = localStorage.getItem(contactsKey)
@@ -100,8 +109,14 @@ const memoryState = computed(() => selectedChat.value ? ensureMemoryState(select
 const memoryStatsText = computed(() => {
   const state = memoryState.value
   if (!state) return '0 项'
-  return `${state.events.length + state.variables.length + state.tableRows.length + state.relations.length} 项`
+  const memberCount = selectedChat.value?.chatType === 'group'
+    ? Object.values(selectedChat.value.memberMemories || {}).reduce((total: number, list: any) => total + (Array.isArray(list) ? list.filter((item: any) => item.enabled !== false).length : 0), 0)
+    : 0
+  return `${state.events.length + state.variables.length + state.tableRows.length + state.relations.length + memberCount} 项`
 })
+const groupMemberNames = computed(() => selectedChat.value?.chatType === 'group'
+  ? Object.fromEntries((selectedChat.value.memberIds || []).map((id: string) => [id, selectedChat.value.memberNicknames?.[id] || selectedChat.value.memoryMemberNames?.[id] || id]))
+  : undefined)
 type ModeOption = {
   value: MemoryMode
   label: string
@@ -212,6 +227,11 @@ const updateStructuredState = (state: StructuredMemoryState) => {
   selectedChat.value.memoryState = state
   saveCurrentChat()
   indexChatMemories(selectedChat.value).catch(error => console.warn('结构化记忆已保存，向量同步稍后重试', error))
+}
+const updateMemberMemories = (memories: Record<string, any[]>) => {
+  if (!selectedChat.value || selectedChat.value.chatType !== 'group') return
+  selectedChat.value.memberMemories = memories
+  saveCurrentChat()
 }
 
 const rebuildVectorIndex = async () => {
@@ -731,8 +751,11 @@ const resetSummaryPromptToDefault = () => {
       <ChatStructuredMemoryModal
         :visible="structuredMemoryVisible"
         :state="memoryState"
+        :member-memories="selectedChat?.chatType === 'group' ? selectedChat.memberMemories : undefined"
+        :member-names="groupMemberNames"
         @close="structuredMemoryVisible = false"
         @update-state="updateStructuredState"
+        @update-member-memories="updateMemberMemories"
       />
     </Teleport>
   </div>

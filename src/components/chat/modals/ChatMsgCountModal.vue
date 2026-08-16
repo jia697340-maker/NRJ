@@ -15,11 +15,13 @@ const emit = defineEmits<{
 
 const tempMinCount = ref('')
 const tempMaxCount = ref('')
+const validationError = ref('')
 
 watch(() => props.visible, (newVal) => {
   if (newVal) {
     tempMinCount.value = String(props.initialMin)
     tempMaxCount.value = String(props.initialMax)
+    validationError.value = ''
   }
 })
 
@@ -32,10 +34,10 @@ const handleSave = () => {
   const maxVal = parseInt(tempMaxCount.value) || 3
   
   if (minVal > maxVal) {
-    alert('最小条数不能大于最大条数')
+    validationError.value = '最小条数不能大于最大条数'
     return
   }
-  
+  validationError.value = ''
   emit('save', minVal, maxVal)
 }
 </script>
@@ -52,6 +54,7 @@ const handleSave = () => {
         <span style="color: var(--text-secondary)">至</span>
         <input type="number" class="form-input" v-model="tempMaxCount" placeholder="最大" min="1" style="margin-bottom: 0; width: 100%; box-sizing: border-box; text-align: center;" />
       </div>
+      <div v-if="validationError" class="confirm-desc msg-count-error" role="alert">{{ validationError }}</div>
       <div class="confirm-actions">
         <div class="confirm-btn cancel" @click="close">取消</div>
         <div class="confirm-btn danger" style="color: var(--text-primary);" @click="handleSave">确认</div>
@@ -62,4 +65,5 @@ const handleSave = () => {
 
 <style scoped>
 @import '../settings/ChatSettingsStyles.css';
+.msg-count-error{padding-top:0;color:#d95b5b;text-align:center}.form-input{appearance:textfield}.form-input::-webkit-inner-spin-button,.form-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 </style>

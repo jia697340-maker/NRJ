@@ -56,7 +56,7 @@ const toggleTranslation = () => {
 
 const shouldShowAvatar = (msg: any) => {
   if (msg.type !== 'left' && msg.type !== 'right') return false
-  if (props.selectedChat?.chatType === 'group' && props.selectedChat?.showMemberAvatars === false) return false
+  if (props.selectedChat?.chatType === 'group' && msg.type === 'left' && props.selectedChat?.showMemberAvatars === false) return false
   const style = chatSettings.avatarDisplayStyle || 'all'
   if (style === 'none') return false
   if (style === 'all') return true
@@ -67,7 +67,7 @@ const shouldShowAvatar = (msg: any) => {
 
 const shouldShowName = (msg: any) => {
   if (msg.type !== 'left' && msg.type !== 'right') return false
-  if (props.selectedChat?.chatType === 'group' && props.selectedChat?.showMemberNames === false) return false
+  if (props.selectedChat?.chatType === 'group' && msg.type === 'left' && props.selectedChat?.showMemberNames === false) return false
   const style = chatSettings.nameDisplayStyle || 'all'
   if (style === 'none') return false
   if (style === 'all') return true
@@ -224,7 +224,7 @@ const shouldShowTime = computed(() => props.selectedChat?.chatType === 'group' ?
               :msg="msg"
               direction="left"
               :autoTranscribeVoice="chatSettings.autoTranscribeVoice ?? false"
-              :voice-playback-enabled="!!selectedChat?.enableVoiceReply"
+              :voice-playback-enabled="selectedChat?.chatType === 'group' || !!selectedChat?.enableVoiceReply"
               :expandedVoiceIds="expandedVoiceIds"
               :playing-id="voicePlayingId"
               :is-synthesizing="isVoiceSynthesizing"

@@ -7,10 +7,31 @@ import LongTextEditModal from '../../LongTextEditModal.vue'
 
 const props = defineProps<{ visible: boolean; chat?: any }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'save'): void }>()
-const { selectedChat } = useChatState()
+const { selectedChat, mockChats } = useChatState()
 const { saveCurrentChat } = useChatSettingsSave()
 const activeChat = computed(() => props.chat || selectedChat.value)
 const persist = () => props.chat ? emit('save') : saveCurrentChat()
+
+const isGroup = computed(() => activeChat.value?.chatType === 'group')
+const selectedMemberId = ref<string | null>(null)
+
+const groupMembers = computed(() => {
+  if (!isGroup.value) return []
+  return activeChat.value?.memberIds?.map((id: string) => {
+    return mockChats.value.find(c => c.chatType !== 'group' && String(c.characterEntityId || c.id) === id)
+  }).filter(Boolean) || []
+})
+
+const currentThoughtsArray = computed(() => {
+  if (!activeChat.value) return []
+  if (isGroup.value) {
+    if (selectedMemberId.value) {
+      return activeChat.value.memberInnerThoughts?.[selectedMemberId.value] || []
+    }
+    return []
+  }
+  return activeChat.value.innerThoughts || []
+})
 
 const realDaysKnown = computed(() => {
   const messages = activeChat.value?.messages
@@ -35,17 +56,41 @@ const handleDaysSaved = (newVal: string) => {
 }
 
 const currentIndex = ref(0)
-const currentThought = computed(() => activeChat.value?.innerThoughts?.[currentIndex.value] ?? null)
-const thoughtCount = computed(() => activeChat.value?.innerThoughts?.length ?? 0)
+const currentThought = computed(() => currentThoughtsArray.value[currentIndex.value] ?? null)
+const thoughtCount = computed(() => currentThoughtsArray.value.length)
 
 const showContentEditModal = ref(false)
 
 const handleContentSaved = (newVal: string) => {
-  if (activeChat.value?.innerThoughts && currentThought.value) {
-    activeChat.value.innerThoughts[currentIndex.value].content = newVal
+  const arr = isGroup.value ? activeChat.value?.memberInnerThoughts?.[selectedMemberId.value!] : activeChat.value?.innerThoughts
+  if (arr && currentThought.value) {
+    arr[currentIndex.value].content = newVal
     persist()
   }
 }
+
+const effectiveAvatarUrl = computed(() => {
+  if (isGroup.value && selectedMemberId.value) {
+    const member = groupMembers.value.find(m => String(m.characterEntityId || m.id) === selectedMemberId.value)
+    return member?.avatarUrl || ''
+  }
+  return currentThought.value?.senderAvatar || activeChat.value?.avatarUrl
+})
+const effectiveAvatarText = computed(() => {
+  if (isGroup.value && selectedMemberId.value) {
+    const member = groupMembers.value.find(m => String(m.characterEntityId || m.id) === selectedMemberId.value)
+    return member?.name?.charAt(0) || '?'
+  }
+  return currentThought.value?.senderName?.charAt(0) || activeChat.value?.avatarText || '?'
+})
+
+const effectiveName = computed(() => {
+  if (isGroup.value && selectedMemberId.value) {
+    const member = groupMembers.value.find(m => String(m.characterEntityId || m.id) === selectedMemberId.value)
+    return activeChat.value?.memberNicknames?.[selectedMemberId.value] || member?.name || '群成员'
+  }
+  return currentThought.value?.senderName || activeChat.value?.remark || activeChat.value?.name
+})
 const hasPrevious = computed(() => currentIndex.value > 0)
 const hasNext = computed(() => currentIndex.value < thoughtCount.value - 1)
 
@@ -69,26 +114,29 @@ const toggleSelectAll = () => {
   if (isAllSelected.value) {
     selectedThoughts.value.clear()
   } else {
-    selectedThoughts.value = new Set(activeChat.value?.innerThoughts?.map((_: any, i: number) => i) || [])
+    selectedThoughts.value = new Set(currentThoughtsArray.value.map((_: any, i: number) => i) || [])
   }
 }
 
 const executeDelete = (indexes: number[]) => {
-  if (!activeChat.value || !activeChat.value.innerThoughts) return
+  if (!activeChat.value) return
+  
+  const arr = isGroup.value ? activeChat.value.memberInnerThoughts?.[selectedMemberId.value!] : activeChat.value.innerThoughts
+  if (!arr) return
   
   const sorted = [...indexes].sort((a, b) => b - a)
   for (const idx of sorted) {
-    activeChat.value.innerThoughts.splice(idx, 1)
+    arr.splice(idx, 1)
   }
   
-  if (currentIndex.value >= (activeChat.value.innerThoughts.length || 0)) {
-    currentIndex.value = Math.max(0, (activeChat.value.innerThoughts.length || 0) - 1)
+  if (currentIndex.value >= (arr.length || 0)) {
+    currentIndex.value = Math.max(0, (arr.length || 0) - 1)
   }
   
   selectedThoughts.value.clear()
   persist()
   
-  if (activeChat.value.innerThoughts.length === 0) {
+  if (arr.length === 0) {
     isManageMode.value = false
   }
 }
@@ -101,6 +149,7 @@ watch(() => props.visible, (visible) => {
     currentIndex.value = 0
     isManageMode.value = false
     selectedThoughts.value.clear()
+    selectedMemberId.value = null
   }
 })
 </script>
@@ -115,6 +164,23 @@ watch(() => props.visible, (visible) => {
           <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
 
+        <!-- 群聊成员选择视图 -->
+        <div v-if="isGroup && !selectedMemberId" class="group-member-selection-card">
+          <div class="selection-header">查看谁的心声？</div>
+          <div class="selection-grid">
+            <div v-for="member in groupMembers" :key="member.id" class="member-item" @click="selectedMemberId = String(member.characterEntityId || member.id); currentIndex = 0">
+              <div class="stamp-bg selection-stamp">
+                <div class="stamp-inner selection-stamp-inner">
+                  <img v-if="member.avatarUrl" :src="member.avatarUrl" class="avatar-img" />
+                  <div v-else class="avatar-text-fallback">{{ member.name?.charAt(0) || '?' }}</div>
+                </div>
+              </div>
+              <div class="member-name">{{ activeChat?.memberNicknames?.[String(member.characterEntityId || member.id)] || member.name }}</div>
+            </div>
+          </div>
+        </div>
+
+        <template v-else>
         <!-- 头像节点提取到了外部，作为 shell 的绝对定位层 -->
         <!-- 头像节点提取到了外部，作为 shell 的绝对定位层 -->
         <div v-if="activeChat" class="avatar-wrapper-outer">
@@ -133,8 +199,8 @@ watch(() => props.visible, (visible) => {
           </svg>
           <div class="stamp-bg">
             <div class="stamp-inner">
-              <img v-if="currentThought?.senderAvatar || activeChat.avatarUrl" :src="currentThought?.senderAvatar || activeChat.avatarUrl" class="avatar-img" />
-              <div v-else class="avatar-text-fallback">{{ currentThought?.senderName?.charAt(0) || activeChat.avatarText || '?' }}</div>
+              <img v-if="effectiveAvatarUrl" :src="effectiveAvatarUrl" class="avatar-img" />
+              <div v-else class="avatar-text-fallback">{{ effectiveAvatarText }}</div>
             </div>
           </div>
         </div>
@@ -143,7 +209,7 @@ watch(() => props.visible, (visible) => {
           <div class="scrollable-content">
             <header v-if="activeChat" class="profile-header">
               <div class="profile-info">
-                <div class="char-name">{{ currentThought?.senderName || activeChat.remark || activeChat.name }}</div>
+                <div class="char-name">{{ effectiveName }}</div>
                 <div class="char-signature clickable-days" @click="showDaysEditModal = true" title="点击修改天数">
                   相识第 {{ daysKnown }} 天
                 </div>
@@ -157,7 +223,7 @@ watch(() => props.visible, (visible) => {
               </template>
               <template v-else>
                 <div v-if="thoughtCount > 0" class="thought-list">
-                  <div v-for="(t, idx) in activeChat?.innerThoughts" :key="t.id || idx" class="thought-list-item" @click="toggleSelect(idx)">
+                  <div v-for="(t, idx) in currentThoughtsArray" :key="t.id || idx" class="thought-list-item" @click="toggleSelect(idx)">
                     <div class="checkbox" :class="{ 'is-checked': selectedThoughts.has(idx) }">
                       <svg v-if="selectedThoughts.has(idx)" viewBox="0 0 24 24" width="14" height="14" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     </div>
@@ -174,6 +240,9 @@ watch(() => props.visible, (visible) => {
         <nav class="external-controls" aria-label="心声操作">
           <template v-if="!isManageMode">
             <div class="action-group">
+              <button v-if="isGroup" class="external-button icon-button" @click="selectedMemberId = null" title="返回">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+              </button>
               <button class="external-button icon-button" :disabled="thoughtCount === 0" @click="isManageMode = true" title="管理心声">
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
               </button>
@@ -206,6 +275,7 @@ watch(() => props.visible, (visible) => {
             </div>
           </template>
         </nav>
+        </template>
       </div>
     </div>
   </transition>
@@ -364,4 +434,16 @@ watch(() => props.visible, (visible) => {
 .top-close-btn { position: absolute; top: -38px; right: 0; width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.14); color: #fff; display: grid; place-items: center; cursor: pointer; transition: background 0.18s ease, transform 0.18s ease; z-index: 100; }
 .top-close-btn:hover { background: rgba(255, 255, 255, 0.25); }
 .top-close-btn:active { transform: scale(0.95); }
+
+/* 群聊成员选择视图 */
+.group-member-selection-card { flex: 1; display: flex; flex-direction: column; gap: 40px; justify-content: center; padding: 24px 0; }
+.selection-header { font-size: 19px; font-weight: 600; color: #fff; text-align: center; letter-spacing: 1px; text-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+.selection-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px 16px; overflow-y: auto; scrollbar-width: none; padding-bottom: 24px; }
+.selection-grid::-webkit-scrollbar { display: none; }
+.member-item { display: flex; flex-direction: column; align-items: center; gap: 12px; cursor: pointer; transition: transform 0.2s; }
+.member-item:active { transform: scale(0.95); }
+.selection-stamp { width: 70px; height: 70px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3)); transform: rotate(0deg); transition: transform 0.3s; }
+.member-item:hover .selection-stamp { transform: rotate(5deg) scale(1.05); }
+.selection-stamp-inner { width: 62px; height: 62px; }
+.member-name { font-size: 14px; color: rgba(255,255,255,0.95); text-align: center; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; word-break: break-all; width: 100%; text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
 </style>

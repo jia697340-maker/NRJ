@@ -27,7 +27,8 @@ export const buildSystemPrompt = (
   roleEmojisStr: string = '无',
   callMode: false | 'voice' | 'video' = false,
   offlineMeetMode: false | 'mixed' | 'separate' = false,
-  trace?: ContextTraceCollector
+  trace?: ContextTraceCollector,
+  runtimeMode: 'single' | 'group' = 'single'
 ) => {
   const charName = chat.name || '角色'
   const userProfile = getEffectiveUserProfile(chat, myProfile.value)
@@ -115,6 +116,10 @@ ${usesNaturalPromptV2
     })
   }
 
+  if (runtimeMode === 'group') {
+    formatRules = `【群聊成员输入理解】\n你会收到带发送者身份、消息类型、引用和时间的群聊历史。结合这些信息自然反应；最终输出外层必须严格遵循群聊协调器给出的 group_msg / group_inner_thought 协议，不得使用单聊标签。`
+  }
+
 
   if (offlineMeetMode) {
     formatRules = usesEnglishPrompt
@@ -185,6 +190,14 @@ ${usesNaturalPromptV2
     }
     return i.enabled
   })
+  if (runtimeMode === 'group') {
+    const unsupportedGroupItems = new Set([
+      'prompt_recall_mechanism', 'prompt_quote_mechanism', 'prompt_transfer_mechanism',
+      'prompt_voice_call_user_rules', 'prompt_video_call_user_rules', 'prompt_moment_rules',
+      'prompt_immersive_status'
+    ])
+    activePromptItems = activePromptItems.filter((item: any) => !unsupportedGroupItems.has(item.id))
+  }
 
   
   // 【根源制止防瞎编规则】如果没表情包，直接把这条规则从大模型视野里抹除掉！
@@ -315,6 +328,26 @@ ${usesNaturalPromptV2
     content = resolvePromptVariables(content, Object.fromEntries(
       Object.entries(placeholders).map(([key, value]) => [key.slice(2, -2), value])
     ))
+    if (runtimeMode === 'group') {
+      const senderId = String(chat.characterEntityId || chat.id || '')
+      content = content
+        .replace(/<msg(?:\s+[^>]*)?>/gi, `<group_msg sender="${senderId}" kind="text">`)
+        .replace(/<\/msg>/gi, '</group_msg>')
+        .replace(/<send_image(?:\s+[^>]*)?>/gi, `<group_msg sender="${senderId}" kind="image">`)
+        .replace(/<\/send_image>/gi, '</group_msg>')
+        .replace(/<send_voice(?:\s+[^>]*)?>/gi, `<group_msg sender="${senderId}" kind="voice">`)
+        .replace(/<\/send_voice>/gi, '</group_msg>')
+        .replace(/<send_emoji(?:\s+[^>]*)?>/gi, `<group_msg sender="${senderId}" kind="emoji">`)
+        .replace(/<\/send_emoji>/gi, '</group_msg>')
+        .replace(/<send_transfer(\s+[^>]*)?>/gi, `<group_msg sender="${senderId}" kind="transfer"$1>`)
+        .replace(/<\/send_transfer>/gi, '</group_msg>')
+        .replace(/<send_red_packet(\s+[^>]*)?>/gi, `<group_msg sender="${senderId}" kind="red_packet"$1>`)
+        .replace(/<\/send_red_packet>/gi, '</group_msg>')
+        .replace(/<inner_thought(?:\s+[^>]*)?>/gi, `<group_inner_thought sender="${senderId}">`)
+        .replace(/<\/inner_thought>/gi, '</group_inner_thought>')
+        .replace(/<narration(?:\s+[^>]*)?>/gi, `<group_msg sender="${senderId}" kind="narration">`)
+        .replace(/<\/narration>/gi, '</group_msg>')
+    }
     // 对于不属于新默认架构的自定义条目，加上名字作为小标题
     if (!systemPromptItemIds.has(item.id)) {
       return `[${item.name}]\n${content}`

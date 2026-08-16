@@ -73,7 +73,7 @@ defineExpose({
         @play-voice="(id: number, text: string) => emit('play-voice', id, text)"
         @handle-left-transfer-click="emit('handle-left-transfer-click', $event)"
         @handle-emoji-click="(u: string | undefined, n: string | undefined) => emit('handle-emoji-click', u, n)"
-        @open-character-profile="emit('open-character-profile')"
+        @open-character-profile="emit('open-character-profile', $event)"
         @view-recalled-message="emit('view-recalled-message', $event)"
         @cancel-image-generation="emit('cancel-image-generation', $event)"
       />

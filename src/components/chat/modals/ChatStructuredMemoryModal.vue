@@ -3,13 +3,14 @@
 import { computed, ref, watch } from 'vue'
 import type { StructuredMemoryState } from '../../../services/memoryEngine'
 
-const props = defineProps<{ visible: boolean; state?: StructuredMemoryState | null }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'update-state', state: StructuredMemoryState): void }>()
+const props = defineProps<{ visible: boolean; state?: StructuredMemoryState | null; memberMemories?: Record<string, any[]>; memberNames?: Record<string, string> }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'update-state', state: StructuredMemoryState): void; (e: 'update-member-memories', memories: Record<string, any[]>): void }>()
 
-type Tab = 'events' | 'variables' | 'tables' | 'relations'
+type Tab = 'events' | 'variables' | 'tables' | 'relations' | 'members'
 const activeTab = ref<Tab>('events')
 const search = ref('')
 const working = ref<StructuredMemoryState | null>(null)
+const workingMembers = ref<Record<string, any[]>>({})
 const editTarget = ref<any>(null)
 const editTitle = ref('')
 const editValue = ref('')
@@ -19,6 +20,7 @@ const cloneState = () => {
   working.value = props.state ? { relations: [], ...JSON.parse(JSON.stringify(props.state)) } : {
     version: 2, events: [], variables: [], tableRows: [], relations: [], coverage: [], lastConsolidatedAt: 0
   }
+  workingMembers.value = JSON.parse(JSON.stringify(props.memberMemories || {}))
 }
 
 watch(() => props.visible, visible => { if (visible) cloneState() }, { immediate: true })
@@ -35,6 +37,9 @@ const filteredTables = computed(() => (working.value?.tableRows || []).filter(it
 const filteredRelations = computed(() => (working.value?.relations || []).filter(item =>
   !search.value || `${item.source} ${item.relation} ${item.target}`.toLowerCase().includes(search.value.toLowerCase())
 ))
+const filteredMemberMemories = computed(() => Object.entries(workingMembers.value).flatMap(([memberId, memories]) =>
+  (memories || []).filter(item => item.enabled !== false).map(item => ({ ...item, memberId, memberName: props.memberNames?.[memberId] || memberId }))
+).filter(item => !search.value || `${item.memberName} ${item.content}`.toLowerCase().includes(search.value.toLowerCase())))
 
 const tableNames: Record<string, string> = {
   people: '人物档案', preferences: '喜好禁忌', events: '重要事件', commitments: '承诺待办',
@@ -44,12 +49,20 @@ const tableNames: Record<string, string> = {
 const openEdit = (item: any, type: Tab) => {
   editTarget.value = { item, type }
   editTitle.value = type === 'variables' ? item.key : type === 'relations' ? item.source : item.title
-  editValue.value = type === 'events' ? item.summary : type === 'relations' ? `${item.relation} → ${item.target}` : item.value
+  if (type === 'members') editTitle.value = item.memberName
+  editValue.value = type === 'events' ? item.summary : type === 'relations' ? `${item.relation} → ${item.target}` : type === 'members' ? item.content : item.value
 }
 
 const saveEdit = () => {
   if (!editTarget.value || !editTitle.value.trim() || !editValue.value.trim()) return
   const { item, type } = editTarget.value
+  if (type === 'members') {
+    const target = (workingMembers.value[item.memberId] || []).find(memory => memory.id === item.id)
+    if (target) { target.content = editValue.value.trim(); target.updatedAt = Date.now() }
+    emit('update-member-memories', JSON.parse(JSON.stringify(workingMembers.value)))
+    editTarget.value = null
+    return
+  }
   if (type === 'variables') item.key = editTitle.value.trim()
   else if (type === 'relations') {
     const parts = editValue.value.split('→').map(part => part.trim())
@@ -83,6 +96,10 @@ const confirmDelete = () => {
   if (type === 'variables') working.value.variables = working.value.variables.filter(item => item.id !== id)
   if (type === 'tables') working.value.tableRows = working.value.tableRows.filter(item => item.id !== id)
   if (type === 'relations') working.value.relations = working.value.relations.filter(item => item.id !== id)
+  if (type === 'members') {
+    for (const memberId of Object.keys(workingMembers.value)) workingMembers.value[memberId] = workingMembers.value[memberId].filter(item => item.id !== id)
+    emit('update-member-memories', JSON.parse(JSON.stringify(workingMembers.value)))
+  }
   deleteTarget.value = null
   commit()
 }
@@ -109,6 +126,7 @@ const evidenceText = (item: any) => {
           <div class="memory-tab" :class="{ active: activeTab === 'variables' }" @click="activeTab = 'variables'">变量 {{ working?.variables.length || 0 }}</div>
           <div class="memory-tab" :class="{ active: activeTab === 'tables' }" @click="activeTab = 'tables'">表格 {{ working?.tableRows.length || 0 }}</div>
           <div class="memory-tab" :class="{ active: activeTab === 'relations' }" @click="activeTab = 'relations'">关系 {{ working?.relations?.length || 0 }}</div>
+          <div v-if="memberMemories" class="memory-tab" :class="{ active: activeTab === 'members' }" @click="activeTab = 'members'">成员 {{ filteredMemberMemories.length }}</div>
         </div>
 
         <div class="memory-search">
@@ -149,12 +167,21 @@ const evidenceText = (item: any) => {
             </div>
           </template>
 
-          <template v-else>
+          <template v-else-if="activeTab === 'relations'">
             <div v-if="filteredRelations.length === 0" class="empty-state">暂无关系图谱</div>
             <div v-for="item in filteredRelations" :key="item.id" class="memory-card relation-card">
               <div class="relation-line"><span>{{ item.source }}</span><b>— {{ item.relation }} →</b><span>{{ item.target }}</span></div>
               <div class="card-meta">置信度 {{ Math.round(item.confidence * 100) }}% · {{ item.startTime || '起始时间未记录' }} · {{ evidenceText(item) }}</div>
               <div class="card-actions"><div @click="openEdit(item, 'relations')">编辑</div><div class="danger" @click="requestDelete('relations', item.id)">删除</div></div>
+            </div>
+          </template>
+          <template v-else>
+            <div v-if="filteredMemberMemories.length === 0" class="empty-state">暂无成员主观记忆</div>
+            <div v-for="item in filteredMemberMemories" :key="`${item.memberId}_${item.id}`" class="memory-card">
+              <div class="card-top"><div class="card-title">{{ item.memberName }}</div><div class="importance">主观记忆</div></div>
+              <div class="card-content">{{ item.content }}</div>
+              <div class="card-meta">{{ item.date || '日期未记录' }} · {{ item.evidenceMessageIds?.length || 0 }} 条证据</div>
+              <div class="card-actions"><div @click="openEdit(item, 'members')">编辑</div><div class="danger" @click="requestDelete('members', item.id)">删除</div></div>
             </div>
           </template>
         </div>

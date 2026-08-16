@@ -339,11 +339,14 @@ const onModalEdit = (msgId?: number) => {
   }
 }
 
-const handleEditSave = (payload: { messageId?: number, content: string, type: string, clearMedia: boolean }) => {
+const handleEditSave = (payload: { messageId?: number, content: string, type: string, clearMedia: boolean, action: 'replace' | 'insert_above' | 'insert_below' }) => {
   if (!payload.messageId || !selectedChat.value?.messages) return
 
-  const targetMsg = selectedChat.value.messages.find((m: any) => m.id === payload.messageId)
-  if (targetMsg) {
+  const index = selectedChat.value.messages.findIndex((m: any) => m.id === payload.messageId)
+  if (index === -1) return
+  const targetMsg = selectedChat.value.messages[index]
+
+  if (payload.action === 'replace') {
     targetMsg.content = payload.content
     targetMsg.type = payload.type
     if (targetMsg.translation) {
@@ -366,6 +369,31 @@ const handleEditSave = (payload: { messageId?: number, content: string, type: st
       updatePreviewAndTime(payload.content)
     }
     showToast('消息已修改')
+  } else {
+    // 插入逻辑
+    const { currentChatUserId } = useChatAuth()
+    const isAbove = payload.action === 'insert_above'
+    const insertIndex = isAbove ? index : index + 1
+    // 使用微小的时间偏移确保排序正确且 ID 唯一
+    const newTimestamp = targetMsg.timestamp ? targetMsg.timestamp + (isAbove ? -1 : 1) : Date.now()
+    const newMessage = {
+      id: Date.now() + Math.floor(Math.random() * 1000), // 确保 ID 唯一
+      timestamp: newTimestamp,
+      type: payload.type,
+      content: payload.content,
+      senderType: payload.type === 'right' ? 'user' : (payload.type === 'system' ? 'system' : 'character'),
+      senderId: payload.type === 'right' ? String(currentChatUserId.value || 'user') : '',
+      turnId: `manual_insert_${Date.now()}`
+    }
+    selectedChat.value.messages.splice(insertIndex, 0, newMessage)
+    // 确保整个数组按时间戳重新排序
+    selectedChat.value.messages.sort((a: any, b: any) => (a.timestamp || a.id) - (b.timestamp || b.id))
+    
+    saveCustomContacts()
+    if (!isCallPanelActive.value && !isVideoCallPanelActive.value) {
+      updatePreviewAndTime(payload.content)
+    }
+    showToast('已插入消息')
   }
   showEditModal.value = false
 }

@@ -6,20 +6,26 @@ import { useChatRoomAPI } from '../../composables/useChatRoomAPI'
 import { useChatAuth } from '../../composables/useChatAuth'
 import './ChatRoomView.css'
 
+const props = defineProps<{ groupMode?: boolean; group?: any; externalIsGenerating?: boolean }>()
 const emit = defineEmits<{
   (e: 'back'): void
+  (e: 'send', text: string): void
+  (e: 'trigger-api'): void
+  (e: 'stop-generate'): void
+  (e: 'regenerate'): void
 }>()
 
 const { selectedChat, effectiveMyProfile: myProfile, mockChats, buildChatMessages, showNotification } = useChatState()
+const activeChat = computed(() => props.group || selectedChat.value)
 
 const isRoomActive = ref(true)
 const inputMessage = ref('')
 const messageAreaRef = ref<HTMLElement | null>(null)
 
 const displayMessages = computed(() => {
-  if (!selectedChat.value?.messages) return []
-  return selectedChat.value.messages.filter((m: any) =>
-    m.isOfflineMeetMsg && (m.type === 'left' || m.type === 'right' || m.type === 'system')
+  if (!activeChat.value?.messages) return []
+  return activeChat.value.messages.filter((m: any) =>
+    m.isOfflineMeetMsg && (m.type === 'left' || m.type === 'right' || m.type === 'system' || m.type === 'narration')
   )
 })
 
@@ -80,14 +86,26 @@ const {
 )
 
 const showExtensionPanel = ref(false)
+const displayedGenerating = computed(() => props.groupMode ? Boolean(props.externalIsGenerating) : isGenerating.value)
 
 const handleRegenerateClick = () => {
+  if (props.groupMode) return emit('regenerate')
   handleRegenerate(showExtensionPanel, showToast)
 }
 
+const handleStop = () => props.groupMode ? emit('stop-generate') : handleStopCall()
+const handleTrigger = () => props.groupMode ? emit('trigger-api') : triggerAPI()
+
 const handleSend = async () => {
   const text = inputMessage.value.trim()
-  if (!text || !selectedChat.value || isGenerating.value) return
+  if (!text || !activeChat.value || displayedGenerating.value) return
+
+  if (props.groupMode) {
+    emit('send', text)
+    inputMessage.value = ''
+    await scrollToBottom()
+    return
+  }
 
   if (!selectedChat.value.messages) {
     selectedChat.value.messages = []
@@ -113,7 +131,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="offline-meet-container" v-if="selectedChat">
+  <div class="offline-meet-container" v-if="activeChat">
     <!-- 顶部半透明导航 -->
     <header class="offline-meet-header">
       <button class="offline-back-btn" @click="emit('back')">
@@ -146,10 +164,10 @@ onMounted(() => {
           :class="{
             'is-user': msg.type === 'right',
             'is-char': msg.type === 'left',
-            'is-narration': msg.type === 'system'
+            'is-narration': msg.type === 'system' || msg.type === 'narration'
           }"
         >
-          <template v-if="msg.type === 'system'">
+          <template v-if="msg.type === 'system' || msg.type === 'narration'">
             <div class="offline-narration">—— {{ msg.content }} ——</div>
           </template>
           <template v-else-if="msg.type === 'right'">
@@ -164,7 +182,7 @@ onMounted(() => {
           </template>
         </div>
 
-        <div v-if="selectedChat.isTyping" class="offline-typing-indicator">
+        <div v-if="activeChat.isTyping" class="offline-typing-indicator">
           对方正在回应<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
         </div>
       </div>
@@ -184,9 +202,9 @@ onMounted(() => {
         
         <div class="offline-action-group">
           <button
-            v-if="isGenerating"
+            v-if="displayedGenerating"
             class="offline-icon-btn stop"
-            @click="handleStopCall"
+            @click="handleStop"
             title="停止生成"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
@@ -202,11 +220,14 @@ onMounted(() => {
           </button>
           <button
             class="offline-icon-btn regen"
-            :disabled="isGenerating"
+            :disabled="displayedGenerating"
             @click="handleRegenerateClick"
             title="重新生成"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          </button>
+          <button v-if="groupMode" class="offline-icon-btn regen" :disabled="displayedGenerating" @click="handleTrigger" title="请求群成员回应">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V4"></path><polyline points="5 11 12 4 19 11"></polyline></svg>
           </button>
         </div>
       </div>
