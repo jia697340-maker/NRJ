@@ -31,6 +31,13 @@ import GroupChatCapabilityPanel from './GroupChatCapabilityPanel.vue'
 import { getChatLanguageLabel } from '../../constants/chatLanguages'
 import { useTimezone } from '../../composables/useTimezone'
 import { useChatEmoji } from '../../composables/useChatEmoji'
+import { useGroupManagement } from '../../composables/useGroupManagement'
+import GroupMemberListModal from './group/GroupMemberListModal.vue'
+import GroupMemberDetailModal from './group/GroupMemberDetailModal.vue'
+import GroupAdminManagementModal from './group/GroupAdminManagementModal.vue'
+import GroupAnnouncementListModal from './group/GroupAnnouncementListModal.vue'
+import GroupAnnouncementDetailModal from './group/GroupAnnouncementDetailModal.vue'
+import GroupAnnouncementEditModal from './group/GroupAnnouncementEditModal.vue'
 
 const props = defineProps<{ group: GroupChatRecord; chats: any[] }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'deleted'): void; (e: 'open-member-settings', memberId: string): void }>()
@@ -163,6 +170,18 @@ const members = ref<any[]>([])
 const loadedAvatars = ref<Record<string, string>>({})
 const customGroupAvatar = ref<string | null>(null)
 const showGroupAvatarModal = ref(false)
+
+// 群管理与公告视图模型绑定
+const groupRef = computed(() => props.group)
+const groupMgmt = useGroupManagement(groupRef, undefined, computed(() => props.chats))
+const showMemberListModal = ref(false)
+const showMemberDetailModal = ref(false)
+const selectedMemberForDetail = ref<any>(null)
+const showAdminManagementModal = ref(false)
+const showAnnouncementListModal = ref(false)
+const showAnnouncementDetailModal = ref(false)
+const showAnnouncementEditModal = ref(false)
+const selectedAnnouncement = ref<any>(null)
 
 const loadGroupAvatar = async () => {
   if (props.group.hasCustomAvatar) {
@@ -396,19 +415,18 @@ const avatarStyle = (member: any) => {
   const custom = loadedAvatars.value[memberId(member)]
   return custom ? { backgroundImage: `url(${custom})` } : (member.avatarUrl ? { backgroundImage: `url(${member.avatarUrl})` } : {})
 }
-const addMember = (member: any) => { props.group.memberIds.push(memberId(member)); save(); loadGroupMembers() }
+const addMember = async (member: any) => {
+  const id = memberId(member)
+  props.group.memoryMemberNames ||= {}
+  props.group.memoryMemberNames[id] = member.name || id
+  const result = await groupMgmt.addMember(id)
+  if (result) await loadGroupMembers()
+}
 const removeMember = async (id: string) => {
   if (props.group.memberIds.length <= 2) return
-  props.group.memberIds = props.group.memberIds.filter(member => member !== id)
-  delete props.group.memberNotes[id]
-  delete props.group.memberNicknames[id]
-  if (props.group.memberHasCustomAvatar) {
-    delete props.group.memberHasCustomAvatar[id]
-  }
-  await groupAvatarsStore.removeItem(`${props.group.id}_${id}`)
-  delete loadedAvatars.value[id]
-  save()
-  loadGroupMembers()
+  const result = await groupMgmt.removeMember(id)
+  if (!result) return
+  await loadGroupMembers()
   editingMemberId.value = ''
 }
 const toggleBook = (id: string) => {
@@ -425,7 +443,7 @@ const toggleBookGroup = (id: string) => {
 }
 const chooseNotification = (value: GroupChatRecord['notificationMode']) => { props.group.notificationMode = value; save() }
 const clearHistory = () => { props.group.messages = []; props.group.memoryBook = []; props.group.memberMemories = {}; props.group.memoryState = null; props.group.lastSummaryMsgId = 0; ensureMemoryState(props.group); void clearChatVectors(props.group.id); save(); showClearConfirm.value = false }
-const removeGroup = async () => { if (deleteGroupEmojiData.value) { await Promise.all(emojiItems.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => deleteEmoji(item.id))); await deleteEmojiGroups(emojiGroups.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => item.id)) } void clearChatVectors(props.group.id); deleteGroupChat(currentChatUserId.value, props.group.id); showDeleteConfirm.value = false; emit('deleted') }
+const removeGroup = async () => { if (!groupMgmt.currentUserPermissions.value.isOwner) return; if (deleteGroupEmojiData.value) { await Promise.all(emojiItems.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => deleteEmoji(item.id))); await deleteEmojiGroups(emojiGroups.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => item.id)) } void clearChatVectors(props.group.id); deleteGroupChat(currentChatUserId.value, props.group.id); showDeleteConfirm.value = false; emit('deleted') }
 const chooseWallpaper = () => wallpaperInput.value?.click()
 const uploadWallpaper = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
@@ -480,9 +498,22 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
         </div>
 
         <div v-show="match('群名称', '背景', '设定')" class="glass-panel group-form-panel">
-          <label class="group-field"><span class="item-label">群名称</span><input v-model="group.name" class="group-settings-input" maxlength="30" @change="save"></label>
-          <label class="group-field"><span class="item-label">群背景 <small>可选</small></span><textarea v-model="group.groupContext" class="group-settings-textarea" rows="5" placeholder="不填写时，不会向模型发送群背景提示词" @change="save"></textarea></label>
+          <label class="group-field"><span class="item-label">群名称</span><input v-model="group.name" class="group-settings-input" maxlength="30" :disabled="!groupMgmt.currentUserPermissions.value.canManageMembers" @change="save"></label>
+          <label class="group-field"><span class="item-label">群背景 <small>可选</small></span><textarea v-model="group.groupContext" class="group-settings-textarea" rows="5" placeholder="不填写时，不会向模型发送群背景提示词" :disabled="!groupMgmt.currentUserPermissions.value.canManageMembers" @change="save"></textarea></label>
         </div>
+        <div v-show="match('群公告', '公告', '通知')" class="glass-panel">
+          <div class="glass-list-item" @click="showAnnouncementListModal = true">
+            <div>
+              <div class="item-label">群公告</div>
+              <div class="group-item-desc">查看最新公告、未读通知与确认情况</div>
+            </div>
+            <div class="item-value">
+              <span class="item-value-text">{{ groupMgmt.unreadAnnouncementsCount.value ? `${groupMgmt.unreadAnnouncementsCount.value} 条未读` : '查看' }}</span>
+              <span class="arrow">›</span>
+            </div>
+          </div>
+        </div>
+
         <div v-show="match('世界书', '群资料')" class="glass-panel">
           <div class="glass-list-item" @click="showWorldBookModal = true">
             <span class="item-label">群聊世界书</span>
@@ -503,6 +534,32 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
             <div class="group-member-line"><span class="group-member-avatar" :style="userAvatarStyle">{{ userAvatarText }}</span><span class="item-label">{{ group.userProfile?.name || '我' }}</span></div><div class="item-value"><span class="item-value-text">我在本群的身份</span><span class="arrow">›</span></div>
           </div>
           <div class="glass-list-item" @click="showIdentityProfileModal = true"><div><div class="item-label">我的固定形象</div><div class="group-item-desc">供群合照与角色生图引用</div></div><div class="item-value"><span class="item-value-text">配置</span><span class="arrow">›</span></div></div>
+        </div>
+
+        <div v-show="match('群管理', '全员禁言', 'AI管理', '六级头衔')" class="glass-panel">
+          <div class="glass-list-item" @click="showAdminManagementModal = true">
+            <div>
+              <div class="item-label">群管理中心</div>
+              <div class="group-item-desc">全员禁言、AI管理模式、六级头衔及管理日志</div>
+            </div>
+            <div class="item-value">
+              <span class="item-value-text">管理</span>
+              <span class="arrow">›</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-show="match('成员列表', '等级', '头衔', '禁言')" class="glass-panel">
+          <div class="glass-list-item" @click="showMemberListModal = true">
+            <div>
+              <div class="item-label">查看群成员列表与等级</div>
+              <div class="group-item-desc">支持筛选群主/管理员/普通成员、查看积分头衔与禁言</div>
+            </div>
+            <div class="item-value">
+              <span class="item-value-text">{{ groupMgmt.membersViewModel.value.length }} 人</span>
+              <span class="arrow">›</span>
+            </div>
+          </div>
         </div>
 
         <div v-show="match('成员', '昵称', '群内身份')" class="glass-panel">
@@ -609,7 +666,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
           @save="save"
         />
         <input ref="wallpaperInput" class="group-hidden-file" type="file" accept="image/*" @change="uploadWallpaper">
-        <div v-show="match('删除群聊')" class="glass-panel"><div class="glass-list-item danger-row" @click="showDeleteConfirm = true">删除群聊</div></div>
+        <div v-show="groupMgmt.currentUserPermissions.value.isOwner && match('删除群聊')" class="glass-panel"><div class="glass-list-item danger-row" @click="showDeleteConfirm = true">删除群聊</div></div>
       </section>
 
       <section v-show="searchQuery || activeCategory === '衍生'" class="role-edit-section">
@@ -743,6 +800,74 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
     <transition name="fade"><ChatCallRecordsView v-if="showCallRecordsView" :records="group.callSummaries || []" @close="showCallRecordsView = false" @delete="deleteGroupCallRecords" @resummarize="resummarizeGroupCallRecord" /></transition>
     <ChatEmojiView v-if="showEmojiView" mode="group" :group-id="group.id" @close="showEmojiView = false" />
     <ChatIdentityProfileModal v-model:visible="showIdentityProfileModal" owner-type="user" :owner-id="identityUserOwnerId" :owner-name="group.userProfile?.name || '我'" :owner-avatar="group.userProfile?.avatarUrl || ''" :provider="groupIdentityProvider" :available-characters="chats" />
+
+    <!-- 群管理、头衔、成员与公告弹窗组件 -->
+    <GroupMemberListModal
+      :visible="showMemberListModal"
+      :members="groupMgmt.membersViewModel.value"
+      :permissions="groupMgmt.currentUserPermissions.value"
+      @close="showMemberListModal = false"
+      @select-member="(m) => { selectedMemberForDetail = m; showMemberDetailModal = true }"
+      @add-members="showMemberListModal = false; showAddMembers = true"
+    />
+
+    <GroupMemberDetailModal
+      :visible="showMemberDetailModal"
+      :member="selectedMemberForDetail"
+      :permissions="groupMgmt.currentUserPermissions.value"
+      @close="showMemberDetailModal = false"
+      @promote="groupMgmt.promoteMember"
+      @demote="groupMgmt.demoteAdmin"
+      @transfer="groupMgmt.transferOwnership"
+      @mute="({ memberId, durationSeconds, reason }) => groupMgmt.muteMember(memberId, durationSeconds, reason)"
+      @unmute="groupMgmt.unmuteMember"
+      @kick="groupMgmt.removeMember"
+      @update-nickname="({ memberId, nickname }) => groupMgmt.updateMyGroupNickname(memberId, nickname)"
+    />
+
+    <GroupAdminManagementModal
+      :visible="showAdminManagementModal"
+      :is-whole-group-muted="Boolean(group.isWholeGroupMuted)"
+      :ai-mode="group.aiManagementMode || 'off'"
+      :level-titles="groupMgmt.levelTitleConfigs.value"
+      :logs="groupMgmt.adminLogs.value"
+      :permissions="groupMgmt.currentUserPermissions.value"
+      @close="showAdminManagementModal = false"
+      @toggle-whole-mute="groupMgmt.setWholeGroupMute"
+      @change-ai-mode="groupMgmt.setAiManagementMode"
+      @save-level-titles="groupMgmt.updateLevelTitles"
+      @refresh-logs="groupMgmt.loadAdminLogs"
+      @delete-logs="groupMgmt.deleteAdminLogs"
+      @recover-ownership="groupMgmt.recoverOwnership"
+    />
+
+    <GroupAnnouncementListModal
+      :visible="showAnnouncementListModal"
+      :announcements="groupMgmt.announcementsViewModel.value"
+      :permissions="groupMgmt.currentUserPermissions.value"
+      :is-loading="groupMgmt.isLoading.value"
+      @close="showAnnouncementListModal = false"
+      @select="(a) => { selectedAnnouncement = a; showAnnouncementDetailModal = true; groupMgmt.markAnnouncementRead(a.id) }"
+      @create="showAnnouncementEditModal = true"
+    />
+
+    <GroupAnnouncementDetailModal
+      :visible="showAnnouncementDetailModal"
+      :announcement="selectedAnnouncement"
+      :permissions="groupMgmt.currentUserPermissions.value"
+      @close="showAnnouncementDetailModal = false"
+      @confirm="groupMgmt.confirmAnnouncement"
+      @edit="(a) => { selectedAnnouncement = a; showAnnouncementDetailModal = false; showAnnouncementEditModal = true }"
+      @delete="(id) => { groupMgmt.deleteAnnouncement(id); showAnnouncementDetailModal = false }"
+    />
+
+    <GroupAnnouncementEditModal
+      :visible="showAnnouncementEditModal"
+      :announcement="selectedAnnouncement"
+      @close="showAnnouncementEditModal = false; selectedAnnouncement = null"
+      @save="(payload) => { selectedAnnouncement ? groupMgmt.updateAnnouncement(selectedAnnouncement.id, payload) : groupMgmt.publishAnnouncement(payload); showAnnouncementEditModal = false; selectedAnnouncement = null }"
+    />
+    <transition name="toast-fade"><div v-if="groupMgmt.errorMessage.value || groupMgmt.toastMessage.value" class="settings-toast">{{ groupMgmt.errorMessage.value || groupMgmt.toastMessage.value }}</div></transition>
   </div>
 </template>
 

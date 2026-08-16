@@ -39,6 +39,10 @@ import ChatOfflineMeetView from './ChatOfflineMeetView.vue'
 import { createTransferData } from '../../services/transferLifecycle'
 import { createIncomingWalletPayment } from '../../services/walletService'
 import { findRoleEmojiByResponse, selectUserSendableEmojis } from '../../services/chatEmojiScope'
+import { useGroupManagement } from '../../composables/useGroupManagement'
+import GroupChatAnnouncementBanner from './group/GroupChatAnnouncementBanner.vue'
+import GroupAnnouncementDetailModal from './group/GroupAnnouncementDetailModal.vue'
+import { awardGroupActivity, groupManagementService, isGroupMemberMuted } from '../../services/groupManagementService'
 
 const props = defineProps<{ group: any; isVisible?: boolean }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'open-settings'): void; (e: 'open-character-profile', memberId: string): void }>()
@@ -66,6 +70,20 @@ const currentDateStr = ref('')
 const currentDayStr = ref('')
 const isCallMinimized = ref(false)
 const callClock = ref(Date.now())
+
+// 群管理与公告视图模型
+const groupRef = computed(() => props.group)
+const groupMgmt = useGroupManagement(groupRef, groupUserProfile, mockChats)
+const showAnnouncementDetailModal = ref(false)
+const selectedAnnouncement = ref<any>(null)
+
+const handleBannerClick = () => {
+  if (groupMgmt.activeTopAnnouncement.value) {
+    selectedAnnouncement.value = groupMgmt.activeTopAnnouncement.value
+    showAnnouncementDetailModal.value = true
+    groupMgmt.markAnnouncementRead(groupMgmt.activeTopAnnouncement.value.id)
+  }
+}
 
 const updateTimeStr = () => {
   const now = new Date()
@@ -110,6 +128,8 @@ const totalUnreadCount = computed(() => mockChats.value.filter(c => c.contactSta
 
 const scrollBottom = async () => { await nextTick(); await messageListRef.value?.scrollToBottom?.() }
 const showToast = (text: string) => { toastText.value = text; if (toastTimer) clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastText.value = '' }, 2600) }
+watch(() => groupMgmt.errorMessage.value, value => { if (value) showToast(value) })
+watch(() => groupMgmt.toastMessage.value, value => { if (value) showToast(value) })
 const openEmojiSettings = () => { props.group.openEmojiManagerRequested = true; emit('open-settings') }
 const updatePreviewAndTime = (content: string) => { props.group.preview = content || '暂无消息'; props.group.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
 const persist = (record = props.group) => { const last = record.messages?.at(-1); record.preview = last?.content || '群聊已创建'; record.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); saveGroupChat(currentChatUserId.value, record) }
@@ -179,6 +199,31 @@ const runReply = async () => {
     const disableThought = (targetGroup.activeCallType && targetGroup.disableThoughtDuringCall) || (offlineActive && targetGroup.disableThoughtDuringOffline)
     if (disableMedia) result.messages = result.messages.filter((message: any) => !['image', 'voice', 'emoji', 'transfer', 'red_packet', 'call'].includes(message.messageType))
     if (disableThought) result.thoughts = []
+    let managementActionCount = 0
+    for (const ack of result.announcementAcks || []) {
+      try {
+        const announcement = targetGroup.announcements?.find((item: any) => item.id === ack.announcementId && item.status !== 'deleted')
+        if (!announcement) continue
+        if (announcement.needConfirm) groupManagementService.confirmAnnouncement(targetGroup, ack.senderId, ack.announcementId)
+        else groupManagementService.markAnnouncementRead(targetGroup, ack.senderId, ack.announcementId)
+        managementActionCount++
+      } catch { /* Invalid or stale acknowledgement is ignored. */ }
+    }
+    for (const action of result.managementActions || []) {
+      if (targetGroup.aiManagementMode === 'semi_auto') {
+        const operatorName = targetMemberName(action.senderId)
+        const targetName = action.targetId === 'user' ? (groupUserProfile.value.name || '我') : targetMemberName(action.targetId)
+        const content = action.action === 'mute' ? `${operatorName}建议将${targetName}禁言${Math.ceil(action.durationSeconds / 60)}分钟${action.reason ? `，原因：${action.reason}` : ''}` : `${operatorName}建议解除${targetName}的禁言`
+        targetGroup.messages.push({ id: Date.now() + managementActionCount, timestamp: Date.now(), type: 'system', messageType: 'group_management_proposal', content, managementProposal: { ...action, status: 'pending' } })
+        managementActionCount++
+      } else if (targetGroup.aiManagementMode === 'full_auto') {
+        try {
+          if (action.action === 'mute') groupManagementService.muteMember(targetGroup, action.senderId, action.targetId, action.durationSeconds, action.reason)
+          else groupManagementService.unmuteMember(targetGroup, action.senderId, action.targetId)
+          managementActionCount++
+        } catch (error: any) { showToast(error?.message || 'AI 群管理操作未通过权限校验') }
+      }
+    }
     const turnId = `group_turn_${Date.now()}`
     const localIds = new Map<string, number>(); result.messages.forEach((message: any, index: number) => { if (message.key) localIds.set(message.key, Date.now() + index) })
     const imageJobs: { item: any; member: any }[] = []
@@ -224,6 +269,8 @@ const runReply = async () => {
       const generated = targetGroup.messages.find((entry: any) => entry.id === job.item.id)
       if (generated) Object.assign(generated, { messageType: 'image', senderType: 'character', senderId: job.item.senderId, senderNameSnapshot: job.item.senderNameSnapshot, senderAvatarSnapshot: job.item.senderAvatarSnapshot, turnId: job.item.turnId, sequence: job.item.sequence, costTime: job.item.costTime })
     }
+    const participatingMemberIds = new Set<string>(targetGroup.messages.filter((entry: any) => entry.turnId === turnId && entry.senderId).map((entry: any) => String(entry.senderId)))
+    participatingMemberIds.forEach(memberId => awardGroupActivity(targetGroup, memberId, turnId))
     if (!props.isVisible && targetGroup.notificationMode !== 'mute') {
       const visibleCount = targetGroup.notificationMode === 'all' ? result.messages.length : result.messages.filter((message: any) => message.mentions.includes('user')).length
       targetGroup.unread = Number(targetGroup.unread || 0) + visibleCount
@@ -236,7 +283,7 @@ const runReply = async () => {
       if (targetGroup.memberInnerThoughts[thought.senderId].length > thoughtLimit) targetGroup.memberInnerThoughts[thought.senderId].splice(0, targetGroup.memberInnerThoughts[thought.senderId].length - thoughtLimit)
     })
     updateCallTemporarySummary(targetGroup)
-    if (!result.messages.length && !result.idle) throw new Error('模型没有返回可识别的群消息，请检查群聊输出协议。')
+    if (!result.messages.length && !managementActionCount && !result.idle) throw new Error('模型没有返回可识别的群消息，请检查群聊输出协议。')
     if (result.idle) showToast('群里暂时没有人接话')
     targetGroup.pendingUserThought = ''
     targetGroup.pendingAutonomyDirective = ''
@@ -245,14 +292,15 @@ const runReply = async () => {
 }
 
 const mentionsFromText = (text: string) => members.value.filter(member => text.includes(`@${props.group.memberNicknames?.[String(member.characterEntityId || member.id)] || member.name}`)).map(member => ({ type: 'character', id: String(member.characterEntityId || member.id) }))
-const handleAddMessage = async (raw: string) => { const content = raw.trim(); if (!content) return; const now = Date.now(); const quote = media.replyTargetMessage.value ? { ...media.replyTargetMessage.value } : undefined; props.group.messages.push({ id: now, timestamp: now, type: 'right', senderType: 'user', senderId: String(currentChatUserId.value || 'user'), content, quote, mentions: mentionsFromText(content), replyToMessageId: quote?.id || '', turnId: `user_group_turn_${now}` }); media.replyTargetId.value = undefined; persist(); await scrollBottom() }
+const handleAddMessage = async (raw: string) => { if (isGroupMemberMuted(props.group, 'user')) return showToast('当前处于禁言状态，无法发送消息'); const content = raw.trim(); if (!content) return; const now = Date.now(); const turnId = `user_group_turn_${now}`; const quote = media.replyTargetMessage.value ? { ...media.replyTargetMessage.value } : undefined; props.group.messages.push({ id: now, timestamp: now, type: 'right', senderType: 'user', senderId: 'user', content, quote, mentions: mentionsFromText(content), replyToMessageId: quote?.id || '', turnId }); awardGroupActivity(props.group, 'user', turnId, now); media.replyTargetId.value = undefined; persist(); await scrollBottom() }
 const regenerate = async () => { if (isGenerating.value) return; if (![...props.group.messages].some((message: any) => message.type === 'right')) return showToast('还没有可重新生成的用户消息'); const removedIds: any[] = []; while (props.group.messages.length && props.group.messages.at(-1).type !== 'right') { const removed = props.group.messages.pop(); if (removed?.id != null) removedIds.push(removed.id) }; if (removedIds.length) invalidateMemoriesForMessages(props.group, removedIds); persist(); if (removedIds.length) void indexChatMemories(props.group); await runReply() }
 const stopReply = () => groupReplyControllers.get(String(props.group.id))?.abort()
 const sceneDisablesMedia = () => Boolean((props.group.activeCallType && props.group.disableMediaDuringCall) || (props.group.isMixedOfflineActive && props.group.disableMediaDuringOffline))
-const handleSendEmoji = async (item: any) => { if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); props.group.messages.push({ id: Date.now(), timestamp: Date.now(), type: 'right', content: item.name || '[表情]', messageType: 'emoji', isEmoji: true, emojiUrl: item.previewUrl, emojiId: item.id }); showEmojiPanel.value = false; persist(); await scrollBottom() }
-const handleSendImage = (data: any) => sceneDisablesMedia() ? showToast('当前场景已禁用多媒体与互动功能') : media.handleSendImage(data, showExtensionPanel)
-const handleSendVoice = (data: any) => sceneDisablesMedia() ? showToast('当前场景已禁用多媒体与互动功能') : media.handleSendVoice(data, showExtensionPanel)
-const handleSendTransfer = (data: any) => sceneDisablesMedia() ? showToast('当前场景已禁用多媒体与互动功能') : media.handleSendTransfer(data, showExtensionPanel)
+const canUserSend = () => { if (isGroupMemberMuted(props.group, 'user')) { showToast('当前处于禁言状态，无法发送消息'); return false } return true }
+const handleSendEmoji = async (item: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); const now = Date.now(); const turnId = `user_group_turn_${now}`; props.group.messages.push({ id: now, timestamp: now, type: 'right', senderId: 'user', senderType: 'user', turnId, content: item.name || '[表情]', messageType: 'emoji', isEmoji: true, emojiUrl: item.previewUrl, emojiId: item.id }); awardGroupActivity(props.group, 'user', turnId, now); showEmojiPanel.value = false; persist(); await scrollBottom() }
+const handleSendImage = (data: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); awardGroupActivity(props.group, 'user', `user_group_media_${Date.now()}`); return media.handleSendImage(data, showExtensionPanel) }
+const handleSendVoice = (data: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); awardGroupActivity(props.group, 'user', `user_group_media_${Date.now()}`); return media.handleSendVoice(data, showExtensionPanel) }
+const handleSendTransfer = (data: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); awardGroupActivity(props.group, 'user', `user_group_media_${Date.now()}`); return media.handleSendTransfer(data, showExtensionPanel) }
 const onModalEdit = (id?: number) => { const message = props.group.messages.find((item: any) => item.id === (id || multi.targetMessageId.value)); if (!message) return; editTargetId.value = message.id; editInitialContent.value = message.content || ''; editInitialType.value = message.type; editHasMedia.value = Boolean(message.imageData || message.voiceData || message.transferData || message.isEmoji); showEditModal.value = true }
 const handleEditSave = (payload: any) => {
   const index = props.group.messages.findIndex((item: any) => item.id === payload.messageId);
@@ -434,12 +482,65 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @click-overlay="showExtensionPanel = false; showEmojiPanel = false"
     />
 
+    <!-- 顶部置顶/最新公告浮动胶囊栏 -->
+    <GroupChatAnnouncementBanner
+      v-if="groupMgmt.activeTopAnnouncement.value"
+      :announcement="groupMgmt.activeTopAnnouncement.value"
+      :unread-count="groupMgmt.unreadAnnouncementsCount.value"
+      @click="handleBannerClick"
+    />
+
     <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @open-character-profile="emit('open-character-profile', $event)" />
 
     <ChatMessageActionModal :visible="multi.showActionModal.value" :message-id="multi.targetMessageId.value" :message-obj="multi.targetMessageId.value ? group.messages.find((message: any) => message.id === multi.targetMessageId.value) : null" @close="multi.showActionModal.value = false" @multi-select="multi.onModalMultiSelect" @recall-multi-select="multi.onModalRecallMultiSelect" @mark-message="multi.onModalMarkMultiSelect" @copy="multi.onModalCopy" @reply="media.replyTargetId.value = $event || multi.targetMessageId.value" @edit="onModalEdit" />
     <ChatMessageEditModal :visible="showEditModal" :message-id="editTargetId" :initial-content="editInitialContent" :initial-type="editInitialType" :has-media="editHasMedia" @close="showEditModal = false" @save="handleEditSave" />
 
-  <ChatRoomInputArea :selectionMode="selectionMode" :getSelectedCount="getSelectedCount" :displayMessages="displayMessages" :replyTargetMessage="media.replyTargetMessage.value" :showExtensionPanel="showExtensionPanel" :showEmojiPanel="showEmojiPanel" :panelEmojis="panelEmojis" :isGenerating="isGenerating" :selectedChat="group" :isMixedOfflineActive="Boolean(group.isMixedOfflineActive)" @exit-multi-select-mode="exitMultiSelectMode" @select-all="selectAll" @recall-selected-messages="multi.recallSelectedMessages" @mark-selected-messages="multi.markSelectedMessages" @delete-selected-messages="multi.deleteSelectedMessages" @cancel-reply="media.cancelReply" @toggle-extension-panel="showExtensionPanel = !showExtensionPanel; showEmojiPanel = false" @toggle-emoji-panel="showEmojiPanel = !showEmojiPanel; showExtensionPanel = false" @trigger-api="runReply" @add-message="handleAddMessage" @open-settings="openEmojiSettings" @handle-send-emoji="handleSendEmoji" @handle-stop-call="stopReply" @handle-regenerate="regenerate" @show-transfer-modal="media.showTransferModal.value = true" @show-voice-modal="media.showVoiceModal.value = true" @show-image-modal="media.showImageModal.value = true" @show-voice-call-modal="addCallEvent('voice')" @show-video-call-modal="addCallEvent('video')" @show-user-thought-modal="showUserThoughtModal = true" @toggle-mixed-offline="toggleMixedOffline" @focus-input="scrollBottom" @update:showExtensionPanel="showExtensionPanel = $event" @update:showEmojiPanel="showEmojiPanel = $event" />
+    <!-- 被禁言状态提示栏 -->
+    <div v-if="groupMgmt.isCurrentUserMuted.value" class="group-muted-input-banner">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+      </svg>
+      <span>您已被管理员禁言，无法发送消息（剩余：{{ groupMgmt.currentUserMuteRemainingText.value }}）</span>
+    </div>
+
+    <ChatRoomInputArea
+      v-show="!groupMgmt.isCurrentUserMuted.value"
+      :selectionMode="selectionMode"
+      :getSelectedCount="getSelectedCount"
+      :displayMessages="displayMessages"
+      :replyTargetMessage="media.replyTargetMessage.value"
+      :showExtensionPanel="showExtensionPanel"
+      :showEmojiPanel="showEmojiPanel"
+      :panelEmojis="panelEmojis"
+      :isGenerating="isGenerating"
+      :selectedChat="group"
+      :isMixedOfflineActive="Boolean(group.isMixedOfflineActive)"
+      @exit-multi-select-mode="exitMultiSelectMode"
+      @select-all="selectAll"
+      @recall-selected-messages="multi.recallSelectedMessages"
+      @mark-selected-messages="multi.markSelectedMessages"
+      @delete-selected-messages="multi.deleteSelectedMessages"
+      @cancel-reply="media.cancelReply"
+      @toggle-extension-panel="showExtensionPanel = !showExtensionPanel; showEmojiPanel = false"
+      @toggle-emoji-panel="showEmojiPanel = !showEmojiPanel; showExtensionPanel = false"
+      @trigger-api="runReply"
+      @add-message="handleAddMessage"
+      @open-settings="openEmojiSettings"
+      @handle-send-emoji="handleSendEmoji"
+      @handle-stop-call="stopReply"
+      @handle-regenerate="regenerate"
+      @show-transfer-modal="media.showTransferModal.value = true"
+      @show-voice-modal="media.showVoiceModal.value = true"
+      @show-image-modal="media.showImageModal.value = true"
+      @show-voice-call-modal="addCallEvent('voice')"
+      @show-video-call-modal="addCallEvent('video')"
+      @show-user-thought-modal="showUserThoughtModal = true"
+      @toggle-mixed-offline="toggleMixedOffline"
+      @focus-input="scrollBottom"
+      @update:showExtensionPanel="showExtensionPanel = $event"
+      @update:showEmojiPanel="showEmojiPanel = $event"
+    />
     <ChatTransferModal :visible="media.showTransferModal.value" :target-name="group.name" @close="media.showTransferModal.value = false" @send="handleSendTransfer" />
     <ChatVoiceModal :visible="media.showVoiceModal.value" @close="media.showVoiceModal.value = false" @send="handleSendVoice" />
     <ChatImageModal :visible="media.showImageModal.value" @close="media.showImageModal.value = false" @send="handleSendImage" />
@@ -516,10 +617,34 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @end-call="endGroupCall"
     />
     <transition name="toast-fade"><div v-if="toastText" class="wechat-toast">{{ toastText }}</div></transition>
+
+    <!-- 公告详情弹窗 -->
+    <GroupAnnouncementDetailModal
+      :visible="showAnnouncementDetailModal"
+      :announcement="selectedAnnouncement"
+      :permissions="groupMgmt.currentUserPermissions.value"
+      @close="showAnnouncementDetailModal = false"
+      @confirm="groupMgmt.confirmAnnouncement"
+      @edit="() => {}"
+      @delete="groupMgmt.deleteAnnouncement"
+    />
   </div>
 </template>
 
 <style scoped>
 @import './ChatRoomView.css';
 .group-room{display:flex;flex-direction:column;min-height:0}
+.group-muted-input-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #f8f9fa;
+  border-top: 0.5px solid #e2e8f0;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #7f8c8d;
+  font-weight: 500;
+  user-select: none;
+}
 </style>

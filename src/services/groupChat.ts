@@ -9,6 +9,7 @@ import { reactive } from 'vue'
 import localforage from 'localforage'
 import type { OfflineModelProfile } from './offlinePresets'
 import { selectRoleAvailableEmojis } from './chatEmojiScope'
+import { buildGroupManagementPrompt, ensureGroupManagementState, getSpeakableCharacterIds } from './groupManagementService'
 
 export const activeGroupReplyIds = reactive(new Set<string>())
 export const groupReplyControllers = new Map<string, AbortController>()
@@ -128,6 +129,19 @@ export interface GroupChatRecord {
   incomingCallEndHour: number
   incomingCallMinIntervalMinutes: number
   incomingCallLastAt: number
+  ownerId?: string
+  adminIds?: string[]
+  isWholeGroupMuted?: boolean
+  aiManagementMode?: 'off' | 'remind_only' | 'semi_auto' | 'full_auto'
+  levelTitles?: any[]
+  memberPoints?: Record<string, number>
+  memberMutes?: Record<string, any>
+  memberSpecialTitles?: Record<string, string>
+  announcements?: any[]
+  adminLogs?: any[]
+  memberActivityDaily?: Record<string, any>
+  removedMembers?: Record<string, any>
+  managementSchemaVersion?: number
 }
 
 export const getGroupChatsKey = (accountId?: string | null) => accountId ? `clingy_group_chats_${accountId}` : 'clingy_group_chats'
@@ -162,7 +176,7 @@ const normalizeMemberMemories = (raw: any) => Object.fromEntries(Object.entries(
   (Array.isArray(memories) ? memories : []).map((item, index) => normalizeLegacyMemory(item, `member_${memberId}_${index}_${Date.now()}`))
 ]))
 
-export const normalizeGroupChat = (raw: any): GroupChatRecord => ({
+export const normalizeGroupChat = (raw: any): GroupChatRecord => ensureGroupManagementState({
   id: String(raw.id || `group_${Date.now()}`), chatType: 'group', name: String(raw.name || '未命名群聊'),
   groupContext: String(raw.groupContext || ''), memberIds: Array.isArray(raw.memberIds) ? raw.memberIds.map(String) : [],
   memberNotes: raw.memberNotes || {}, memberNicknames: raw.memberNicknames || {}, memberHasCustomAvatar: raw.memberHasCustomAvatar || {}, memberSettings: raw.memberSettings && typeof raw.memberSettings === 'object' ? raw.memberSettings : {}, messages: Array.isArray(raw.messages) ? raw.messages : [],
@@ -240,8 +254,14 @@ export const normalizeGroupChat = (raw: any): GroupChatRecord => ({
   incomingCallStartHour: Math.max(0, Math.min(23, Number(raw.incomingCallStartHour ?? 9))),
   incomingCallEndHour: Math.max(1, Math.min(24, Number(raw.incomingCallEndHour ?? 23))),
   incomingCallMinIntervalMinutes: Math.max(30, Math.min(10080, Number(raw.incomingCallMinIntervalMinutes || 360))),
-  incomingCallLastAt: Math.max(0, Number(raw.incomingCallLastAt || 0))
-})
+  incomingCallLastAt: Math.max(0, Number(raw.incomingCallLastAt || 0)),
+  ownerId: String(raw.ownerId || 'user'), adminIds: Array.isArray(raw.adminIds) ? raw.adminIds.map(String) : [],
+  isWholeGroupMuted: raw.isWholeGroupMuted === true, aiManagementMode: raw.aiManagementMode,
+  levelTitles: raw.levelTitles, memberPoints: raw.memberPoints, memberMutes: raw.memberMutes,
+  memberSpecialTitles: raw.memberSpecialTitles, announcements: raw.announcements, adminLogs: raw.adminLogs,
+  memberActivityDaily: raw.memberActivityDaily, removedMembers: raw.removedMembers,
+  managementSchemaVersion: Number(raw.managementSchemaVersion || 0)
+}) as GroupChatRecord
 
 export const createGroupChat = (input: Pick<GroupChatRecord, 'name' | 'groupContext' | 'memberIds'>, userProfile?: any): GroupChatRecord => normalizeGroupChat({
   ...input, id: `group_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, messages: [], memoryBook: [], memberMemories: {},
@@ -285,13 +305,15 @@ const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
 export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: any[], userProfile: any, worldBookText = '') => {
   const groupUserProfile = group.userProfile || userProfile || {}
   const allMembers = group.memberIds.map(id => allChats.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === id)).filter(Boolean)
+  const speakableIds = new Set(getSpeakableCharacterIds(group))
+  const replyCandidates = allMembers.filter(member => speakableIds.has(memberIdentity(member)))
   const members = group.activeCallType
-    ? allMembers.filter(member => {
+    ? replyCandidates.filter(member => {
         const id = memberIdentity(member)
         const effective = { ...member, ...(group.memberSettings[id] || {}) }
         return group.activeCallType === 'voice' ? effective.enableVoiceCall : effective.enableVideoCall
       })
-    : allMembers
+    : replyCandidates
   const emojiItems: any[] = []
   try {
     const emojiStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatEmojis' })
@@ -358,6 +380,7 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   const roster = members.map(member => `${group.memberNicknames[memberIdentity(member)] || member.name}（ID：${memberIdentity(member)}）`).join('\n')
   const sharedMemory = await buildMemoryPacket(group, memoryQuery, group.memoryTokenBudget)
   let system = `你正在参与一个真实的多人群聊。每位成员都有独立、完整且持续一致的人格、经历、认知和表达方式。只能让成员依据自己亲历、看见、听见或被明确告知的信息行动；不得共享其他成员的私密认知，也不得让所有人表现成同一种声音。\n\n${memberContexts.join('\n\n')}\n\n${getActiveGroupPrompt()}\n\n【当前群聊】\n群名：${group.name}\n用户：${groupUserProfile?.name || '我'}（ID：user）${groupUserProfile?.persona ? `\n用户在本群的身份：${groupUserProfile.persona}` : ''}\n\n【可用成员清单】\n${roster}`
+  system += `\n\n${buildGroupManagementPrompt(group)}`
   if (group.timePerception) {
     const now = new Date()
     const userTimezone = groupUserProfile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -471,7 +494,25 @@ export const parseGroupResponse = (raw: string, allowedIds: string[]) => {
   const thoughts: any[] = []
   const thoughtRegex = /<group_inner_thought\s+sender=["']([^"']+)["']>([\s\S]*?)<\/group_inner_thought>/gi
   while ((match = thoughtRegex.exec(raw)) !== null) if (allowedIds.includes(match[1]) && match[2].trim()) thoughts.push({ senderId: match[1], content: match[2].trim() })
-  return { messages, thoughts, idle: /<group_idle\s*\/>/i.test(raw) }
+  const managementActions: any[] = []
+  const managementRegex = /<group_management\s+([^>]*)>([\s\S]*?)<\/group_management>/gi
+  while ((match = managementRegex.exec(raw)) !== null) {
+    const attrs = match[1]
+    const senderId = attrs.match(/\bsender=["']([^"']+)["']/i)?.[1] || ''
+    const targetId = attrs.match(/\btarget=["']([^"']+)["']/i)?.[1] || ''
+    const action = attrs.match(/\baction=["'](mute|unmute)["']/i)?.[1]?.toLowerCase() || ''
+    const durationSeconds = Math.max(1, Math.min(86400, Number(attrs.match(/\bduration=["']([^"']+)["']/i)?.[1] || 600)))
+    if (allowedIds.includes(senderId) && (allowedIds.includes(targetId) || targetId === 'user') && action) managementActions.push({ senderId, targetId, action, durationSeconds, reason: match[2].trim().slice(0, 200) })
+  }
+  const announcementAcks: any[] = []
+  const announcementAckRegex = /<group_announcement_ack\s+([^>]*)\/>/gi
+  while ((match = announcementAckRegex.exec(raw)) !== null) {
+    const attrs = match[1]
+    const senderId = attrs.match(/\bsender=["']([^"']+)["']/i)?.[1] || ''
+    const announcementId = attrs.match(/\bannouncement_id=["']([^"']+)["']/i)?.[1] || ''
+    if (allowedIds.includes(senderId) && announcementId) announcementAcks.push({ senderId, announcementId })
+  }
+  return { messages, thoughts, managementActions, announcementAcks, idle: /<group_idle\s*\/>/i.test(raw) }
 }
 
 export const requestGroupReply = async (group: GroupChatRecord, allChats: any[], userProfile: any, signal?: AbortSignal, worldBookText = '') => {
@@ -480,7 +521,7 @@ export const requestGroupReply = async (group: GroupChatRecord, allChats: any[],
   const result = await sendChatMessage(payload, signal, false, false, 'default', offlineActive ? (group.offlineModelProfile || 'auto') : 'auto', { chatId: group.id, chatName: group.name, memoryEntries: group.memoryBook.map((item: any) => item.content || '') })
   const raw = typeof result === 'string' ? result : result.content
   return {
-    ...parseGroupResponse(raw, group.memberIds),
+    ...parseGroupResponse(raw, getSpeakableCharacterIds(group)),
     thinking: typeof result === 'string' ? '' : (result.thinking || ''),
     reasoningSource: typeof result === 'string' ? 'none' : (result.reasoningSource || (result.thinking ? 'native' : 'none')),
     providerState: typeof result === 'string' ? undefined : result.providerState

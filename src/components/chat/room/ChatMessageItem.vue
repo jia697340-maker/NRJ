@@ -7,6 +7,9 @@ import ChatTransferBubble from '../bubbles/ChatTransferBubble.vue'
 import ChatCallRecordBubble from '../bubbles/ChatCallRecordBubble.vue'
 import { chatSettings, cotSettings } from '../../../store'
 import { shouldDisplayThinking } from '../../../services/reasoning'
+import GroupMemberBadge from '../group/GroupMemberBadge.vue'
+import { getGroupLevelInfo, getGroupMemberRole } from '../../../services/groupManagementService'
+import type { GroupBadgeType } from '../../../types/groupManagement'
 
 const props = defineProps<{
   msg: any
@@ -97,6 +100,12 @@ const showThinkingContent = computed(() => shouldDisplayThinking({
   mode: cotSettings.mode === 'custom' ? 'custom' : 'skip',
   showThinking: cotSettings.showThinking
 }, props.msg))
+const groupBadge = (memberId: string) => {
+  const role = getGroupMemberRole(props.selectedChat, memberId)
+  const level = getGroupLevelInfo(props.selectedChat, memberId)
+  const badgeType: GroupBadgeType = props.selectedChat?.memberSpecialTitles?.[memberId] ? 'special' : role
+  return { ...level, role, badgeType }
+}
 </script>
 
 <template>
@@ -183,6 +192,13 @@ const showThinkingContent = computed(() => shouldDisplayThinking({
         <div class="msg-content-col">
           <div v-if="shouldShowName(msg) || (shouldShowTime && chatSettings.timeDisplayPosition === 'name_side')" class="msg-name">
             <span v-if="shouldShowName(msg)" class="msg-name-text">@{{ messageSender?.name }}</span>
+            <GroupMemberBadge
+              v-if="selectedChat?.chatType === 'group' && shouldShowName(msg)"
+              :badge-type="groupBadge(String(msg.senderId)).badgeType"
+              :level="groupBadge(String(msg.senderId)).level"
+              :level-title="groupBadge(String(msg.senderId)).levelTitle"
+              :role="groupBadge(String(msg.senderId)).role"
+            />
             <span v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'name_side'" class="msg-time-inline-side">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
             </span>
@@ -313,6 +329,13 @@ const showThinkingContent = computed(() => shouldDisplayThinking({
       <template v-else>
         <div class="msg-content-col align-right">
           <div v-if="shouldShowName(msg) || (shouldShowTime && chatSettings.timeDisplayPosition === 'name_side')" class="msg-name" style="justify-content: flex-end;">
+            <GroupMemberBadge
+              v-if="selectedChat?.chatType === 'group' && shouldShowName(msg)"
+              :badge-type="groupBadge('user').badgeType"
+              :level="groupBadge('user').level"
+              :level-title="groupBadge('user').levelTitle"
+              :role="groupBadge('user').role"
+            />
             <span v-if="shouldShowName(msg)" class="msg-name-text">@{{ myProfile.name }}</span>
             <span v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'name_side'" class="msg-time-inline-side right">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
