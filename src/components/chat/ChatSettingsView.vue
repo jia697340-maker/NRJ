@@ -1162,6 +1162,8 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         <transition name="zoom-fade">
           <ChatEmojiView
             v-if="showEmojiView"
+            :target-role-id="String(selectedChat.characterEntityId || selectedChat.id)"
+            :role-name="selectedChat.name || '此角色'"
             @close="showEmojiView = false"
           />
         </transition>

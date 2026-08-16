@@ -3,11 +3,13 @@
 import { ref, computed } from 'vue'
 import { useChatEmoji } from '../../../composables/useChatEmoji'
 import type { PreviewEmojiItem } from '../../../composables/useChatEmoji'
+import type { EmojiCategory } from '../../../services/chatEmojiScope'
 
 const props = defineProps<{
   visible: boolean
-  targetCategory: 'user' | 'role' | 'global'
-  targetRoleId?: number
+  targetCategory: EmojiCategory
+  targetRoleId?: string
+  targetGroupId?: string
 }>()
 
 const emit = defineEmits<{
@@ -97,7 +99,7 @@ const removeSelectedFromPreview = () => {
 
 const handleConfirmImport = async () => {
   if (selectedCount.value === 0) return
-  const count = await confirmImport(props.targetCategory, props.targetRoleId)
+  const count = await confirmImport(props.targetCategory, props.targetRoleId, props.targetGroupId)
   if (count > 0) {
     emit('imported')
     emit('close')

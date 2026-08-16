@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import localforage from 'localforage'
+import { selectRoleAvailableEmojis } from '../../services/chatEmojiScope'
 import { filterOnlineHistoryByOfflineSessions } from '../../services/offlineSessions'
 import { buildMemoryPacket } from '../../services/memoryEngine'
 import { buildBilingualPrompt } from '../../services/bilingualChat'
@@ -83,10 +84,7 @@ export const buildChatMessages = async (
       allEmojis.push(value)
     })
     // 过滤出该角色可用的：全局(global) + 专属(role, 且 targetId 匹配)
-    const availableEmojis = allEmojis.filter(e => 
-      e.category === 'global' || 
-      (e.category === 'role' && e.targetId === chat.id)
-    )
+    const availableEmojis = selectRoleAvailableEmojis(allEmojis, String(chat.characterEntityId || chat.id))
     
     if (availableEmojis.length > 0) {
       roleEmojisStr = availableEmojis.map(e => e.name).join('、')

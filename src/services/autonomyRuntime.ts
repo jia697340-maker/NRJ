@@ -1,5 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { mockChats } from '../composables/chatState/state'
+import { mockChats, myProfile } from '../composables/chatState/state'
+import { useChatAuth } from '../composables/useChatAuth'
+import { runDueGroupAutonomyChecks } from './groupAutonomyRuntime'
 import { createAutonomyLedgerWindow, ensureAutonomyLedger, pendingAutonomyLedgerWindow } from './autonomyConfig'
 import { flushAutonomyDeliveries } from './autonomyDelivery'
 import { ensureAutonomyDefaults, persistAutonomyChat, runDueAutonomyChecks } from './characterAutonomy'
@@ -9,7 +11,8 @@ let runtimeBusy = false
 let visibilityHandler: (() => void) | null = null
 let pageHideHandler: (() => void) | null = null
 
-const activeChats = () => mockChats.value.filter(chat => chat?.id !== 1)
+const { currentChatUserId } = useChatAuth()
+const activeChats = () => mockChats.value.filter(chat => chat?.id !== 1 && chat?.chatType !== 'group')
 
 const persistRuntimeSeenAt = (seenAt = Date.now()) => {
   for (const chat of activeChats()) {
@@ -32,6 +35,7 @@ const processVisibleRuntime = async (resume = false) => {
     }
     const hasPendingCatchup = activeChats().some(chat => Boolean(pendingAutonomyLedgerWindow(chat)))
     await runDueAutonomyChecks(resume || hasPendingCatchup ? 'resume' : 'scheduled')
+    await runDueGroupAutonomyChecks(mockChats.value, myProfile.value, currentChatUserId.value)
     flushAutonomyDeliveries(activeChats(), resume).forEach(persistAutonomyChat)
     persistRuntimeSeenAt(Date.now())
   } finally {

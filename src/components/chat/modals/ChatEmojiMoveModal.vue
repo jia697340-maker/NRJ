@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useChatEmoji } from '../../../composables/useChatEmoji'
+import type { EmojiCategory } from '../../../services/chatEmojiScope'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -10,25 +11,31 @@ const emit = defineEmits<{
 
 const visible = defineModel<boolean>('visible')
 const props = defineProps<{
-  category: 'user' | 'role' | 'global'
+  category: EmojiCategory
   selectedEmojiIds: string[]
   currentGroupId: string | null // 如果当前正在某个分组下查看，传入此ID
+  targetRoleId?: string
+  targetGroupId?: string
 }>()
 
 const { groups, updateEmojisGroup } = useChatEmoji()
 
-const currentCategoryGroups = computed(() => groups.value.filter(g => g.category === props.category))
+const currentCategoryGroups = computed(() => groups.value.filter(g => g.category === props.category
+  && (g.category !== 'role' || String(g.ownerCharacterId || g.roleId || '') === String(props.targetRoleId || ''))
+  && (g.category !== 'group' || String(g.groupId || '') === String(props.targetGroupId || ''))))
 
 const selectedTargetGroupIds = ref<Set<string>>(new Set())
+const validationMessage = ref('')
 
 // 是否要从当前查看的分组中移出
 const removeFromCurrent = ref(true)
 
 const handleConfirm = async () => {
   if (selectedTargetGroupIds.value.size === 0) {
-    alert('请至少选择一个目标分组')
+    validationMessage.value = '请至少选择一个目标分组'
     return
   }
+  validationMessage.value = ''
 
   const targetIds = Array.from(selectedTargetGroupIds.value)
 
@@ -75,6 +82,7 @@ watch(visible, (val) => {
         </header>
 
         <div class="modal-content">
+          <div v-if="validationMessage" class="empty-hint">{{ validationMessage }}</div>
           <div v-if="currentCategoryGroups.length === 0" class="empty-hint">
             该分类下暂无分组，请先去管理分组中创建。
           </div>

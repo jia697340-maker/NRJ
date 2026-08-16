@@ -2,12 +2,14 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useChatEmoji } from '../../../composables/useChatEmoji'
+import type { EmojiCategory } from '../../../services/chatEmojiScope'
 
 const props = defineProps<{
   visible: boolean
-  currentCategory: 'user' | 'role' | 'global'
+  currentCategory: EmojiCategory
   selectedEmojiIds: string[]
-  targetRoleId?: number // 当前如果是从非role分类转入role分类，需要知道存给哪个角色
+  targetRoleId?: string
+  targetGroupId?: string
 }>()
 
 const emit = defineEmits<{
@@ -24,11 +26,12 @@ const availableCategories = computed(() => {
     { id: 'role', name: '此角色' },
     { id: 'global', name: '全局角色' }
   ]
-  return all.filter(c => c.id !== props.currentCategory)
+  return all.filter(c => c.id !== props.currentCategory && (c.id !== 'role' || Boolean(props.targetRoleId)))
 })
 
 const selectedTargetCategories = ref<Set<'user' | 'role' | 'global'>>(new Set())
 const isCopyMode = ref(false) // 默认是“同步清除”（移动模式）
+const validationMessage = ref('')
 
 const toggleCategory = (id: 'user' | 'role' | 'global') => {
   if (selectedTargetCategories.value.has(id)) {
@@ -44,15 +47,17 @@ const handleClose = () => {
 
 const handleConfirm = async () => {
   if (selectedTargetCategories.value.size === 0) {
-    alert('请至少选择一个要转移至的大类')
+    validationMessage.value = '请至少选择一个要转移至的大类'
     return
   }
+  validationMessage.value = ''
 
   await transferEmojis(
     props.selectedEmojiIds,
     Array.from(selectedTargetCategories.value),
     props.targetRoleId,
-    isCopyMode.value
+    isCopyMode.value,
+    props.targetGroupId
   )
 
   emit('success')
@@ -84,6 +89,7 @@ watch(() => props.visible, (val) => {
 
         <div class="modal-content">
           <div class="section-title">选择目标大类：</div>
+          <div v-if="validationMessage" class="option-desc">{{ validationMessage }}</div>
           <div class="category-list">
             <div 
               v-for="cat in availableCategories" 

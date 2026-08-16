@@ -2,18 +2,26 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { useChatEmoji } from '../../../composables/useChatEmoji'
+import type { EmojiCategory } from '../../../services/chatEmojiScope'
 
-const props = defineEmits<{
+defineEmits<{
   (e: 'close'): void
 }>()
 
+const props = defineProps<{
+  targetRoleId?: string
+  targetGroupId?: string
+}>()
+
 const visible = defineModel<boolean>('visible')
-const category = defineModel<'user' | 'role' | 'global'>('category')
+const category = defineModel<EmojiCategory>('category')
 
 const { groups, addGroup, updateGroup, deleteGroups, mergeGroups } = useChatEmoji()
 
 // 只显示当前分类下的分组
-const currentGroups = computed(() => groups.value.filter(g => g.category === category.value))
+const currentGroups = computed(() => groups.value.filter(g => g.category === category.value
+  && (g.category !== 'role' || String(g.ownerCharacterId || g.roleId || '') === String(props.targetRoleId || ''))
+  && (g.category !== 'group' || String(g.groupId || '') === String(props.targetGroupId || ''))))
 
 const isManageMode = ref(false)
 const selectedIds = ref<Set<string>>(new Set())
@@ -27,11 +35,12 @@ const newGroupName = ref('')
 const newNameInputRef = ref<HTMLInputElement | null>(null)
 
 const showMergeModal = ref(false)
-const targetGroupId = ref<string | null>(null)
+const mergeTargetGroupId = ref<string | null>(null)
 
 const showDeleteModal = ref(false)
 const deleteTargetIds = ref<string[]>([])
 const deleteMessage = ref('')
+const validationMessage = ref('')
 
 const toggleManageMode = () => {
   isManageMode.value = !isManageMode.value
@@ -73,10 +82,11 @@ const startCreate = async () => {
 
 const handleCreateGroup = async () => {
   if (!newGroupName.value.trim()) {
-    alert('分组名称不能为空')
+    validationMessage.value = '分组名称不能为空'
     return
   }
-  await addGroup(newGroupName.value.trim(), category.value as any)
+  validationMessage.value = ''
+  await addGroup(newGroupName.value.trim(), category.value || 'user', props.targetRoleId, props.targetGroupId)
   newGroupName.value = ''
   showCreateModal.value = false
 }
@@ -141,25 +151,25 @@ const cancelDelete = () => {
 // 合并分组
 const handleMerge = () => {
   if (selectedIds.value.size < 1) return
-  targetGroupId.value = null
+  mergeTargetGroupId.value = null
   showMergeModal.value = true
 }
 
 const confirmMerge = async () => {
-  if (!targetGroupId.value) {
-    alert('请选择目标分组')
+  if (!mergeTargetGroupId.value) {
+    validationMessage.value = '请选择目标分组'
     return
   }
   
   // 如果选中的分组包含目标分组，先把目标分组移出选中列表
-  const sourceIds = Array.from(selectedIds.value).filter(id => id !== targetGroupId.value)
+  const sourceIds = Array.from(selectedIds.value).filter(id => id !== mergeTargetGroupId.value)
   
   if (sourceIds.length === 0) {
     showMergeModal.value = false
     return
   }
 
-  await mergeGroups(sourceIds, targetGroupId.value)
+  await mergeGroups(sourceIds, mergeTargetGroupId.value)
   showMergeModal.value = false
   selectedIds.value.clear()
   isManageMode.value = false
@@ -190,7 +200,7 @@ watch(visible, (val) => {
           <div class="header-left">
             <span class="close-btn" @click="visible = false">取消</span>
           </div>
-          <div class="modal-title">分组管理 ({{ category === 'user' ? '用户' : category === 'role' ? '此角色' : '全局' }})</div>
+          <div class="modal-title">分组管理 ({{ category === 'user' ? '用户' : category === 'role' ? '此角色' : category === 'group' ? '本群共用' : '全局' }})</div>
           <div class="header-right">
             <span class="manage-btn" @click="toggleManageMode">
               {{ isManageMode ? '完成' : '多选' }}
@@ -277,6 +287,7 @@ watch(visible, (val) => {
         <div v-if="showCreateModal" class="inner-modal-overlay">
           <div class="inner-modal">
             <div class="inner-title">新建分组</div>
+            <div v-if="validationMessage" class="inner-subtitle">{{ validationMessage }}</div>
             <div class="inner-input-area">
               <input 
                 ref="newNameInputRef"
@@ -305,11 +316,11 @@ watch(visible, (val) => {
                 v-for="opt in mergeTargetOptions" 
                 :key="opt.id"
                 class="target-opt"
-                :class="{ active: targetGroupId === opt.id }"
-                @click="targetGroupId = opt.id"
+                  :class="{ active: mergeTargetGroupId === opt.id }"
+                  @click="mergeTargetGroupId = opt.id"
               >
                 {{ opt.name }}
-                <svg v-if="targetGroupId === opt.id" viewBox="0 0 24 24" width="16" height="16" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <svg v-if="mergeTargetGroupId === opt.id" viewBox="0 0 24 24" width="16" height="16" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
               </div>
             </div>
 

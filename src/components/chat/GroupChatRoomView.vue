@@ -38,6 +38,7 @@ import ChatVoiceCallWidget from './room/ChatVoiceCallWidget.vue'
 import ChatOfflineMeetView from './ChatOfflineMeetView.vue'
 import { createTransferData } from '../../services/transferLifecycle'
 import { createIncomingWalletPayment } from '../../services/walletService'
+import { findRoleEmojiByResponse, selectUserSendableEmojis } from '../../services/chatEmojiScope'
 
 const props = defineProps<{ group: any; isVisible?: boolean }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'open-settings'): void; (e: 'open-character-profile', memberId: string): void }>()
@@ -109,11 +110,12 @@ const totalUnreadCount = computed(() => mockChats.value.filter(c => c.contactSta
 
 const scrollBottom = async () => { await nextTick(); await messageListRef.value?.scrollToBottom?.() }
 const showToast = (text: string) => { toastText.value = text; if (toastTimer) clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastText.value = '' }, 2600) }
+const openEmojiSettings = () => { props.group.openEmojiManagerRequested = true; emit('open-settings') }
 const updatePreviewAndTime = (content: string) => { props.group.preview = content || '暂无消息'; props.group.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
 const persist = (record = props.group) => { const last = record.messages?.at(-1); record.preview = last?.content || '群聊已创建'; record.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); saveGroupChat(currentChatUserId.value, record) }
 
 const { emojis, loadEmojis } = useChatEmoji()
-const panelEmojis = computed(() => emojis.value)
+const panelEmojis = computed(() => selectUserSendableEmojis(emojis.value, String(props.group.id)))
 const selection = useChatMessageSelection()
 const { selectionMode, isMultiSelectMode, selectedMessageIds, enterMultiSelectMode, exitMultiSelectMode, toggleMessageSelection, isSelected, selectAll, getSelectedCount } = selection
 const multi = useChatRoomMultiSelect(selectedGroup, isMultiSelectMode, selectedMessageIds, enterMultiSelectMode, exitMultiSelectMode, toggleMessageSelection, persist, updatePreviewAndTime, showToast)
@@ -149,8 +151,19 @@ watch(() => props.group.messages?.length || 0, () => {
   if (idleMinutes > 0) idleSummaryTimer = setTimeout(() => void handleAutoSummary(true), Math.min(idleMinutes, 1440) * 60 * 1000)
 })
 
+const updateCallTemporarySummary = (targetGroup = props.group) => {
+  if (!targetGroup.activeCallType) return
+  const callMessages = (targetGroup.messages || []).filter((message: any) => targetGroup.activeCallType === 'voice' ? message.isVoiceCallProcessMsg : message.isVideoCallProcessMsg)
+  const frequency = Math.max(4, Number(targetGroup.callSummaryFrequency || 20))
+  const contextValue = Math.max(1, Number(targetGroup.activeCallType === 'voice' ? targetGroup.voiceCallMemoryValue : targetGroup.videoCallMemoryValue))
+  if (callMessages.length < frequency) return
+  const older = callMessages.slice(0, Math.max(0, callMessages.length - contextValue)).slice(-frequency)
+  targetGroup.activeCallTemporarySummary = older.map((message: any) => `${message.type === 'right' ? (groupUserProfile.value.name || '我') : memberName(String(message.senderId || ''))}：${message.content}`).join('\n')
+}
+
 const runReply = async () => {
   const targetGroup = props.group
+  const autonomousRun = Boolean(targetGroup.pendingAutonomyDirective)
   const targetId = String(targetGroup.id)
   if (activeGroupReplyIds.has(targetId)) return
   const targetMemberName = (id: string) => targetGroup.memberNicknames?.[id] || mockChats.value.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === id)?.name || '已移除成员'
@@ -161,6 +174,11 @@ const runReply = async () => {
   try {
     const worldText = worldBooks.filter((book: any) => book.enabled && (targetGroup.boundWorldBooks?.includes(book.id) || (book.groupIds || []).some((groupId: string) => targetGroup.boundWorldBookGroups?.includes(groupId)))).flatMap((book: any) => (book.entries || []).filter((entry: any) => entry.enabled).map((entry: any) => `${entry.title}: ${entry.content}`)).join('\n')
     const result = await requestGroupReply(targetGroup, mockChats.value, groupUserProfile.value, requestController.signal, worldText)
+    const offlineActive = targetGroup.offlineMeetEnabled && (targetGroup.offlineMeetMode === 'separate' || targetGroup.isMixedOfflineActive)
+    const disableMedia = (targetGroup.activeCallType && targetGroup.disableMediaDuringCall) || (offlineActive && targetGroup.disableMediaDuringOffline)
+    const disableThought = (targetGroup.activeCallType && targetGroup.disableThoughtDuringCall) || (offlineActive && targetGroup.disableThoughtDuringOffline)
+    if (disableMedia) result.messages = result.messages.filter((message: any) => !['image', 'voice', 'emoji', 'transfer', 'red_packet', 'call'].includes(message.messageType))
+    if (disableThought) result.thoughts = []
     const turnId = `group_turn_${Date.now()}`
     const localIds = new Map<string, number>(); result.messages.forEach((message: any, index: number) => { if (message.key) localIds.set(message.key, Date.now() + index) })
     const imageJobs: { item: any; member: any }[] = []
@@ -169,13 +187,13 @@ const runReply = async () => {
       const replyToMessageId = localIds.get(message.replyToMessageId) || message.replyToMessageId || ''
       const quoted = targetGroup.messages.find((entry: any) => String(entry.id) === String(replyToMessageId))
       const quote = quoted ? { id: quoted.id, content: quoted.content, sender: quoted.type === 'right' ? (groupUserProfile.value.name || '我') : targetMemberName(quoted.senderId) } : undefined
-      const item: any = { id, timestamp: id, type: message.messageType === 'narration' ? 'narration' : 'left', messageType: message.messageType, senderType: 'character', senderId: message.senderId, senderNameSnapshot: targetMemberName(message.senderId), senderAvatarSnapshot: targetMemberAvatar(message.senderId), content: message.content, translation: message.translation, translationStatus: message.translation ? 'ready' : undefined, contentLanguage: message.contentLanguage, translationLanguage: message.translationLanguage, replyToMessageId, quote, mentions: message.mentions.map((memberId: string) => ({ type: memberId === 'user' ? 'user' : 'character', id: memberId })), turnId, sequence: index, isVoiceCallProcessMsg: targetGroup.activeCallType === 'voice', isVideoCallProcessMsg: targetGroup.activeCallType === 'video', isOfflineMeetMsg: Boolean(targetGroup.isMixedOfflineActive) }
+      const item: any = { id, timestamp: id, type: message.messageType === 'narration' ? 'narration' : 'left', messageType: message.messageType, senderType: 'character', senderId: message.senderId, senderNameSnapshot: targetMemberName(message.senderId), senderAvatarSnapshot: targetMemberAvatar(message.senderId), content: message.content, translation: message.translation, translationStatus: message.translation ? 'ready' : undefined, contentLanguage: message.contentLanguage, translationLanguage: message.translationLanguage, replyToMessageId, quote, mentions: message.mentions.map((memberId: string) => ({ type: memberId === 'user' ? 'user' : 'character', id: memberId })), turnId, sequence: index, isAutonomous: autonomousRun, isVoiceCallProcessMsg: targetGroup.activeCallType === 'voice', isVideoCallProcessMsg: targetGroup.activeCallType === 'video', isOfflineMeetMsg: Boolean(targetGroup.isMixedOfflineActive) }
       if (message.messageType === 'voice') item.voiceData = { text: message.content, seconds: Math.max(1, Math.ceil(message.content.length / 4)) }
       if (message.messageType === 'image') item.imageData = { text: message.content, summary: message.content }
       if (message.messageType === 'emoji') {
         const emojiMember: any = memberMap.value.get(String(message.senderId))
         const matchedEmoji: any = emojiMember?.enableRoleEmojiVision
-          ? emojis.value.find((emoji: any) => emoji.name === message.content.trim() && (emoji.category === 'global' || (emoji.category === 'role' && String(emoji.roleId ?? emoji.targetId ?? '') === String(message.senderId))))
+          ? findRoleEmojiByResponse(emojis.value as any[], String(message.senderId), { id: message.emojiId, name: message.content.trim() }, { groupId: String(targetGroup.id), includePrivateRoleLibrary: targetGroup.referenceMemberEmojiLibraries && targetGroup.memberEmojiLibraryEnabled?.[String(message.senderId)] !== false })
           : null
         if (!matchedEmoji) return
         item.isEmoji = true
@@ -201,7 +219,7 @@ const runReply = async () => {
       else targetGroup.messages.push(item)
     })
     for (const job of imageJobs) {
-      const imageMember = { ...job.member, name: targetMemberName(job.item.senderId), persona: targetGroup.memberNotes?.[job.item.senderId] || job.member.persona, messages: targetGroup.messages }
+      const imageMember = { ...job.member, name: targetMemberName(job.item.senderId), persona: targetGroup.memberNotes?.[job.item.senderId] || job.member.persona, messages: targetGroup.messages, groupUserIdentityOwnerId: targetGroup.userProfileSource?.personaId ? `persona-${targetGroup.userProfileSource.personaId}` : (currentChatUserId.value || 'default-user') }
       await imageGen.handleAIImageGen(imageMember, targetGroup.id as any, job.item.id, job.item.content, true)
       const generated = targetGroup.messages.find((entry: any) => entry.id === job.item.id)
       if (generated) Object.assign(generated, { messageType: 'image', senderType: 'character', senderId: job.item.senderId, senderNameSnapshot: job.item.senderNameSnapshot, senderAvatarSnapshot: job.item.senderAvatarSnapshot, turnId: job.item.turnId, sequence: job.item.sequence, costTime: job.item.costTime })
@@ -217,9 +235,11 @@ const runReply = async () => {
       if (targetGroup.innerThoughts.length > thoughtLimit) targetGroup.innerThoughts.splice(0, targetGroup.innerThoughts.length - thoughtLimit)
       if (targetGroup.memberInnerThoughts[thought.senderId].length > thoughtLimit) targetGroup.memberInnerThoughts[thought.senderId].splice(0, targetGroup.memberInnerThoughts[thought.senderId].length - thoughtLimit)
     })
+    updateCallTemporarySummary(targetGroup)
     if (!result.messages.length && !result.idle) throw new Error('模型没有返回可识别的群消息，请检查群聊输出协议。')
     if (result.idle) showToast('群里暂时没有人接话')
     targetGroup.pendingUserThought = ''
+    targetGroup.pendingAutonomyDirective = ''
   } catch (error: any) { if (error?.name !== 'AbortError') showToast(error?.message || '群聊回复失败') }
   finally { targetGroup.isTyping = false; activeGroupReplyIds.delete(targetId); groupReplyControllers.delete(targetId); persist(targetGroup); await scrollBottom() }
 }
@@ -228,10 +248,11 @@ const mentionsFromText = (text: string) => members.value.filter(member => text.i
 const handleAddMessage = async (raw: string) => { const content = raw.trim(); if (!content) return; const now = Date.now(); const quote = media.replyTargetMessage.value ? { ...media.replyTargetMessage.value } : undefined; props.group.messages.push({ id: now, timestamp: now, type: 'right', senderType: 'user', senderId: String(currentChatUserId.value || 'user'), content, quote, mentions: mentionsFromText(content), replyToMessageId: quote?.id || '', turnId: `user_group_turn_${now}` }); media.replyTargetId.value = undefined; persist(); await scrollBottom() }
 const regenerate = async () => { if (isGenerating.value) return; if (![...props.group.messages].some((message: any) => message.type === 'right')) return showToast('还没有可重新生成的用户消息'); const removedIds: any[] = []; while (props.group.messages.length && props.group.messages.at(-1).type !== 'right') { const removed = props.group.messages.pop(); if (removed?.id != null) removedIds.push(removed.id) }; if (removedIds.length) invalidateMemoriesForMessages(props.group, removedIds); persist(); if (removedIds.length) void indexChatMemories(props.group); await runReply() }
 const stopReply = () => groupReplyControllers.get(String(props.group.id))?.abort()
-const handleSendEmoji = async (item: any) => { props.group.messages.push({ id: Date.now(), timestamp: Date.now(), type: 'right', content: item.name || '[表情]', messageType: 'emoji', isEmoji: true, emojiUrl: item.previewUrl, emojiId: item.id }); showEmojiPanel.value = false; persist(); await scrollBottom() }
-const handleSendImage = (data: any) => media.handleSendImage(data, showExtensionPanel)
-const handleSendVoice = (data: any) => media.handleSendVoice(data, showExtensionPanel)
-const handleSendTransfer = (data: any) => media.handleSendTransfer(data, showExtensionPanel)
+const sceneDisablesMedia = () => Boolean((props.group.activeCallType && props.group.disableMediaDuringCall) || (props.group.isMixedOfflineActive && props.group.disableMediaDuringOffline))
+const handleSendEmoji = async (item: any) => { if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); props.group.messages.push({ id: Date.now(), timestamp: Date.now(), type: 'right', content: item.name || '[表情]', messageType: 'emoji', isEmoji: true, emojiUrl: item.previewUrl, emojiId: item.id }); showEmojiPanel.value = false; persist(); await scrollBottom() }
+const handleSendImage = (data: any) => sceneDisablesMedia() ? showToast('当前场景已禁用多媒体与互动功能') : media.handleSendImage(data, showExtensionPanel)
+const handleSendVoice = (data: any) => sceneDisablesMedia() ? showToast('当前场景已禁用多媒体与互动功能') : media.handleSendVoice(data, showExtensionPanel)
+const handleSendTransfer = (data: any) => sceneDisablesMedia() ? showToast('当前场景已禁用多媒体与互动功能') : media.handleSendTransfer(data, showExtensionPanel)
 const onModalEdit = (id?: number) => { const message = props.group.messages.find((item: any) => item.id === (id || multi.targetMessageId.value)); if (!message) return; editTargetId.value = message.id; editInitialContent.value = message.content || ''; editInitialType.value = message.type; editHasMedia.value = Boolean(message.imageData || message.voiceData || message.transferData || message.isEmoji); showEditModal.value = true }
 const handleEditSave = (payload: any) => {
   const index = props.group.messages.findIndex((item: any) => item.id === payload.messageId);
@@ -268,7 +289,7 @@ const handleEditSave = (payload: any) => {
   persist();
   void indexChatMemories(props.group);
 }
-const handleSaveUserThought = (text: string) => { props.group.pendingUserThought = text; showUserThoughtModal.value = false; persist(); showToast(text ? '本轮心声已保存' : '已清除本轮心声') }
+const handleSaveUserThought = (text: string) => { if ((props.group.activeCallType && props.group.disableThoughtDuringCall) || (props.group.isMixedOfflineActive && props.group.disableThoughtDuringOffline)) return showToast('当前场景已禁用心声功能'); props.group.pendingUserThought = text; showUserThoughtModal.value = false; persist(); showToast(text ? '本轮心声已保存' : '已清除本轮心声') }
 const toggleMixedOffline = () => {
   if (!props.group.offlineMeetEnabled) return showToast('请先在群聊设置中开启线下见面模式')
   if (props.group.offlineMeetMode === 'separate') {
@@ -309,6 +330,7 @@ const addCallEvent = (kind: 'voice' | 'video') => {
   props.group.activeCallType = kind
   props.group.activeCallStartedAt = now
   props.group.activeCallStartMessageId = now
+  props.group.activeCallTemporarySummary = ''
   props.group.messages.push({ id: now, timestamp: now, type: 'right', senderType: 'user', senderId: String(currentChatUserId.value || 'user'), content: `发起了群${kind === 'voice' ? '语音' : '视频'}通话`, messageType: 'call', callData: { callType: kind, status: 'started', participantIds: capableMembers.map((member: any) => String(member.characterEntityId || member.id)) } })
   callClock.value = now
   isCallMinimized.value = false
@@ -321,6 +343,7 @@ const handleCallAddMessage = async (raw: string) => {
   if (!content || !activeCallType.value) return
   const now = Date.now()
   props.group.messages.push({ id: now, timestamp: now, type: 'right', senderType: 'user', senderId: String(currentChatUserId.value || 'user'), content, turnId: `user_group_call_${now}`, isVoiceCallProcessMsg: activeCallType.value === 'voice', isVideoCallProcessMsg: activeCallType.value === 'video' })
+  updateCallTemporarySummary()
   persist()
 }
 const endGroupCall = () => {
@@ -331,12 +354,15 @@ const endGroupCall = () => {
   const seconds = Math.max(0, Math.floor((now - Number(props.group.activeCallStartedAt || now)) / 1000))
   const duration = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
   const rawMessages = (props.group.messages || []).filter((message: any) => kind === 'voice' ? message.isVoiceCallProcessMsg : message.isVideoCallProcessMsg).map((message: any) => ({ ...message }))
+  const callStartMessage = (props.group.messages || []).find((message: any) => String(message.id) === String(props.group.activeCallStartMessageId))
+  const callDirection = callStartMessage?.callData?.status === 'incoming' ? 'in' : 'out'
   props.group.callSummaries ||= []
-  props.group.callSummaries.push({ id: `group_call_${now}`, date: new Date(now).toLocaleString('zh-CN'), duration, direction: 'out', callType: kind, content: rawMessages.map((message: any) => `${message.type === 'right' ? (groupUserProfile.value.name || '我') : memberName(String(message.senderId || ''))}：${message.content}`).join('\n') || '本次群通话无文字记录', rawMessages })
+  props.group.callSummaries.push({ id: `group_call_${now}`, date: new Date(now).toLocaleString('zh-CN'), duration, direction: callDirection, callType: kind, content: rawMessages.map((message: any) => `${message.type === 'right' ? (groupUserProfile.value.name || '我') : memberName(String(message.senderId || ''))}：${message.content}`).join('\n') || '本次群通话无文字记录', rawMessages })
   props.group.messages.push({ id: now, timestamp: now, type: 'system', content: `群${kind === 'voice' ? '语音' : '视频'}通话已结束，通话时长 ${duration}`, messageType: 'call', callData: { callType: kind, status: 'ended', duration: seconds } })
   props.group.activeCallType = null
   props.group.activeCallStartedAt = 0
   props.group.activeCallStartMessageId = 0
+  props.group.activeCallTemporarySummary = ''
   isCallMinimized.value = false
   persist()
 }
@@ -368,6 +394,7 @@ const refreshGroupMemories = async (selectedIds: number[], strategy: 'replace' |
     persist(); await indexChatMemories(props.group)
   } finally { isSummarizingMemories.value = false }
 }
+
 onBeforeUnmount(() => {
   if (timeInterval) clearInterval(timeInterval)
   if (autoSummaryTimer) clearTimeout(autoSummaryTimer)
@@ -412,7 +439,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
     <ChatMessageActionModal :visible="multi.showActionModal.value" :message-id="multi.targetMessageId.value" :message-obj="multi.targetMessageId.value ? group.messages.find((message: any) => message.id === multi.targetMessageId.value) : null" @close="multi.showActionModal.value = false" @multi-select="multi.onModalMultiSelect" @recall-multi-select="multi.onModalRecallMultiSelect" @mark-message="multi.onModalMarkMultiSelect" @copy="multi.onModalCopy" @reply="media.replyTargetId.value = $event || multi.targetMessageId.value" @edit="onModalEdit" />
     <ChatMessageEditModal :visible="showEditModal" :message-id="editTargetId" :initial-content="editInitialContent" :initial-type="editInitialType" :has-media="editHasMedia" @close="showEditModal = false" @save="handleEditSave" />
 
-    <ChatRoomInputArea :selectionMode="selectionMode" :getSelectedCount="getSelectedCount" :displayMessages="displayMessages" :replyTargetMessage="media.replyTargetMessage.value" :showExtensionPanel="showExtensionPanel" :showEmojiPanel="showEmojiPanel" :panelEmojis="panelEmojis" :isGenerating="isGenerating" :selectedChat="group" :isMixedOfflineActive="Boolean(group.isMixedOfflineActive)" @exit-multi-select-mode="exitMultiSelectMode" @select-all="selectAll" @recall-selected-messages="multi.recallSelectedMessages" @mark-selected-messages="multi.markSelectedMessages" @delete-selected-messages="multi.deleteSelectedMessages" @cancel-reply="media.cancelReply" @toggle-extension-panel="showExtensionPanel = !showExtensionPanel; showEmojiPanel = false" @toggle-emoji-panel="showEmojiPanel = !showEmojiPanel; showExtensionPanel = false" @trigger-api="runReply" @add-message="handleAddMessage" @open-settings="emit('open-settings')" @handle-send-emoji="handleSendEmoji" @handle-stop-call="stopReply" @handle-regenerate="regenerate" @show-transfer-modal="media.showTransferModal.value = true" @show-voice-modal="media.showVoiceModal.value = true" @show-image-modal="media.showImageModal.value = true" @show-voice-call-modal="addCallEvent('voice')" @show-video-call-modal="addCallEvent('video')" @show-user-thought-modal="showUserThoughtModal = true" @toggle-mixed-offline="toggleMixedOffline" @focus-input="scrollBottom" @update:showExtensionPanel="showExtensionPanel = $event" @update:showEmojiPanel="showEmojiPanel = $event" />
+  <ChatRoomInputArea :selectionMode="selectionMode" :getSelectedCount="getSelectedCount" :displayMessages="displayMessages" :replyTargetMessage="media.replyTargetMessage.value" :showExtensionPanel="showExtensionPanel" :showEmojiPanel="showEmojiPanel" :panelEmojis="panelEmojis" :isGenerating="isGenerating" :selectedChat="group" :isMixedOfflineActive="Boolean(group.isMixedOfflineActive)" @exit-multi-select-mode="exitMultiSelectMode" @select-all="selectAll" @recall-selected-messages="multi.recallSelectedMessages" @mark-selected-messages="multi.markSelectedMessages" @delete-selected-messages="multi.deleteSelectedMessages" @cancel-reply="media.cancelReply" @toggle-extension-panel="showExtensionPanel = !showExtensionPanel; showEmojiPanel = false" @toggle-emoji-panel="showEmojiPanel = !showEmojiPanel; showExtensionPanel = false" @trigger-api="runReply" @add-message="handleAddMessage" @open-settings="openEmojiSettings" @handle-send-emoji="handleSendEmoji" @handle-stop-call="stopReply" @handle-regenerate="regenerate" @show-transfer-modal="media.showTransferModal.value = true" @show-voice-modal="media.showVoiceModal.value = true" @show-image-modal="media.showImageModal.value = true" @show-voice-call-modal="addCallEvent('voice')" @show-video-call-modal="addCallEvent('video')" @show-user-thought-modal="showUserThoughtModal = true" @toggle-mixed-offline="toggleMixedOffline" @focus-input="scrollBottom" @update:showExtensionPanel="showExtensionPanel = $event" @update:showEmojiPanel="showEmojiPanel = $event" />
     <ChatTransferModal :visible="media.showTransferModal.value" :target-name="group.name" @close="media.showTransferModal.value = false" @send="handleSendTransfer" />
     <ChatVoiceModal :visible="media.showVoiceModal.value" @close="media.showVoiceModal.value = false" @send="handleSendVoice" />
     <ChatImageModal :visible="media.showImageModal.value" @close="media.showImageModal.value = false" @send="handleSendImage" />

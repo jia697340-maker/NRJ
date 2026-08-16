@@ -8,6 +8,7 @@ import { buildMemoryPacket } from './memoryEngine'
 import { reactive } from 'vue'
 import localforage from 'localforage'
 import type { OfflineModelProfile } from './offlinePresets'
+import { selectRoleAvailableEmojis } from './chatEmojiScope'
 
 export const activeGroupReplyIds = reactive(new Set<string>())
 export const groupReplyControllers = new Map<string, AbortController>()
@@ -98,6 +99,35 @@ export interface GroupChatRecord {
   activeCallStartedAt?: number
   activeCallStartMessageId?: number
   callSummaries?: any[]
+  referenceMemberEmojiLibraries: boolean
+  memberEmojiLibraryEnabled: Record<string, boolean>
+  emojiVisionScope: 'enabled_members' | 'all_members'
+  imageRecognitionMode: 'visual' | 'description_only'
+  voiceCallMemoryValue: number
+  videoCallMemoryValue: number
+  callSummaryFrequency: number
+  activeCallTemporarySummary?: string
+  disableMediaDuringCall: boolean
+  disableThoughtDuringCall: boolean
+  disableMediaDuringOffline: boolean
+  disableThoughtDuringOffline: boolean
+  autonomyEnabled: boolean
+  autonomyAllowMessages: boolean
+  autonomyAllowMentions: boolean
+  autonomyAllowStatusEvents: boolean
+  autonomyAllowIncomingCalls: boolean
+  autonomyActiveStart: number
+  autonomyActiveEnd: number
+  autonomyMinIntervalMinutes: number
+  autonomyMaxMessagesPerDay: number
+  autonomyLastRunAt: number
+  autonomyDailyCount: number
+  autonomyDailyDate: string
+  incomingCallEnabled: boolean
+  incomingCallStartHour: number
+  incomingCallEndHour: number
+  incomingCallMinIntervalMinutes: number
+  incomingCallLastAt: number
 }
 
 export const getGroupChatsKey = (accountId?: string | null) => accountId ? `clingy_group_chats_${accountId}` : 'clingy_group_chats'
@@ -181,7 +211,36 @@ export const normalizeGroupChat = (raw: any): GroupChatRecord => ({
   offlineModelProfile: (['auto', 'openai-compatible', 'openai-responses', 'deepseek-chat', 'deepseek-reasoner', 'glm', 'claude', 'gemini'].includes(raw.offlineModelProfile) ? raw.offlineModelProfile : 'auto') as OfflineModelProfile, offlineMeetLocationMode: raw.offlineMeetLocationMode === 'continuous' ? 'continuous' : 'vague', isMixedOfflineActive: raw.isMixedOfflineActive === true,
   activeCallType: raw.activeCallType === 'voice' || raw.activeCallType === 'video' ? raw.activeCallType : null,
   activeCallStartedAt: Math.max(0, Number(raw.activeCallStartedAt || 0)), activeCallStartMessageId: Math.max(0, Number(raw.activeCallStartMessageId || 0)),
-  callSummaries: Array.isArray(raw.callSummaries) ? raw.callSummaries : []
+  callSummaries: Array.isArray(raw.callSummaries) ? raw.callSummaries : [],
+  referenceMemberEmojiLibraries: raw.referenceMemberEmojiLibraries !== false,
+  memberEmojiLibraryEnabled: raw.memberEmojiLibraryEnabled && typeof raw.memberEmojiLibraryEnabled === 'object' ? raw.memberEmojiLibraryEnabled : {},
+  emojiVisionScope: raw.emojiVisionScope === 'all_members' ? 'all_members' : 'enabled_members',
+  imageRecognitionMode: raw.imageRecognitionMode === 'description_only' ? 'description_only' : 'visual',
+  voiceCallMemoryValue: Math.max(1, Math.min(200, Number(raw.voiceCallMemoryValue || 24))),
+  videoCallMemoryValue: Math.max(1, Math.min(200, Number(raw.videoCallMemoryValue || 16))),
+  callSummaryFrequency: Math.max(4, Math.min(100, Number(raw.callSummaryFrequency || 20))),
+  activeCallTemporarySummary: String(raw.activeCallTemporarySummary || ''),
+  disableMediaDuringCall: raw.disableMediaDuringCall === true,
+  disableThoughtDuringCall: raw.disableThoughtDuringCall === true,
+  disableMediaDuringOffline: raw.disableMediaDuringOffline === true,
+  disableThoughtDuringOffline: raw.disableThoughtDuringOffline === true,
+  autonomyEnabled: raw.autonomyEnabled === true,
+  autonomyAllowMessages: raw.autonomyAllowMessages !== false,
+  autonomyAllowMentions: raw.autonomyAllowMentions !== false,
+  autonomyAllowStatusEvents: raw.autonomyAllowStatusEvents !== false,
+  autonomyAllowIncomingCalls: raw.autonomyAllowIncomingCalls === true,
+  autonomyActiveStart: Math.max(0, Math.min(23, Number(raw.autonomyActiveStart ?? 8))),
+  autonomyActiveEnd: Math.max(1, Math.min(24, Number(raw.autonomyActiveEnd ?? 24))),
+  autonomyMinIntervalMinutes: Math.max(5, Math.min(10080, Number(raw.autonomyMinIntervalMinutes || 90))),
+  autonomyMaxMessagesPerDay: Math.max(1, Math.min(50, Number(raw.autonomyMaxMessagesPerDay || 8))),
+  autonomyLastRunAt: Math.max(0, Number(raw.autonomyLastRunAt || 0)),
+  autonomyDailyCount: Math.max(0, Number(raw.autonomyDailyCount || 0)),
+  autonomyDailyDate: String(raw.autonomyDailyDate || ''),
+  incomingCallEnabled: raw.incomingCallEnabled === true,
+  incomingCallStartHour: Math.max(0, Math.min(23, Number(raw.incomingCallStartHour ?? 9))),
+  incomingCallEndHour: Math.max(1, Math.min(24, Number(raw.incomingCallEndHour ?? 23))),
+  incomingCallMinIntervalMinutes: Math.max(30, Math.min(10080, Number(raw.incomingCallMinIntervalMinutes || 360))),
+  incomingCallLastAt: Math.max(0, Number(raw.incomingCallLastAt || 0))
 })
 
 export const createGroupChat = (input: Pick<GroupChatRecord, 'name' | 'groupContext' | 'memberIds'>, userProfile?: any): GroupChatRecord => normalizeGroupChat({
@@ -280,8 +339,10 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
       enableMsgCountLimit: false
     }
     const offlineMode = group.offlineMeetEnabled && (group.offlineMeetMode === 'separate' || group.isMixedOfflineActive) ? group.offlineMeetMode : false
+    const includePrivateRoleLibrary = group.referenceMemberEmojiLibraries && group.memberEmojiLibraryEnabled[id] !== false
+    const roleEmojiItems = selectRoleAvailableEmojis(emojiItems, id, { groupId: group.id, includePrivateRoleLibrary })
     const roleEmojiNames = isolatedMember.enableRoleEmojiVision
-      ? emojiItems.filter(item => item.category === 'global' || (item.category === 'role' && String(item.roleId ?? item.targetId ?? '') === id)).map(item => item.name).filter(Boolean).join('、')
+      ? roleEmojiItems.map(item => `${item.name}（emoji_id=${item.id}）`).filter(Boolean).join('、')
       : ''
     const basePrompt = buildSystemPrompt(isolatedMember, roleEmojiNames || '无', false, offlineMode as any, undefined, 'group')
     const bilingualPrompt = buildBilingualPrompt(isolatedMember)
@@ -310,7 +371,14 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   if (group.bubbleNarrationEnabled) system += `\n\n【群聊气泡叙事】\n线上对白继续使用 kind="text" 的 group_msg；动作、神态、心理或环境描写使用对应成员 sender 且 kind="narration" 的 group_msg。叙述必须保持发送成员身份明确，不得替用户决定行动或感受。`
   if (group.enableMsgCountLimit) system += `\n\n【群聊回复条数限制】\n本次回复总共输出 ${group.minMsgCount} 到 ${Math.max(group.minMsgCount, group.maxMsgCount)} 个 group_msg；这是全群总量，不是每位成员各自的数量。仍由现场语境决定谁发言，禁止为了凑数让所有成员轮流发言。`
   if (group.activeCallType) system += `\n\n【当前群通话】\n用户正与已开启群内${group.activeCallType === 'video' ? '视频' : '语音'}通话接入的成员进行实时群通话。只能由上方当前成员清单中的成员参与；表达应符合口语实时对话，不要把通话内容写成普通文字聊天。`
+  if (group.activeCallType && group.activeCallTemporarySummary) system += `\n\n【本次群通话较早内容的临时摘要】\n${group.activeCallTemporarySummary}`
+  const offlineActive = group.offlineMeetEnabled && (group.offlineMeetMode === 'separate' || group.isMixedOfflineActive)
+  if ((group.activeCallType && group.disableMediaDuringCall) || (offlineActive && group.disableMediaDuringOffline)) system += `\n\n【当前场景功能限制】\n本轮禁止发送 image、voice、emoji、transfer、red_packet 或 call 类型，只能输出文字或叙事。`
+  if ((group.activeCallType && group.disableThoughtDuringCall) || (offlineActive && group.disableThoughtDuringOffline)) system += `\n\n【当前场景心声限制】\n本轮禁止输出 group_inner_thought。`
+  system += `\n\n【群表情精确协议】\n发送表情时必须使用 <group_msg sender="成员ID" kind="emoji" emoji_id="表情ID">表情名称</group_msg>。只能使用该成员上下文中列出的表情；同名时必须依 emoji_id 区分。`
+  if (group.emojiVisionScope === 'enabled_members') system += `\n表情图像按成员授权隔离；标注为某成员专属视觉的图片，其他成员不得据此形成认知或反应。`
   if (group.groupContext.trim()) system += `\n\n【可选群背景】\n${group.groupContext.trim()}`
+  if ((group as any).pendingAutonomyDirective) system += `\n\n【本轮群成员自主活动】\n${escapeXml((group as any).pendingAutonomyDirective)}\n本轮由群成员自行决定是否发言；不得假装用户刚刚发送了新消息。${group.autonomyAllowMentions ? '允许自然提及用户或其他成员。' : '禁止使用 mentions 主动提及任何人。'}`
   if (sharedMemory) system += `\n\n【群内共同记忆】${sharedMemory}`
   if (worldBookText.trim()) system += `\n\n【群世界设定】\n${worldBookText.trim()}`
   const valid = group.messages.filter(message => {
@@ -320,7 +388,8 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
     return !message.isVoiceCallProcessMsg
   })
   let history = valid
-  if (group.memoryType === 'count') history = valid.slice(-group.memoryValue)
+  if (group.activeCallType) history = valid.slice(-(group.activeCallType === 'voice' ? group.voiceCallMemoryValue : group.videoCallMemoryValue))
+  else if (group.memoryType === 'count') history = valid.slice(-group.memoryValue)
   else {
     const userIndexes = valid.map((message, index) => message.type === 'right' ? index : -1).filter(index => index >= 0)
     const start = userIndexes[Math.max(0, userIndexes.length - group.memoryValue)]
@@ -338,7 +407,7 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
         : { role: message.type === 'system' ? 'system' : 'assistant', content: message.type === 'system' ? escapeXml(message.content) : `<group_history_msg id="${message.id}"${timeAttr} sender="${message.senderId}" kind="${message.messageType || 'text'}" reply_to="${message.replyToMessageId || ''}">${escapeXml(describeMessage(message))}</group_history_msg>` }
       encoded._turnId = message.turnId
       encoded._providerState = message.providerState
-      if (message.type === 'right' && message.imageData?.imageId) {
+      if (message.type === 'right' && message.imageData?.imageId && group.imageRecognitionMode === 'visual') {
         const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
         const imageUrl = await imageStore.getItem<string>(message.imageData.imageId)
         if (imageUrl) encoded.content = [
@@ -346,34 +415,41 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
           { type: 'image_url', image_url: { url: imageUrl } }
         ] as any
       }
-      if (message.type === 'right' && message.isEmoji && message.emojiId && members.some(member => ({ ...member, ...(group.memberSettings[memberIdentity(member)] || {}) }).enableEmojiVision)) {
+      const emojiVisionMembers = members.filter(member => ({ ...member, ...(group.memberSettings[memberIdentity(member)] || {}) }).enableEmojiVision)
+      if (message.type === 'right' && message.isEmoji && message.emojiId && emojiVisionMembers.length) {
         const emoji = emojiItems.find(item => String(item.id) === String(message.emojiId))
         let emojiUrl = emoji?.type === 'url' && typeof emoji.data === 'string' ? emoji.data : ''
         if (!emojiUrl && emoji?.type === 'local' && emoji.data instanceof Blob) {
           try { emojiUrl = await blobToDataUrl(emoji.data) } catch { emojiUrl = '' }
         }
         if (emojiUrl) encoded.content = [
-          { type: 'text', text: encoded.content },
+          { type: 'text', text: `${encoded.content}\n[表情视觉授权：${group.emojiVisionScope === 'all_members' ? '全体成员' : emojiVisionMembers.map(member => group.memberNicknames[memberIdentity(member)] || member.name).join('、')}]` },
           { type: 'image_url', image_url: { url: emojiUrl } }
         ] as any
       }
       encodedHistory.push(encoded)
   }
   const roleEmojiVisualContent: any[] = []
+  const visualEmojiAuthorizations = new Map<string, { emoji: any; memberNames: string[] }>()
   for (const member of members) {
     const id = memberIdentity(member)
     const effective = { ...member, ...(group.memberSettings[id] || {}) }
     if (!effective.enableRoleEmojiVision) continue
-    const available = emojiItems.filter(item => item.category === 'global' || (item.category === 'role' && String(item.roleId ?? item.targetId ?? '') === id))
+    const available = selectRoleAvailableEmojis(emojiItems, id, { groupId: group.id, includePrivateRoleLibrary: group.referenceMemberEmojiLibraries && group.memberEmojiLibraryEnabled[id] !== false })
     for (const emoji of available) {
-      let emojiUrl = emoji.type === 'url' && typeof emoji.data === 'string' ? emoji.data : ''
-      if (!emojiUrl && emoji.type === 'local' && emoji.data instanceof Blob) {
-        try { emojiUrl = await blobToDataUrl(emoji.data) } catch { emojiUrl = '' }
-      }
-      if (!emojiUrl) continue
-      roleEmojiVisualContent.push({ type: 'text', text: `\n${group.memberNicknames[id] || member.name}可发送的表情包「${emoji.name}」图像：` })
-      roleEmojiVisualContent.push({ type: 'image_url', image_url: { url: emojiUrl } })
+      const authorization = visualEmojiAuthorizations.get(String(emoji.id)) || { emoji, memberNames: [] }
+      authorization.memberNames.push(group.memberNicknames[id] || member.name)
+      visualEmojiAuthorizations.set(String(emoji.id), authorization)
     }
+  }
+  for (const { emoji, memberNames } of visualEmojiAuthorizations.values()) {
+    let emojiUrl = emoji.type === 'url' && typeof emoji.data === 'string' ? emoji.data : ''
+    if (!emojiUrl && emoji.type === 'local' && emoji.data instanceof Blob) {
+      try { emojiUrl = await blobToDataUrl(emoji.data) } catch { emojiUrl = '' }
+    }
+    if (!emojiUrl) continue
+    roleEmojiVisualContent.push({ type: 'text', text: `\n[仅授权${Array.from(new Set(memberNames)).join('、')}识别与选择] 表情「${emoji.name}」(emoji_id=${emoji.id}) 图像：` })
+    roleEmojiVisualContent.push({ type: 'image_url', image_url: { url: emojiUrl } })
   }
   const systemContent = roleEmojiVisualContent.length ? [{ type: 'text', text: system }, ...roleEmojiVisualContent] : system
   return [{ role: 'system', content: systemContent }, ...encodedHistory]
@@ -390,7 +466,7 @@ export const parseGroupResponse = (raw: string, allowedIds: string[]) => {
     const parsed = parseBilingualMessage(match[2].trim(), attrs)
     const content = parsed.content
     if (!content) continue
-    messages.push({ senderId, key: attrs.match(/\bkey=["']([^"']*)["']/i)?.[1] || '', content, translation: parsed.translation, contentLanguage: parsed.contentLanguage, translationLanguage: parsed.translationLanguage, messageType: attrs.match(/\bkind=["']([^"']*)["']/i)?.[1] || 'text', amount: Number(attrs.match(/\bamount=["']([^"']*)["']/i)?.[1] || 0), remark: attrs.match(/\bremark=["']([^"']*)["']/i)?.[1] || '', replyToMessageId: attrs.match(/\breply_to=["']([^"']*)["']/i)?.[1] || '', mentions: (attrs.match(/\bmentions=["']([^"']*)["']/i)?.[1] || '').split(',').map(item => item.trim()).filter(id => allowedIds.includes(id) || id === 'user') })
+    messages.push({ senderId, key: attrs.match(/\bkey=["']([^"']*)["']/i)?.[1] || '', emojiId: attrs.match(/\bemoji_id=["']([^"']*)["']/i)?.[1] || '', content, translation: parsed.translation, contentLanguage: parsed.contentLanguage, translationLanguage: parsed.translationLanguage, messageType: attrs.match(/\bkind=["']([^"']*)["']/i)?.[1] || 'text', amount: Number(attrs.match(/\bamount=["']([^"']*)["']/i)?.[1] || 0), remark: attrs.match(/\bremark=["']([^"']*)["']/i)?.[1] || '', replyToMessageId: attrs.match(/\breply_to=["']([^"']*)["']/i)?.[1] || '', mentions: (attrs.match(/\bmentions=["']([^"']*)["']/i)?.[1] || '').split(',').map(item => item.trim()).filter(id => allowedIds.includes(id) || id === 'user') })
   }
   const thoughts: any[] = []
   const thoughtRegex = /<group_inner_thought\s+sender=["']([^"']+)["']>([\s\S]*?)<\/group_inner_thought>/gi

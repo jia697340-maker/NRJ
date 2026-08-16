@@ -79,6 +79,7 @@ const characterProfileBackView = ref<ViewType>('chat')
 const hasOpenedChat = ref(false)
 const chatRoomRef = ref<any>(null)
 const chatSettingsRef = ref<any>(null)
+const groupSettingsReturnGroup = ref<any>(null)
 const voiceCallState = ref<VoiceCallState>({
   active: false,
   minimized: false,
@@ -340,6 +341,24 @@ const handleGroupDeleted = async () => {
   selectedChat.value = null
   await loadCustomContacts()
   currentView.value = 'list'
+}
+
+const openMemberSettingsFromGroup = (memberId: string) => {
+  const member = mockChats.value.find(item => item.chatType !== 'group' && String(item.characterEntityId || item.id) === String(memberId))
+  if (!member || selectedChat.value?.chatType !== 'group') return
+  groupSettingsReturnGroup.value = selectedChat.value
+  selectedChat.value = member
+  currentView.value = 'chatSettings'
+}
+
+const closeChatSettings = () => {
+  if (groupSettingsReturnGroup.value) {
+    selectedChat.value = groupSettingsReturnGroup.value
+    groupSettingsReturnGroup.value = null
+    currentView.value = 'groupSettings'
+    return
+  }
+  currentView.value = 'chat'
 }
 
 const handleProfileViewUpdate = (newView: ViewType | 'profile_from_create_save' | 'profile_from_create_cancel') => {
@@ -612,7 +631,7 @@ onUnmounted(() => {
     <ChatSettingsView 
       v-if="currentView === 'chatSettings' && selectedChat?.chatType !== 'group'"
       ref="chatSettingsRef"
-      @back="currentView = 'chat'"
+      @back="closeChatSettings"
       @open-avatar-upload="openAvatarUpload"
       @open-persona-select="openPersonaSelect"
       @use-account-persona="useAccountPersona"
@@ -629,6 +648,7 @@ onUnmounted(() => {
       :chats="mockChats"
       @back="currentView = 'chat'"
       @deleted="handleGroupDeleted"
+      @open-member-settings="openMemberSettingsFromGroup"
     />
 
     <CharacterAutonomyView

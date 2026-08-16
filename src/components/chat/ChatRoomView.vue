@@ -188,8 +188,9 @@ watch(() => selectedChat.value?.messages?.length || 0, () => {
 }, { flush: 'sync' })
 
 import { useChatEmoji } from '../../composables/useChatEmoji'
+import { selectUserSendableEmojis } from '../../services/chatEmojiScope'
 const { emojis, loadEmojis } = useChatEmoji()
-const panelEmojis = computed(() => emojis.value)
+const panelEmojis = computed(() => selectUserSendableEmojis(emojis.value))
 
 const {
   selectionMode,

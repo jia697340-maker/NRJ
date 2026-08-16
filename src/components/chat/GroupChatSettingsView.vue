@@ -25,14 +25,18 @@ import ChatNameDisplayModal from './modals/ChatNameDisplayModal.vue'
 import ChatTimeDisplayModal from './modals/ChatTimeDisplayModal.vue'
 import ChatSettingsPanelAppearance from './settings/ChatSettingsPanelAppearance.vue'
 import ChatCallRecordsView from './ChatCallRecordsView.vue'
+import ChatEmojiView from './ChatEmojiView.vue'
+import ChatIdentityProfileModal from './modals/ChatIdentityProfileModal.vue'
+import GroupChatCapabilityPanel from './GroupChatCapabilityPanel.vue'
 import { getChatLanguageLabel } from '../../constants/chatLanguages'
 import { useTimezone } from '../../composables/useTimezone'
+import { useChatEmoji } from '../../composables/useChatEmoji'
 
 const props = defineProps<{ group: GroupChatRecord; chats: any[] }>()
-const emit = defineEmits<{ (e: 'back'): void; (e: 'deleted'): void }>()
+const emit = defineEmits<{ (e: 'back'): void; (e: 'deleted'): void; (e: 'open-member-settings', memberId: string): void }>()
 const { currentChatUserId } = useChatAuth()
 const searchQuery = ref('')
-const categories = ['群聊', '成员', '记忆', '通用', '美化', '衍生']
+const categories = ['群聊', '成员', '记忆', '通用', '能力', '美化', '衍生']
 const activeCategory = ref(localStorage.getItem('clingy_group_setting_tab') || '群聊')
 const showAddMembers = ref(false)
 const showWorldBookModal = ref(false)
@@ -59,6 +63,9 @@ const showAvatarDisplayModal = ref(false)
 const showNameDisplayModal = ref(false)
 const showTimeDisplayModal = ref(false)
 const showCallRecordsView = ref(false)
+const showEmojiView = ref(false)
+const showIdentityProfileModal = ref(false)
+const deleteGroupEmojiData = ref(true)
 const groupOptionKind = ref<'offlineMode' | 'offlineLocation'>('offlineMode')
 const showUserEditor = ref(false)
 const showUserSyncConfirm = ref(false)
@@ -78,9 +85,14 @@ const currentChatWallpaper = ref<string | null>(null)
 const wallpaperStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatWallpapers' })
 const groupAvatarsStore = localforage.createInstance({ name: 'nrt-app', storeName: 'groupMemberAvatars' })
 const groupMainAvatarStore = localforage.createInstance({ name: 'nrt-app', storeName: 'groupMainAvatars' })
+const identityUserOwnerId = computed(() => props.group.userProfileSource?.personaId
+  ? `persona-${props.group.userProfileSource.personaId}`
+  : (currentChatUserId.value || 'default-user'))
+const groupIdentityProvider = computed(() => members.value.find(member => member.enableNAIImageGen)?.imageGenProvider || 'gpt')
 
 const save = () => saveGroupChat(currentChatUserId.value, props.group)
 const { getTimezoneLabel } = useTimezone()
+const { emojis: emojiItems, groups: emojiGroups, deleteEmoji, deleteGroups: deleteEmojiGroups, loadEmojis } = useChatEmoji()
 const bilingualModeLabel = computed(() => ({ auto: '智能判断', forced: '强制指定', follow_user: '跟随用户' } as Record<string, string>)[props.group.bilingualMode || 'auto'])
 const translationDisplayLabel = computed(() => ({ tap: '点击后显示', always: '始终显示', translated_only: '仅显示译文', original_only: '仅显示原文' } as Record<string, string>)[props.group.translationDisplay || 'tap'])
 const bilingualOptionTitle = computed(() => bilingualOptionKind.value === 'mode' ? '选择语言控制模式' : '选择翻译显示方式')
@@ -280,11 +292,13 @@ const openEditingMember = async (member: any) => {
     enableVoiceReply: !!member.enableVoiceReply,
     enableVoiceCall: !!member.enableVoiceCall,
     enableVideoCall: !!member.enableVideoCall,
+    allowIncomingGroupCall: !!(member.enableVoiceCall || member.enableVideoCall),
     enableNAIImageGen: !!member.enableNAIImageGen,
     enableEmojiVision: !!member.enableEmojiVision,
     enableRoleEmojiVision: !!member.enableRoleEmojiVision,
     enableImmersiveStatus: !!member.enableImmersiveStatus
   }
+  if (props.group.memberEmojiLibraryEnabled[id] === undefined) props.group.memberEmojiLibraryEnabled[id] = true
   customAvatarData.value = loadedAvatars.value[id] || null
   if (props.group.memberNotes[id] === undefined) {
     props.group.memberNotes[id] = member.persona || ''
@@ -411,7 +425,7 @@ const toggleBookGroup = (id: string) => {
 }
 const chooseNotification = (value: GroupChatRecord['notificationMode']) => { props.group.notificationMode = value; save() }
 const clearHistory = () => { props.group.messages = []; props.group.memoryBook = []; props.group.memberMemories = {}; props.group.memoryState = null; props.group.lastSummaryMsgId = 0; ensureMemoryState(props.group); void clearChatVectors(props.group.id); save(); showClearConfirm.value = false }
-const removeGroup = () => { void clearChatVectors(props.group.id); deleteGroupChat(currentChatUserId.value, props.group.id); showDeleteConfirm.value = false; emit('deleted') }
+const removeGroup = async () => { if (deleteGroupEmojiData.value) { await Promise.all(emojiItems.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => deleteEmoji(item.id))); await deleteEmojiGroups(emojiGroups.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => item.id)) } void clearChatVectors(props.group.id); deleteGroupChat(currentChatUserId.value, props.group.id); showDeleteConfirm.value = false; emit('deleted') }
 const chooseWallpaper = () => wallpaperInput.value?.click()
 const uploadWallpaper = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
@@ -432,7 +446,7 @@ const resummarizeGroupCallRecord = (id: string | number) => {
   record.content = (record.rawMessages || []).map((message: any) => `${message.type === 'right' ? (props.group.userProfile?.name || '我') : (props.group.memberNicknames?.[String(message.senderId || '')] || message.senderNameSnapshot || '群成员')}：${message.content}`).join('\n') || '本次群通话无文字记录'
   save()
 }
-onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCategory.value = '群聊'; currentChatWallpaper.value = await wallpaperStore.getItem<string>(`wallpaper_${props.group.id}`) })
+onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCategory.value = '群聊'; await loadEmojis(); currentChatWallpaper.value = await wallpaperStore.getItem<string>(`wallpaper_${props.group.id}`); if ((props.group as any).openEmojiManagerRequested) { (props.group as any).openEmojiManagerRequested = false; showEmojiView.value = true } })
 </script>
 
 <template>
@@ -478,6 +492,9 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
             </div>
           </div>
         </div>
+        <div v-show="match('表情包管理库', '本群共用表情')" class="glass-panel">
+          <div class="glass-list-item" @click="showEmojiView = true"><div><div class="item-label">表情包管理库</div><div class="group-item-desc">管理本群共用、用户与全局角色表情</div></div><div class="item-value"><span class="item-value-text">进入</span><span class="arrow">›</span></div></div>
+        </div>
       </section>
 
       <section v-show="searchQuery || activeCategory === '成员'" class="role-edit-section">
@@ -485,6 +502,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
           <div class="glass-list-item" @click="openEditingUser">
             <div class="group-member-line"><span class="group-member-avatar" :style="userAvatarStyle">{{ userAvatarText }}</span><span class="item-label">{{ group.userProfile?.name || '我' }}</span></div><div class="item-value"><span class="item-value-text">我在本群的身份</span><span class="arrow">›</span></div>
           </div>
+          <div class="glass-list-item" @click="showIdentityProfileModal = true"><div><div class="item-label">我的固定形象</div><div class="group-item-desc">供群合照与角色生图引用</div></div><div class="item-value"><span class="item-value-text">配置</span><span class="arrow">›</span></div></div>
         </div>
 
         <div v-show="match('成员', '昵称', '群内身份')" class="glass-panel">
@@ -569,6 +587,8 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
         </div>
       </section>
 
+      <GroupChatCapabilityPanel v-show="searchQuery || activeCategory === '能力'" :group="group" :match="match" @save="save" />
+
       <section v-show="searchQuery || activeCategory === '美化'" class="role-edit-section">
         <div v-show="match('群成员头像', '群成员昵称', '群消息时间')" class="glass-panel">
           <div class="glass-list-item"><span class="item-label">显示成员头像</span><label class="switch"><input v-model="group.showMemberAvatars" type="checkbox" @change="save"><span class="slider"></span></label></div>
@@ -628,10 +648,13 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
           <div class="glass-list-item"><span class="item-label">群内语音消息接入</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableVoiceReply" type="checkbox"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">群内语音通话接入</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableVoiceCall" type="checkbox"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">群内视频通话接入</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableVideoCall" type="checkbox"><span class="slider"></span></label></div>
+          <div class="glass-list-item"><span class="item-label">允许该成员主动发起群通话</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].allowIncomingGroupCall" type="checkbox"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">群内角色真实生图</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableNAIImageGen" type="checkbox"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">允许查看表情包图像</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableEmojiVision" type="checkbox"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">根据表情包图形发送</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableRoleEmojiVision" type="checkbox"><span class="slider"></span></label></div>
+          <div class="glass-list-item"><span class="item-label">引用该成员单人表情包</span><label class="switch"><input v-model="group.memberEmojiLibraryEnabled[editingMemberId]" type="checkbox" :disabled="!group.referenceMemberEmojiLibraries"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">沉浸式状态与时间流逝</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableImmersiveStatus" type="checkbox"><span class="slider"></span></label></div>
+          <div class="glass-list-item" @click="emit('open-member-settings', editingMemberId)"><div><div class="item-label">语音与生图详细配置</div><div class="group-item-desc">参数继承自该成员单聊设置</div></div><div class="item-value"><span class="item-value-text">前往私聊配置</span><span class="arrow">›</span></div></div>
         </div>
         <div class="group-remove-member" :class="{ disabled: group.memberIds.length <= 2 }" @click="removeMember(editingMemberId)">移出群聊</div>
         <div class="confirm-actions"><div class="confirm-btn cancel" @click="editingMemberId = ''">取消</div><div class="confirm-btn" @click="handleSaveMember">保存</div></div>
@@ -683,7 +706,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
     </div>
 
     <div v-if="showClearConfirm" class="wb-modal-overlay" @click.self="showClearConfirm = false"><div class="custom-confirm-modal"><div class="confirm-title">清空群聊？</div><div class="confirm-desc">聊天记录和本群独立记忆将被删除，角色私聊记忆不会被清空。</div><div class="confirm-actions"><div class="confirm-btn cancel" @click="showClearConfirm = false">取消</div><div class="confirm-btn danger" @click="clearHistory">清空</div></div></div></div>
-    <div v-if="showDeleteConfirm" class="wb-modal-overlay" @click.self="showDeleteConfirm = false"><div class="custom-confirm-modal"><div class="confirm-title">删除群聊？</div><div class="confirm-desc">此操作会删除群聊记录和本群记忆，不会删除任何角色。</div><div class="confirm-actions"><div class="confirm-btn cancel" @click="showDeleteConfirm = false">取消</div><div class="confirm-btn danger" @click="removeGroup">删除</div></div></div></div>
+    <div v-if="showDeleteConfirm" class="wb-modal-overlay" @click.self="showDeleteConfirm = false"><div class="custom-confirm-modal"><div class="confirm-title">删除群聊？</div><div class="confirm-desc">此操作会删除群聊记录和本群记忆，不会删除任何角色。</div><div class="glass-list-item"><span class="item-label">同时删除本群共用表情包</span><label class="switch"><input v-model="deleteGroupEmojiData" type="checkbox"><span class="slider"></span></label></div><div class="confirm-actions"><div class="confirm-btn cancel" @click="showDeleteConfirm = false">取消</div><div class="confirm-btn danger" @click="removeGroup">删除</div></div></div></div>
 
     <ChatMemoryTypeModal
       v-model:visible="showMemoryTypeModal"
@@ -718,12 +741,9 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
     <ChatTimeDisplayModal :show="showTimeDisplayModal" :initial-style="(chatSettings.timeDisplayStyle as 'none' | 'hm' | 'hms') || 'none'" :initial-position="(chatSettings.timeDisplayPosition as 'avatar_bottom' | 'bubble_outer' | 'name_side') || 'avatar_bottom'" @close="showTimeDisplayModal = false" @save="handleSaveTimeDisplayStyle" />
     <Teleport to="body"><ChatBubbleBeautifyModal v-if="showBubbleBeautifyModal" @close="showBubbleBeautifyModal = false" /></Teleport>
     <transition name="fade"><ChatCallRecordsView v-if="showCallRecordsView" :records="group.callSummaries || []" @close="showCallRecordsView = false" @delete="deleteGroupCallRecords" @resummarize="resummarizeGroupCallRecord" /></transition>
+    <ChatEmojiView v-if="showEmojiView" mode="group" :group-id="group.id" @close="showEmojiView = false" />
+    <ChatIdentityProfileModal v-model:visible="showIdentityProfileModal" owner-type="user" :owner-id="identityUserOwnerId" :owner-name="group.userProfile?.name || '我'" :owner-avatar="group.userProfile?.avatarUrl || ''" :provider="groupIdentityProvider" :available-characters="chats" />
   </div>
 </template>
 
-<style scoped>
-@import './settings/ChatSettingsStyles.css';
-.group-settings-view{overflow:hidden}.settings-main-clean{height:calc(100% - 66px);overflow-y:auto;padding:8px 14px 34px}.group-form-panel{padding:4px 16px}.group-field{display:flex;flex-direction:column;gap:8px;padding:12px 0;color:var(--text-secondary);font-size:13px}.group-field+.group-field{border-top:1px solid var(--border-color)}.group-field small{font-size:10px;color:var(--text-tertiary);font-weight:400}.group-settings-input,.group-settings-textarea{width:100%;box-sizing:border-box;border:1px solid var(--border-color);border-radius:10px;background:var(--sys-bg-primary);color:var(--text-primary);font:inherit;outline:none;padding:11px 12px}.group-settings-textarea{resize:none;line-height:1.6}.group-settings-input:focus,.group-settings-textarea:focus{border-color:color-mix(in srgb,var(--text-primary) 30%,var(--border-color))}.group-section-title{padding:13px 16px 8px;font-size:11px;color:var(--text-tertiary)}.group-check{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--sys-bg-tertiary);color:transparent;font-size:12px}.group-check.active{background:var(--text-primary);color:var(--sys-bg-secondary)}.group-member-line{display:flex;align-items:center;gap:10px;min-width:0}.group-member-avatar{width:34px;height:34px;border-radius:50%;background:var(--sys-bg-tertiary);background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;font-size:10px;flex:0 0 auto}.group-explain{padding:15px 16px;color:var(--text-secondary);font-size:11px;line-height:1.65;border-bottom:1px solid var(--border-color)}.group-item-desc{font-size:10px;color:var(--text-tertiary);margin-top:4px}.danger-row{justify-content:center;color:#d95b5b}.group-radio{width:18px;height:18px;border:1.5px solid var(--text-tertiary);border-radius:50%;box-sizing:border-box}.group-radio.active{border:5px solid var(--text-primary)}.group-current-value{padding:8px 16px 12px;text-align:right;font-size:10px;color:var(--text-tertiary)}.group-hidden-file{display:none}.group-sheet{max-height:70vh}.group-sheet-list{max-height:48vh;overflow-y:auto;margin-top:12px}.group-add-mark{font-size:20px;color:var(--text-secondary)}.group-empty-row{padding:22px;text-align:center;color:var(--text-tertiary);font-size:12px}.group-member-editor{width:86%}.group-modal-fields{padding:8px 20px}.scrollable-fields{max-height:50vh;overflow-y:auto}.group-remove-member{padding:10px 20px 16px;text-align:center;color:#d95b5b;font-size:13px;cursor:pointer;border-top:1px solid var(--border-color);margin-top:4px}.group-remove-member.disabled{opacity:.35;pointer-events:none}.confirm-btn:not(.cancel):not(.danger){color:var(--text-primary);font-weight:600}
-.avatar-edit-field{display:flex;flex-direction:row;align-items:center;justify-content:space-between}.avatar-edit-actions{display:flex;align-items:center;gap:12px}.avatar-preview-box{width:46px;height:46px;border-radius:50%;background-color:var(--sys-bg-tertiary);background-size:cover;background-position:center;position:relative;overflow:hidden;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--text-secondary)}.avatar-edit-mask{position:absolute;bottom:0;left:0;right:0;height:16px;background:rgba(0,0,0,0.5);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.2s}.avatar-preview-box:hover .avatar-edit-mask{opacity:1}.avatar-reset-btn{font-size:11px;color:#d95b5b;cursor:pointer;padding:4px}
-.bilingual-child-label{padding-left:12px;font-size:13px;color:var(--text-secondary)}.group-field-action{flex-direction:row;align-items:center;justify-content:space-between;cursor:pointer}.group-inline-number{width:54px;border:0;background:transparent;color:var(--text-secondary);font:inherit;text-align:right;outline:none;appearance:textfield}.group-inline-number::-webkit-inner-spin-button,.group-inline-number::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
-</style>
+<style scoped src="./GroupChatSettingsView.css"></style>

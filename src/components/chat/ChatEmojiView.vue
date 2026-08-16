@@ -8,6 +8,19 @@ import ChatEmojiMoveModal from './modals/ChatEmojiMoveModal.vue'
 import ChatEmojiEditModal from './modals/ChatEmojiEditModal.vue'
 import ChatEmojiTransferModal from './modals/ChatEmojiTransferModal.vue'
 import type { EmojiItem } from '../../composables/useChatEmoji'
+import { emojiOwnerCharacterId, type EmojiCategory } from '../../services/chatEmojiScope'
+
+const props = withDefaults(defineProps<{
+  mode?: 'single' | 'group'
+  targetRoleId?: string | number
+  roleName?: string
+  groupId?: string
+}>(), {
+  mode: 'single',
+  targetRoleId: '',
+  roleName: '此角色',
+  groupId: ''
+})
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -24,11 +37,8 @@ const isSearchVisible = ref(false)
 let pressTimer: ReturnType<typeof setTimeout> | null = null
 let isLongPressTriggered = false
 
-// TODO: 如果需要获取当前选中的 roleId，可以从 useChatState 或 props 中获取
-// 这里先预留 targetRoleId
-const targetRoleId = ref<number>(1)
-
-const activeTab = ref<'user' | 'role' | 'global'>('user')
+const targetRoleId = computed(() => String(props.targetRoleId || ''))
+const activeTab = ref<EmojiCategory>(props.mode === 'group' ? 'group' : 'user')
 const activeGroupId = ref<string | null>(null) // null 表示'全部'
 
 const { emojis, groups, loadEmojis, deleteEmoji, updateEmoji } = useChatEmoji()
@@ -55,10 +65,13 @@ const filterByGroup = (list: any[]) => {
 
 // 计算各个分类下的表情列表
 const userEmojis = computed(() => filterByGroup(emojis.value.filter(e => e.category === 'user')))
-const roleEmojis = computed(() => filterByGroup(emojis.value.filter(e => e.category === 'role')))
+const roleEmojis = computed(() => filterByGroup(emojis.value.filter(e => e.category === 'role' && emojiOwnerCharacterId(e as any) === targetRoleId.value)))
 const globalEmojis = computed(() => filterByGroup(emojis.value.filter(e => e.category === 'global')))
+const groupEmojis = computed(() => filterByGroup(emojis.value.filter(e => e.category === 'group' && String(e.groupId || '') === String(props.groupId || ''))))
 
-const currentCategoryGroups = computed(() => groups.value.filter(g => g.category === activeTab.value))
+const currentCategoryGroups = computed(() => groups.value.filter(g => g.category === activeTab.value
+  && (g.category !== 'role' || String(g.ownerCharacterId || g.roleId || '') === targetRoleId.value)
+  && (g.category !== 'group' || String(g.groupId || '') === String(props.groupId || ''))))
 
 onMounted(() => {
   loadEmojis()
@@ -141,6 +154,7 @@ const confirmDelete = async () => {
 const currentList = computed(() => {
   if (activeTab.value === 'user') return userEmojis.value
   if (activeTab.value === 'role') return roleEmojis.value
+  if (activeTab.value === 'group') return groupEmojis.value
   return globalEmojis.value
 })
 
@@ -237,8 +251,9 @@ watch(activeGroupId, () => {
     </transition>
 
     <div class="emoji-tabs">
+      <div v-if="mode === 'group'" class="emoji-tab" :class="{ active: activeTab === 'group' }" @click="activeTab = 'group'">本群共用</div>
       <div class="emoji-tab" :class="{ active: activeTab === 'user' }" @click="activeTab = 'user'">用户</div>
-      <div class="emoji-tab" :class="{ active: activeTab === 'role' }" @click="activeTab = 'role'">此角色</div>
+      <div v-if="mode === 'single'" class="emoji-tab" :class="{ active: activeTab === 'role' }" @click="activeTab = 'role'">{{ roleName }}</div>
       <div class="emoji-tab" :class="{ active: activeTab === 'global' }" @click="activeTab = 'global'">全局角色</div>
     </div>
 
@@ -351,8 +366,8 @@ watch(activeGroupId, () => {
           </div>
         </div>
 
-        <div v-else-if="activeTab === 'global'" key="global" class="emoji-tab-content">
-          <div v-if="globalEmojis.length === 0" class="emoji-grid-empty">
+        <div v-else key="shared" class="emoji-tab-content">
+          <div v-if="currentList.length === 0" class="emoji-grid-empty">
             <div class="empty-icon">
               <svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -360,13 +375,13 @@ watch(activeGroupId, () => {
                 <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
               </svg>
             </div>
-            <div class="empty-text">暂无全局角色表情包</div>
+            <div class="empty-text">{{ activeTab === 'group' ? '暂无本群共用表情包' : '暂无全局角色表情包' }}</div>
             <button class="add-emoji-btn" @click="showUploadModal = true">添加表情</button>
           </div>
           <div v-else class="emoji-grid-container">
             <div class="emoji-grid">
               <div 
-                v-for="item in globalEmojis" 
+                v-for="item in currentList"
                 :key="item.id" 
                 class="emoji-grid-item"
                 :class="{ 'manage-mode': isManageMode, 'is-selected': selectedIds.has(item.id) }"
@@ -404,7 +419,7 @@ watch(activeGroupId, () => {
           <span>全选</span>
         </div>
         <div class="actions-right">
-          <div class="action-btn transfer-btn" :class="{ 'is-disabled': selectedIds.size === 0 }" @click="handleOpenTransferModal">
+          <div v-if="activeTab !== 'group'" class="action-btn transfer-btn" :class="{ 'is-disabled': selectedIds.size === 0 }" @click="handleOpenTransferModal">
             转移/复制
           </div>
           <div class="action-btn move-btn" :class="{ 'is-disabled': selectedIds.size === 0 }" @click="handleOpenMoveModal">
@@ -438,6 +453,7 @@ watch(activeGroupId, () => {
       :visible="showUploadModal"
       :target-category="activeTab"
       :target-role-id="targetRoleId"
+      :target-group-id="groupId"
       @close="showUploadModal = false"
       @imported="loadEmojis"
     />
@@ -446,6 +462,8 @@ watch(activeGroupId, () => {
     <ChatEmojiGroupManageModal
       v-model:visible="showGroupManageModal"
       v-model:category="activeTab"
+      :target-role-id="targetRoleId"
+      :target-group-id="groupId"
     />
 
     <!-- 移动/添加分组选择弹窗 -->
@@ -454,6 +472,8 @@ watch(activeGroupId, () => {
       :category="activeTab"
       :selected-emoji-ids="Array.from(selectedIds)"
       :current-group-id="activeGroupId"
+      :target-role-id="targetRoleId"
+      :target-group-id="groupId"
       @success="handleMoveSuccess"
     />
 
@@ -471,6 +491,7 @@ watch(activeGroupId, () => {
       :current-category="activeTab"
       :selected-emoji-ids="Array.from(selectedIds)"
       :target-role-id="targetRoleId"
+      :target-group-id="groupId"
       @success="handleTransferSuccess"
     />
   </div>

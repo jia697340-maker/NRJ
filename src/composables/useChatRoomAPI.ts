@@ -4,6 +4,7 @@ import { sendChatMessage, isMomentApiReady, type ChatApiPurpose } from '../servi
 import { chatSettings, worldBooks } from '../store'
 import { characterBlocksUser, deleteFriendByCharacter, setRelationshipPlan } from './useChatRelationship'
 import localforage from 'localforage'
+import { selectRoleAvailableEmojis } from '../services/chatEmojiScope'
 import { useNovelAI } from './useNovelAI'
 import { useGptImage } from './useGptImage'
 import { useGeminiImage } from './useGeminiImage'
@@ -807,10 +808,8 @@ export function useChatRoomAPI(
                 await emojiStore.iterate((value: any) => {
                   allEmojis.push(value)
                 })
-                matchedEmoji = allEmojis.find(e => 
-                  e.name === requestedName && 
-                  (e.category === 'global' || (e.category === 'role' && e.targetId === currentChatId))
-                )
+                matchedEmoji = selectRoleAvailableEmojis(allEmojis, String(currentChatId))
+                  .find(e => e.name === requestedName)
               } catch(e) {
                 console.error('查询表情包失败', e)
               }

@@ -1,14 +1,17 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
 import localforage from 'localforage'
+import { normalizeEmojiScope, type EmojiCategory } from '../services/chatEmojiScope'
 
 export interface EmojiItem {
   id: string
   name: string
   type: 'local' | 'url'
   data: string | Blob // URL string or File/Blob
-  category: 'user' | 'role' | 'global'
-  roleId?: number // 当 category 为 role 时需要
+  category: EmojiCategory
+  roleId?: string // 兼容旧数据；新逻辑统一使用 ownerCharacterId
+  ownerCharacterId?: string
+  groupId?: string
   previewUrl?: string // 仅用于前端临时预览和展示的 URL
   groupIds?: string[] // 新增：所属的分组ID列表
 }
@@ -16,8 +19,10 @@ export interface EmojiItem {
 export interface EmojiGroup {
   id: string
   name: string
-  category: 'user' | 'role' | 'global'
-  roleId?: number
+  category: EmojiCategory
+  roleId?: string
+  ownerCharacterId?: string
+  groupId?: string
 }
 
 // 预览池项目
@@ -64,7 +69,13 @@ export function useChatEmoji() {
           } else if (item.type === 'url' && typeof item.data === 'string') {
             item.previewUrl = item.data
           }
-          loaded.push(item)
+          const normalized = normalizeEmojiScope(item as EmojiItem & { targetId?: string | number })
+          loaded.push(normalized)
+          if ((item as any).targetId !== undefined || item.ownerCharacterId !== normalized.ownerCharacterId || String(item.roleId ?? '') !== String(normalized.roleId ?? '')) {
+            const persisted = { ...normalized } as any
+            delete persisted.previewUrl
+            await emojiStore.setItem(key, persisted)
+          }
         }
       }
       emojis.value = loaded
@@ -85,12 +96,14 @@ export function useChatEmoji() {
   }
 
   // 添加分组
-  const addGroup = async (name: string, category: 'user' | 'role' | 'global', roleId?: number) => {
+  const addGroup = async (name: string, category: EmojiCategory, roleId?: string, groupId?: string) => {
     const newGroup: EmojiGroup = {
       id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       name,
       category,
-      roleId
+      roleId,
+      ownerCharacterId: category === 'role' ? roleId : undefined,
+      groupId: category === 'group' ? groupId : undefined
     }
     groups.value.push(newGroup)
     await saveGroupsToDB()
@@ -175,7 +188,7 @@ export function useChatEmoji() {
   }
 
   // 跨大类转移/复制表情包
-  const transferEmojis = async (emojiIds: string[], targetCategories: ('user' | 'role' | 'global')[], targetRoleId?: number, isCopy: boolean = false) => {
+  const transferEmojis = async (emojiIds: string[], targetCategories: EmojiCategory[], targetRoleId?: string, isCopy: boolean = false, targetGroupId?: string) => {
     const targetEmojis = emojis.value.filter(e => emojiIds.includes(e.id))
     if (targetEmojis.length === 0 || targetCategories.length === 0) return
 
@@ -188,6 +201,8 @@ export function useChatEmoji() {
       targetEmojis.forEach(item => {
         item.category = singleTarget
         item.roleId = singleTarget === 'role' ? targetRoleId : undefined
+        item.ownerCharacterId = singleTarget === 'role' ? targetRoleId : undefined
+        item.groupId = singleTarget === 'group' ? targetGroupId : undefined
         item.groupIds = [] // 清空原有分组
       })
       await saveEmojisToDB(targetEmojis)
@@ -204,6 +219,8 @@ export function useChatEmoji() {
           data: item.data, // 同一份数据
           category: targetCat,
           roleId: targetCat === 'role' ? targetRoleId : undefined,
+          ownerCharacterId: targetCat === 'role' ? targetRoleId : undefined,
+          groupId: targetCat === 'group' ? targetGroupId : undefined,
           groupIds: [] 
         })
       })
@@ -468,7 +485,7 @@ export function useChatEmoji() {
   }
 
   // 确认导入选中的预览项
-  const confirmImport = async (category: 'user' | 'role' | 'global', roleId?: number) => {
+  const confirmImport = async (category: EmojiCategory, roleId?: string, groupId?: string) => {
     const selectedItems = previewPool.value.filter(item => item.selected)
     if (selectedItems.length === 0) return 0
 
@@ -478,7 +495,9 @@ export function useChatEmoji() {
       type: item.type,
       data: item.data,
       category,
-      roleId,
+      roleId: category === 'role' ? roleId : undefined,
+      ownerCharacterId: category === 'role' ? roleId : undefined,
+      groupId: category === 'group' ? groupId : undefined,
       previewUrl: item.previewUrl // 临时传递，保存时会被剔除
     }))
 

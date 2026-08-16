@@ -37,7 +37,18 @@ export function useChatRoomImageGen(
     const vibeText = naiConfig.vibeText || ''
     const positivePrompt = naiConfig.positivePrompt || ''
     const visualProfile = naiConfig.visualProfile?.enabled ? naiConfig.visualProfile : null
-    const identity = await resolveIdentityContext('character', String(chatToUpdate.characterEntityId || chatToUpdate.id), provider === 'seedream' ? 10 : 8)
+    const identityLimit = provider === 'seedream' ? 10 : 8
+    const characterIdentity = await resolveIdentityContext('character', String(chatToUpdate.characterEntityId || chatToUpdate.id), identityLimit)
+    const needsUserIdentity = Boolean(chatToUpdate.groupUserIdentityOwnerId && (/我|用户|合照|我们/.test(actionContent) || actionContent.includes(String(myProfile.value?.name || ''))))
+    const userIdentity = needsUserIdentity ? await resolveIdentityContext('user', String(chatToUpdate.groupUserIdentityOwnerId), identityLimit) : null
+    const identity = userIdentity ? {
+      ...characterIdentity,
+      profiles: [...characterIdentity.profiles, ...userIdentity.profiles],
+      referenceImages: [...characterIdentity.referenceImages, ...userIdentity.referenceImages].slice(0, identityLimit),
+      prompt: [characterIdentity.prompt, userIdentity.prompt].filter(Boolean).join('\n'),
+      negativePrompt: [characterIdentity.negativePrompt, userIdentity.negativePrompt].filter(Boolean).join(', '),
+      warnings: [...characterIdentity.warnings, ...userIdentity.warnings]
+    } : characterIdentity
     
     // 给用户一个 "正在构思画面..." 的状态
     chatToUpdate.messages.push({

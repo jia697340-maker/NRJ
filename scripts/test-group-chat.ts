@@ -14,6 +14,20 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 const { buildGroupChatMessages, createGroupChat, normalizeGroupChat, parseGroupResponse } = await import('../src/services/groupChat.ts')
 const { applyMemoryExtraction, buildExtractionPrompt, formatMessagesForMemory, getUncoveredMessages, invalidateMemoriesForMessages } = await import('../src/services/memoryEngine.ts')
+const { findRoleEmojiByResponse, normalizeEmojiScope, selectRoleAvailableEmojis, selectUserSendableEmojis } = await import('../src/services/chatEmojiScope.ts')
+
+const scopedEmojis = [
+  { id: 'user-1', name: '用户笑', category: 'user' as const },
+  { id: 'global-1', name: '共同笑', category: 'global' as const },
+  { id: 'role-a', name: '无语', category: 'role' as const, roleId: 'a' },
+  { id: 'role-b', name: '无语', category: 'role' as const, targetId: 'b' },
+  { id: 'group-1', name: '群里见', category: 'group' as const, groupId: 'g1' }
+]
+assert.equal(normalizeEmojiScope(scopedEmojis[3]).ownerCharacterId, 'b')
+assert.deepEqual(selectUserSendableEmojis(scopedEmojis, 'g1').map(item => item.id), ['user-1', 'group-1'])
+assert.deepEqual(selectRoleAvailableEmojis(scopedEmojis, 'a', { groupId: 'g1', includePrivateRoleLibrary: true }).map(item => item.id), ['global-1', 'role-a', 'group-1'])
+assert.deepEqual(selectRoleAvailableEmojis(scopedEmojis, 'a', { groupId: 'g1', includePrivateRoleLibrary: false }).map(item => item.id), ['global-1', 'group-1'])
+assert.equal(findRoleEmojiByResponse(scopedEmojis, 'b', { id: 'role-b', name: '无语' })?.id, 'role-b')
 
 const contacts = [
   { id: 'a', name: '阿岚', persona: '直率，习惯先回应朋友的玩笑。', memoryBook: [] },
@@ -38,6 +52,7 @@ const parsed = parseGroupResponse('<group_msg sender="b">先等等，我还没�
 assert.deepEqual(parsed.messages.map(item => item.senderId), ['b', 'a'])
 assert.equal(parsed.messages[1].replyToMessageId, '12')
 assert.deepEqual(parsed.messages[1].mentions, ['b'])
+assert.equal(parseGroupResponse('<group_msg sender="a" kind="emoji" emoji_id="role-a">无语</group_msg>', ['a']).messages[0].emojiId, 'role-a')
 assert.equal(parseGroupResponse('<group_msg sender="unknown">越权消息</group_msg><group_idle />', ['a', 'b']).messages.length, 0)
 assert.equal(parseGroupResponse('<group_idle />', ['a', 'b']).idle, true)
 
@@ -48,6 +63,12 @@ assert.equal(configured.autoSummaryTrigger, 'token')
 assert.equal(configured.memoryBatchSize, 87)
 assert.equal(configured.memoryTokenBudget, 777)
 assert.equal(configured.memorySummaryRetryCount, 3)
+assert.equal(configured.referenceMemberEmojiLibraries, true)
+assert.equal(configured.emojiVisionScope, 'enabled_members')
+assert.equal(configured.imageRecognitionMode, 'visual')
+assert.equal(configured.voiceCallMemoryValue, 24)
+assert.equal(configured.autonomyEnabled, false)
+assert.equal(configured.incomingCallEnabled, false)
 
 const parityConfigured = normalizeGroupChat({
   ...group,
@@ -122,6 +143,9 @@ const callGroup = normalizeGroupChat({
   activeCallStartedAt: 1723456789000,
   activeCallStartMessageId: 301,
   memberSettings: { a: { enableVoiceCall: true }, b: { enableVoiceCall: false } },
+  disableMediaDuringCall: true,
+  disableThoughtDuringCall: true,
+  activeCallTemporarySummary: '较早的群通话内容',
   messages: [
     { id: 300, type: 'right', content: '通话前的普通消息' },
     { id: 301, type: 'right', content: '群语音内容', isVoiceCallProcessMsg: true },
@@ -131,6 +155,9 @@ const callGroup = normalizeGroupChat({
 payload = await buildGroupChatMessages(callGroup, contacts, { name: '小满' })
 assert.match(payload[0].content, /当前群通话/)
 assert.match(payload[0].content, /语音通话/)
+assert.match(payload[0].content, /较早的群通话内容/)
+assert.match(payload[0].content, /禁止发送 image、voice、emoji/)
+assert.match(payload[0].content, /禁止输出 group_inner_thought/)
 assert.match(payload[0].content, /display_name="阿岚"/)
 assert.doesNotMatch(payload[0].content, /display_name="白露"/)
 assert.ok(payload.some(item => typeof item.content === 'string' && item.content.includes('群语音内容')))
