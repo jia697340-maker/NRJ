@@ -58,6 +58,8 @@ const stringMap = (value: unknown): Record<string, string> | undefined => {
   return Object.keys(result).length ? result : undefined
 }
 const sessionHeaders = (sessionId?: string): HeadersInit => sessionId ? { 'X-Music-Session': sessionId } : {}
+const secureImageUrl = (value: unknown) => textValue(value).replace(/^http:\/\//i, 'https://') || undefined
+const musicSessionCredentials = (): RequestCredentials => 'include'
 
 const neteaseTrack = (song: any): MusicTrack => ({
   id: `netease:${song.id}`, sourceId: 'netease', sourceTrackId: String(song.id),
@@ -66,7 +68,7 @@ const neteaseTrack = (song: any): MusicTrack => ({
   artists: (song.ar || song.artists || []).map((item: any) => item.name),
   album: song.al?.name || song.album?.name || '未知专辑',
   albumId: String(song.al?.id || song.album?.id || ''),
-  duration: Math.round((song.dt || song.duration || 0) / 1000), coverUrl: song.al?.picUrl || song.album?.picUrl,
+  duration: Math.round((song.dt || song.duration || 0) / 1000), coverUrl: secureImageUrl(song.al?.picUrl || song.album?.picUrl),
   available: song.noCopyrightRcmd === null || song.noCopyrightRcmd === undefined,
   requiresVip: Number(song.fee || 0) === 1,
   reason: song.noCopyrightRcmd ? '当前版权范围不可播，已从结果中隐藏' : '完整播放', playbackType: 'full'
@@ -75,7 +77,7 @@ const neteaseTrack = (song: any): MusicTrack => ({
 const neteasePlaylist = (item: any): MusicPlaylist => ({
   id: String(item.id), sourceId: 'netease', name: item.name || '未命名歌单',
   trackCount: item.trackCount || 0, playCount: item.playCount || 0,
-  coverUrl: item.picUrl || item.coverImgUrl, description: item.description, ownerName: item.creator?.nickname
+  coverUrl: secureImageUrl(item.picUrl || item.coverImgUrl), description: item.description, ownerName: item.creator?.nickname
 })
 
 class NeteaseMusicProvider implements MusicProvider {
@@ -139,7 +141,7 @@ const aggregateTrack = (value: unknown): MusicTrack | null => {
     id: `aggregate:${source}:${id}`, sourceId: 'aggregate', sourceTrackId: id,
     originSourceId: source, originExtra: stringMap(value.extra),
     title: textValue(value.name, '未知歌曲'), artist: textValue(value.artist, '未知歌手'), album: textValue(value.album, '未知专辑'),
-    albumId: textValue(value.album_id), duration: numberValue(value.duration), coverUrl: textValue(value.cover) || undefined,
+    albumId: textValue(value.album_id), duration: numberValue(value.duration), coverUrl: secureImageUrl(value.cover),
     available: true, requiresVip: value.is_vip === true, reason: `${source} · 完整播放`, playbackType: 'full'
   }
 }
@@ -148,7 +150,7 @@ const aggregatePlaylist = (value: unknown): MusicPlaylist | null => {
   if (!isRecord(value)) return null
   const id = textValue(value.id); const source = textValue(value.source)
   if (!id || !source) return null
-  return { id: `${source}:${id}`, sourceId: 'aggregate', name: textValue(value.name, '未命名歌单'), trackCount: numberValue(value.track_count), playCount: numberValue(value.play_count), coverUrl: textValue(value.cover) || undefined, description: textValue(value.description) || undefined, ownerName: textValue(value.creator) || undefined }
+  return { id: `${source}:${id}`, sourceId: 'aggregate', name: textValue(value.name, '未命名歌单'), trackCount: numberValue(value.track_count), playCount: numberValue(value.play_count), coverUrl: secureImageUrl(value.cover), description: textValue(value.description) || undefined, ownerName: textValue(value.creator) || undefined }
 }
 
 const aggregateParams = (track: MusicTrack) => ({
@@ -163,7 +165,7 @@ class AggregateMusicProvider implements MusicProvider {
   constructor(config: MusicSourceConfig) { this.config = config }
   private get base() { if (!this.config.apiBase) throw new Error('请先填写聚合音乐服务地址'); return this.config.apiBase }
   private request(path: string, params: Record<string, string | number | undefined> = {}, init: RequestInit = {}) {
-    return withTimeout(joinUrl(this.base, path, params), { ...init, headers: { ...sessionHeaders(this.config.token), ...(init.headers || {}) } })
+    return withTimeout(joinUrl(this.base, path, params), { ...init, credentials: musicSessionCredentials(), headers: { ...(init.headers || {}) } })
   }
   async search(query: string): Promise<MusicSearchPage> {
     const data = unwrapData(await this.request('/api/v1/music/search', { q: query, type: 'song' }))
@@ -197,6 +199,105 @@ class AggregateMusicProvider implements MusicProvider {
   }
 }
 
+type MetingItem = { title?: string; author?: string; pic?: string; url?: string; lrc?: string }
+
+export const loadPublicMusicHomeSections = async (): Promise<MusicHomeSection[]> => {
+  const liveUrl = new URL('/.netlify/functions/music-home', window.location.origin)
+  liveUrl.searchParams.set('timestamp', String(Date.now()))
+  let data: unknown = null
+  for (const url of [liveUrl.toString()]) {
+    try {
+      data = await withTimeout(url, { credentials: 'omit', cache: 'no-store' }, 15000)
+      if (isRecord(data) && Array.isArray(data.result) && data.result.length) break
+    } catch { data = null }
+  }
+  const items = isRecord(data) && Array.isArray(data.result) ? data.result : []
+  const playlists = items.flatMap((item): MusicPlaylist[] => {
+    if (!isRecord(item) || !textValue(item.name) || !String(item.id || '').trim()) return []
+    return [{
+      id: `netease:${String(item.id)}`,
+      sourceId: 'public-meting',
+      name: textValue(item.name),
+      trackCount: numberValue(item.trackCount),
+      playCount: numberValue(item.playCount),
+      coverUrl: secureImageUrl(item.picUrl),
+      description: textValue(item.copywriter) || undefined
+    }]
+  })
+  return playlists.length ? [{
+    id: 'public-recommend',
+    title: '热门推荐歌单',
+    subtitle: '实时推荐',
+    type: 'playlists',
+    playlists
+  }] : []
+}
+
+class MetingMusicProvider implements MusicProvider {
+  id: string
+  private config: MusicSourceConfig
+  private readonly servers = ['netease', 'tencent', 'kugou', 'kuwo', 'baidu']
+  constructor(config: MusicSourceConfig) { this.config = config; this.id = config.id }
+  private get base() { if (!this.config.apiBase) throw new Error('公共音乐服务地址为空'); return this.config.apiBase }
+  private endpoint(server: string, type: string, id: string) {
+    const url = new URL(this.base, window.location.origin)
+    url.searchParams.set('server', server); url.searchParams.set('type', type); url.searchParams.set('id', id)
+    return url.toString()
+  }
+  private item(value: MetingItem, server: string, index: number): MusicTrack | null {
+    const mediaUrl = textValue(value.url)
+    if (!textValue(value.title) || !mediaUrl || /(?:preview|trial|试听)/i.test(mediaUrl)) return null
+    let sourceTrackId = ''
+    try { sourceTrackId = new URL(mediaUrl, window.location.origin).searchParams.get('id') || '' } catch { sourceTrackId = '' }
+    if (!sourceTrackId) sourceTrackId = `${Date.now()}-${index}`
+    return {
+      id: `${this.id}:${server}:${sourceTrackId}`, sourceId: this.id, sourceTrackId,
+      originSourceId: server, originExtra: { mediaUrl, lyricUrl: textValue(value.lrc) },
+      title: textValue(value.title, '未知歌曲'), artist: textValue(value.author, '未知歌手'), album: `${server} · 公共音乐`,
+      duration: 0, coverUrl: secureImageUrl(value.pic), available: true, playbackType: 'full', reason: '匿名公共音源 · 完整播放'
+    }
+  }
+  async search(query: string): Promise<MusicSearchPage> {
+    const results = await Promise.allSettled(this.servers.map(async server => {
+      const data = await withTimeout(this.endpoint(server, 'search', query), { credentials: 'omit' }, 12000)
+      return (Array.isArray(data) ? data : []).map((item, index) => this.item(item as MetingItem, server, index)).filter(Boolean) as MusicTrack[]
+    }))
+    return { tracks: results.flatMap(result => result.status === 'fulfilled' ? result.value : []) }
+  }
+  async getPlaylist(compoundId: string) {
+    const separator = compoundId.indexOf(':')
+    const server = separator > 0 ? compoundId.slice(0, separator) : 'netease'
+    const playlistId = separator > 0 ? compoundId.slice(separator + 1) : compoundId
+    const data = await withTimeout(this.endpoint(server, 'playlist', playlistId), { credentials: 'omit' }, 15000)
+    const tracks = (Array.isArray(data) ? data : [])
+      .map((item, index) => this.item(item as MetingItem, server, index))
+      .filter(Boolean) as MusicTrack[]
+    return {
+      playlist: {
+        id: compoundId,
+        sourceId: this.id,
+        name: '公开歌单',
+        trackCount: tracks.length,
+        playCount: 0,
+        coverUrl: tracks.find(track => track.coverUrl)?.coverUrl
+      },
+      tracks
+    }
+  }
+  async getStreamUrl(track: MusicTrack) {
+    const value = track.originExtra?.mediaUrl || this.endpoint(track.originSourceId || 'netease', 'url', track.sourceTrackId)
+    return /(?:preview|trial|试听)/i.test(value) ? null : value
+  }
+  async getLyrics(track: MusicTrack) {
+    const url = track.originExtra?.lyricUrl || this.endpoint(track.originSourceId || 'netease', 'lrc', track.sourceTrackId)
+    try {
+      const response = await fetch(url, { credentials: 'omit' })
+      if (!response.ok) return []
+      return parseMusicLyrics(await response.text())
+    } catch { return [] }
+  }
+}
+
 class SubsonicMusicProvider implements MusicProvider {
   id = 'subsonic'
   private config: MusicSourceConfig
@@ -217,10 +318,12 @@ class SubsonicMusicProvider implements MusicProvider {
 }
 
 export const defaultMusicSourceConfigs = (): MusicSourceConfig[] => {
-  const bundledAggregateApiBase = String(import.meta.env.VITE_PUBLIC_MUSIC_API_BASE || `${window.location.origin}/music-api`).trim()
+  const deployedAggregateApiBase = String(import.meta.env.VITE_MUSIC_ACCOUNT_API_BASE || import.meta.env.VITE_PUBLIC_MUSIC_API_BASE || '').trim()
+  const bundledAggregateApiBase = import.meta.env.DEV ? '/music-api' : deployedAggregateApiBase
   return [
     { id: 'local', name: '本地音乐', enabled: true, kind: 'local', capabilities: ['播放', '歌词', '歌单', '离线'] },
-    { id: 'aggregate', name: '聚合音乐', enabled: Boolean(bundledAggregateApiBase), kind: 'aggregate', apiBase: bundledAggregateApiBase, capabilities: ['免登录搜索', '完整播放', '智能换源', '可选登录'] },
+    { id: 'aggregate', name: '账号音乐服务', enabled: Boolean(bundledAggregateApiBase), kind: 'aggregate', apiBase: bundledAggregateApiBase, capabilities: ['统一托管', '扫码登录', '个人歌单', '账号隔离'] },
+    { id: 'public-meting', name: '公共音乐（免后端）', enabled: false, kind: 'meting', apiBase: 'https://meting.mikus.ink/api', capabilities: ['匿名搜索', '公开榜单', '无需部署', '第三方服务'] },
     { id: 'subsonic', name: '私人音乐库', enabled: false, kind: 'subsonic', apiBase: '', capabilities: ['Navidrome', 'OpenSubsonic', '歌单', '无损'] }
   ]
 }
@@ -228,6 +331,7 @@ export const defaultMusicSourceConfigs = (): MusicSourceConfig[] => {
 export const createMusicProviders = (configs: MusicSourceConfig[]) => configs.filter(item => item.enabled && item.id !== 'local' && Boolean(item.apiBase?.trim())).map(config => {
   if (config.kind === 'aggregate') return new AggregateMusicProvider(config)
   if (config.kind === 'netease') return new NeteaseMusicProvider(config)
+  if (config.kind === 'meting') return new MetingMusicProvider(config)
   if (config.kind === 'subsonic') return new SubsonicMusicProvider(config)
   return null
 }).filter(Boolean) as MusicProvider[]
@@ -242,15 +346,40 @@ export const createNeteaseQrLogin = async (apiBase: string) => {
 
 export const checkNeteaseQrLogin = async (apiBase: string, key: string) => withTimeout(joinUrl(apiBase, '/login/qr/check', { key, timestamp: Date.now() })) as Promise<{ code: number; message?: string; cookie?: string }>
 
+const bundledMusicQrRequest = (action: 'create' | 'check' | 'status' | 'capabilities' | 'logout', platform = 'netease') => withTimeout(
+  '/.netlify/functions/music-qr',
+  {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, platform })
+  }
+)
+
+export const createBundledMusicQrLogin = async (platform: string): Promise<AggregateQrSession> => {
+  const data = await bundledMusicQrRequest('create', platform)
+  if (!isRecord(data) || (!textValue(data.url) && !textValue(data.imageUrl))) throw new Error('登录二维码生成失败')
+  return { source: platform, key: 'http-only', url: textValue(data.url), imageUrl: textValue(data.imageUrl) || undefined, expiresAt: numberValue(data.expiresAt) || undefined }
+}
+
+export const checkBundledMusicQrLogin = async (platform: string): Promise<AggregateQrResult> => {
+  const data = await bundledMusicQrRequest('check', platform)
+  if (!isRecord(data)) throw new Error('登录状态响应无效')
+  return { status: textValue(data.status, 'failed'), message: textValue(data.message) || undefined }
+}
+
+export const getBundledMusicQrCapabilities = async () => bundledMusicQrRequest('capabilities') as Promise<JsonRecord>
+export const logoutBundledMusicAccounts = async () => { await bundledMusicQrRequest('logout', 'all') }
+
 export const createAggregateQrLogin = async (apiBase: string, source: string, sessionId?: string): Promise<AggregateQrSession> => {
-  const data = unwrapData(await withTimeout(joinUrl(apiBase, `/api/v1/system/qr_login/${encodeURIComponent(source)}`), { method: 'POST', headers: sessionHeaders(sessionId) }))
+  const data = unwrapData(await withTimeout(joinUrl(apiBase, `/api/v1/system/qr_login/${encodeURIComponent(source)}`), { method: 'POST', credentials: musicSessionCredentials(), headers: sessionHeaders(sessionId) }))
   if (!isRecord(data) || !textValue(data.key) || !textValue(data.url)) throw new Error('聚合服务没有返回有效二维码')
   const extra = isRecord(data.extra) ? data.extra : {}
   return { source: textValue(data.source, source), key: textValue(data.key), url: textValue(data.url), imageUrl: textValue(data.image_url) || undefined, expiresAt: numberValue(data.expires_at) || undefined, sessionId: textValue(extra.session_id) || undefined }
 }
 
 export const checkAggregateQrLogin = async (apiBase: string, source: string, key: string, sessionId?: string): Promise<AggregateQrResult> => {
-  const data = unwrapData(await withTimeout(joinUrl(apiBase, `/api/v1/system/qr_login/${encodeURIComponent(source)}`, { key }), { headers: sessionHeaders(sessionId) }))
+  const data = unwrapData(await withTimeout(joinUrl(apiBase, `/api/v1/system/qr_login/${encodeURIComponent(source)}`, { key }), { credentials: musicSessionCredentials(), headers: sessionHeaders(sessionId) }))
   if (!isRecord(data)) throw new Error('登录状态响应无效')
   const extra = isRecord(data.extra) ? data.extra : {}
   return { status: textValue(data.status, 'failed'), message: textValue(data.message) || undefined, sessionId: textValue(extra.session_id) || undefined }

@@ -70,6 +70,11 @@ export const initializeMusicRuntime = () => {
           merged.apiBase = item.apiBase
           merged.enabled = item.enabled
         }
+        if (merged.kind === 'aggregate' && !item.apiBase?.trim() && merged.apiBase === `${window.location.origin}/music-api`) {
+          merged.apiBase = ''
+          merged.enabled = false
+        }
+        if (merged.kind === 'aggregate') merged.token = undefined
         if (merged.kind !== 'local' && !merged.apiBase?.trim()) merged.enabled = false
         return merged
       })

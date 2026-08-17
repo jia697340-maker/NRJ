@@ -1,13 +1,20 @@
-name: clingy-music
+name: clingy-music-backend
 
 services:
-  app:
-    build: .
+  edge:
+    image: caddy:2-alpine
     restart: unless-stopped
-    ports:
-      - "8080:80"
     depends_on:
       - music-gateway
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      MUSIC_DOMAIN: ${MUSIC_DOMAIN:?请在 .env 中填写音乐服务域名}
+    volumes:
+      - ./deployment/Caddyfile.music:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
 
   music-gateway:
     build: ./music-gateway
@@ -18,10 +25,10 @@ services:
     environment:
       MUSIC_PUBLIC_UPSTREAM: http://music-public:8080
       MUSIC_AUTH_UPSTREAM: http://music-auth:8080
-      MUSIC_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
-      MUSIC_COOKIE_SECURE: "false"
-      MUSIC_COOKIE_SAME_SITE: Lax
-      MUSIC_SESSION_TTL_DAYS: "90"
+      MUSIC_ALLOWED_ORIGINS: ${MUSIC_ALLOWED_ORIGINS:?请填写静态网站地址}
+      MUSIC_SESSION_TTL_DAYS: ${MUSIC_SESSION_TTL_DAYS:-90}
+      MUSIC_COOKIE_SECURE: "true"
+      MUSIC_COOKIE_SAME_SITE: None
     volumes:
       - music-session-data:/data
 
@@ -47,3 +54,5 @@ services:
 
 volumes:
   music-session-data:
+  caddy-data:
+  caddy-config:

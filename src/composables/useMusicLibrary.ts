@@ -2,10 +2,11 @@
 import { computed, ref } from 'vue'
 import type { MusicHomeSection, MusicPlaylist, MusicSearchPage, MusicSourceConfig, MusicTrack, MusicUserProfile } from '../types/music'
 import { musicTrackKey } from '../types/music'
-import { createMusicProviders } from '../services/musicProviders'
-import { saveLocalMusicFile } from '../services/musicStorage'
+import { createMusicProviders, loadPublicMusicHomeSections, logoutBundledMusicAccounts } from '../services/musicProviders'
+import { loadMusicHomeCache, saveLocalMusicFile, saveMusicHomeCache } from '../services/musicStorage'
 import { readLocalMusicMetadata } from '../services/musicFileMetadata'
 import { parseMusicLyrics } from '../services/musicLyrics'
+import { defaultMusicPrivacyPreferences, loadMusicPrivacyPreferences, saveMusicPrivacyPreferences } from '../services/musicPrivacy'
 import {
   initializeMusicRuntime, musicCustomPlaylists, musicHistory, musicLikedKeys,
   musicPlaylistTracks, musicSourceConfigs, persistMusicRuntime
@@ -16,9 +17,25 @@ const searchResult = ref<MusicSearchPage>({ tracks: [] })
 const homeSections = ref<MusicHomeSection[]>([])
 const isSearching = ref(false)
 const isLoadingHome = ref(false)
+const homeLoadError = ref('')
+const isHomeUsingCache = ref(false)
 const libraryMessage = ref('')
 const accountProfiles = ref<MusicUserProfile[]>([])
 const localTracks = computed(() => musicPlaylistTracks.local || [])
+const privacyPreferences = ref(defaultMusicPrivacyPreferences())
+const isPrivacyReady = ref(false)
+let privacyPromise: Promise<void> | null = null
+const initializePrivacy = () => {
+  if (privacyPromise) return privacyPromise
+  privacyPromise = (async () => {
+    privacyPreferences.value = await loadMusicPrivacyPreferences()
+    if (!privacyPreferences.value.allowAnonymousPublicSources) {
+      musicSourceConfigs.value = musicSourceConfigs.value.map(item => item.kind === 'meting' ? { ...item, enabled: false } : item)
+    }
+    isPrivacyReady.value = true
+  })()
+  return privacyPromise
+}
 const likedTracks = computed(() => {
   const all = [...localTracks.value, ...musicHistory.value, ...Object.values(musicPlaylistTracks).flat()]
   const seen = new Set<string>()
@@ -51,7 +68,8 @@ const trackFromFile = async (file: File): Promise<MusicTrack> => {
 }
 
 export function useMusicLibrary() {
-  void initializeMusicRuntime()
+  const libraryReady = initializeMusicRuntime().then(initializePrivacy)
+  void libraryReady
   const providers = () => createMusicProviders(musicSourceConfigs.value)
 
   const setMessage = (value: string) => {
@@ -65,6 +83,7 @@ export function useMusicLibrary() {
     searchQuery.value = normalized
     isSearching.value = true
     try {
+      await libraryReady
       const activeProviders = providers()
       if (!activeProviders.length) {
         searchResult.value = { tracks: [] }
@@ -96,10 +115,52 @@ export function useMusicLibrary() {
   const loadHome = async () => {
     if (isLoadingHome.value) return
     isLoadingHome.value = true
-    const capable = providers().filter(provider => provider.getHome)
-    const results = await Promise.allSettled(capable.map(provider => provider.getHome!()))
-    homeSections.value = results.filter((item): item is PromiseFulfilledResult<MusicHomeSection[]> => item.status === 'fulfilled').flatMap(item => item.value)
-    isLoadingHome.value = false
+    homeLoadError.value = ''
+    try {
+      await libraryReady
+      const capable = providers().filter(provider => provider.getHome)
+      const [publicResult, results] = await Promise.all([
+        loadPublicMusicHomeSections().catch(() => []),
+        Promise.allSettled(capable.map(provider => provider.getHome!()))
+      ])
+      const providerSections = results
+        .filter((item): item is PromiseFulfilledResult<MusicHomeSection[]> => item.status === 'fulfilled')
+        .flatMap(item => item.value)
+        .filter(section => Boolean(section.tracks?.length || section.playlists?.length))
+      const freshSections = [...publicResult, ...providerSections.filter(section => section.id !== 'public-recommend')]
+      if (freshSections.length) {
+        homeSections.value = freshSections
+        isHomeUsingCache.value = false
+        await saveMusicHomeCache(homeSections.value)
+        return
+      }
+
+      const cache = await loadMusicHomeCache()
+      const cachedSections = (cache?.sections || []).filter(section => section.id !== 'public-discovery')
+      if (cachedSections.length) {
+        homeSections.value = cachedSections
+        isHomeUsingCache.value = true
+        homeLoadError.value = '在线推荐暂时连接不上，正在显示上次成功载入的首页'
+      } else {
+        homeSections.value = []
+        isHomeUsingCache.value = false
+        homeLoadError.value = '真实推荐暂时没有载入，请点击重试'
+      }
+    } catch {
+      const cache = await loadMusicHomeCache()
+      const cachedSections = (cache?.sections || []).filter(section => section.id !== 'public-discovery')
+      if (cachedSections.length) {
+        homeSections.value = cachedSections
+        isHomeUsingCache.value = true
+        homeLoadError.value = '在线推荐暂时连接不上，正在显示上次成功载入的首页'
+      } else {
+        homeSections.value = []
+        isHomeUsingCache.value = false
+        homeLoadError.value = '真实推荐暂时没有载入，请点击重试'
+      }
+    } finally {
+      isLoadingHome.value = false
+    }
   }
 
   const refreshProfiles = async () => {
@@ -161,6 +222,26 @@ export function useMusicLibrary() {
     persistMusicRuntime()
   }
 
+  const setAnonymousPublicSources = async (allowed: boolean) => {
+    privacyPreferences.value = { version: 1, noticeAcknowledged: true, allowAnonymousPublicSources: allowed, updatedAt: Date.now() }
+    musicSourceConfigs.value = musicSourceConfigs.value.map(item => item.kind === 'meting' ? { ...item, enabled: allowed && Boolean(item.apiBase?.trim()) } : item)
+    persistMusicRuntime()
+    await saveMusicPrivacyPreferences(privacyPreferences.value)
+    setMessage(allowed ? '已启用匿名公共音乐查询' : '已关闭第三方公共音乐查询')
+  }
+
+  const clearOnlineAccountData = async () => {
+    const online = musicSourceConfigs.value.filter(item => item.kind === 'aggregate' && item.apiBase)
+    await Promise.allSettled([logoutBundledMusicAccounts(), ...online.map(async item => {
+      const url = new URL(`${item.apiBase!.replace(/\/$/, '')}/api/v1/system/logout`, window.location.origin)
+      await fetch(url, { method: 'POST', credentials: 'include' })
+    })])
+    musicSourceConfigs.value = musicSourceConfigs.value.map(item => item.kind === 'local' ? item : { ...item, token: undefined })
+    accountProfiles.value = []
+    persistMusicRuntime()
+    setMessage('已断开音乐账号并清除当前浏览器的登录凭证')
+  }
+
   const importPlaylistLink = async (value: string) => {
     const input = value.trim()
     if (!input) throw new Error('请输入歌单链接')
@@ -217,5 +298,5 @@ export function useMusicLibrary() {
     setMessage('音乐资料已合并导入')
   }
 
-  return { searchQuery, searchResult, homeSections, accountProfiles, isSearching, isLoadingHome, libraryMessage, localTracks, likedTracks, history: musicHistory, customPlaylists: musicCustomPlaylists, playlistTracks: musicPlaylistTracks, sourceConfigs: musicSourceConfigs, searchAll, loadHome, refreshProfiles, loadPlaylist, importLocalFiles, toggleLikeTrack, createPlaylist, addToPlaylist, updateSourceConfig, importPlaylistLink, importPlaylistFile, exportLibrary, importLibraryBackup, setMessage }
+  return { searchQuery, searchResult, homeSections, accountProfiles, isSearching, isLoadingHome, homeLoadError, isHomeUsingCache, libraryMessage, localTracks, likedTracks, history: musicHistory, customPlaylists: musicCustomPlaylists, playlistTracks: musicPlaylistTracks, sourceConfigs: musicSourceConfigs, privacyPreferences, isPrivacyReady, searchAll, loadHome, refreshProfiles, loadPlaylist, importLocalFiles, toggleLikeTrack, createPlaylist, addToPlaylist, updateSourceConfig, setAnonymousPublicSources, clearOnlineAccountData, importPlaylistLink, importPlaylistFile, exportLibrary, importLibraryBackup, setMessage }
 }

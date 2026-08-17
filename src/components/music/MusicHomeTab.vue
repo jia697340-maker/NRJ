@@ -5,9 +5,9 @@ import type { MusicPlaylist, MusicTrack } from '../../types/music'
 import { useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
-const emit = defineEmits<{ (e: 'openSources'): void }>()
+const emit = defineEmits<{ (e: 'openSources'): void; (e: 'openPlaylist', playlist: MusicPlaylist): void; (e: 'requestPublicPlaylist', playlist: MusicPlaylist): void; (e: 'openCollection', mode: 'playlists' | 'charts'): void }>()
 const { playTrack, playTracks } = useMusicPlayer()
-const { searchResult, homeSections, history, sourceConfigs, isSearching, isLoadingHome, searchAll, loadHome, loadPlaylist, toggleLikeTrack, setMessage } = useMusicLibrary()
+const { searchResult, homeSections, history, sourceConfigs, isSearching, isLoadingHome, homeLoadError, searchAll, loadHome, toggleLikeTrack, setMessage } = useMusicLibrary()
 const searchQuery = ref('')
 const hasSearched = ref(false)
 const hasConfiguredOnlineSource = computed(() => sourceConfigs.value.some(source => source.enabled && source.kind !== 'local' && Boolean(source.apiBase?.trim())))
@@ -19,17 +19,19 @@ const quickCategories = [
 
 const submitSearch = () => { if (!searchQuery.value.trim()) return; hasSearched.value = true; void searchAll(searchQuery.value) }
 const handleQuick = (id: string) => {
-  if (id === 'recommend') { void loadHome(); setMessage('首页内容已刷新'); return }
+  if (id === 'recommend') { void loadHome().then(() => setMessage('首页内容已刷新')); return }
   if (id === 'radio' && history.value.length) { void playTracks([...history.value].sort(() => Math.random() - .5)); return }
   if (!homeSections.value.length) emit('openSources')
-  else setMessage(id === 'charts' ? '排行榜已显示在首页下方' : id === 'playlists' ? '推荐歌单已显示在首页下方' : '积累播放历史后即可开始私人漫游')
+  else if (id === 'charts' || id === 'playlists') emit('openCollection', id)
+  else setMessage('积累播放历史后即可开始私人漫游')
 }
 const handleTrack = (track: MusicTrack) => {
   void playTrack(track)
 }
-const handlePlaylist = async (playlist: MusicPlaylist) => {
-  try { const result = await loadPlaylist(playlist); await playTracks(result.tracks) }
-  catch (error) { setMessage(error instanceof Error ? error.message : '歌单读取失败') }
+const handlePlaylist = (playlist: MusicPlaylist) => {
+  const source = sourceConfigs.value.find(item => item.id === playlist.sourceId)
+  if (source?.kind === 'meting' && !source.enabled) emit('requestPublicPlaylist', playlist)
+  else emit('openPlaylist', playlist)
 }
 onMounted(() => { void loadHome() })
 </script>
@@ -100,6 +102,10 @@ onMounted(() => { void loadHome() })
     </div>
 
     <div v-if="isLoadingHome" class="section-container"><div class="section-header"><div class="section-title">正在载入首页</div></div></div>
+    <div v-else-if="homeLoadError && homeSections.length" class="home-status-row">
+      <span>{{ homeLoadError }}</span>
+      <button type="button" @click="loadHome">重试</button>
+    </div>
     <template v-for="section in homeSections" :key="section.id">
       <div v-if="section.tracks?.length" class="section-container">
         <div class="section-header"><div class="section-title">{{ section.title }}</div><div class="section-more" @click="playTracks(section.tracks)">播放全部</div></div>
@@ -116,14 +122,14 @@ onMounted(() => { void loadHome() })
         <div class="section-header"><div class="section-title">{{ section.title }}</div><div class="section-more">{{ section.subtitle || '实时内容' }}</div></div>
         <div class="playlist-grid">
           <div class="grid-card" v-for="pl in section.playlists.slice(0, 6)" :key="`${pl.sourceId}:${pl.id}`" @click="handlePlaylist(pl)">
-          <div class="grid-cover">
+          <div class="grid-cover" :style="pl.coverUrl ? { backgroundImage: `url(${pl.coverUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}">
             <div class="grid-play-count">
               <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor">
                 <polygon points="5 3 19 12 5 21 5 3"/>
               </svg>
               <span>{{ pl.playCount || pl.trackCount }}</span>
             </div>
-            <div class="cover-center-symbol">
+            <div v-if="!pl.coverUrl" class="cover-center-symbol">
               <svg viewBox="0 0 40 40" width="24" height="24" stroke="rgba(255,255,255,0.7)" stroke-width="2" fill="none">
                 <line x1="20" y1="6" x2="20" y2="34"/>
                 <line x1="8" y1="16" x2="32" y2="16"/>
@@ -135,7 +141,14 @@ onMounted(() => { void loadHome() })
       </div>
       </div>
     </template>
-    <div v-if="!hasSearched && !isLoadingHome && !homeSections.length && !searchResult.tracks.length" class="section-container empty-source-card" @click="emit('openSources')"><div class="section-title">{{ hasConfiguredOnlineSource ? '在线音乐已就绪' : '在线音乐服务暂不可用' }}</div><div class="empty-source-text">{{ hasConfiguredOnlineSource ? '直接在上方搜索，无需填写地址或登录。这里不会显示任何 30 秒试听或官网跳转。' : '本站音乐服务没有响应，请让部署者检查 /music-api；也可以在“我的”中导入本地音乐。' }}</div><div class="section-more">打开来源管理 ›</div></div>
+    <div v-if="!hasSearched && !isLoadingHome && !homeSections.length && !searchResult.tracks.length" class="section-container empty-source-card">
+      <div class="section-title">首页推荐暂时没有载入</div>
+      <div class="empty-source-text">{{ homeLoadError || (hasConfiguredOnlineSource ? '音乐服务已配置，但暂时没有返回首页内容。' : '还没有连接可用的在线音乐服务。') }}</div>
+      <div class="empty-actions">
+        <button type="button" @click="loadHome">重新载入</button>
+        <button type="button" @click="emit('openSources')">来源管理</button>
+      </div>
+    </div>
 
     <div class="bottom-spacer"></div>
   </div>
@@ -472,4 +485,8 @@ onMounted(() => { void loadHome() })
 .song-name i { display:inline-flex;margin-left:4px;padding:1px 4px;border:1px solid var(--music-card-border);border-radius:4px;color:var(--music-text-sub);font-size:8px;font-style:normal;vertical-align:2px; }
 .empty-source-card { padding:18px;border:1px solid var(--music-card-border);border-radius:16px;background:var(--music-secondary-bg);cursor:pointer; }
 .empty-source-text { margin:8px 0 12px;color:var(--music-text-sub);font-size:12px;line-height:1.6; }
+.home-status-row { margin:0 16px 8px;padding:9px 11px;border-radius:10px;background:var(--music-pill-bg);color:var(--music-text-sub);font-size:11px;display:flex;align-items:center;justify-content:space-between;gap:12px; }
+.home-status-row button,.empty-actions button { border:0;border-radius:999px;padding:6px 11px;background:var(--music-text);color:var(--music-bg);font-size:11px;cursor:pointer; }
+.empty-actions { display:flex;gap:8px; }
+.empty-actions button + button { background:var(--music-pill-bg);color:var(--music-text);border:1px solid var(--music-card-border); }
 </style>

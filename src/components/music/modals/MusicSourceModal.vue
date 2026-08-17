@@ -3,12 +3,13 @@
 import { onBeforeUnmount, ref } from 'vue'
 import QRCode from 'qrcode'
 import type { MusicSourceConfig } from '../../../types/music'
-import { checkAggregateQrLogin, createAggregateQrLogin, createMusicProviders } from '../../../services/musicProviders'
+import { checkBundledMusicQrLogin, createBundledMusicQrLogin, createMusicProviders, getBundledMusicQrCapabilities } from '../../../services/musicProviders'
 import { useMusicLibrary } from '../../../composables/useMusicLibrary'
+import MusicQrConsentModal from './MusicQrConsentModal.vue'
 
 defineProps<{ visible: boolean }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'closeApp'): void }>()
-const { sourceConfigs, updateSourceConfig, setMessage } = useMusicLibrary()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'closeApp'): void; (e: 'openPrivacy', mode?: 'management' | 'public-consent'): void }>()
+const { sourceConfigs, updateSourceConfig, setAnonymousPublicSources, setMessage } = useMusicLibrary()
 const editingId = ref('')
 const draftBase = ref('')
 const draftUsername = ref('')
@@ -19,46 +20,67 @@ const qrStatus = ref('')
 const qrSourceName = ref('')
 const qrOwnerId = ref('')
 const showGuide = ref(false)
+const qrConsentVisible = ref(false)
+const pendingQrSource = ref<MusicSourceConfig | null>(null)
+const pendingQrPlatform = ref<{ id: string; name: string } | null>(null)
+const qrRetentionDays = ref(90)
 let qrTimer: number | null = null
 const aggregateLoginSources = [
-  { id: 'netease', name: '网易云' }, { id: 'qq', name: 'QQ' },
-  { id: 'qq_wx', name: '微信' }, { id: 'kugou', name: '酷狗' }, { id: 'bilibili', name: 'B站' }
+  { id: 'netease', name: '网易云' },
+  { id: 'qq', name: 'QQ音乐' },
+  { id: 'bilibili', name: 'B站' }
 ]
-const sourceAddressLabel = (source: MusicSourceConfig) => source.kind === 'aggregate' && source.apiBase === `${window.location.origin}/music-api`
-  ? '本站内置音乐服务（无需配置）'
+const sourceAddressLabel = (source: MusicSourceConfig) => source.kind === 'aggregate' && Boolean(source.apiBase)
+  ? '本站统一账号服务（普通用户无需配置）'
   : source.apiBase || '尚未配置服务地址'
 
 const editSource = (source: MusicSourceConfig) => { editingId.value = source.id; draftBase.value = source.apiBase || ''; draftUsername.value = source.username || ''; draftToken.value = source.token || '' }
 const saveSource = (source: MusicSourceConfig) => {
   const apiBase = draftBase.value.trim()
-  updateSourceConfig({ ...source, enabled: apiBase ? true : source.enabled, apiBase, username: draftUsername.value.trim(), token: draftToken.value })
+  updateSourceConfig({ ...source, enabled: source.kind === 'meting' ? false : (apiBase ? true : source.enabled), apiBase, username: draftUsername.value.trim(), token: source.kind === 'subsonic' ? draftToken.value : undefined })
   editingId.value = ''
   setMessage(`${source.name}设置已保存`)
+  if (source.kind === 'meting') emit('openPrivacy', 'public-consent')
 }
 const stopQr = () => { if (qrTimer !== null) window.clearInterval(qrTimer); qrTimer = null }
 const startAggregateQrLogin = async (source: MusicSourceConfig, platform: { id: string; name: string }) => {
-  if (!source.apiBase) { setMessage('请先填写并保存聚合服务地址'); return }
   stopQr(); qrImage.value = ''; qrSourceName.value = platform.name; qrStatus.value = '正在生成二维码…'
   qrOwnerId.value = source.id
   try {
-    const qr = await createAggregateQrLogin(source.apiBase, platform.id, source.token)
-    const sessionId = qr.sessionId || source.token
-    if (qr.sessionId && qr.sessionId !== source.token) updateSourceConfig({ ...source, token: qr.sessionId })
+    const qr = await createBundledMusicQrLogin(platform.id)
     qrImage.value = qr.imageUrl || await QRCode.toDataURL(qr.url, { width: 256, margin: 1, errorCorrectionLevel: 'M' })
-    qrStatus.value = `请使用${platform.name} App 扫码确认`
+    qrStatus.value = platform.id === 'qq' ? '请使用 QQ App 扫码确认' : `请使用${platform.name} App 扫码确认`
     qrTimer = window.setInterval(async () => {
       try {
-        const result = await checkAggregateQrLogin(source.apiBase!, platform.id, qr.key, sessionId)
-        if (result.sessionId && result.sessionId !== source.token) updateSourceConfig({ ...source, token: result.sessionId })
+        const result = await checkBundledMusicQrLogin(platform.id)
         if (result.status === 'scanned') qrStatus.value = '已扫码，请在手机上确认'
         if (result.status === 'success') { qrStatus.value = `${platform.name}登录成功`; stopQr(); setMessage(`${platform.name}账号已连接`); window.setTimeout(() => { qrImage.value = '' }, 1000) }
         if (result.status === 'expired' || result.status === 'failed') { qrStatus.value = result.message || '二维码已失效，请重新生成'; stopQr() }
-      } catch { qrStatus.value = '登录状态查询失败，请检查聚合服务'; stopQr() }
+      } catch { qrStatus.value = '登录状态查询失败，请稍后重试'; stopQr() }
     }, 1800)
   } catch (error) { qrStatus.value = error instanceof Error ? error.message : '二维码生成失败' }
 }
+const requestAggregateQrLogin = async (source: MusicSourceConfig, platform: { id: string; name: string }) => {
+  const capabilities = await getBundledMusicQrCapabilities()
+  if (capabilities.httpOnlySession !== true || capabilities.credentialNotReturned !== true) {
+    setMessage('音乐登录服务尚未完成安全接入，请让部署者检查隔离网关')
+    return
+  }
+  qrRetentionDays.value = Number(capabilities.retentionDays) || 90
+  pendingQrSource.value = source; pendingQrPlatform.value = platform; qrConsentVisible.value = true
+}
+const confirmQrLogin = () => {
+  const source = pendingQrSource.value; const platform = pendingQrPlatform.value
+  qrConsentVisible.value = false
+  if (source && platform) void startAggregateQrLogin(source, platform)
+}
 onBeforeUnmount(stopQr)
 const toggleSource = (source: MusicSourceConfig) => {
+  if (source.kind === 'meting') {
+    if (source.enabled) void setAnonymousPublicSources(false)
+    else emit('openPrivacy', 'public-consent')
+    return
+  }
   if (!source.enabled && source.kind !== 'local' && !source.apiBase?.trim()) {
     editSource(source)
     setMessage('先填写服务地址，保存后会自动启用')
@@ -100,9 +122,9 @@ const checkSource = async (source: MusicSourceConfig) => {
             </div>
             <button class="source-switch" :class="{ active: source.enabled }" @click="toggleSource(source)"><span></span></button>
           </div>
-          <div v-if="source.kind === 'aggregate' || source.kind === 'subsonic'" class="source-config">
+          <div v-if="source.kind === 'aggregate' || source.kind === 'subsonic' || source.kind === 'meting'" class="source-config">
             <template v-if="editingId === source.id">
-              <input v-model="draftBase" class="source-input" :placeholder="source.kind === 'aggregate' ? '单服务聚合 API 地址' : 'Navidrome / OpenSubsonic 地址'" />
+              <input v-model="draftBase" class="source-input" :placeholder="source.kind === 'aggregate' ? '单服务聚合 API 地址' : source.kind === 'meting' ? 'Meting 兼容 API 地址' : 'Navidrome / OpenSubsonic 地址'" />
               <input v-if="source.kind === 'subsonic'" v-model="draftUsername" class="source-input compact" placeholder="用户名" />
               <input v-if="source.kind === 'subsonic'" v-model="draftToken" class="source-input compact" type="password" placeholder="密码" />
               <button class="source-action primary" @click="saveSource(source)">保存</button>
@@ -115,23 +137,24 @@ const checkSource = async (source: MusicSourceConfig) => {
             </template>
           </div>
           <div v-if="source.kind === 'aggregate' && editingId !== source.id" class="aggregate-login-row">
-            <span>{{ source.apiBase ? '账号登录（可选，点击直接出码）' : '本站音乐服务暂不可用' }}</span>
-            <button v-for="platform in aggregateLoginSources" :key="platform.id" class="source-action" @click="startAggregateQrLogin(source, platform)">{{ platform.name }}</button>
+            <span>平台账号登录（无需填写服务地址）</span>
+            <button v-for="platform in aggregateLoginSources" :key="platform.id" class="source-action" @click="requestAggregateQrLogin(source, platform)">{{ platform.name }}</button>
           </div>
           <div v-if="qrOwnerId === source.id && (qrImage || qrStatus)" class="qr-login-box"><img v-if="qrImage" :src="qrImage" :alt="`${qrSourceName}登录二维码`" /><span><strong>{{ qrSourceName }}</strong>{{ qrStatus }}</span></div>
         </article>
-        <button class="guide-toggle" :class="{ active: showGuide }" @click="showGuide = !showGuide"><span>后端搭建说明</span><em>{{ showGuide ? '收起' : '查看' }}</em></button>
+        <button class="guide-toggle" :class="{ active: showGuide }" @click="showGuide = !showGuide"><span>音乐服务说明</span><em>{{ showGuide ? '收起' : '查看' }}</em></button>
+        <button class="guide-toggle" @click="emit('openPrivacy', 'management')"><span>音乐与隐私</span><em>查看与管理</em></button>
         <div v-if="showGuide" class="source-guide">
-          <strong>普通用户 · 无需配置</strong>
-          <p>本站已通过 /music-api 接入聚合服务，打开应用即可搜索；扫码登录只是歌单、收藏与账号权益的可选扩展。</p>
-          <strong>站点部署者 · 一次接入</strong>
-          <p>使用项目附带的 docker-compose.music.yml 同时启动网站和 go-music-api，用户只访问网站地址，不需要填写后端 URL。</p>
-          <p>公开给多人使用时，后端必须按用户隔离会话；不要让多人共用 cookies.json。</p>
+          <strong>首页与公开音乐 · 无需后端</strong>
+          <p>发现页、公开榜单与匿名搜索由浏览器直接载入。首次使用只需确认一次，不用填写地址，也不会因为扫码服务离线而消失。</p>
+          <strong>扫码登录 · 站点统一提供</strong>
+          <p>普通用户无需部署或填写账号服务地址。只有站点已经接入统一扫码服务时才显示可用登录；未接入不会影响公开音乐。</p>
         </div>
         <div class="source-note">搜索只显示可在本应用内完整播放的结果；30 秒试听、官网跳转和不可播放曲目会自动隐藏。平台账号权益仍由原平台管理。</div>
         <button class="leave-music" @click="emit('closeApp')">返回桌面</button>
       </div>
     </section>
+    <MusicQrConsentModal :visible="qrConsentVisible" :platformName="pendingQrPlatform?.name || ''" :retentionDays="qrRetentionDays" @cancel="qrConsentVisible = false" @confirm="confirmQrLogin" />
   </div>
 </template>
 

@@ -1,65 +1,104 @@
-# 音乐后端搭建指南
+# 音乐服务部署指南
 
-音乐页只接受能够在应用内完整播放的来源，不显示 30 秒试听，也不会生成跳转官网的搜索结果。
+前端 `dist` 可以继续部署到 GitHub Pages、Netlify 或 Cloudflare Pages。所有用户共同使用一套音乐服务，不需要用户填写地址或自行部署。
 
-## 面向普通用户：不配置地址，直接搜索
+## 为什么需要隔离网关
 
-应用默认把聚合服务接在本站同源的 `/music-api`。普通用户打开应用就可以搜索，不需要填写后端地址，也不需要先登录。扫码登录只是读取个人歌单、账号收藏或账号已有权益的可选扩展。
+上游 `go-music-api` 会把扫码成功后的平台 Cookie 写入全局 `cookies.json`，适合个人使用，不适合直接公开给多用户。本项目附带的 `music-gateway` 位于浏览器和上游服务之间，负责：
 
-产品部署者在项目根目录执行一次：
+- 为每个浏览器签发独立、不可猜测的 HttpOnly 会话 Cookie；
+- 只允许当前会话轮询自己创建的二维码；
+- 过滤上游响应中的平台 Cookie，不把登录凭证返回网页；
+- 按用户加密保存网易云、QQ、酷狗和 Bilibili 等平台凭证；
+- 每次请求结束后清空认证上游的全局 Cookie；
+- 提供退出并删除当前用户登录凭证的接口；
+- 隐藏上游 Cookie 管理接口，并限制登录请求频率。
+
+公开服务必须通过隔离网关访问，不要把两个上游容器的端口暴露到公网。
+
+## 本机完整测试
+
+安装 Docker Desktop 后，在项目根目录运行：
 
 ```bash
 docker compose -f docker-compose.music.yml up -d --build
 ```
 
-然后访问 `http://服务器地址:8080`。前端和音乐接口使用同一个网址：浏览器请求 `/music-api`，站点内部再转发给聚合服务，用户不需要知道音乐后端地址。
+打开 `http://localhost:8080`。网页、隔离网关和两个内部音乐服务会一起启动。
 
-如果已经有单独部署的聚合服务，也可以在构建环境覆盖默认地址：
-
-```text
-VITE_PUBLIC_MUSIC_API_BASE=https://你的聚合服务地址
-```
-
-不配置这个变量时就使用本站 `/music-api`。搜索、播放公开可用曲目不依赖登录；曲目能否完整播放仍由音源授权和上游实际可用性决定，应用会隐藏试听、不可播放和只能跳转官网的结果。
-
-## 方案一：只使用网易云
-
-适合个人使用，部署步骤最少。
-
-1. 在 GitHub Fork `NeteaseCloudMusicApiEnhanced/api-enhanced`。
-2. 在 Vercel 新建项目并导入刚刚 Fork 的仓库。
-3. 完成部署后，复制 Vercel 提供的 HTTPS 地址。
-4. 打开应用的“音乐来源”，进入“网易云音乐”设置。
-5. 填入 HTTPS 地址，点击“保存并扫码登录”。
-
-也可以使用 Docker：
+停止服务：
 
 ```bash
-docker run -d --name ncm-api --restart unless-stopped -p 3000:3000 -e CORS_ALLOW_ORIGIN=https://你的应用地址 moefurina/ncm-api:latest
+docker compose -f docker-compose.music.yml down
 ```
 
-线上应用使用 HTTPS 时，音乐后端也必须通过 HTTPS 访问。
+## 静态网站正式部署
 
-## 方案二：多平台聚合与自动换源
+GitHub Pages、Netlify 和 Cloudflare Pages 都只能承载前端静态文件。音乐服务需要部署一次到能够运行 Docker 的服务器，并使用独立 HTTPS 域名，例如 `music.example.com`。
 
-适合同时搜索网易云、QQ、酷狗、酷我、咪咕和 Bilibili 等来源。
+### 1. 准备域名
 
-1. 部署 `guohuiyuan/go-music-api`。
-2. 为服务配置 HTTPS 和应用来源的 CORS 白名单。
-3. 推荐通过本站 `/music-api` 反向代理；只有独立部署时才需要在“音乐来源 → 聚合音乐”填写地址。
-4. 接通后，可直接在同一面板选择网易云、QQ、微信、酷狗或 B站扫码登录。
+把 `music.example.com` 的 DNS 记录解析到服务器公网 IP，并确保服务器开放 80、443 端口。
 
-该后端是一个服务，不需要按旧版 `jsososo/NeteaseMusic` 分别运行多个 API。
+### 2. 配置服务
 
-## 多用户公开服务
+在服务器项目目录复制配置模板：
 
-原版聚合后端把扫码凭证写入统一的 `cookies.json`，只适合个人或单租户使用。公开给多人使用前，必须增加以下隔离层：
+```bash
+cp .env.music.example .env.music
+```
 
-- 每位用户使用独立、不可猜测的会话 ID。
-- 登录 Cookie 按会话加密保存，不放入 URL，也不写入访问日志。
-- 搜索、换源、歌词和播放请求只能读取当前会话的 Cookie。
-- 退出登录时立即删除该会话的 Cookie。
-- 配置来源白名单、速率限制、请求大小限制和会话有效期。
-- 优先让客户端播放临时上游地址；只有防盗链或跨域失败时才代理音频流。
+填写：
 
-当前前端会在聚合请求中携带 `X-Music-Session`。支持多用户的网关可以通过该请求头识别隔离会话；不支持会话隔离的原版服务会忽略它，因此不应直接作为万人公共登录服务。
+```text
+MUSIC_DOMAIN=music.example.com
+MUSIC_ALLOWED_ORIGINS=https://你的站点.pages.dev,https://你的站点.netlify.app,https://用户名.github.io
+MUSIC_SESSION_TTL_DAYS=90
+```
+
+来源地址必须完整匹配，不能写 `*`，也不要添加末尾斜杠。
+
+### 3. 启动共享音乐服务
+
+```bash
+docker compose --env-file .env.music -f docker-compose.music-backend.yml up -d --build
+```
+
+Caddy 会自动申请和续期 HTTPS 证书。确认以下地址返回 `{"status":"ok"}`：
+
+```text
+https://music.example.com/health
+```
+
+### 4. 构建静态前端
+
+在 Netlify 或 Cloudflare Pages 的构建环境变量中配置：
+
+```text
+VITE_PUBLIC_MUSIC_API_BASE=https://music.example.com
+VITE_MUSIC_OPERATOR_NAME=实际运营者名称
+VITE_MUSIC_OPERATOR_CONTACT=有效联系邮箱
+VITE_MUSIC_SESSION_RETENTION_DAYS=90
+VITE_MUSIC_PRIVACY_URL=https://你的站点/音乐与隐私说明
+```
+
+构建命令为 `npm run build`，发布目录为 `dist`。GitHub Pages 也使用相同的构建变量，只是需要在构建工作流中注入。
+
+## 数据保存与备份
+
+音乐平台登录凭证保存在 Docker 卷 `music-session-data` 中。该卷同时保存自动生成的加密密钥和加密后的会话文件：
+
+- 不要公开或提交该卷内容；
+- 备份时必须同时备份密钥与加密文件；
+- 丢失密钥不会泄露凭证，但所有用户需要重新扫码；
+- 用户主动退出、凭证失效或达到配置的未使用期限后，应删除对应凭证。
+
+## 更新与检查
+
+```bash
+docker compose --env-file .env.music -f docker-compose.music-backend.yml pull
+docker compose --env-file .env.music -f docker-compose.music-backend.yml up -d --build
+docker compose --env-file .env.music -f docker-compose.music-backend.yml logs --tail 100 music-gateway
+```
+
+网关日志只记录不含查询参数的接口路径，不应记录平台 Cookie、二维码 key 或用户歌单内容。

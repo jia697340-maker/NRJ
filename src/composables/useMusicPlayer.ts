@@ -133,7 +133,17 @@ audio.addEventListener('pause', () => { isPlaying.value = false; persistMusicRun
 audio.addEventListener('waiting', () => { isBuffering.value = true })
 audio.addEventListener('canplay', () => { isBuffering.value = false })
 audio.addEventListener('timeupdate', () => { musicCurrentTime.value = audio.currentTime || 0 })
-audio.addEventListener('durationchange', () => { if (currentTrack.value && Number.isFinite(audio.duration)) currentTrack.value.duration = audio.duration })
+audio.addEventListener('durationchange', () => {
+  const track = currentTrack.value
+  if (!track || !Number.isFinite(audio.duration)) return
+  const source = musicSourceConfigs.value.find(item => item.id === track.sourceId)
+  if (source?.kind === 'meting' && audio.duration >= 29 && audio.duration <= 31.5) {
+    audio.pause(); audio.removeAttribute('src'); resolvedUrl.value = ''; isPlaying.value = false
+    track.available = false; track.reason = '已屏蔽 30 秒试听音源'; playbackError.value = track.reason
+    return
+  }
+  track.duration = audio.duration
+})
 audio.addEventListener('ended', () => { void nextTrack(true) })
 audio.addEventListener('error', () => { isPlaying.value = false; isBuffering.value = false; playbackError.value = '完整音频加载失败，地址可能已过期，请重新播放以自动换源' })
 audio.volume = musicVolume.value

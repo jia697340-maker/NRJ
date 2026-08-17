@@ -1,0 +1,11 @@
+{$MUSIC_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy music-gateway:8787
+
+    header {
+        Referrer-Policy "no-referrer"
+        X-Content-Type-Options "nosniff"
+        -Server
+    }
+
+}

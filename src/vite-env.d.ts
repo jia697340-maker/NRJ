@@ -2,6 +2,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_MUSIC_ACCOUNT_API_BASE?: string
   readonly VITE_PUBLIC_MUSIC_API_BASE?: string
 }
 

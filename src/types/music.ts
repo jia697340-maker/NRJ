@@ -109,8 +109,24 @@ export interface MusicSourceConfig {
   apiBase?: string
   username?: string
   token?: string
-  kind: 'local' | 'aggregate' | 'netease' | 'generic' | 'subsonic'
+  kind: 'local' | 'aggregate' | 'netease' | 'meting' | 'generic' | 'subsonic'
   capabilities: string[]
+}
+
+export interface MusicPrivacyPreferences {
+  version: number
+  noticeAcknowledged: boolean
+  allowAnonymousPublicSources: boolean
+  updatedAt: number
+}
+
+export interface MusicBackendPrivacyCapabilities {
+  sessionIsolation: boolean
+  cookiesEndpointProtected: boolean
+  httpOnlySession: boolean
+  credentialNotReturned: boolean
+  logoutSupported: boolean
+  retentionDays?: number
 }
 
 export interface MusicPersistedState {
