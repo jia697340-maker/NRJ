@@ -181,7 +181,7 @@ const formatDate = (timestamp: number) => {
 }
 
 .stat-num.highlight {
-  color: #27ae60;
+  color: #3b82f6;
 }
 
 .stat-label {
@@ -199,25 +199,26 @@ const formatDate = (timestamp: number) => {
 .primary-action {
   width: 100%;
   padding: 10px 0;
-  background: #27ae60;
+  background: var(--text-primary, #2c3e50);
   color: #ffffff;
   border: none;
   border-radius: 8px;
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: opacity 0.2s, transform 0.1s;
 }
 
 .primary-action:active {
-  background: #219653;
+  opacity: 0.85;
+  transform: scale(0.99);
 }
 
 .primary-action.is-confirmed {
-  background: #eafaf1;
-  color: #27ae60;
+  background: #eff6ff;
+  color: #3b82f6;
   cursor: default;
-  border: 1px solid rgba(39, 174, 96, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .secondary-btn-row {

@@ -149,7 +149,7 @@ const handleSave = () => {
 }
 
 .form-input:focus {
-  border-color: #27ae60;
+  border-color: #3b82f6;
 }
 
 .form-textarea {
@@ -165,7 +165,7 @@ const handleSave = () => {
 }
 
 .form-textarea:focus {
-  border-color: #27ae60;
+  border-color: #3b82f6;
 }
 
 .form-switches {
@@ -222,6 +222,6 @@ const handleSave = () => {
   border-radius: 50%;
   box-shadow: 0 2px 4px rgba(0,0,0,0.15);
 }
-input:checked + .slider { background-color: #27ae60; }
+input:checked + .slider { background-color: #2c3e50; }
 input:checked + .slider:before { transform: translateX(18px); }
 </style>

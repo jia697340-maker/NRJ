@@ -13,6 +13,7 @@ import GroupChatRoomView from './chat/GroupChatRoomView.vue'
 import GroupChatSettingsView from './chat/GroupChatSettingsView.vue'
 import ChatOfflineMeetView from './chat/ChatOfflineMeetView.vue'
 import ChatFriendRequestsView from './chat/ChatFriendRequestsView.vue'
+import GroupChatRequestsView from './chat/GroupChatRequestsView.vue'
 import ChatRelationshipView from './chat/ChatRelationshipView.vue'
 import CharacterProfileView from './chat/profile/CharacterProfileView.vue'
 import CharacterAutonomyView from './chat/CharacterAutonomyView.vue'
@@ -57,7 +58,7 @@ const {
   loadMyProfile
 } = useChatState()
 
-type ViewType = 'list' | 'chat' | 'groupCreate' | 'groupSettings' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'relationship' | 'autonomy' | 'characterProfile' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
+type ViewType = 'list' | 'chat' | 'groupCreate' | 'groupSettings' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'groupRequests' | 'relationship' | 'autonomy' | 'characterProfile' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
 type VoiceCallState = {
   active: boolean
   minimized: boolean
@@ -667,13 +668,15 @@ onUnmounted(() => {
     <AppChatDiscover v-if="currentView === 'discover'" />
 
     <!-- 5. 联系人视图 -->
-    <AppChatContacts v-if="currentView === 'contacts'" @close="emit('close')" @open-friend-requests="currentView = 'friendRequests'" @open-directory-character="openDirectoryCharacter" @open-character-profile="openContactProfile" />
+    <AppChatContacts v-if="currentView === 'contacts'" @close="emit('close')" @open-friend-requests="currentView = 'friendRequests'" @open-group-requests="currentView = 'groupRequests'" @open-directory-character="openDirectoryCharacter" @open-character-profile="openContactProfile" />
 
     <ChatFriendRequestsView
       v-if="currentView === 'friendRequests'"
       @back="currentView = 'contacts'"
       @open-relationship="chat => openRelationship(chat, 'friendRequests')"
     />
+
+    <GroupChatRequestsView v-if="currentView === 'groupRequests'" @back="currentView = 'contacts'" @updated="loadCustomContacts" />
 
     <ChatRelationshipView
       v-if="currentView === 'relationship' && selectedChat"

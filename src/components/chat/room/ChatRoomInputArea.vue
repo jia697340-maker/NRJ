@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { ensureRelationship, formatRelationshipPlan } from '../../../composables/useChatRelationship'
 
 const props = defineProps<{
@@ -14,6 +14,7 @@ const props = defineProps<{
   isGenerating: boolean
   selectedChat: any
   isMixedOfflineActive: boolean
+  mentionOptions?: Array<{ id: string; name: string; avatarUrl?: string; avatarText?: string; description?: string; disabled?: boolean }>
 }>()
 
 const emit = defineEmits<{
@@ -46,6 +47,32 @@ const emit = defineEmits<{
 }>()
 
 const inputMessage = ref('')
+const inputRef = ref<HTMLInputElement | null>(null)
+const extensionSliderRef = ref<HTMLDivElement | null>(null)
+const currentExtensionPage = ref(0)
+
+const onExtensionScroll = () => {
+  if (!extensionSliderRef.value) return
+  const { scrollLeft, clientWidth } = extensionSliderRef.value
+  if (clientWidth > 0) {
+    currentExtensionPage.value = Math.round(scrollLeft / clientWidth)
+  }
+}
+
+const scrollToExtensionPage = (pageIndex: number) => {
+  if (!extensionSliderRef.value) return
+  const clientWidth = extensionSliderRef.value.clientWidth
+  extensionSliderRef.value.scrollTo({
+    left: pageIndex * clientWidth,
+    behavior: 'smooth'
+  })
+  currentExtensionPage.value = pageIndex
+}
+
+const mentionMatch = computed(() => inputMessage.value.match(/@([^@\s]*)$/))
+const mentionQuery = computed(() => mentionMatch.value?.[1]?.toLowerCase() || '')
+const filteredMentionOptions = computed(() => mentionMatch.value ? (props.mentionOptions || []).filter(item => !mentionQuery.value || item.name.toLowerCase().includes(mentionQuery.value)).slice(0, 12) : [])
+const showMentionMenu = computed(() => Boolean(mentionMatch.value && filteredMentionOptions.value.length))
 const relationship = computed(() => ensureRelationship(props.selectedChat || {}))
 const relationshipBlocksInput = computed(() => relationship.value.blockedBy === 'user' || relationship.value.friendship !== 'friends')
 const relationshipTitle = computed(() => {
@@ -65,6 +92,16 @@ const onFocusInput = () => {
   emit('update:showEmojiPanel', false)
   emit('focus-input')
 }
+
+const selectMention = async (item: { id: string; name: string; disabled?: boolean }) => {
+  if (item.disabled) return
+  const match = mentionMatch.value
+  if (!match) return
+  const start = inputMessage.value.length - match[0].length
+  inputMessage.value = `${inputMessage.value.slice(0, start)}@${item.name} `
+  await nextTick(); inputRef.value?.focus()
+}
+const handleEnter = () => { const option = filteredMentionOptions.value.find(item => !item.disabled); if (showMentionMenu.value && option) void selectMention(option); else handleAddMessage() }
 </script>
 
 <template>
@@ -174,6 +211,15 @@ const onFocusInput = () => {
         </div>
       </transition>
 
+      <transition name="reply-fade">
+        <div v-if="showMentionMenu" class="mention-picker" role="listbox" aria-label="选择要提醒的群成员">
+          <button v-for="item in filteredMentionOptions" :key="item.id" type="button" class="mention-option" :disabled="item.disabled" @mousedown.prevent="selectMention(item)">
+            <span class="mention-avatar" :class="{ all: item.id === 'all' }" :style="item.avatarUrl ? { backgroundImage: `url(${item.avatarUrl})` } : {}">{{ item.avatarUrl ? '' : (item.avatarText || item.name.charAt(0)) }}</span>
+            <span class="mention-copy"><strong>{{ item.name }}</strong><small>{{ item.description || '群成员' }}</small></span>
+          </button>
+        </div>
+      </transition>
+
       <div class="input-flat-bar">
         <div class="icon-group-left">
           <div class="icon-btn slim" @click="emit('toggle-extension-panel')" :class="{ 'icon-active': showExtensionPanel }">
@@ -185,11 +231,12 @@ const onFocusInput = () => {
         </div>
         
         <input 
+          ref="inputRef"
           type="text" 
           class="text-input" 
           placeholder="输入消息..." 
           v-model="inputMessage"
-          @keyup.enter="handleAddMessage"
+          @keydown.enter.prevent="handleEnter"
           @focus="onFocusInput"
         />
         
@@ -222,98 +269,137 @@ const onFocusInput = () => {
 
     <!-- 底部拓展面板 (平滑展开) -->
     <div class="extension-panel-wrapper" :class="{ 'is-open': showExtensionPanel }">
-      <div class="extension-grid">
-        <!-- 功能 1: 停止响应 -->
-        <div class="extension-item" :class="{ 'is-active': isGenerating }" @click="emit('handle-stop-call')">
-          <div class="extension-icon-box">
-            <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect>
-            </svg>
-          </div>
-          <span class="extension-label">停止响应</span>
-        </div>
-
-        <!-- 功能 2: 重新生成 -->
-        <div class="extension-item" :class="{ 'is-active': !isGenerating && selectedChat?.id !== 1 }" @click="emit('handle-regenerate')">
-          <div class="extension-icon-box">
-            <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="1 4 1 10 7 10"></polyline>
-              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-            </svg>
-          </div>
-          <span class="extension-label">重新生成</span>
-        </div>
-
-        <!-- 功能 3: 转账/红包 -->
-        <div class="extension-item is-active" @click="emit('show-transfer-modal')">
-          <div class="extension-icon-box">
-            <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="5" width="20" height="14" rx="2"></rect>
-              <path d="M12 12h.01"></path>
-            </svg>
-          </div>
-          <span class="extension-label">转账/红包</span>
-        </div>
-
-        <!-- 功能 4: 发语音 -->
-        <div class="extension-item is-active" @click="emit('show-voice-modal')">
-          <div class="extension-icon-box">
-            <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-              <line x1="12" y1="19" x2="12" y2="22"></line>
-            </svg>
-          </div>
-          <span class="extension-label">发语音</span>
-        </div>
-
-        <!-- 功能 5: 发图片 -->
-        <div class="extension-item is-active" @click="emit('show-image-modal')">
-          <div class="extension-icon-box">
-            <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <circle cx="8.5" cy="8.5" r="1.5"></circle>
-              <polyline points="21 15 16 10 5 21"></polyline>
-            </svg>
-          </div>
-          <span class="extension-label">发图片</span>
-        </div>
-
-        <!-- 功能 6: 语音通话 -->
-        <div class="extension-item is-active" @click="emit('show-voice-call-modal')">
-          <div class="extension-icon-box">
-            <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-            </svg>
-          </div>
-          <span class="extension-label">语音通话</span>
-        </div>
-
-        <!-- 功能 7: 视频通话 -->
-        <div class="extension-item is-active" @click="emit('show-video-call-modal')">
-          <div class="extension-icon-box">
-            <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="23 7 16 12 23 17 23 7"></polygon>
-              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-            </svg>
-          </div>
-          <span class="extension-label">视频通话</span>
-        </div>
-
-          <!-- 功能 8: 填写本轮用户心声 -->
-          <div
-            class="extension-item is-active"
-            :class="{ 'thought-ready': Boolean(selectedChat?.pendingUserThought?.trim()) }"
-            @click="emit('show-user-thought-modal')"
-          >
-            <div class="extension-icon-box">
-              <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M20 11.2a7.8 7.8 0 0 1-8 7.8 9 9 0 0 1-3.5-.7L4 20l1.5-4A7.7 7.7 0 0 1 4 11.2 7.8 7.8 0 0 1 12 3a7.8 7.8 0 0 1 8 8.2Z"></path>
-                <path d="M9.2 11.3c.9 1.3 1.9 2 2.8 2s1.9-.7 2.8-2"></path>
-              </svg>
+      <div 
+        ref="extensionSliderRef" 
+        class="extension-pages-slider"
+        @scroll="onExtensionScroll"
+      >
+        <!-- 第一页：8 个常用功能 -->
+        <div class="extension-page">
+          <div class="extension-grid">
+            <!-- 功能 1: 停止响应 -->
+            <div class="extension-item" :class="{ 'is-active': isGenerating }" @click="emit('handle-stop-call')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect>
+                </svg>
+              </div>
+              <span class="extension-label">停止响应</span>
             </div>
-            <span class="extension-label">{{ selectedChat?.pendingUserThought?.trim() ? '已填写心声' : '填写心声' }}</span>
+
+            <!-- 功能 2: 重新生成 -->
+            <div class="extension-item" :class="{ 'is-active': !isGenerating && selectedChat?.id !== 1 }" @click="emit('handle-regenerate')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="1 4 1 10 7 10"></polyline>
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                </svg>
+              </div>
+              <span class="extension-label">重新生成</span>
+            </div>
+
+            <!-- 功能 3: 转账/红包 -->
+            <div class="extension-item is-active" @click="emit('show-transfer-modal')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="5" width="20" height="14" rx="2"></rect>
+                  <path d="M12 12h.01"></path>
+                </svg>
+              </div>
+              <span class="extension-label">转账/红包</span>
+            </div>
+
+            <!-- 功能 4: 发语音 -->
+            <div class="extension-item is-active" @click="emit('show-voice-modal')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+              </div>
+              <span class="extension-label">发语音</span>
+            </div>
+
+            <!-- 功能 5: 发图片 -->
+            <div class="extension-item is-active" @click="emit('show-image-modal')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <polyline points="21 15 16 10 5 21"></polyline>
+                </svg>
+              </div>
+              <span class="extension-label">发图片</span>
+            </div>
+
+            <!-- 功能 6: 语音通话 -->
+            <div class="extension-item is-active" @click="emit('show-voice-call-modal')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+              </div>
+              <span class="extension-label">语音通话</span>
+            </div>
+
+            <!-- 功能 7: 视频通话 -->
+            <div class="extension-item is-active" @click="emit('show-video-call-modal')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                </svg>
+              </div>
+              <span class="extension-label">视频通话</span>
+            </div>
+
+            <!-- 功能 8: 填写本轮用户心声 -->
+            <div
+              class="extension-item is-active"
+              :class="{ 'thought-ready': Boolean(selectedChat?.pendingUserThought?.trim()) }"
+              @click="emit('show-user-thought-modal')"
+            >
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 11.2a7.8 7.8 0 0 1-8 7.8 9 9 0 0 1-3.5-.7L4 20l1.5-4A7.7 7.7 0 0 1 4 11.2 7.8 7.8 0 0 1 12 3a7.8 7.8 0 0 1 8 8.2Z"></path>
+                  <path d="M9.2 11.3c.9 1.3 1.9 2 2.8 2s1.9-.7 2.8-2"></path>
+                </svg>
+              </div>
+              <span class="extension-label">{{ selectedChat?.pendingUserThought?.trim() ? '已填写心声' : '填写心声' }}</span>
+            </div>
           </div>
+        </div>
+
+        <!-- 第二页：8 个占位功能项 -->
+        <div class="extension-page">
+          <div class="extension-grid">
+            <div v-for="i in 8" :key="`placeholder-${i}`" class="extension-item placeholder">
+              <div class="extension-icon-box placeholder-box">
+                <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="6" ry="6"></rect>
+                  <line x1="12" y1="8" x2="12" y2="16"></line>
+                  <line x1="8" y1="12" x2="16" y2="12"></line>
+                </svg>
+              </div>
+              <span class="extension-label">功能拓展</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 分页指示器 -->
+      <div class="extension-pagination">
+        <div 
+          class="pagination-dot" 
+          :class="{ active: currentExtensionPage === 0 }"
+          @click="scrollToExtensionPage(0)"
+        ></div>
+        <div 
+          class="pagination-dot" 
+          :class="{ active: currentExtensionPage === 1 }"
+          @click="scrollToExtensionPage(1)"
+        ></div>
       </div>
     </div>
   </footer>
@@ -355,6 +441,9 @@ const onFocusInput = () => {
   background: var(--text-primary);
   color: var(--sys-bg-secondary);
 }
+
+.mention-picker{position:absolute;right:12px;bottom:calc(100% - 8px);left:12px;z-index:28;max-height:286px;overflow:auto;padding:7px;border:1px solid var(--border-color);border-radius:15px;background:var(--card-bg-solid,var(--sys-bg-secondary));box-shadow:0 14px 38px rgba(0,0,0,.14);backdrop-filter:blur(16px)}.mention-option{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px;width:100%;min-height:50px;padding:6px 8px;border:0;border-radius:11px;background:transparent;color:var(--text-primary);font:inherit;text-align:left;cursor:pointer}.mention-option:hover,.mention-option:focus-visible{outline:0;background:var(--sys-bg-tertiary)}.mention-option:disabled{opacity:.45;cursor:not-allowed}.mention-avatar{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background-color:var(--sys-bg-tertiary);background-position:center;background-size:cover;font-size:12px;font-weight:650}.mention-avatar.all{border-radius:12px;background:var(--text-primary);color:var(--sys-bg-secondary)}.mention-copy{display:flex;min-width:0;flex-direction:column;gap:3px}.mention-copy strong{overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.mention-copy small{color:var(--text-tertiary);font-size:9px}
+.input-flat-bar-wrapper{position:relative}
 
 .relationship-input-state{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:transparent}.relationship-summary{min-width:0;height:52px;padding:7px 10px;border:1px solid var(--border-color);border-radius:14px;background:var(--sys-bg-secondary);color:var(--text-primary);display:grid;grid-template-columns:34px minmax(0,1fr) 17px;align-items:center;gap:8px;text-align:left;cursor:pointer}.relationship-summary-icon{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:var(--sys-bg-tertiary);color:var(--text-secondary)}.relationship-summary span:nth-child(2){min-width:0;display:flex;flex-direction:column;gap:3px}.relationship-summary b{font-size:12px}.relationship-summary small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--text-tertiary)}.relationship-chevron{color:var(--text-tertiary)}.relationship-advance{height:52px;padding:0 14px;border:0;border-radius:14px;background:var(--text-primary);color:var(--sys-bg-secondary);display:flex;align-items:center;gap:6px;font:inherit;font-size:12px;font-weight:650;cursor:pointer}.relationship-advance:disabled{opacity:.55;cursor:not-allowed}.relationship-advance:focus-visible,.relationship-summary:focus-visible,.undelivered-notice:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}.relationship-spinner{width:16px;height:16px;border:2px solid rgba(128,128,128,.35);border-top-color:currentColor;border-radius:50%;animation:relationship-spin .7s linear infinite}.undelivered-notice{width:100%;padding:6px 12px 2px;border:0;background:transparent;color:var(--text-tertiary);font:inherit;font-size:10px;text-align:center;cursor:pointer}.undelivered-notice span{color:#3478c8;margin-left:5px}@keyframes relationship-spin{to{transform:rotate(360deg)}}@media(max-width:420px){.relationship-input-state{grid-template-columns:minmax(0,1fr) 82px;gap:7px;padding-left:8px;padding-right:8px}.relationship-advance{padding:0 9px}.relationship-summary{padding-left:8px}.relationship-summary-icon{width:30px;height:30px}}
 </style>

@@ -1,12 +1,14 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { GroupAdminLog, GroupLevelTitleConfig, GroupMemberItemViewModel, GroupBadgeType, GroupMemberRole } from '../types/groupManagement'
+import type { GroupAdminLog, GroupLevelTitleConfig, GroupMemberItemViewModel, GroupBadgeType, GroupMemberRole, GroupPointRules } from '../types/groupManagement'
 import { saveGroupChat } from '../services/groupChat'
 import { useChatAuth } from './useChatAuth'
 import {
   DEFAULT_GROUP_LEVEL_TITLES,
+  DEFAULT_STAGE_TITLES,
   ensureGroupManagementState,
+  getGroupLevelInfo,
   getGroupMemberRole,
   getGroupPermissions,
   groupManagementService,
@@ -62,21 +64,18 @@ export function useGroupManagement(groupRef: { value: any }, userProfileRef?: { 
   const currentUserMuteRemainingText = computed(() => group()?.isWholeGroupMuted && getGroupMemberRole(group(), 'user') === 'member' ? '全员禁言中' : formatMuteRemaining(userMuteRemainingMs.value))
   const levelTitleConfigs = computed<GroupLevelTitleConfig[]>(() => group()?.levelTitles || DEFAULT_LEVEL_TITLES)
 
-  const calculateLevelInfo = (points = 0) => {
-    const configs = levelTitleConfigs.value; let index = 0
-    for (let i = configs.length - 1; i >= 0; i--) if (points >= configs[i].minPoints) { index = i; break }
-    const current = configs[index]; const next = configs[index + 1]
-    const progress = next ? Math.min(100, Math.max(0, Math.round(((points - current.minPoints) / (next.minPoints - current.minPoints)) * 100))) : 100
-    return { level: current.level, title: current.name, progress }
-  }
-
   const findContact = (id: string) => contactsRef?.value?.find(item => item.chatType !== 'group' && String(item.characterEntityId || item.id) === id)
   const membersViewModel = computed<GroupMemberItemViewModel[]>(() => {
     const record = group(); if (!record) return []
     const ids = ['user', ...(record.memberIds || []).map(String)]
+    const today = new Date().toISOString().slice(0, 10)
+    const dailyScores = ids.map(id => ({ id, score: record.memberActivityDaily?.[id]?.date === today ? Number(record.memberActivityDaily[id].earned || 0) : 0 }))
+    const topDailyScore = Math.max(0, ...dailyScores.map(item => item.score))
+    const dailyDragonId = topDailyScore > 0 ? dailyScores.find(item => item.score === topDailyScore)?.id : ''
     return ids.map(id => {
       const isUser = id === 'user'; const contact = isUser ? null : findContact(id); const role: GroupMemberRole = getGroupMemberRole(record, id)
-      const points = Math.max(0, Number(record.memberPoints?.[id] || 0)); const level = calculateLevelInfo(points); const specialTitle = record.memberSpecialTitles?.[id]
+      const levelInfo = getGroupLevelInfo(record, id)
+      const specialTitle = record.memberSpecialTitles?.[id]
       const fallbackName = isUser ? String(userProfileRef?.value?.name || record.userProfile?.name || '我') : String(contact?.name || record.memoryMemberNames?.[id] || id)
       const nickname = String(record.memberNicknames?.[id] || fallbackName); const mutedUntil = Number(record.memberMutes?.[id]?.mutedUntil || 0); const remaining = Math.max(0, mutedUntil - now.value)
       const currentRole = getGroupMemberRole(record, 'user'); const userIsOwner = currentRole === 'owner'; const userIsAdmin = currentRole === 'admin'
@@ -84,9 +83,9 @@ export function useGroupManagement(groupRef: { value: any }, userProfileRef?: { 
       let badgeType: GroupBadgeType = role; if (specialTitle) badgeType = 'special'
       return {
         id, name: fallbackName, nickname, avatarUrl: isUser ? String(record.userProfile?.avatarUrl || '') : String(contact?.avatarUrl || ''), avatarText: String(contact?.avatarText || nickname.charAt(0) || (isUser ? '我' : '伴')), isAi: !isUser,
-        role, badgeType, level: level.level, levelTitle: specialTitle || level.title, points, pointsProgress: level.progress,
+        role, badgeType, level: levelInfo.level, levelTitle: specialTitle || levelInfo.levelTitle, points: levelInfo.points, pointsProgress: levelInfo.pointsProgress,
         isMuted: isGroupMemberMuted(record, id, now.value), mutedUntil, muteRemainingMs: remaining, muteRemainingText: record.isWholeGroupMuted && role === 'member' && remaining <= 0 ? '全员禁言中' : formatMuteRemaining(remaining), muteReason: String(record.memberMutes?.[id]?.muteReason || ''),
-        canManage: manageable, canBeMuted: manageable && role !== 'owner', canBePromoted: !isUser && userIsOwner && role === 'member', canBeDemoted: !isUser && userIsOwner && role === 'admin', canBeKicked: manageable, canTransferTo: !isUser && userIsOwner && role !== 'owner', hasCustomTitle: !!specialTitle, specialTitleName: specialTitle
+        canManage: manageable, canBeMuted: manageable && role !== 'owner', canBePromoted: !isUser && userIsOwner && role === 'member', canBeDemoted: !isUser && userIsOwner && role === 'admin', canBeKicked: manageable, canTransferTo: !isUser && userIsOwner && role !== 'owner', hasCustomTitle: !!specialTitle, specialTitleName: specialTitle, dailyHonor: id === dailyDragonId ? '今日龙王' : undefined
       }
     })
   })
@@ -108,6 +107,7 @@ export function useGroupManagement(groupRef: { value: any }, userProfileRef?: { 
   const promoteMember = (memberId: string) => runAction(() => groupManagementService.promoteMember(group(), 'user', memberId), '已设为管理员')
   const recoverOwnership = () => runAction(() => groupManagementService.recoverOwnership(group()), '已恢复群主身份')
   const addMember = (memberId: string) => runAction(() => groupManagementService.addMember(group(), 'user', memberId), '已添加群成员')
+  const inviteFormerMember = (memberId: string) => runAction(() => groupManagementService.inviteFormerMember(group(), 'user', memberId), '重新入群邀请已发送')
   const demoteAdmin = (memberId: string) => runAction(() => groupManagementService.demoteAdmin(group(), 'user', memberId), '已取消管理员')
   const transferOwnership = (memberId: string) => runAction(() => groupManagementService.transferOwnership(group(), 'user', memberId), '群主身份已转让')
   const muteMember = (memberId: string, durationSeconds: number, reason = '') => runAction(() => groupManagementService.muteMember(group(), 'user', memberId, durationSeconds, reason), '禁言设置成功')
@@ -120,10 +120,16 @@ export function useGroupManagement(groupRef: { value: any }, userProfileRef?: { 
   const deleteAnnouncement = (id: string) => runAction(() => groupManagementService.deleteAnnouncement(group(), 'user', id), '公告已删除')
   const markAnnouncementRead = (id: string) => runAction(() => groupManagementService.markAnnouncementRead(group(), 'user', id))
   const confirmAnnouncement = (id: string) => runAction(() => groupManagementService.confirmAnnouncement(group(), 'user', id), '已确认收到该公告')
+  const updateStageTitles = (stageTitles: Record<number, string>) => runAction(() => groupManagementService.updateStageTitles(group(), 'user', stageTitles), '群段位头衔已更新')
   const updateLevelTitles = (titles: GroupLevelTitleConfig[]) => runAction(() => groupManagementService.updateLevelTitles(group(), 'user', titles), '群头衔配置已更新')
+  const setMemberSpecialTitle = (memberId: string, title: string) => runAction(() => groupManagementService.setMemberSpecialTitle(group(), 'user', memberId, title), title.trim() ? '专属头衔已授予' : '专属头衔已撤销')
+  const adjustMemberPoints = (memberId: string, points: number) => runAction(() => groupManagementService.adjustMemberPoints(group(), 'user', memberId, points), '成员积分已更新')
+  const resetMemberPoints = (memberId: string) => runAction(() => groupManagementService.resetMemberPoints(group(), 'user', memberId), '成员积分与等级已重置')
+  const resetAllGroupPoints = () => runAction(() => groupManagementService.resetAllGroupPoints(group(), 'user'), '全群积分与等级已重置')
+  const updateGroupPointRules = (rules: Partial<GroupPointRules>) => runAction(() => groupManagementService.updateGroupPointRules(group(), 'user', rules), '积分规则已更新')
   const setAiManagementMode = (mode: any) => runAction(() => groupManagementService.setAiManagementMode(group(), 'user', mode), 'AI管理模式已切换')
   const loadAdminLogs = async () => { const result = await runAction(() => groupManagementService.fetchAdminLogs(group(), 'user')); if (result) adminLogs.value = result }
   const deleteAdminLogs = (logIds: string[]) => runAction(() => groupManagementService.deleteAdminLogs(group(), 'user', logIds), '已删除所选管理日志')
 
-  return { isLoading, errorMessage, toastMessage, adminLogs, currentUserPermissions, isCurrentUserMuted, userMuteRemainingMs, currentUserMuteRemainingText, levelTitleConfigs, membersViewModel, announcementsViewModel, activeTopAnnouncement, unreadAnnouncementsCount, recoverOwnership, addMember, promoteMember, demoteAdmin, transferOwnership, muteMember, unmuteMember, setWholeGroupMute, removeMember, updateMyGroupNickname, publishAnnouncement, updateAnnouncement, deleteAnnouncement, markAnnouncementRead, confirmAnnouncement, updateLevelTitles, setAiManagementMode, loadAdminLogs, deleteAdminLogs }
+  return { isLoading, errorMessage, toastMessage, adminLogs, currentUserPermissions, isCurrentUserMuted, userMuteRemainingMs, currentUserMuteRemainingText, levelTitleConfigs, membersViewModel, announcementsViewModel, activeTopAnnouncement, unreadAnnouncementsCount, recoverOwnership, addMember, inviteFormerMember, promoteMember, demoteAdmin, transferOwnership, muteMember, unmuteMember, setWholeGroupMute, removeMember, updateMyGroupNickname, publishAnnouncement, updateAnnouncement, deleteAnnouncement, markAnnouncementRead, confirmAnnouncement, updateStageTitles, updateLevelTitles, setMemberSpecialTitle, adjustMemberPoints, resetMemberPoints, resetAllGroupPoints, updateGroupPointRules, setAiManagementMode, loadAdminLogs, deleteAdminLogs }
 }

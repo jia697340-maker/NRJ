@@ -5,14 +5,18 @@ import type {
   GroupLevelTitleConfig,
   GroupAdminLog,
   GroupAiManagementMode,
-  GroupUserPermissions
+  GroupUserPermissions,
+  GroupPointRules
 } from '../../../types/groupManagement'
+import { DEFAULT_STAGE_TITLES, DEFAULT_GROUP_POINT_RULES, getMinPointsForLevel } from '../../../services/groupManagementService'
 
 const props = defineProps<{
   visible: boolean
   isWholeGroupMuted: boolean
   aiMode: GroupAiManagementMode
-  levelTitles: GroupLevelTitleConfig[]
+  levelTitles?: GroupLevelTitleConfig[]
+  stageTitles?: Record<number, string>
+  pointRules?: GroupPointRules
   logs: GroupAdminLog[]
   permissions: GroupUserPermissions
 }>()
@@ -22,13 +26,34 @@ const emit = defineEmits<{
   (e: 'toggleWholeMute', enabled: boolean): void
   (e: 'changeAiMode', mode: GroupAiManagementMode): void
   (e: 'saveLevelTitles', titles: GroupLevelTitleConfig[]): void
+  (e: 'saveStageTitles', stageTitles: Record<number, string>): void
+  (e: 'savePointRules', rules: Partial<GroupPointRules>): void
+  (e: 'resetAllPoints'): void
   (e: 'refreshLogs'): void
   (e: 'deleteLogs', logIds: string[]): void
   (e: 'recoverOwnership'): void
 }>()
 
-const currentTab = ref<'settings' | 'titles' | 'logs'>('settings')
+const currentTab = ref<'settings' | 'titles' | 'rules' | 'logs'>('settings')
 const showRecoverConfirm = ref(false)
+const showResetAllPointsConfirm = ref(false)
+
+// 本地积分规则编辑
+const editingPointRules = ref<GroupPointRules>({
+  baseMsgPoints: props.pointRules?.baseMsgPoints ?? DEFAULT_GROUP_POINT_RULES.baseMsgPoints,
+  dailyFirstBonus: props.pointRules?.dailyFirstBonus ?? DEFAULT_GROUP_POINT_RULES.dailyFirstBonus,
+  dailyCap: props.pointRules?.dailyCap ?? DEFAULT_GROUP_POINT_RULES.dailyCap,
+  announcementConfirmPoints: props.pointRules?.announcementConfirmPoints ?? DEFAULT_GROUP_POINT_RULES.announcementConfirmPoints
+})
+
+const savePointRules = () => {
+  emit('savePointRules', { ...editingPointRules.value })
+}
+
+const resetPointRulesToDefault = () => {
+  editingPointRules.value = { ...DEFAULT_GROUP_POINT_RULES }
+  emit('savePointRules', { ...DEFAULT_GROUP_POINT_RULES })
+}
 
 // 管理日志多选状态
 const isLogSelectMode = ref(false)
@@ -70,14 +95,20 @@ const confirmDeleteLogs = () => {
   showDeleteLogsConfirm.value = false
 }
 
-// 本地头衔编辑状态
-const editingTitles = ref<GroupLevelTitleConfig[]>(JSON.parse(JSON.stringify(props.levelTitles)))
+// 本地段位头衔编辑状态 (1~100级段位)
+const editingStages = ref(DEFAULT_STAGE_TITLES.map(stage => ({
+  minLevel: stage.minLevel,
+  maxLevel: stage.maxLevel,
+  defaultName: stage.defaultName,
+  name: props.stageTitles?.[stage.minLevel] || stage.defaultName,
+  minPoints: getMinPointsForLevel(stage.minLevel)
+})))
 
 const aiModes: { key: GroupAiManagementMode; label: string; desc: string }[] = [
   { key: 'off', label: '关闭', desc: 'AI仅作为普通成员发言，不执行任何管理职能' },
   { key: 'remind_only', label: '温和提醒', desc: '当出现违规发言时，AI进行友善的群规提醒' },
-  { key: 'semi_auto', label: '半自动管理', desc: 'AI识别违规后生成处置建议，由群主/管理员二次确认' },
-  { key: 'full_auto', label: '全自主智能管家', desc: 'AI管理员根据群聊氛围与规则自主执行禁言与提醒' }
+  { key: 'semi_auto', label: '半自动管理', desc: '角色按真实身份提出公告、成员与消息管理建议，由用户确认' },
+  { key: 'full_auto', label: '全自主智能管家', desc: '角色在QQ式身份权限内自主管理，转让、解散和任免仍被禁止' }
 ]
 
 const formatDate = (timestamp: number) => {
@@ -87,7 +118,11 @@ const formatDate = (timestamp: number) => {
 }
 
 const saveTitles = () => {
-  emit('saveLevelTitles', editingTitles.value)
+  const stageMap: Record<number, string> = {}
+  editingStages.value.forEach(s => {
+    stageMap[s.minLevel] = s.name.trim() || s.defaultName
+  })
+  emit('saveStageTitles', stageMap)
 }
 </script>
 
@@ -118,14 +153,21 @@ const saveTitles = () => {
           :class="{ active: currentTab === 'titles' }"
           @click="currentTab = 'titles'"
         >
-          六级头衔
+          百级头衔
+        </div>
+        <div
+          class="tab-btn"
+          :class="{ active: currentTab === 'rules' }"
+          @click="currentTab = 'rules'"
+        >
+          积分规则
         </div>
         <div
           class="tab-btn"
           :class="{ active: currentTab === 'logs' }"
           @click="currentTab = 'logs'; emit('refreshLogs')"
         >
-          管理日志
+          日志
         </div>
       </div>
 
@@ -179,27 +221,23 @@ const saveTitles = () => {
         </div>
       </div>
 
-      <!-- Tab 2: 六级头衔编辑 -->
+      <!-- Tab 2: 1~100 级段位头衔编辑 -->
       <div v-else-if="currentTab === 'titles'" class="tab-panel-body scrollable-panel">
-        <div class="group-title">配置本群成员 1~6 级专属头衔</div>
+        <div class="group-title">配置本群 1~100 级各段位专属头衔</div>
         <div class="titles-edit-list">
-          <div v-for="title in editingTitles" :key="title.level" class="title-edit-row">
-            <span class="level-label">LV{{ title.level }}</span>
+          <div v-for="stage in editingStages" :key="stage.minLevel" class="title-edit-row">
+            <span class="level-label">
+              {{ stage.minLevel === stage.maxLevel ? `LV${stage.minLevel}` : `LV${stage.minLevel}~${stage.maxLevel}` }}
+            </span>
             <input
-              v-model="title.name"
+              v-model="stage.name"
               class="title-name-input"
               maxlength="10"
-              placeholder="头衔名称"
+              placeholder="段位头衔"
             />
             <div class="points-threshold">
-              <span class="pts-text">需积分:</span>
-              <input
-                v-model.number="title.minPoints"
-                type="number"
-                class="points-input"
-                min="0"
-                step="50"
-              />
+              <span class="pts-text">起步:</span>
+              <span class="pts-val">{{ stage.minPoints }}分</span>
             </div>
           </div>
         </div>
@@ -208,11 +246,107 @@ const saveTitles = () => {
           class="save-titles-btn"
           @click="saveTitles"
         >
-          保存头衔配置
+          保存段位头衔
         </button>
       </div>
 
-      <!-- Tab 3: 管理日志 -->
+      <!-- Tab 3: 自定义群聊积分规则与重置 -->
+      <div v-else-if="currentTab === 'rules'" class="tab-panel-body scrollable-panel">
+        <div class="setting-group">
+          <div class="group-title">群聊积分获取规则设置</div>
+          <div class="rule-field-list">
+            <div class="rule-field-row">
+              <div>
+                <div class="setting-label">每次发言基础积分</div>
+                <div class="setting-desc">群成员/用户每产生一次有效发言获得</div>
+              </div>
+              <div class="rule-input-box">
+                <input
+                  v-model.number="editingPointRules.baseMsgPoints"
+                  class="rule-num-input"
+                  type="number"
+                  min="0"
+                  max="100"
+                  :disabled="!permissions.isOwner"
+                />
+                <span class="rule-unit">分</span>
+              </div>
+            </div>
+
+            <div class="rule-field-row">
+              <div>
+                <div class="setting-label">每日首次发言奖励</div>
+                <div class="setting-desc">当天在群内发送第一条消息额外奖励</div>
+              </div>
+              <div class="rule-input-box">
+                <input
+                  v-model.number="editingPointRules.dailyFirstBonus"
+                  class="rule-num-input"
+                  type="number"
+                  min="0"
+                  max="100"
+                  :disabled="!permissions.isOwner"
+                />
+                <span class="rule-unit">分</span>
+              </div>
+            </div>
+
+            <div class="rule-field-row">
+              <div>
+                <div class="setting-label">每日获取积分上限</div>
+                <div class="setting-desc">单人每天在群内最多可累积的活动积分</div>
+              </div>
+              <div class="rule-input-box">
+                <input
+                  v-model.number="editingPointRules.dailyCap"
+                  class="rule-num-input"
+                  type="number"
+                  min="1"
+                  max="1000"
+                  :disabled="!permissions.isOwner"
+                />
+                <span class="rule-unit">分</span>
+              </div>
+            </div>
+
+            <div class="rule-field-row">
+              <div>
+                <div class="setting-label">确认公告奖励积分</div>
+                <div class="setting-desc">成员或用户确认收到需确认公告时奖励</div>
+              </div>
+              <div class="rule-input-box">
+                <input
+                  v-model.number="editingPointRules.announcementConfirmPoints"
+                  class="rule-num-input"
+                  type="number"
+                  min="0"
+                  max="100"
+                  :disabled="!permissions.isOwner"
+                />
+                <span class="rule-unit">分</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="permissions.isOwner" class="rules-btn-actions">
+            <button class="save-titles-btn" style="flex: 2; margin-top: 0;" @click="savePointRules">保存规则配置</button>
+            <button class="rule-reset-btn" @click="resetPointRulesToDefault">恢复默认</button>
+          </div>
+        </div>
+
+        <!-- 重置全员等级与积分 -->
+        <div v-if="permissions.isOwner" class="setting-group" style="margin-top: 4px;">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label warn-text">重置全群成员等级与积分</div>
+              <div class="setting-desc">一键将全群所有成员的积分清零，恢复为 LV1 潜水</div>
+            </div>
+            <div class="confirm-btn danger" style="flex: none; padding: 6px 14px; border-radius: 8px; font-size: 13px;" @click="showResetAllPointsConfirm = true">全员重置</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: 管理日志 -->
       <div v-else class="tab-panel-body scrollable-panel">
         <div v-if="logs.length" class="logs-container">
           <div class="logs-toolbar">
@@ -297,6 +431,18 @@ const saveTitles = () => {
         <div class="confirm-actions">
           <div class="confirm-btn cancel" @click="showDeleteLogsConfirm = false">取消</div>
           <div class="confirm-btn danger" @click="confirmDeleteLogs">确认删除</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 全员重置确认弹窗 -->
+    <div v-if="showResetAllPointsConfirm" class="wb-modal-overlay admin-nested-overlay" @click.self="showResetAllPointsConfirm = false">
+      <div class="custom-confirm-modal admin-confirm-modal">
+        <div class="confirm-title">重置全群等级与积分？</div>
+        <div class="confirm-desc">确定要清空全群所有成员的积分吗？所有成员的等级都将重置回 LV1。此操作不可撤销。</div>
+        <div class="confirm-actions">
+          <div class="confirm-btn cancel" @click="showResetAllPointsConfirm = false">取消</div>
+          <div class="confirm-btn danger" @click="emit('resetAllPoints'); showResetAllPointsConfirm = false">确定重置</div>
         </div>
       </div>
     </div>
@@ -578,8 +724,8 @@ const saveTitles = () => {
 }
 
 .ai-mode-card.active {
-  border-color: #27ae60;
-  background: #fdfefe;
+  border-color: #3b82f6;
+  background: #f8fafc;
 }
 
 .mode-header {
@@ -604,8 +750,8 @@ const saveTitles = () => {
 }
 
 .mode-radio.selected {
-  border-color: #27ae60;
-  background: #27ae60;
+  border-color: #3b82f6;
+  background: #3b82f6;
 }
 
 .mode-radio.selected::after {
@@ -642,10 +788,85 @@ const saveTitles = () => {
 }
 
 .level-label {
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
-  color: #27ae60;
-  width: 32px;
+  color: #334155;
+  background: #e2e8f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-align: center;
+  width: 72px;
+  flex-shrink: 0;
+}
+.pts-val {
+  font-size: 11px;
+  color: #7f8c8d;
+  font-weight: 600;
+}
+
+.rule-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.rule-field-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.rule-input-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.rule-num-input {
+  width: 52px;
+  padding: 5px 6px;
+  border: 1px solid #dcdde1;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: center;
+  font-weight: 600;
+  outline: none;
+}
+
+.rule-num-input:focus {
+  border-color: #3b82f6;
+}
+
+.rule-unit {
+  font-size: 12px;
+  color: #7f8c8d;
+}
+
+.rules-btn-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.rule-reset-btn {
+  flex: 1;
+  background: #f1f2f6;
+  color: #2c3e50;
+  border: 1px solid #dcdde1;
+  border-radius: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.rule-reset-btn:active {
+  background: #dfe6e9;
 }
 
 .title-name-input {
@@ -678,7 +899,7 @@ const saveTitles = () => {
 }
 
 .save-titles-btn {
-  background: #27ae60;
+  background: var(--text-primary, #2c3e50);
   color: #ffffff;
   border: none;
   border-radius: 8px;
@@ -687,6 +908,12 @@ const saveTitles = () => {
   font-weight: 600;
   cursor: pointer;
   margin-top: 4px;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.save-titles-btn:active {
+  opacity: 0.85;
+  transform: scale(0.99);
 }
 
 .logs-container {
@@ -775,8 +1002,8 @@ const saveTitles = () => {
 }
 
 .log-card.selectable-card.is-selected {
-  background: #f0f9f4;
-  border-color: #27ae60;
+  background: #f1f5f9;
+  border-color: #3b82f6;
 }
 
 .log-select-checkbox-wrapper {
@@ -798,8 +1025,8 @@ const saveTitles = () => {
 }
 
 .log-checkbox.checked {
-  background: #27ae60;
-  border-color: #27ae60;
+  background: #3b82f6;
+  border-color: #3b82f6;
 }
 
 .log-card-content {
@@ -866,6 +1093,6 @@ const saveTitles = () => {
   border-radius: 50%;
   box-shadow: 0 2px 4px rgba(0,0,0,0.15);
 }
-input:checked + .slider { background-color: #27ae60; }
+input:checked + .slider { background-color: #2c3e50; }
 input:checked + .slider:before { transform: translateX(18px); }
 </style>

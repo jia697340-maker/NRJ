@@ -3,6 +3,7 @@
 import { computed, ref } from 'vue'
 import type { GroupMemberItemViewModel, GroupUserPermissions } from '../../../types/groupManagement'
 import GroupMemberBadge from './GroupMemberBadge.vue'
+import { getMinPointsForLevel } from '../../../services/groupManagementService'
 
 const props = defineProps<{
   visible: boolean
@@ -19,6 +20,9 @@ const emit = defineEmits<{
   (e: 'unmute', memberId: string): void
   (e: 'kick', memberId: string): void
   (e: 'updateNickname', payload: { memberId: string; nickname: string }): void
+  (e: 'specialTitle', payload: { memberId: string; title: string }): void
+  (e: 'adjustPoints', payload: { memberId: string; points: number }): void
+  (e: 'resetPoints', memberId: string): void
 }>()
 
 const isEditingNickname = ref(false)
@@ -27,7 +31,13 @@ const showMuteOptions = ref(false)
 const customMuteSeconds = ref(600)
 const muteReason = ref('')
 const showConfirmDanger = ref(false)
-const dangerActionType = ref<'transfer' | 'kick' | 'promote' | 'demote'>('kick')
+const showSpecialTitleEditor = ref(false)
+const specialTitleDraft = ref('')
+const dangerActionType = ref<'transfer' | 'kick' | 'promote' | 'demote' | 'reset_points'>('kick')
+const showPointsEditor = ref(false)
+const pointsDraft = ref(0)
+const targetLevelDraft = ref(1)
+const pointsEditMode = ref<'points' | 'level'>('points')
 
 const mutePresets = [
   { label: '10分钟', seconds: 600 },
@@ -49,6 +59,31 @@ const saveNickname = () => {
   isEditingNickname.value = false
 }
 
+const openSpecialTitleEditor = () => { specialTitleDraft.value = props.member?.specialTitleName || ''; showSpecialTitleEditor.value = true }
+const saveSpecialTitle = () => { if (!props.member) return; emit('specialTitle', { memberId: props.member.id, title: specialTitleDraft.value }); showSpecialTitleEditor.value = false }
+
+const openPointsEditor = () => {
+  if (!props.member) return
+  pointsDraft.value = props.member.points || 0
+  targetLevelDraft.value = props.member.level || 1
+  pointsEditMode.value = 'points'
+  showPointsEditor.value = true
+}
+
+const handleLevelSelect = (lvl: number) => {
+  targetLevelDraft.value = lvl
+  pointsDraft.value = getMinPointsForLevel(lvl)
+}
+
+const savePoints = () => {
+  if (!props.member) return
+  const finalPoints = pointsEditMode.value === 'level'
+    ? getMinPointsForLevel(targetLevelDraft.value)
+    : Math.max(0, Math.round(Number(pointsDraft.value) || 0))
+  emit('adjustPoints', { memberId: props.member.id, points: finalPoints })
+  showPointsEditor.value = false
+}
+
 const executeMute = (seconds: number) => {
   if (!props.member) return
   emit('mute', {
@@ -65,7 +100,7 @@ const handleUnmute = () => {
   emit('unmute', props.member.id)
 }
 
-const triggerDangerAction = (type: 'transfer' | 'kick' | 'promote' | 'demote') => {
+const triggerDangerAction = (type: 'transfer' | 'kick' | 'promote' | 'demote' | 'reset_points') => {
   dangerActionType.value = type
   showConfirmDanger.value = true
 }
@@ -76,6 +111,7 @@ const confirmDangerAction = () => {
   else if (dangerActionType.value === 'transfer') emit('transfer', props.member.id)
   else if (dangerActionType.value === 'promote') emit('promote', props.member.id)
   else if (dangerActionType.value === 'demote') emit('demote', props.member.id)
+  else if (dangerActionType.value === 'reset_points') emit('resetPoints', props.member.id)
   showConfirmDanger.value = false
 }
 
@@ -83,6 +119,7 @@ const dangerConfirmTitle = computed(() => {
   if (dangerActionType.value === 'transfer') return '转让群主身份？'
   if (dangerActionType.value === 'kick') return '移出群聊？'
   if (dangerActionType.value === 'promote') return '设为管理员？'
+  if (dangerActionType.value === 'reset_points') return '重置积分与等级？'
   return '取消管理员身份？'
 })
 
@@ -91,6 +128,7 @@ const dangerConfirmDesc = computed(() => {
   if (dangerActionType.value === 'transfer') return `确定将群主转让给 ${props.member.nickname} 吗？转让后你将变为普通成员。`
   if (dangerActionType.value === 'kick') return `确定将 ${props.member.nickname} 移出本群吗？`
   if (dangerActionType.value === 'promote') return `将 ${props.member.nickname} 设为管理员后，TA 将拥有成员禁言、公告发布等管理权限。`
+  if (dangerActionType.value === 'reset_points') return `确定重置 ${props.member.nickname} 的群积分和等级吗？积分将清零，等级恢复为 LV1。`
   return `确定取消 ${props.member.nickname} 的管理员身份吗？`
 })
 </script>
@@ -114,11 +152,13 @@ const dangerConfirmDesc = computed(() => {
                 :level="member.level"
                 :level-title="member.levelTitle"
                 :role="member.role"
+                :special-title="member.specialTitleName"
               />
             </div>
             <div class="sub-info-line">
               <span class="member-type-tag">{{ member.isAi ? 'AI 伴侣' : '群成员' }}</span>
               <span class="points-text">积分: {{ member.points }}</span>
+              <span v-if="member.dailyHonor" class="points-text">{{ member.dailyHonor }}</span>
             </div>
           </div>
         </div>
@@ -156,6 +196,26 @@ const dangerConfirmDesc = computed(() => {
             <span>{{ member.nickname }}</span>
             <span class="arrow">›</span>
           </div>
+        </div>
+
+        <div v-if="permissions.isOwner" class="action-item" @click="openSpecialTitleEditor">
+          <span class="action-label">专属头衔</span>
+          <div class="action-value"><span>{{ member.specialTitleName || '未设置' }}</span><span class="arrow">›</span></div>
+        </div>
+
+        <!-- 修改等级与积分 (群主权限) -->
+        <div v-if="permissions.isOwner" class="action-item" @click="openPointsEditor">
+          <span class="action-label">调整等级与积分</span>
+          <div class="action-value">
+            <span>LV{{ member.level }}（{{ member.points }}分）</span>
+            <span class="arrow">›</span>
+          </div>
+        </div>
+
+        <!-- 重置单人等级与积分 (群主权限) -->
+        <div v-if="permissions.isOwner && member.points > 0" class="action-item" @click="triggerDangerAction('reset_points')">
+          <span class="action-label warn-text">重置等级与积分</span>
+          <span class="arrow">›</span>
         </div>
 
         <!-- 设为/取消管理员 -->
@@ -246,6 +306,84 @@ const dangerConfirmDesc = computed(() => {
         <div class="confirm-actions">
           <div class="confirm-btn cancel" @click="isEditingNickname = false">取消</div>
           <div class="confirm-btn" @click="saveNickname">保存</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 危险操作二次确认 -->
+    <div v-if="showSpecialTitleEditor" class="wb-modal-overlay" @click.self="showSpecialTitleEditor = false">
+      <div class="custom-confirm-modal">
+        <div class="confirm-title">设置专属头衔</div>
+        <div class="confirm-desc">只有群主可以授予；清空后保存即可撤销。</div>
+        <input v-model="specialTitleDraft" class="form-input" maxlength="12" placeholder="输入专属头衔" style="margin:14px 0" />
+        <div class="confirm-actions"><div class="confirm-btn cancel" @click="showSpecialTitleEditor = false">取消</div><div class="confirm-btn" @click="saveSpecialTitle">保存</div></div>
+      </div>
+    </div>
+
+    <!-- 积分/等级编辑弹窗 -->
+    <div v-if="showPointsEditor" class="wb-modal-overlay" @click.self="showPointsEditor = false">
+      <div class="custom-confirm-modal points-editor-modal">
+        <div class="confirm-title">调整群等级与积分</div>
+        <div class="mode-switch-row">
+          <div
+            class="mode-switch-btn"
+            :class="{ active: pointsEditMode === 'points' }"
+            @click="pointsEditMode = 'points'"
+          >
+            按具体积分
+          </div>
+          <div
+            class="mode-switch-btn"
+            :class="{ active: pointsEditMode === 'level' }"
+            @click="pointsEditMode = 'level'"
+          >
+            直接设等级
+          </div>
+        </div>
+
+        <div v-if="pointsEditMode === 'points'" class="editor-body">
+          <div class="input-tip">请输入目标总积分点数（0~100000）：</div>
+          <input
+            v-model.number="pointsDraft"
+            class="form-input"
+            type="number"
+            min="0"
+            max="100000"
+            placeholder="输入积分"
+            style="margin: 12px 0 6px 0;"
+          />
+        </div>
+
+        <div v-else class="editor-body">
+          <div class="input-tip">选择或输入目标等级 (1~100)：</div>
+          <div class="level-input-row">
+            <span class="prefix">LV</span>
+            <input
+              v-model.number="targetLevelDraft"
+              class="form-input level-num-input"
+              type="number"
+              min="1"
+              max="100"
+              @change="handleLevelSelect(Math.max(1, Math.min(100, Number(targetLevelDraft) || 1)))"
+            />
+          </div>
+          <div class="quick-level-grid">
+            <div
+              v-for="lvl in [1, 10, 25, 45, 65, 85, 99, 100]"
+              :key="lvl"
+              class="quick-level-tag"
+              :class="{ selected: targetLevelDraft === lvl }"
+              @click="handleLevelSelect(lvl)"
+            >
+              LV{{ lvl }}
+            </div>
+          </div>
+          <div class="preview-calc-pts">对应起步积分: {{ getMinPointsForLevel(targetLevelDraft) }} 分</div>
+        </div>
+
+        <div class="confirm-actions">
+          <div class="confirm-btn cancel" @click="showPointsEditor = false">取消</div>
+          <div class="confirm-btn" @click="savePoints">确认修改</div>
         </div>
       </div>
     </div>
@@ -416,7 +554,7 @@ const dangerConfirmDesc = computed(() => {
 
 .progress-bar-fill {
   height: 100%;
-  background: #27ae60;
+  background: #3b82f6;
   border-radius: 3px;
   transition: width 0.3s ease;
 }
@@ -480,7 +618,7 @@ const dangerConfirmDesc = computed(() => {
 
 .danger-text { color: #e74c3c; font-weight: 600; }
 .warn-text { color: #e67e22; font-weight: 600; }
-.success-text { color: #27ae60; font-weight: 600; }
+.success-text { color: #3b82f6; font-weight: 600; }
 
 .mute-options-sheet {
   max-width: 340px;
@@ -509,8 +647,8 @@ const dangerConfirmDesc = computed(() => {
 }
 
 .mute-preset-btn:active {
-  background: #eafaf1;
-  color: #27ae60;
+  background: #f1f5f9;
+  color: #3b82f6;
 }
 
 .form-input {
@@ -520,5 +658,87 @@ const dangerConfirmDesc = computed(() => {
   border-radius: 8px;
   font-size: 13px;
   box-sizing: border-box;
+}
+
+.points-editor-modal {
+  max-width: 330px;
+}
+
+.mode-switch-row {
+  display: flex;
+  background: #f1f2f6;
+  border-radius: 8px;
+  padding: 3px;
+  margin: 12px 0 10px 0;
+}
+
+.mode-switch-btn {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  padding: 6px 0;
+  color: #7f8c8d;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.mode-switch-btn.active {
+  background: #ffffff;
+  color: #2c3e50;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.input-tip {
+  font-size: 11.5px;
+  color: #95a5a6;
+  margin-top: 4px;
+}
+
+.level-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.level-input-row .prefix {
+  font-size: 14px;
+  font-weight: 700;
+  color: #3b82f6;
+}
+
+.quick-level-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.quick-level-tag {
+  background: #f8f9fa;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 11.5px;
+  text-align: center;
+  padding: 5px 0;
+  cursor: pointer;
+  color: #2c3e50;
+  transition: all 0.15s;
+}
+
+.quick-level-tag.selected {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+.preview-calc-pts {
+  font-size: 11px;
+  color: #7f8c8d;
+  text-align: right;
+  margin-bottom: 8px;
 }
 </style>

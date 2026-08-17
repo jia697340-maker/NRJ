@@ -70,6 +70,206 @@ const submit = () => {
 <style scoped>
 @import './settings/ChatSettingsStyles.css';
 
-.group-create-view{background:var(--sys-bg-primary);color:var(--text-primary);display:flex;flex-direction:column}.group-create-header{flex-shrink:0}.group-create-header .nav-left,.group-create-header .nav-right{width:72px}.group-create-save{font-weight:650}.group-create-main{flex:1;overflow-y:auto;padding:18px 16px calc(28px + env(safe-area-inset-bottom));box-sizing:border-box}.group-create-panel{margin-bottom:16px;overflow:hidden}.group-create-title{min-height:44px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border-color);font-size:14px;font-weight:650}.group-create-title small{font-size:11px;color:var(--text-tertiary);font-weight:400}.group-create-field{padding:14px 16px;border-bottom:1px solid var(--border-color)}.group-create-field:last-child{border-bottom:0}.group-create-label{display:flex;justify-content:space-between;gap:12px;margin-bottom:9px;font-size:13px}.group-create-label small{color:var(--text-tertiary);font-size:10px;text-align:right;font-weight:400}.group-create-textarea{min-height:112px;resize:none;line-height:1.6}.group-member-list{display:flex;flex-direction:column}.group-member-row{display:grid;grid-template-columns:44px minmax(0,1fr) 22px;gap:12px;align-items:center;cursor:pointer}.group-member-avatar{width:44px;height:44px;border-radius:12px;background:var(--sys-bg-tertiary);background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:650}.group-member-copy{min-width:0;display:flex;flex-direction:column;gap:4px}.group-member-copy b{font-size:14px}.group-member-copy span{font-size:11px;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.group-check{width:20px;height:20px;border:1.5px solid var(--border-color);border-radius:50%;display:flex;align-items:center;justify-content:center}.group-check.checked{background:var(--text-primary);border-color:var(--text-primary)}.group-empty,.group-create-error{padding:22px 16px;text-align:center;color:var(--text-tertiary);font-size:12px}.group-create-error{padding:0 16px;color:#ff3b30}
-.simple-modal-input{display:block;width:100%;box-sizing:border-box;border:1px solid var(--border-color);border-radius:10px;background:var(--sys-bg-primary);color:var(--text-primary);font:inherit;font-size:13px;outline:none;padding:11px 12px;appearance:none;-webkit-appearance:none}.simple-modal-input:focus{border-color:color-mix(in srgb,var(--text-primary) 30%,var(--border-color))}.simple-modal-input::placeholder{color:var(--text-tertiary)}
+.group-create-view {
+  background: var(--sys-bg-secondary);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+.group-create-header {
+  flex-shrink: 0;
+  background: var(--sys-bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.group-create-header .nav-left,
+.group-create-header .nav-right {
+  width: 72px;
+}
+
+.group-create-save {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.group-create-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 16px calc(28px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: var(--sys-bg-secondary);
+}
+
+.group-create-panel {
+  margin-bottom: 16px;
+  overflow: hidden;
+  background: var(--sys-bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.group-create-title {
+  min-height: 44px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.group-create-title small {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.group-create-field {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.group-create-field:last-child {
+  border-bottom: 0;
+}
+
+.group-create-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.group-create-label small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-align: right;
+  font-weight: 400;
+}
+
+.simple-modal-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--sys-bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  padding: 10px 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+}
+
+.simple-modal-input:focus {
+  border-color: color-mix(in srgb, var(--text-primary) 35%, var(--border-color));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.simple-modal-input::placeholder {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.group-create-textarea {
+  min-height: 100px;
+  resize: none;
+  line-height: 1.6;
+}
+
+.group-member-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.group-member-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 22px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.group-member-row:active {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.group-member-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--sys-bg-tertiary);
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.group-member-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.group-member-copy b {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.group-member-copy span {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-check {
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--border-color);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.group-check.checked {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+}
+
+.group-empty,
+.group-create-error {
+  padding: 22px 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.group-create-error {
+  padding: 8px 16px 0;
+  color: #ff3b30;
+}
 </style>

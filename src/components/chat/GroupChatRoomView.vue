@@ -42,7 +42,7 @@ import { findRoleEmojiByResponse, selectUserSendableEmojis } from '../../service
 import { useGroupManagement } from '../../composables/useGroupManagement'
 import GroupChatAnnouncementBanner from './group/GroupChatAnnouncementBanner.vue'
 import GroupAnnouncementDetailModal from './group/GroupAnnouncementDetailModal.vue'
-import { awardGroupActivity, groupManagementService, isGroupMemberMuted } from '../../services/groupManagementService'
+import { awardGroupActivity, consumeAtAll, getAtAllUsage, groupManagementService, isGroupMemberMuted } from '../../services/groupManagementService'
 
 const props = defineProps<{ group: any; isVisible?: boolean }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'open-settings'): void; (e: 'open-character-profile', memberId: string): void }>()
@@ -76,6 +76,7 @@ const groupRef = computed(() => props.group)
 const groupMgmt = useGroupManagement(groupRef, groupUserProfile, mockChats)
 const showAnnouncementDetailModal = ref(false)
 const selectedAnnouncement = ref<any>(null)
+const pendingManagementProposal = computed(() => [...(props.group.messages || [])].reverse().find((message: any) => message.messageType === 'group_management_proposal' && message.managementProposal?.status === 'pending') || null)
 
 const handleBannerClick = () => {
   if (groupMgmt.activeTopAnnouncement.value) {
@@ -109,6 +110,16 @@ const memberMap = computed(() => new Map(members.value.map(member => {
   return [id, { ...member, ...(props.group.memberSettings?.[id] || {}) }]
 })))
 const memberName = (id: string) => props.group.memberNicknames?.[id] || memberMap.value.get(id)?.name || '已移除成员'
+const atAllUsage = computed(() => getAtAllUsage(props.group, 'user'))
+const mentionOptions = computed(() => {
+  const options: Array<{ id: string; name: string; avatarUrl?: string; avatarText?: string; description?: string; disabled?: boolean }> = members.value.map(member => {
+    const id = String(member.characterEntityId || member.id)
+    return { id, name: memberName(id), avatarUrl: groupMemberAvatarUrls.value[id] || member.avatarUrl || '', avatarText: member.avatarText || memberName(id).charAt(0), description: getGroupMemberRoleLabel(id) }
+  })
+  if (atAllUsage.value.limit) options.unshift({ id: 'all', name: '全体成员', avatarUrl: '', avatarText: '@', description: `今日剩余 ${atAllUsage.value.remaining}/${atAllUsage.value.limit} 次`, disabled: atAllUsage.value.remaining <= 0 })
+  return options
+})
+const getGroupMemberRoleLabel = (id: string) => id === String(props.group.ownerId) ? '群主' : props.group.adminIds?.includes(id) ? '管理员' : '群成员'
 const resolveSender = (message: any) => {
   const member: any = memberMap.value.get(String(message.senderId || '')) || {}
   const senderId = String(message.senderId || '')
@@ -181,6 +192,34 @@ const updateCallTemporarySummary = (targetGroup = props.group) => {
   targetGroup.activeCallTemporarySummary = older.map((message: any) => `${message.type === 'right' ? (groupUserProfile.value.name || '我') : memberName(String(message.senderId || ''))}：${message.content}`).join('\n')
 }
 
+const executeExtendedAdminAction = (targetGroup: any, action: any) => {
+  if (action.action === 'announcement') return groupManagementService.publishAnnouncement(targetGroup, action.senderId, { title: action.title || '群公告', content: action.content, isPinned: action.pinned, needConfirm: action.needConfirm })
+  if (action.action === 'group_name') return groupManagementService.updateGroupProfile(targetGroup, action.senderId, 'name', action.content)
+  if (action.action === 'group_context') return groupManagementService.updateGroupProfile(targetGroup, action.senderId, 'context', action.content)
+  if (action.action === 'kick') return groupManagementService.removeMember(targetGroup, action.senderId, action.targetId, action.content)
+  if (action.action === 'recall') return groupManagementService.recallMemberMessage(targetGroup, action.senderId, action.messageId, action.content)
+  if (action.action === 'rename') return groupManagementService.updateMemberNickname(targetGroup, action.senderId, action.targetId, action.content)
+  if (action.action === 'invite') return groupManagementService.inviteFormerMember(targetGroup, action.senderId, action.targetId, action.content)
+  if (action.action === 'special_title') return groupManagementService.setMemberSpecialTitle(targetGroup, action.senderId, action.targetId, action.content)
+  if (action.action === 'leave') return groupManagementService.leaveGroup(targetGroup, action.senderId, action.content)
+  throw new Error('不支持的群管理动作')
+}
+
+const reviewManagementProposal = (accepted: boolean) => {
+  const message = pendingManagementProposal.value; if (!message) return
+  try {
+    if (accepted) {
+      const action = message.managementProposal
+      if (action.proposalType === 'extended') executeExtendedAdminAction(props.group, action)
+      else if (action.action === 'mute') groupManagementService.muteMember(props.group, action.senderId, action.targetId, action.durationSeconds, action.reason)
+      else groupManagementService.unmuteMember(props.group, action.senderId, action.targetId)
+    }
+    message.managementProposal.status = accepted ? 'accepted' : 'rejected'
+    message.content = `${message.content}（${accepted ? '已同意' : '已拒绝'}）`
+    persist()
+  } catch (error: any) { showToast(error?.message || '处理管理建议失败') }
+}
+
 const runReply = async () => {
   const targetGroup = props.group
   const autonomousRun = Boolean(targetGroup.pendingAutonomyDirective)
@@ -200,6 +239,7 @@ const runReply = async () => {
     if (disableMedia) result.messages = result.messages.filter((message: any) => !['image', 'voice', 'emoji', 'transfer', 'red_packet', 'call'].includes(message.messageType))
     if (disableThought) result.thoughts = []
     let managementActionCount = 0
+    const deferredLeaveActions: any[] = []
     for (const ack of result.announcementAcks || []) {
       try {
         const announcement = targetGroup.announcements?.find((item: any) => item.id === ack.announcementId && item.status !== 'deleted')
@@ -208,6 +248,13 @@ const runReply = async () => {
         else groupManagementService.markAnnouncementRead(targetGroup, ack.senderId, ack.announcementId)
         managementActionCount++
       } catch { /* Invalid or stale acknowledgement is ignored. */ }
+    }
+    for (const action of result.membershipActions || []) {
+      try {
+        if (action.action === 'apply') groupManagementService.requestRejoin(targetGroup, action.senderId, action.message)
+        else groupManagementService.respondToInvitation(targetGroup, action.senderId, action.requestId, action.action === 'accept_invite')
+        managementActionCount++
+      } catch { /* 重复或过期的群聊申请动作直接忽略。 */ }
     }
     for (const action of result.managementActions || []) {
       if (targetGroup.aiManagementMode === 'semi_auto') {
@@ -224,15 +271,31 @@ const runReply = async () => {
         } catch (error: any) { showToast(error?.message || 'AI 群管理操作未通过权限校验') }
       }
     }
+    for (const action of result.adminActions || []) {
+      if (action.action === 'leave') {
+        deferredLeaveActions.push(action); managementActionCount++
+      } else if (targetGroup.aiManagementMode === 'semi_auto') {
+        const actionName: Record<string, string> = { announcement: '发布群公告', group_name: '修改群名称', group_context: '修改群简介', kick: '移出成员', recall: '撤回消息', rename: '修改群名片', invite: '邀请原群成员', special_title: '授予专属头衔', leave: '退出群聊' }
+        targetGroup.messages.push({ id: Date.now() + managementActionCount, timestamp: Date.now(), type: 'system', messageType: 'group_management_proposal', content: `${targetMemberName(action.senderId)}建议${actionName[action.action] || '执行群管理操作'}`, managementProposal: { ...action, proposalType: 'extended', status: 'pending' } })
+        managementActionCount++
+      } else if (targetGroup.aiManagementMode === 'full_auto') {
+        try { executeExtendedAdminAction(targetGroup, action); managementActionCount++ }
+        catch (error: any) { showToast(error?.message || 'AI 群管理操作未通过权限校验') }
+      }
+    }
     const turnId = `group_turn_${Date.now()}`
     const localIds = new Map<string, number>(); result.messages.forEach((message: any, index: number) => { if (message.key) localIds.set(message.key, Date.now() + index) })
     const imageJobs: { item: any; member: any }[] = []
     result.messages.forEach((message: any, index: number) => {
+      if (message.mentions.includes('all')) {
+        try { consumeAtAll(targetGroup, message.senderId) }
+        catch { message.mentions = message.mentions.filter((id: string) => id !== 'all') }
+      }
       const id = localIds.get(message.key) || Date.now() + index
       const replyToMessageId = localIds.get(message.replyToMessageId) || message.replyToMessageId || ''
       const quoted = targetGroup.messages.find((entry: any) => String(entry.id) === String(replyToMessageId))
       const quote = quoted ? { id: quoted.id, content: quoted.content, sender: quoted.type === 'right' ? (groupUserProfile.value.name || '我') : targetMemberName(quoted.senderId) } : undefined
-      const item: any = { id, timestamp: id, type: message.messageType === 'narration' ? 'narration' : 'left', messageType: message.messageType, senderType: 'character', senderId: message.senderId, senderNameSnapshot: targetMemberName(message.senderId), senderAvatarSnapshot: targetMemberAvatar(message.senderId), content: message.content, translation: message.translation, translationStatus: message.translation ? 'ready' : undefined, contentLanguage: message.contentLanguage, translationLanguage: message.translationLanguage, replyToMessageId, quote, mentions: message.mentions.map((memberId: string) => ({ type: memberId === 'user' ? 'user' : 'character', id: memberId })), turnId, sequence: index, isAutonomous: autonomousRun, isVoiceCallProcessMsg: targetGroup.activeCallType === 'voice', isVideoCallProcessMsg: targetGroup.activeCallType === 'video', isOfflineMeetMsg: Boolean(targetGroup.isMixedOfflineActive) }
+      const item: any = { id, timestamp: id, type: message.messageType === 'narration' ? 'narration' : 'left', messageType: message.messageType, senderType: 'character', senderId: message.senderId, senderNameSnapshot: targetMemberName(message.senderId), senderAvatarSnapshot: targetMemberAvatar(message.senderId), content: message.content, translation: message.translation, translationStatus: message.translation ? 'ready' : undefined, contentLanguage: message.contentLanguage, translationLanguage: message.translationLanguage, replyToMessageId, quote, mentions: message.mentions.map((memberId: string) => ({ type: memberId === 'all' ? 'all' : memberId === 'user' ? 'user' : 'character', id: memberId })), turnId, sequence: index, isAutonomous: autonomousRun, isVoiceCallProcessMsg: targetGroup.activeCallType === 'voice', isVideoCallProcessMsg: targetGroup.activeCallType === 'video', isOfflineMeetMsg: Boolean(targetGroup.isMixedOfflineActive) }
       if (message.messageType === 'voice') item.voiceData = { text: message.content, seconds: Math.max(1, Math.ceil(message.content.length / 4)) }
       if (message.messageType === 'image') item.imageData = { text: message.content, summary: message.content }
       if (message.messageType === 'emoji') {
@@ -269,10 +332,14 @@ const runReply = async () => {
       const generated = targetGroup.messages.find((entry: any) => entry.id === job.item.id)
       if (generated) Object.assign(generated, { messageType: 'image', senderType: 'character', senderId: job.item.senderId, senderNameSnapshot: job.item.senderNameSnapshot, senderAvatarSnapshot: job.item.senderAvatarSnapshot, turnId: job.item.turnId, sequence: job.item.sequence, costTime: job.item.costTime })
     }
+    for (const action of deferredLeaveActions) {
+      try { executeExtendedAdminAction(targetGroup, action) }
+      catch (error: any) { showToast(error?.message || '退群操作未通过校验') }
+    }
     const participatingMemberIds = new Set<string>(targetGroup.messages.filter((entry: any) => entry.turnId === turnId && entry.senderId).map((entry: any) => String(entry.senderId)))
     participatingMemberIds.forEach(memberId => awardGroupActivity(targetGroup, memberId, turnId))
     if (!props.isVisible && targetGroup.notificationMode !== 'mute') {
-      const visibleCount = targetGroup.notificationMode === 'all' ? result.messages.length : result.messages.filter((message: any) => message.mentions.includes('user')).length
+      const visibleCount = targetGroup.notificationMode === 'all' ? result.messages.length : result.messages.filter((message: any) => message.mentions.includes('user') || message.mentions.includes('all')).length
       targetGroup.unread = Number(targetGroup.unread || 0) + visibleCount
     }
     result.thoughts.forEach((thought: any, index: number) => {
@@ -291,8 +358,12 @@ const runReply = async () => {
   finally { targetGroup.isTyping = false; activeGroupReplyIds.delete(targetId); groupReplyControllers.delete(targetId); persist(targetGroup); await scrollBottom() }
 }
 
-const mentionsFromText = (text: string) => members.value.filter(member => text.includes(`@${props.group.memberNicknames?.[String(member.characterEntityId || member.id)] || member.name}`)).map(member => ({ type: 'character', id: String(member.characterEntityId || member.id) }))
-const handleAddMessage = async (raw: string) => { if (isGroupMemberMuted(props.group, 'user')) return showToast('当前处于禁言状态，无法发送消息'); const content = raw.trim(); if (!content) return; const now = Date.now(); const turnId = `user_group_turn_${now}`; const quote = media.replyTargetMessage.value ? { ...media.replyTargetMessage.value } : undefined; props.group.messages.push({ id: now, timestamp: now, type: 'right', senderType: 'user', senderId: 'user', content, quote, mentions: mentionsFromText(content), replyToMessageId: quote?.id || '', turnId }); awardGroupActivity(props.group, 'user', turnId, now); media.replyTargetId.value = undefined; persist(); await scrollBottom() }
+const mentionsFromText = (text: string) => {
+  const mentions: any[] = members.value.filter(member => { const name = props.group.memberNicknames?.[String(member.characterEntityId || member.id)] || member.name; return new RegExp(`@${String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$|[，。！？、,!?])`).test(text) }).map(member => ({ type: 'character', id: String(member.characterEntityId || member.id) }))
+  if (/(^|\s)@全体成员(?=\s|$|[，。！？、,!?])/.test(text)) mentions.unshift({ type: 'all', id: 'all' })
+  return mentions
+}
+const handleAddMessage = async (raw: string) => { if (isGroupMemberMuted(props.group, 'user')) return showToast('当前处于禁言状态，无法发送消息'); const content = raw.trim(); if (!content) return; if (/(^|\s)@全体成员(?=\s|$|[，。！？、,!?])/.test(content)) { try { consumeAtAll(props.group, 'user') } catch (error: any) { return showToast(error?.message || '@全体成员失败') } } const now = Date.now(); const turnId = `user_group_turn_${now}`; const quote = media.replyTargetMessage.value ? { ...media.replyTargetMessage.value } : undefined; props.group.messages.push({ id: now, timestamp: now, type: 'right', senderType: 'user', senderId: 'user', content, quote, mentions: mentionsFromText(content), replyToMessageId: quote?.id || '', turnId }); awardGroupActivity(props.group, 'user', turnId, now); media.replyTargetId.value = undefined; persist(); await scrollBottom() }
 const regenerate = async () => { if (isGenerating.value) return; if (![...props.group.messages].some((message: any) => message.type === 'right')) return showToast('还没有可重新生成的用户消息'); const removedIds: any[] = []; while (props.group.messages.length && props.group.messages.at(-1).type !== 'right') { const removed = props.group.messages.pop(); if (removed?.id != null) removedIds.push(removed.id) }; if (removedIds.length) invalidateMemoriesForMessages(props.group, removedIds); persist(); if (removedIds.length) void indexChatMemories(props.group); await runReply() }
 const stopReply = () => groupReplyControllers.get(String(props.group.id))?.abort()
 const sceneDisablesMedia = () => Boolean((props.group.activeCallType && props.group.disableMediaDuringCall) || (props.group.isMixedOfflineActive && props.group.disableMediaDuringOffline))
@@ -504,6 +575,12 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       <span>您已被管理员禁言，无法发送消息（剩余：{{ groupMgmt.currentUserMuteRemainingText.value }}）</span>
     </div>
 
+    <div v-if="pendingManagementProposal" class="group-management-proposal-bar">
+      <div><strong>群管理建议</strong><span>{{ pendingManagementProposal.content }}</span></div>
+      <button type="button" @click="reviewManagementProposal(false)">拒绝</button>
+      <button type="button" class="primary" @click="reviewManagementProposal(true)">同意</button>
+    </div>
+
     <ChatRoomInputArea
       v-show="!groupMgmt.isCurrentUserMuted.value"
       :selectionMode="selectionMode"
@@ -516,6 +593,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       :isGenerating="isGenerating"
       :selectedChat="group"
       :isMixedOfflineActive="Boolean(group.isMixedOfflineActive)"
+      :mention-options="mentionOptions"
       @exit-multi-select-mode="exitMultiSelectMode"
       @select-all="selectAll"
       @recall-selected-messages="multi.recallSelectedMessages"
@@ -647,4 +725,5 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
   font-weight: 500;
   user-select: none;
 }
+.group-management-proposal-bar{display:grid;grid-template-columns:minmax(0,1fr) 58px 58px;align-items:center;gap:7px;padding:9px 12px;border-top:1px solid var(--border-color);background:var(--card-bg-solid,var(--sys-bg-secondary));position:relative;z-index:12}.group-management-proposal-bar>div{display:flex;min-width:0;flex-direction:column;gap:3px}.group-management-proposal-bar strong{font-size:11px}.group-management-proposal-bar span{overflow:hidden;color:var(--text-tertiary);font-size:9px;text-overflow:ellipsis;white-space:nowrap}.group-management-proposal-bar button{height:34px;border:0;border-radius:9px;background:var(--sys-bg-tertiary);color:var(--text-secondary);font:600 10px inherit;cursor:pointer}.group-management-proposal-bar button.primary{background:var(--text-primary);color:var(--sys-bg-secondary)}
 </style>

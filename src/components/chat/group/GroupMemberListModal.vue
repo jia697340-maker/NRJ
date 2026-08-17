@@ -59,7 +59,7 @@ const filteredMembers = computed(() => {
         <div class="modal-title">群成员 ({{ members.length }})</div>
         <div class="modal-top-actions">
           <button v-if="permissions.canManageMembers" class="add-member-action-btn" @click="emit('addMembers')">
-            + 添加
+            + 邀请原成员
           </button>
           <button class="modal-close-icon-btn" title="关闭" @click="emit('close')">
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
@@ -124,6 +124,7 @@ const filteredMembers = computed(() => {
                 :level="member.level"
                 :level-title="member.levelTitle"
                 :role="member.role"
+                :special-title="member.specialTitleName"
               />
             </div>
             <div class="member-sub-desc">
@@ -231,14 +232,20 @@ const filteredMembers = computed(() => {
 }
 
 .add-member-action-btn {
-  background: #27ae60;
+  background: var(--text-primary, #2c3e50);
   color: #fff;
   border: none;
   border-radius: 6px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.add-member-action-btn:active {
+  opacity: 0.85;
+  transform: scale(0.98);
 }
 
 .member-search-box {

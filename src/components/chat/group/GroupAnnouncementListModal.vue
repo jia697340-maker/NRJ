@@ -192,14 +192,20 @@ const formatDate = (timestamp: number) => {
 }
 
 .create-announcement-btn {
-  background: #27ae60;
+  background: var(--text-primary, #2c3e50);
   color: #fff;
   border: none;
   border-radius: 6px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.create-announcement-btn:active {
+  opacity: 0.85;
+  transform: scale(0.98);
 }
 
 .announcement-scroll-list {
@@ -322,9 +328,9 @@ const formatDate = (timestamp: number) => {
 
 .empty-action-btn {
   margin-top: 6px;
-  background: #eafaf1;
-  color: #27ae60;
-  border: 1px solid rgba(39, 174, 96, 0.3);
+  background: #f1f2f6;
+  color: #2c3e50;
+  border: 1px solid #dcdde1;
   border-radius: 6px;
   padding: 6px 14px;
   font-size: 12.5px;

@@ -300,7 +300,10 @@ const userAvatarText = computed(() => {
   return props.group.userProfile?.name?.charAt(0) || '我'
 })
 onMounted(() => { props.group.userProfile ||= {}; void loadGroupMembers() })
-const candidates = computed(() => allContacts.value.filter(chat => !props.group.memberIds.includes(String(chat.characterEntityId || chat.id))))
+const candidates = computed(() => allContacts.value.filter(chat => {
+  const id = String(chat.characterEntityId || chat.id)
+  return Boolean(props.group.removedMembers?.[id]) && !(props.group.membershipRequests || []).some((item: any) => item.memberId === id && item.kind === 'former_member_invitation' && item.status === 'pending')
+}))
 const editingMember = computed(() => members.value.find(member => String(member.characterEntityId || member.id) === editingMemberId.value))
 
 const openEditingMember = async (member: any) => {
@@ -419,8 +422,7 @@ const addMember = async (member: any) => {
   const id = memberId(member)
   props.group.memoryMemberNames ||= {}
   props.group.memoryMemberNames[id] = member.name || id
-  const result = await groupMgmt.addMember(id)
-  if (result) await loadGroupMembers()
+  await groupMgmt.inviteFormerMember(id)
 }
 const removeMember = async (id: string) => {
   if (props.group.memberIds.length <= 2) return
@@ -566,7 +568,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
           <div v-for="member in members" :key="memberId(member)" class="glass-list-item" @click="openEditingMember(member)">
             <div class="group-member-line"><span class="group-member-avatar" :style="avatarStyle(member)">{{ member.avatarUrl ? '' : member.avatarText }}</span><span class="item-label">{{ group.memberNicknames[memberId(member)] || member.name }}</span></div><div class="item-value"><span class="item-value-text">群内资料</span><span class="arrow">›</span></div>
           </div>
-          <div class="glass-list-item" @click="showAddMembers = true"><span class="item-label">添加成员</span><div class="item-value"><span>{{ candidates.length ? '选择角色' : '暂无可添加角色' }}</span><span class="arrow">›</span></div></div>
+            <div class="glass-list-item" @click="showAddMembers = true"><span class="item-label">邀请原群成员</span><div class="item-value"><span>{{ candidates.length ? '选择角色' : '暂无可邀请成员' }}</span><span class="arrow">›</span></div></div>
         </div>
       </section>
 
@@ -647,9 +649,10 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
       <GroupChatCapabilityPanel v-show="searchQuery || activeCategory === '能力'" :group="group" :match="match" @save="save" />
 
       <section v-show="searchQuery || activeCategory === '美化'" class="role-edit-section">
-        <div v-show="match('群成员头像', '群成员昵称', '群消息时间')" class="glass-panel">
+        <div v-show="match('群成员头像', '群成员昵称', '群成员等级', '群消息时间')" class="glass-panel">
           <div class="glass-list-item"><span class="item-label">显示成员头像</span><label class="switch"><input v-model="group.showMemberAvatars" type="checkbox" @change="save"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">显示成员昵称</span><label class="switch"><input v-model="group.showMemberNames" type="checkbox" @change="save"><span class="slider"></span></label></div>
+          <div class="glass-list-item"><span class="item-label">显示成员等级</span><label class="switch"><input v-model="group.showMemberLevel" type="checkbox" @change="save"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">显示消息时间</span><label class="switch"><input v-model="group.showMessageTime" type="checkbox" @change="save"><span class="slider"></span></label></div>
         </div>
         <ChatSettingsPanelAppearance
@@ -681,7 +684,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
 
     <div v-if="showWorldBookModal" class="wb-modal-overlay" @click.self="showWorldBookModal = false"><div class="custom-confirm-modal group-sheet"><div class="confirm-title">群聊世界书</div><div class="group-sheet-list"><div class="group-section-title">世界书分组</div><div v-for="bookGroup in worldBookGroups" :key="bookGroup.id" class="glass-list-item" @click="toggleBookGroup(bookGroup.id)"><span class="item-label">{{ bookGroup.name }}</span><span class="group-check" :class="{ active: group.boundWorldBookGroups.includes(bookGroup.id) }">✓</span></div><div v-if="!worldBookGroups.length" class="group-empty-row">暂无世界书分组</div><div class="group-section-title">单本世界书</div><div v-if="bookItems.length"><div v-for="book in bookItems" :key="book.id" class="glass-list-item" @click="toggleBook(book.id)"><span class="item-label">{{ book.title }}</span><span class="group-check" :class="{ active: group.boundWorldBooks.includes(book.id) }">✓</span></div></div><div v-else class="group-empty-row">暂无世界书</div></div><div class="confirm-actions"><div class="confirm-btn" @click="showWorldBookModal = false">完成</div></div></div></div>
 
-    <div v-if="showAddMembers" class="wb-modal-overlay" @click.self="showAddMembers = false"><div class="custom-confirm-modal group-sheet"><div class="confirm-title">添加群成员</div><div class="group-sheet-list"><div v-for="member in candidates" :key="memberId(member)" class="glass-list-item" @click="addMember(member)"><div class="group-member-line"><span class="group-member-avatar" :style="avatarStyle(member)">{{ member.avatarUrl ? '' : member.avatarText }}</span><span>{{ member.name }}</span></div><span class="group-add-mark">＋</span></div><div v-if="!candidates.length" class="group-empty-row">没有可添加的角色</div></div><div class="confirm-actions"><div class="confirm-btn" @click="showAddMembers = false">完成</div></div></div></div>
+    <div v-if="showAddMembers" class="wb-modal-overlay" @click.self="showAddMembers = false"><div class="custom-confirm-modal group-sheet"><div class="confirm-title">邀请原群成员</div><div class="group-sheet-list"><div class="group-empty-row">仅可邀请主动退群或曾被移出的成员</div><div v-for="member in candidates" :key="memberId(member)" class="glass-list-item" @click="addMember(member)"><div class="group-member-line"><span class="group-member-avatar" :style="avatarStyle(member)">{{ member.avatarUrl ? '' : member.avatarText }}</span><span>{{ member.name }}</span></div><span class="group-add-mark">＋</span></div><div v-if="!candidates.length" class="group-empty-row">暂无可邀请的原群成员</div></div><div class="confirm-actions"><div class="confirm-btn" @click="showAddMembers = false">完成</div></div></div></div>
 
     <div v-if="editingMember" class="wb-modal-overlay" @click.self="editingMemberId = ''">
       <div class="custom-confirm-modal group-member-editor">
@@ -823,6 +826,9 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
       @unmute="groupMgmt.unmuteMember"
       @kick="groupMgmt.removeMember"
       @update-nickname="({ memberId, nickname }) => groupMgmt.updateMyGroupNickname(memberId, nickname)"
+      @special-title="({ memberId, title }) => groupMgmt.setMemberSpecialTitle(memberId, title)"
+      @adjust-points="({ memberId, points }) => groupMgmt.adjustMemberPoints(memberId, points)"
+      @reset-points="(memberId) => groupMgmt.resetMemberPoints(memberId)"
     />
 
     <GroupAdminManagementModal
@@ -830,12 +836,17 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
       :is-whole-group-muted="Boolean(group.isWholeGroupMuted)"
       :ai-mode="group.aiManagementMode || 'off'"
       :level-titles="groupMgmt.levelTitleConfigs.value"
+      :stage-titles="group.stageTitles"
+      :point-rules="group.pointRules"
       :logs="groupMgmt.adminLogs.value"
       :permissions="groupMgmt.currentUserPermissions.value"
       @close="showAdminManagementModal = false"
       @toggle-whole-mute="groupMgmt.setWholeGroupMute"
       @change-ai-mode="groupMgmt.setAiManagementMode"
+      @save-stage-titles="groupMgmt.updateStageTitles"
       @save-level-titles="groupMgmt.updateLevelTitles"
+      @save-point-rules="groupMgmt.updateGroupPointRules"
+      @reset-all-points="groupMgmt.resetAllGroupPoints"
       @refresh-logs="groupMgmt.loadAdminLogs"
       @delete-logs="groupMgmt.deleteAdminLogs"
       @recover-ownership="groupMgmt.recoverOwnership"

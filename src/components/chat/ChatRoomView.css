@@ -976,32 +976,89 @@
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
+.extension-pages-slider {
+  display: flex;
+  width: 100%;
+  height: calc(100% - 22px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.extension-pages-slider::-webkit-scrollbar {
+  display: none;
+}
+
+.extension-page {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  box-sizing: border-box;
+}
+
 .extension-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   grid-template-rows: repeat(2, 1fr);
-  gap: 16px 8px;
-  padding: 16px;
-  /* 横向溢出时支持滑动（目前 8 个正好铺满，如果多于 8 个则可以滑动） */
-  overflow-x: auto;
-  overflow-y: hidden;
+  gap: 12px 8px;
+  padding: 12px 16px 6px;
+  box-sizing: border-box;
+  height: 100%;
 }
 
 .extension-item {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
+  user-select: none;
 }
 
 .extension-item.placeholder {
-  opacity: 0.4;
-  pointer-events: none;
+  opacity: 0.45;
+  cursor: default;
 }
 .extension-item.placeholder .extension-icon-box {
-  background: var(--sys-bg-secondary);
+  background: rgba(var(--sys-bg-secondary-rgb, 255, 255, 255), 0.4);
+  border: 1px dashed rgba(128, 128, 128, 0.35);
+  box-shadow: none;
+  color: var(--text-tertiary);
+}
+.is-dark .extension-item.placeholder .extension-icon-box {
+  background: rgba(40, 40, 40, 0.3);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.extension-pagination {
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.pagination-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary, #999);
+  opacity: 0.35;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pagination-dot.active {
+  opacity: 0.9;
+  width: 14px;
+  border-radius: 4px;
+  background: var(--text-primary, #333);
 }
 
 .extension-item:not(.is-active):not(.placeholder) {

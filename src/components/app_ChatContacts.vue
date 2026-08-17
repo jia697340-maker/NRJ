@@ -8,6 +8,7 @@ import { avatarStore } from '../composables/chatState/state'
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'open-friend-requests'): void
+  (e: 'open-group-requests'): void
   (e: 'open-directory-character', entry: CharacterDirectoryEntry): void
   (e: 'open-character-profile', chat: any): void
 }>()
@@ -125,11 +126,11 @@ onUnmounted(() => window.removeEventListener('clingy:character-directory-updated
           </div>
           <span class="action-text">新的朋友</span>
         </div>
-        <div class="contact-action-item">
+        <div class="contact-action-item" role="button" tabindex="0" @click="emit('open-group-requests')" @keyup.enter="emit('open-group-requests')">
           <div class="action-icon-wrap" style="background: var(--sys-bg-primary);">
             <svg viewBox="0 0 24 24" width="20" height="20" stroke="#555555" stroke-width="2" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           </div>
-          <span class="action-text">群聊</span>
+          <span class="action-text">群聊申请</span>
         </div>
         <div class="contact-action-item">
           <div class="action-icon-wrap" style="background: var(--sys-bg-primary);">
@@ -198,14 +199,14 @@ onUnmounted(() => window.removeEventListener('clingy:character-directory-updated
 .directory-arrow { color:var(--text-tertiary); }
 .contacts-empty { padding:40px 20px; color:var(--text-tertiary); font-size:13px; text-align:center; }
 
-.contacts-actions { padding: 8px 20px 16px; display: flex; flex-direction: column; gap: 16px; border-bottom: 8px solid #f5f5f5; }
+.contacts-actions { padding: 8px 20px 12px; display: flex; flex-direction: column; gap: 16px; border-bottom: 1px solid var(--border-color, #f0f0f0); }
 .contact-action-item { display: flex; align-items: center; gap: 16px; cursor: pointer; }
 .action-icon-wrap { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid #e0e0e0; box-shadow: inset 0 2px 4px rgba(255,255,255,0.8), 0 2px 6px rgba(0,0,0,0.02); }
 .action-text { font-size: 15px; font-weight: 500; color: #1a1a1a; }
 
 .contacts-list { display: flex; flex-direction: column; }
 .contact-group { display: flex; flex-direction: column; }
-.group-letter { padding: 6px 20px; font-size: 12px; font-weight: 600; color: var(--text-tertiary); background: var(--sys-bg-primary); position: sticky; top: 0; z-index: 10; border-top: 1px solid var(--border-color, #eee); border-bottom: 1px solid var(--border-color, #eee); }
+.group-letter { padding: 10px 20px 4px; font-size: 12px; font-weight: 600; color: var(--text-tertiary); background: var(--sys-bg-secondary); position: sticky; top: 0; z-index: 10; letter-spacing: 0.5px; }
 .contact-item { display: flex; align-items: center; gap: 16px; padding: 12px 20px; cursor: pointer; transition: background 0.2s; background: var(--sys-bg-secondary); }
 .contact-item:hover { background: #f8f8f8; }
 .contact-avatar { width: 44px; height: 44px; border-radius: 50%; background: var(--sys-bg-primary); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: var(--text-primary); flex-shrink: 0; border: 2px solid transparent; background-clip: padding-box; box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #e1e1e1; margin: 2px; }

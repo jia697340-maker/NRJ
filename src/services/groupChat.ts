@@ -8,6 +8,7 @@ import { buildMemoryPacket } from './memoryEngine'
 import { reactive } from 'vue'
 import localforage from 'localforage'
 import type { OfflineModelProfile } from './offlinePresets'
+import type { GroupMembershipRequest } from '../types/groupManagement'
 import { selectRoleAvailableEmojis } from './chatEmojiScope'
 import { buildGroupManagementPrompt, ensureGroupManagementState, getSpeakableCharacterIds } from './groupManagementService'
 
@@ -68,6 +69,7 @@ export interface GroupChatRecord {
   notificationMode: 'all' | 'mention' | 'mute'
   showMemberNames: boolean
   showMemberAvatars: boolean
+  showMemberLevel: boolean
   showMessageTime: boolean
   showCostTime: boolean
   isPinned: boolean
@@ -134,6 +136,8 @@ export interface GroupChatRecord {
   isWholeGroupMuted?: boolean
   aiManagementMode?: 'off' | 'remind_only' | 'semi_auto' | 'full_auto'
   levelTitles?: any[]
+  stageTitles?: Record<number, string>
+  pointRules?: import('../types/groupManagement').GroupPointRules
   memberPoints?: Record<string, number>
   memberMutes?: Record<string, any>
   memberSpecialTitles?: Record<string, string>
@@ -141,6 +145,8 @@ export interface GroupChatRecord {
   adminLogs?: any[]
   memberActivityDaily?: Record<string, any>
   removedMembers?: Record<string, any>
+  membershipRequests?: GroupMembershipRequest[]
+  atAllDaily?: Record<string, { date: string; count: number }>
   managementSchemaVersion?: number
 }
 
@@ -214,7 +220,7 @@ export const normalizeGroupChat = (raw: any): GroupChatRecord => ensureGroupMana
   minMsgCount: Math.max(1, Math.min(20, Number(raw.minMsgCount || 1))),
   maxMsgCount: Math.max(1, Math.min(20, Number(raw.maxMsgCount || 3))),
   notificationMode: ['mention', 'mute'].includes(raw.notificationMode) ? raw.notificationMode : 'all',
-  showMemberNames: raw.showMemberNames !== false, showMemberAvatars: raw.showMemberAvatars !== false, showMessageTime: raw.showMessageTime === true, showCostTime: raw.showCostTime !== false,
+  showMemberNames: raw.showMemberNames !== false, showMemberAvatars: raw.showMemberAvatars !== false, showMemberLevel: raw.showMemberLevel !== false, showMessageTime: raw.showMessageTime === true, showCostTime: raw.showCostTime !== false,
   isPinned: raw.isPinned === true, unread: Number(raw.unread || 0), groups: Array.isArray(raw.groups) ? raw.groups : [],
   createdAt: Number(raw.createdAt || Date.now()), updatedAt: Number(raw.updatedAt || Date.now()), preview: raw.preview || '', time: raw.time || '刚刚', avatarText: '群', avatarUrl: String(raw.avatarUrl || ''), hasCustomAvatar: raw.hasCustomAvatar === true, isTyping: raw.isTyping === true,
   pendingUserThought: String(raw.pendingUserThought || ''), innerThoughts: Array.isArray(raw.innerThoughts) ? raw.innerThoughts : [], memberInnerThoughts: raw.memberInnerThoughts || {},
@@ -257,9 +263,10 @@ export const normalizeGroupChat = (raw: any): GroupChatRecord => ensureGroupMana
   incomingCallLastAt: Math.max(0, Number(raw.incomingCallLastAt || 0)),
   ownerId: String(raw.ownerId || 'user'), adminIds: Array.isArray(raw.adminIds) ? raw.adminIds.map(String) : [],
   isWholeGroupMuted: raw.isWholeGroupMuted === true, aiManagementMode: raw.aiManagementMode,
-  levelTitles: raw.levelTitles, memberPoints: raw.memberPoints, memberMutes: raw.memberMutes,
+  levelTitles: raw.levelTitles, stageTitles: raw.stageTitles, memberPoints: raw.memberPoints, memberMutes: raw.memberMutes,
   memberSpecialTitles: raw.memberSpecialTitles, announcements: raw.announcements, adminLogs: raw.adminLogs,
   memberActivityDaily: raw.memberActivityDaily, removedMembers: raw.removedMembers,
+  membershipRequests: raw.membershipRequests, atAllDaily: raw.atAllDaily,
   managementSchemaVersion: Number(raw.managementSchemaVersion || 0)
 }) as GroupChatRecord
 
@@ -406,6 +413,8 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   if (worldBookText.trim()) system += `\n\n【群世界设定】\n${worldBookText.trim()}`
   const valid = group.messages.filter(message => {
     if (!['left', 'right', 'system', 'narration'].includes(message.type) || message.isRecalled || message.isUndelivered) return false
+    // 过滤掉等级提升系统通知，确保 AI 角色完全不感知群等级变化
+    if (message.type === 'system' && message.managementEvent?.type === 'level_up') return false
     if (!group.activeCallType) return !message.isVoiceCallProcessMsg && !message.isVideoCallProcessMsg
     if (group.activeCallType === 'voice') return !message.isVideoCallProcessMsg
     return !message.isVoiceCallProcessMsg
@@ -478,7 +487,7 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   return [{ role: 'system', content: systemContent }, ...encodedHistory]
 }
 
-export const parseGroupResponse = (raw: string, allowedIds: string[]) => {
+export const parseGroupResponse = (raw: string, allowedIds: string[], formerIds: string[] = []) => {
   const messages: any[] = []
   const regex = /<group_msg\s+([^>]*)>([\s\S]*?)<\/group_msg>/gi
   let match: RegExpExecArray | null
@@ -489,7 +498,7 @@ export const parseGroupResponse = (raw: string, allowedIds: string[]) => {
     const parsed = parseBilingualMessage(match[2].trim(), attrs)
     const content = parsed.content
     if (!content) continue
-    messages.push({ senderId, key: attrs.match(/\bkey=["']([^"']*)["']/i)?.[1] || '', emojiId: attrs.match(/\bemoji_id=["']([^"']*)["']/i)?.[1] || '', content, translation: parsed.translation, contentLanguage: parsed.contentLanguage, translationLanguage: parsed.translationLanguage, messageType: attrs.match(/\bkind=["']([^"']*)["']/i)?.[1] || 'text', amount: Number(attrs.match(/\bamount=["']([^"']*)["']/i)?.[1] || 0), remark: attrs.match(/\bremark=["']([^"']*)["']/i)?.[1] || '', replyToMessageId: attrs.match(/\breply_to=["']([^"']*)["']/i)?.[1] || '', mentions: (attrs.match(/\bmentions=["']([^"']*)["']/i)?.[1] || '').split(',').map(item => item.trim()).filter(id => allowedIds.includes(id) || id === 'user') })
+    messages.push({ senderId, key: attrs.match(/\bkey=["']([^"']*)["']/i)?.[1] || '', emojiId: attrs.match(/\bemoji_id=["']([^"']*)["']/i)?.[1] || '', content, translation: parsed.translation, contentLanguage: parsed.contentLanguage, translationLanguage: parsed.translationLanguage, messageType: attrs.match(/\bkind=["']([^"']*)["']/i)?.[1] || 'text', amount: Number(attrs.match(/\bamount=["']([^"']*)["']/i)?.[1] || 0), remark: attrs.match(/\bremark=["']([^"']*)["']/i)?.[1] || '', replyToMessageId: attrs.match(/\breply_to=["']([^"']*)["']/i)?.[1] || '', mentions: (attrs.match(/\bmentions=["']([^"']*)["']/i)?.[1] || '').split(',').map(item => item.trim()).filter(id => allowedIds.includes(id) || id === 'user' || id === 'all') })
   }
   const thoughts: any[] = []
   const thoughtRegex = /<group_inner_thought\s+sender=["']([^"']+)["']>([\s\S]*?)<\/group_inner_thought>/gi
@@ -512,7 +521,21 @@ export const parseGroupResponse = (raw: string, allowedIds: string[]) => {
     const announcementId = attrs.match(/\bannouncement_id=["']([^"']+)["']/i)?.[1] || ''
     if (allowedIds.includes(senderId) && announcementId) announcementAcks.push({ senderId, announcementId })
   }
-  return { messages, thoughts, managementActions, announcementAcks, idle: /<group_idle\s*\/>/i.test(raw) }
+  const adminActions: any[] = []
+  const adminActionRegex = /<group_admin_action\s+([^>]*)>([\s\S]*?)<\/group_admin_action>/gi
+  while ((match = adminActionRegex.exec(raw)) !== null) {
+    const attrs = match[1]; const senderId = attrs.match(/\bsender=["']([^"']+)["']/i)?.[1] || ''; const action = attrs.match(/\baction=["'](announcement|group_name|group_context|kick|recall|rename|invite|special_title|leave)["']/i)?.[1]?.toLowerCase() || ''
+    if (!allowedIds.includes(senderId) || !action) continue
+    adminActions.push({ senderId, action, targetId: attrs.match(/\btarget=["']([^"']*)["']/i)?.[1] || '', messageId: attrs.match(/\bmessage_id=["']([^"']*)["']/i)?.[1] || '', title: attrs.match(/\btitle=["']([^"']*)["']/i)?.[1] || '', pinned: /\bpinned=["']true["']/i.test(attrs), needConfirm: /\bneed_confirm=["']true["']/i.test(attrs), content: match[2].trim().slice(0, 5000) })
+  }
+  const membershipActions: any[] = []
+  const membershipRegex = /<group_membership_action\s+([^>]*)>([\s\S]*?)<\/group_membership_action>/gi
+  while ((match = membershipRegex.exec(raw)) !== null) {
+    const attrs = match[1]; const senderId = attrs.match(/\bsender=["']([^"']+)["']/i)?.[1] || ''; const action = attrs.match(/\baction=["'](apply|accept_invite|reject_invite)["']/i)?.[1]?.toLowerCase() || ''
+    if (!formerIds.includes(senderId) || !action) continue
+    membershipActions.push({ senderId, action, requestId: attrs.match(/\brequest_id=["']([^"']*)["']/i)?.[1] || '', message: match[2].trim().slice(0, 240) })
+  }
+  return { messages, thoughts, managementActions, adminActions, membershipActions, announcementAcks, idle: /<group_idle\s*\/>/i.test(raw) }
 }
 
 export const requestGroupReply = async (group: GroupChatRecord, allChats: any[], userProfile: any, signal?: AbortSignal, worldBookText = '') => {
@@ -521,7 +544,7 @@ export const requestGroupReply = async (group: GroupChatRecord, allChats: any[],
   const result = await sendChatMessage(payload, signal, false, false, 'default', offlineActive ? (group.offlineModelProfile || 'auto') : 'auto', { chatId: group.id, chatName: group.name, memoryEntries: group.memoryBook.map((item: any) => item.content || '') })
   const raw = typeof result === 'string' ? result : result.content
   return {
-    ...parseGroupResponse(raw, getSpeakableCharacterIds(group)),
+    ...parseGroupResponse(raw, getSpeakableCharacterIds(group), Object.keys(group.removedMembers || {})),
     thinking: typeof result === 'string' ? '' : (result.thinking || ''),
     reasoningSource: typeof result === 'string' ? 'none' : (result.reasoningSource || (result.thinking ? 'native' : 'none')),
     providerState: typeof result === 'string' ? undefined : result.providerState

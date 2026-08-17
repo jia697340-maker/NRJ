@@ -2,12 +2,37 @@
 
 export type GroupMemberRole = 'owner' | 'admin' | 'member'
 
+export type GroupMembershipRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled'
+export type GroupMembershipRequestKind = 'rejoin_application' | 'former_member_invitation'
+
+export interface GroupMembershipRequest {
+  id: string
+  groupId: string
+  memberId: string
+  memberName: string
+  kind: GroupMembershipRequestKind
+  status: GroupMembershipRequestStatus
+  message: string
+  createdAt: number
+  updatedAt: number
+  operatorId?: string
+  resolvedBy?: string
+  removalSource?: 'kicked' | 'left'
+}
+
 export type GroupBadgeType = 'owner' | 'admin' | 'member' | 'special'
 
 export interface GroupLevelTitleConfig {
-  level: number // 1 to 6
+  level: number // 1 to 100
   name: string
   minPoints: number
+}
+
+export interface GroupPointRules {
+  baseMsgPoints: number // 每次发言基础积分，默认 1
+  dailyFirstBonus: number // 每日首次发言额外奖励，默认 2
+  dailyCap: number // 每日积分获取上限，默认 20
+  announcementConfirmPoints: number // 确认公告奖励积分，默认 1
 }
 
 export interface GroupMemberMuteInfo {
@@ -42,7 +67,7 @@ export interface GroupAdminLog {
   groupId: string
   operatorId: string
   operatorName: string
-  actionType: 'member_add' | 'promote' | 'demote' | 'transfer' | 'mute' | 'unmute' | 'whole_mute' | 'kick' | 'announcement_publish' | 'announcement_update' | 'announcement_delete' | 'title_edit' | 'level_up'
+  actionType: 'member_add' | 'member_leave' | 'member_apply' | 'member_invite' | 'group_profile' | 'promote' | 'demote' | 'transfer' | 'mute' | 'unmute' | 'whole_mute' | 'kick' | 'message_recall' | 'announcement_publish' | 'announcement_update' | 'announcement_delete' | 'title_edit' | 'level_up' | 'points_adjust' | 'points_reset' | 'rule_update'
   targetId?: string
   targetName?: string
   detail: string
@@ -77,6 +102,7 @@ export interface GroupMemberItemViewModel {
   canTransferTo: boolean
   hasCustomTitle?: boolean
   specialTitleName?: string
+  dailyHonor?: string
 }
 
 export interface GroupUserPermissions {

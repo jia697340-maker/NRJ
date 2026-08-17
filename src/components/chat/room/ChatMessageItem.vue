@@ -103,8 +103,9 @@ const showThinkingContent = computed(() => shouldDisplayThinking({
 const groupBadge = (memberId: string) => {
   const role = getGroupMemberRole(props.selectedChat, memberId)
   const level = getGroupLevelInfo(props.selectedChat, memberId)
-  const badgeType: GroupBadgeType = props.selectedChat?.memberSpecialTitles?.[memberId] ? 'special' : role
-  return { ...level, role, badgeType }
+  const specialTitle = props.selectedChat?.memberSpecialTitles?.[memberId]
+  const badgeType: GroupBadgeType = specialTitle ? 'special' : role
+  return { ...level, role, badgeType, specialTitle }
 }
 </script>
 
@@ -198,6 +199,8 @@ const groupBadge = (memberId: string) => {
               :level="groupBadge(String(msg.senderId)).level"
               :level-title="groupBadge(String(msg.senderId)).levelTitle"
               :role="groupBadge(String(msg.senderId)).role"
+              :special-title="groupBadge(String(msg.senderId)).specialTitle"
+              :show-level="selectedChat?.showMemberLevel !== false"
             />
             <span v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'name_side'" class="msg-time-inline-side">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
@@ -335,6 +338,8 @@ const groupBadge = (memberId: string) => {
               :level="groupBadge('user').level"
               :level-title="groupBadge('user').levelTitle"
               :role="groupBadge('user').role"
+              :special-title="groupBadge('user').specialTitle"
+              :show-level="selectedChat?.showMemberLevel !== false"
             />
             <span v-if="shouldShowName(msg)" class="msg-name-text">@{{ myProfile.name }}</span>
             <span v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'name_side'" class="msg-time-inline-side right">
