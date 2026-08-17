@@ -22,11 +22,13 @@
     "mammoth": "^1.12.0",
     "png-chunk-text": "^1.0.0",
     "png-chunks-extract": "^1.0.0",
+    "qrcode": "^1.5.4",
     "utf8": "^3.0.0",
     "vue": "^3.5.39"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
+    "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/tsconfig": "^0.9.1",
     "eslint": "^10.8.1",

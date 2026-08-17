@@ -1,0 +1,221 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+import { computed, ref } from 'vue'
+import type { MusicHomeSection, MusicPlaylist, MusicSearchPage, MusicSourceConfig, MusicTrack, MusicUserProfile } from '../types/music'
+import { musicTrackKey } from '../types/music'
+import { createMusicProviders } from '../services/musicProviders'
+import { saveLocalMusicFile } from '../services/musicStorage'
+import { readLocalMusicMetadata } from '../services/musicFileMetadata'
+import { parseMusicLyrics } from '../services/musicLyrics'
+import {
+  initializeMusicRuntime, musicCustomPlaylists, musicHistory, musicLikedKeys,
+  musicPlaylistTracks, musicSourceConfigs, persistMusicRuntime
+} from '../services/musicRuntime'
+
+const searchQuery = ref('')
+const searchResult = ref<MusicSearchPage>({ tracks: [] })
+const homeSections = ref<MusicHomeSection[]>([])
+const isSearching = ref(false)
+const isLoadingHome = ref(false)
+const libraryMessage = ref('')
+const accountProfiles = ref<MusicUserProfile[]>([])
+const localTracks = computed(() => musicPlaylistTracks.local || [])
+const likedTracks = computed(() => {
+  const all = [...localTracks.value, ...musicHistory.value, ...Object.values(musicPlaylistTracks).flat()]
+  const seen = new Set<string>()
+  return all.filter(track => musicLikedKeys.value.includes(musicTrackKey(track)) && !seen.has(musicTrackKey(track)) && seen.add(musicTrackKey(track)))
+})
+
+const readDuration = (file: File) => new Promise<number>(resolve => {
+  const audio = document.createElement('audio')
+  const url = URL.createObjectURL(file)
+  audio.preload = 'metadata'
+  audio.onloadedmetadata = () => { const value = Number.isFinite(audio.duration) ? audio.duration : 0; URL.revokeObjectURL(url); resolve(value) }
+  audio.onerror = () => { URL.revokeObjectURL(url); resolve(0) }
+  audio.src = url
+})
+
+const trackFromFile = async (file: File): Promise<MusicTrack> => {
+  const base = file.name.replace(/\.[^.]+$/, '')
+  const separator = base.includes(' - ') ? ' - ' : base.includes('-') ? '-' : ''
+  const parts = separator ? base.split(separator).map(item => item.trim()) : [base]
+  const key = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const metadata = await readLocalMusicMetadata(file)
+  await saveLocalMusicFile(key, file)
+  return {
+    id: `local:${key}`, sourceId: 'local', sourceTrackId: key,
+    title: metadata.title || (parts.length > 1 ? parts.slice(1).join(' - ') : base),
+    artist: metadata.artist || (parts.length > 1 ? parts[0] : '未知歌手'), album: metadata.album || '本地音乐',
+    duration: await readDuration(file), available: true, localBlobKey: key, playbackType: 'local',
+    mimeType: file.type, fileName: file.name, addedAt: Date.now()
+  }
+}
+
+export function useMusicLibrary() {
+  void initializeMusicRuntime()
+  const providers = () => createMusicProviders(musicSourceConfigs.value)
+
+  const setMessage = (value: string) => {
+    libraryMessage.value = value
+    window.setTimeout(() => { if (libraryMessage.value === value) libraryMessage.value = '' }, 2600)
+  }
+
+  const searchAll = async (query: string) => {
+    const normalized = query.trim()
+    if (!normalized || isSearching.value) return
+    searchQuery.value = normalized
+    isSearching.value = true
+    try {
+      const activeProviders = providers()
+      if (!activeProviders.length) {
+        searchResult.value = { tracks: [] }
+        setMessage('本站音乐服务尚未连接，请让部署者检查 /music-api')
+        return
+      }
+      const results = await Promise.allSettled(activeProviders.map(provider => provider.search(normalized)))
+      const pages = results.filter((item): item is PromiseFulfilledResult<MusicSearchPage> => item.status === 'fulfilled').map(item => item.value)
+      const deduplicated: MusicTrack[] = []
+      const keys = new Set<string>()
+      for (const track of pages.flatMap(item => item.tracks)) {
+        if (track.available === false || track.externalUrl || track.playbackType !== 'full') continue
+        const identity = `${track.title.toLowerCase().replace(/\s|[()（）【】\[\]]/g, '')}|${track.artist.toLowerCase().replace(/\s/g, '')}|${Math.round((track.duration || 0) / 3)}`
+        if (!keys.has(identity)) { keys.add(identity); deduplicated.push(track) }
+      }
+      searchResult.value = {
+        tracks: deduplicated,
+        playlists: pages.flatMap(item => item.playlists || []),
+        albums: pages.flatMap(item => item.albums || []),
+        artists: pages.flatMap(item => item.artists || [])
+      }
+      const failed = results.filter(item => item.status === 'rejected').length
+      if (!pages.length) setMessage('本站音乐服务暂时没有响应，请稍后重试')
+      else if (!deduplicated.length) setMessage('没有找到可完整播放的结果，试听与外链已自动隐藏')
+      else if (failed) setMessage(`${failed} 个来源暂时不可用，已显示可完整播放的结果`)
+    } finally { isSearching.value = false }
+  }
+
+  const loadHome = async () => {
+    if (isLoadingHome.value) return
+    isLoadingHome.value = true
+    const capable = providers().filter(provider => provider.getHome)
+    const results = await Promise.allSettled(capable.map(provider => provider.getHome!()))
+    homeSections.value = results.filter((item): item is PromiseFulfilledResult<MusicHomeSection[]> => item.status === 'fulfilled').flatMap(item => item.value)
+    isLoadingHome.value = false
+  }
+
+  const refreshProfiles = async () => {
+    const capable = providers().filter(provider => provider.getProfile)
+    const results = await Promise.allSettled(capable.map(provider => provider.getProfile!()))
+    accountProfiles.value = results.filter((item): item is PromiseFulfilledResult<MusicUserProfile | null> => item.status === 'fulfilled').map(item => item.value).filter(Boolean) as MusicUserProfile[]
+  }
+
+  const loadPlaylist = async (playlist: MusicPlaylist) => {
+    const provider = providers().find(item => item.id === playlist.sourceId)
+    if (!provider?.getPlaylist) throw new Error('该来源暂不支持读取歌单')
+    const result = await provider.getPlaylist(playlist.id)
+    musicPlaylistTracks[`${playlist.sourceId}:${playlist.id}`] = result.tracks
+    persistMusicRuntime()
+    return result
+  }
+
+  const importLocalFiles = async (files: File[]) => {
+    const supported = files.filter(file => file.type.startsWith('audio/') || /\.(mp3|flac|m4a|aac|ogg|opus|wav)$/i.test(file.name))
+    const lyricFiles = files.filter(file => /\.(lrc|txt)$/i.test(file.name))
+    const tracks: MusicTrack[] = []
+    for (const file of supported) tracks.push(await trackFromFile(file))
+    const combined = [...localTracks.value, ...tracks]
+    for (const lyricFile of lyricFiles) {
+      const base = lyricFile.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/\s/g, '')
+      const match = combined.find(track => track.fileName?.replace(/\.[^.]+$/, '').toLowerCase().replace(/\s/g, '') === base || track.title.toLowerCase().replace(/\s/g, '') === base)
+      if (match) { match.lyricText = await lyricFile.text(); match.lyrics = parseMusicLyrics(match.lyricText) }
+    }
+    musicPlaylistTracks.local = combined
+    persistMusicRuntime()
+    setMessage(`已导入 ${tracks.length} 首本地音乐`)
+    return tracks
+  }
+
+  const toggleLikeTrack = (track: MusicTrack) => {
+    const key = musicTrackKey(track)
+    musicLikedKeys.value = musicLikedKeys.value.includes(key) ? musicLikedKeys.value.filter(item => item !== key) : [...musicLikedKeys.value, key]
+    persistMusicRuntime()
+  }
+
+  const createPlaylist = (name: string) => {
+    const playlist: MusicPlaylist = { id: `custom-${Date.now()}`, sourceId: 'local', name: name.trim() || '新建歌单', trackCount: 0, playCount: 0, trackIds: [], updatedAt: Date.now() }
+    musicCustomPlaylists.value = [playlist, ...musicCustomPlaylists.value]
+    musicPlaylistTracks[playlist.id] = []
+    persistMusicRuntime()
+    return playlist
+  }
+
+  const addToPlaylist = (playlistId: string, track: MusicTrack) => {
+    const current = musicPlaylistTracks[playlistId] || []
+    if (!current.some(item => musicTrackKey(item) === musicTrackKey(track))) musicPlaylistTracks[playlistId] = [...current, track]
+    const playlist = musicCustomPlaylists.value.find(item => item.id === playlistId)
+    if (playlist) { playlist.trackCount = musicPlaylistTracks[playlistId].length; playlist.updatedAt = Date.now() }
+    persistMusicRuntime()
+  }
+
+  const updateSourceConfig = (config: MusicSourceConfig) => {
+    musicSourceConfigs.value = musicSourceConfigs.value.map(item => item.id === config.id ? { ...config } : item)
+    persistMusicRuntime()
+  }
+
+  const importPlaylistLink = async (value: string) => {
+    const input = value.trim()
+    if (!input) throw new Error('请输入歌单链接')
+    const neteaseMatch = input.match(/(?:playlist\?id=|playlist\/)(\d+)/i)
+    if (neteaseMatch) {
+      const provider = providers().find(item => item.id === 'aggregate')
+      if (!provider?.getPlaylist) throw new Error('本站聚合音乐服务暂不可用')
+      const result = await provider.getPlaylist(`netease:${neteaseMatch[1]}`)
+      const target = createPlaylist(`${result.playlist.name} · 网易云导入`)
+      musicPlaylistTracks[target.id] = result.tracks
+      target.trackCount = result.tracks.length
+      persistMusicRuntime(); setMessage(`已导入 ${result.tracks.length} 首歌曲`)
+      return target
+    }
+    throw new Error('目前可直接解析网易云歌单；其他平台可先导出 M3U8、CSV 或 JSON 后导入')
+  }
+
+  const importPlaylistFile = async (file: File) => {
+    const text = await file.text()
+    if (file.name.toLowerCase().endsWith('.json')) { await importLibraryBackup(file); return }
+    const tracks: MusicTrack[] = []
+    let pendingTitle = ''
+    for (const raw of text.replace(/\r/g, '').split('\n')) {
+      const line = raw.trim()
+      if (!line) continue
+      if (line.startsWith('#EXTINF:')) { pendingTitle = line.split(',').slice(1).join(',').trim(); continue }
+      if (line.startsWith('#')) continue
+      if (/^https?:\/\//i.test(line)) {
+        const parts = pendingTitle.includes(' - ') ? pendingTitle.split(' - ') : [pendingTitle || `网络曲目 ${tracks.length + 1}`]
+        tracks.push({ id: `imported:${Date.now()}:${tracks.length}`, sourceId: 'imported', sourceTrackId: line, title: parts.length > 1 ? parts.slice(1).join(' - ') : parts[0], artist: parts.length > 1 ? parts[0] : '未知歌手', album: file.name, duration: 0, audioUrl: line, available: true, playbackType: 'full' })
+        pendingTitle = ''
+      }
+    }
+    if (!tracks.length) throw new Error('文件中没有识别到可播放的 M3U/M3U8 网络曲目')
+    const playlist = createPlaylist(file.name.replace(/\.[^.]+$/, ''))
+    musicPlaylistTracks[playlist.id] = tracks; playlist.trackCount = tracks.length
+    persistMusicRuntime(); setMessage(`已从歌单文件导入 ${tracks.length} 首`)
+  }
+
+  const exportLibrary = () => {
+    const payload = JSON.stringify({ version: 2, exportedAt: Date.now(), likedTrackKeys: musicLikedKeys.value, history: musicHistory.value, customPlaylists: musicCustomPlaylists.value, playlistTracks: { ...musicPlaylistTracks }, sourceConfigs: musicSourceConfigs.value.map(({ token: _token, ...item }) => item) }, null, 2)
+    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = `黏人机音乐备份-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url)
+  }
+
+  const importLibraryBackup = async (file: File) => {
+    const data = JSON.parse(await file.text())
+    if (!data || !data.version || !data.playlistTracks) throw new Error('不是有效的音乐备份')
+    musicLikedKeys.value = Array.from(new Set([...musicLikedKeys.value, ...(data.likedTrackKeys || [])]))
+    musicHistory.value = [...(data.history || []), ...musicHistory.value].slice(0, 500)
+    musicCustomPlaylists.value = [...(data.customPlaylists || []), ...musicCustomPlaylists.value.filter(item => !(data.customPlaylists || []).some((other: MusicPlaylist) => other.id === item.id))]
+    Object.entries(data.playlistTracks || {}).forEach(([key, tracks]) => { musicPlaylistTracks[key] = tracks as MusicTrack[] })
+    persistMusicRuntime()
+    setMessage('音乐资料已合并导入')
+  }
+
+  return { searchQuery, searchResult, homeSections, accountProfiles, isSearching, isLoadingHome, libraryMessage, localTracks, likedTracks, history: musicHistory, customPlaylists: musicCustomPlaylists, playlistTracks: musicPlaylistTracks, sourceConfigs: musicSourceConfigs, searchAll, loadHome, refreshProfiles, loadPlaylist, importLocalFiles, toggleLikeTrack, createPlaylist, addToPlaylist, updateSourceConfig, importPlaylistLink, importPlaylistFile, exportLibrary, importLibraryBackup, setMessage }
+}

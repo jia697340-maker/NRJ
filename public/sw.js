@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nianrenji-v6'
+const CACHE_NAME = 'nianrenji-v7'
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/pwa-icon.jpg']
 const shouldBypassCache = (request) => {
   const url = new URL(request.url)
@@ -6,8 +6,12 @@ const shouldBypassCache = (request) => {
   const isOpenAiApi = url.pathname.includes('/v1/models')
     || url.pathname.includes('/v1/chat/completions')
     || url.pathname.includes('/v1/embeddings')
-  return isLocalApi || isOpenAiApi
+  const isMusicRequest = url.pathname.startsWith('/music-api/')
+    || url.pathname.includes('/rest/stream.view')
+    || eventLikeAudioPath(url.pathname)
+  return isLocalApi || isOpenAiApi || isMusicRequest
 }
+const eventLikeAudioPath = (path) => /\.(mp3|flac|m4a|aac|ogg|opus|wav)(?:$|\?)/i.test(path)
 const refreshCachedIndex = async (cache, response) => {
   const previous = await cache.match('/index.html')
   const [previousText, nextText] = await Promise.all([

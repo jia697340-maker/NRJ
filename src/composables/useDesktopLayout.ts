@@ -38,13 +38,19 @@ const THIRD_PAGE_APP_IDS = new Set([
   'persona_workshop',
   'bubble_dressup',
   'character_phone',
-  'watch_together'
+  'watch_together',
+  'timebox',
+  'mcp',
+  'text_game'
+])
+const FOURTH_PAGE_APP_IDS = new Set([
+  'book_store'
 ])
 
 const state = reactive<DesktopLayoutState>({
   version: 1,
   dock: [],
-  pages: [[], []],
+  pages: [[], [], [], []],
   hiddenAppIds: []
 })
 
@@ -61,8 +67,9 @@ const createDefaultLayout = (appIds: string[]): DesktopLayoutState => ({
   dock: appIds.slice(0, 4).map(id => ({ type: 'app', id })),
   pages: [
     appIds.slice(4, 8).map(id => ({ type: 'app', id })),
-    appIds.slice(8).filter(id => !THIRD_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id })),
-    appIds.filter(id => THIRD_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id }))
+    appIds.slice(8).filter(id => !THIRD_PAGE_APP_IDS.has(id) && !FOURTH_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id })),
+    appIds.filter(id => THIRD_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id })),
+    appIds.filter(id => FOURTH_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id }))
   ],
   hiddenAppIds: []
 })
@@ -109,11 +116,16 @@ const normalize = (raw: Partial<DesktopLayoutState>, appIds: string[]): DesktopL
 
   const dock = normalizeEntries(Array.isArray(raw.dock) ? raw.dock.slice(0, DOCK_CAPACITY) : raw.dock)
   const rawPages = Array.isArray(raw.pages) ? raw.pages : []
-  const pages = [normalizeEntries(rawPages[0]), normalizeEntries(rawPages[1]), normalizeEntries(rawPages[2])]
+  const pages = [
+    normalizeEntries(rawPages[0]),
+    normalizeEntries(rawPages[1]),
+    normalizeEntries(rawPages[2]),
+    normalizeEntries(rawPages[3])
+  ]
 
   for (const id of appIds) {
     if (!used.has(id) && !hidden.has(id)) {
-      const targetPage = THIRD_PAGE_APP_IDS.has(id) ? 2 : 1
+      const targetPage = FOURTH_PAGE_APP_IDS.has(id) ? 3 : (THIRD_PAGE_APP_IDS.has(id) ? 2 : 1)
       pages[targetPage].push({ type: 'app', id })
     }
   }
@@ -125,7 +137,7 @@ const assignLayout = (layout: DesktopLayoutState) => {
   state.version = 1
   state.dock.splice(0, state.dock.length, ...layout.dock.map(cloneEntry))
   state.pages.splice(0, state.pages.length, ...layout.pages.map(page => page.map(cloneEntry)))
-  while (state.pages.length < 3) state.pages.push([])
+  while (state.pages.length < 4) state.pages.push([])
   state.hiddenAppIds.splice(0, state.hiddenAppIds.length, ...layout.hiddenAppIds)
 }
 

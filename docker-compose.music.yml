@@ -1,0 +1,16 @@
+name: clingy-music
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - music-api
+
+  music-api:
+    image: guohuiyuan/go-music-api:latest
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
