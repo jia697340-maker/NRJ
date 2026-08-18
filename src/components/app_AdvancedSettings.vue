@@ -1,17 +1,28 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import ConsolePanel from './advanced_settings/ConsolePanel.vue'
 import PromptPanel from './advanced_settings/PromptPanel.vue'
 import CotPanel from './advanced_settings/CotPanel.vue'
 import StoragePanel from './advanced_settings/StoragePanel.vue'
 import PluginPanel from './advanced_settings/PluginPanel.vue'
 import DiagnosticPanel from './advanced_settings/DiagnosticPanel.vue'
+import TutorialPanel from './advanced_settings/TutorialPanel.vue'
 import { useAdvancedSettingsModals } from '../composables/useAdvancedSettingsModals'
 
 const emit = defineEmits(['close'])
 
 const activeTab = ref('home')
+const contentWrapperRef = ref<HTMLElement | null>(null)
+
+// 切换标签页时自动滚回顶部
+watch(activeTab, () => {
+  nextTick(() => {
+    if (contentWrapperRef.value) {
+      contentWrapperRef.value.scrollTop = 0
+    }
+  })
+})
 
 const tabs = [
   { id: 'console', name: '控制台', en: 'Console', desc: '应用运行日志与调试' },
@@ -68,7 +79,7 @@ const {
     <!-- 界栏分割 -->
     <div class="gu-divider-top"></div>
 
-    <div class="gu-content-wrapper">
+    <div class="gu-content-wrapper" ref="contentWrapperRef">
       <div class="gu-content">
         <!-- 目录：主页 -->
         <div v-if="activeTab === 'home'" class="gu-catalog">
@@ -98,8 +109,9 @@ const {
         <CotPanel v-if="activeTab === 'cot'" :showConfirm="showConfirm" />
         <StoragePanel v-if="activeTab === 'storage'" :showConfirm="showConfirm" />
         <PluginPanel v-if="activeTab === 'plugin'" />
+        <TutorialPanel v-if="activeTab === 'tutorial'" />
 
-        <div v-if="['updater', 'tutorial', 'about'].includes(activeTab)" class="gu-empty">
+        <div v-if="['updater', 'about'].includes(activeTab)" class="gu-empty">
           <span>暂无内容卷宗</span>
         </div>
       </div>

@@ -6,11 +6,14 @@ import localforage from 'localforage'
 import AppearanceWallpaperModal from './AppearanceWallpaperModal.vue'
 import AppearanceAppIconModal from './AppearanceAppIconModal.vue'
 import AppearanceFontModal from './AppearanceFontModal.vue'
+import AppearanceWatermarkModal from './AppearanceWatermarkModal.vue'
 import AvatarUploadModal from './AvatarUploadModal.vue'
 import { useCustomFonts } from '../composables/useCustomFonts'
+import { useWatermark } from '../composables/useWatermark'
 
 const emit = defineEmits(['close'])
 const { records: customFonts, initialize: initializeFonts } = useCustomFonts()
+const { config: watermarkConfig, initialize: initializeWatermark } = useWatermark()
 
 
 // 全局聊天背景
@@ -21,9 +24,10 @@ const wallpaperStore = localforage.createInstance({
   storeName: 'chatWallpapers'
 })
 
-// 加载全局聊天背景
+// 加载全局聊天背景与水印
 onMounted(async () => {
   await initializeFonts()
+  await initializeWatermark()
   try {
     const globalWp = await wallpaperStore.getItem<string>('wallpaper_global')
     globalChatWallpaper.value = globalWp || null
@@ -89,6 +93,12 @@ const allSettingsData = computed(() => {
       valueText: customFonts.filter(font => font.enabled).length
         ? `已启用 ${customFonts.filter(font => font.enabled).length} 个`
         : '默认'
+    },
+    {
+      id: 'screenshot_watermark',
+      type: 'link',
+      label: '界面截图水印',
+      valueText: watermarkConfig.enabled ? '已启用' : '未开启'
     },
     {
       id: 'enableSlider',
@@ -224,9 +234,10 @@ const displayedSettingsData = computed(() => {
 const showWallpaperModal = ref(false)
 const wallpaperTarget = ref<'desktop' | 'lockscreen' | 'chatlist'>('desktop')
 
-// 自定义应用图标
+// 自定义应用图标与水印
 const showAppIconModal = ref(false)
 const showFontModal = ref(false)
+const showWatermarkModal = ref(false)
 
 // 强调色 (极简黑白灰阶)
 const showColorModal = ref(false)
@@ -331,6 +342,8 @@ const handleItemClick = (item: any) => {
     showAppIconModal.value = true
   } else if (item.id === 'custom_fonts') {
     showFontModal.value = true
+  } else if (item.id === 'screenshot_watermark') {
+    showWatermarkModal.value = true
   } else if (item.id === 'sliderIcon') {
     showSliderIconModal.value = true
   } else if (item.id === 'unlockMethod') {
@@ -429,6 +442,11 @@ const handleItemClick = (item: any) => {
 
     <AppearanceFontModal
       v-model:visible="showFontModal"
+    />
+
+    <!-- 界面截图水印弹窗 -->
+    <AppearanceWatermarkModal
+      v-model:visible="showWatermarkModal"
     />
 
     <!-- 壁纸弹窗 (保持复用) -->

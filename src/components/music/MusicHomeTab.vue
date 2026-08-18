@@ -5,11 +5,12 @@ import type { MusicPlaylist, MusicTrack } from '../../types/music'
 import { useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
-const emit = defineEmits<{ (e: 'openSources'): void; (e: 'openPlaylist', playlist: MusicPlaylist): void; (e: 'requestPublicPlaylist', playlist: MusicPlaylist): void; (e: 'openCollection', mode: 'playlists' | 'charts'): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'openSources'): void; (e: 'openPlaylist', playlist: MusicPlaylist): void; (e: 'requestPublicPlaylist', playlist: MusicPlaylist): void; (e: 'openCollection', mode: 'playlists' | 'charts'): void }>()
 const { playTrack, playTracks } = useMusicPlayer()
 const { searchResult, homeSections, history, sourceConfigs, isSearching, isLoadingHome, homeLoadError, searchAll, loadHome, toggleLikeTrack, setMessage } = useMusicLibrary()
 const searchQuery = ref('')
 const hasSearched = ref(false)
+const failedPlaylistCovers = ref(new Set<string>())
 const hasConfiguredOnlineSource = computed(() => sourceConfigs.value.some(source => source.enabled && source.kind !== 'local' && Boolean(source.apiBase?.trim())))
 
 const quickCategories = [
@@ -19,7 +20,7 @@ const quickCategories = [
 
 const submitSearch = () => { if (!searchQuery.value.trim()) return; hasSearched.value = true; void searchAll(searchQuery.value) }
 const handleQuick = (id: string) => {
-  if (id === 'recommend') { void loadHome().then(() => setMessage('首页内容已刷新')); return }
+  if (id === 'recommend') { void loadHome(true).then(() => setMessage('首页内容已刷新')); return }
   if (id === 'radio' && history.value.length) { void playTracks([...history.value].sort(() => Math.random() - .5)); return }
   if (!homeSections.value.length) emit('openSources')
   else if (id === 'charts' || id === 'playlists') emit('openCollection', id)
@@ -33,6 +34,9 @@ const handlePlaylist = (playlist: MusicPlaylist) => {
   if (source?.kind === 'meting' && !source.enabled) emit('requestPublicPlaylist', playlist)
   else emit('openPlaylist', playlist)
 }
+const playlistKey = (playlist: MusicPlaylist) => `${playlist.sourceId}:${playlist.id}`
+const playlistCoverUrl = (playlist: MusicPlaylist) => playlist.coverUrl && !failedPlaylistCovers.value.has(playlistKey(playlist)) ? playlist.coverUrl : ''
+const markPlaylistCoverFailed = (playlist: MusicPlaylist) => { failedPlaylistCovers.value.add(playlistKey(playlist)) }
 onMounted(() => { void loadHome() })
 </script>
 
@@ -40,6 +44,11 @@ onMounted(() => { void loadHome() })
   <div class="home-tab-view">
     <!-- 顶部搜索栏与菜单 -->
     <div class="home-top-bar">
+      <button class="icon-btn back-btn" title="返回桌面" @click="emit('close')">
+        <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+      </button>
       <div class="search-input-box">
         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
           <circle cx="11" cy="11" r="8"></circle>
@@ -104,7 +113,7 @@ onMounted(() => { void loadHome() })
     <div v-if="isLoadingHome" class="section-container"><div class="section-header"><div class="section-title">正在载入首页</div></div></div>
     <div v-else-if="homeLoadError && homeSections.length" class="home-status-row">
       <span>{{ homeLoadError }}</span>
-      <button type="button" @click="loadHome">重试</button>
+      <button type="button" @click="() => loadHome()">重试</button>
     </div>
     <template v-for="section in homeSections" :key="section.id">
       <div v-if="section.tracks?.length" class="section-container">
@@ -122,14 +131,15 @@ onMounted(() => { void loadHome() })
         <div class="section-header"><div class="section-title">{{ section.title }}</div><div class="section-more">{{ section.subtitle || '实时内容' }}</div></div>
         <div class="playlist-grid">
           <div class="grid-card" v-for="pl in section.playlists.slice(0, 6)" :key="`${pl.sourceId}:${pl.id}`" @click="handlePlaylist(pl)">
-          <div class="grid-cover" :style="pl.coverUrl ? { backgroundImage: `url(${pl.coverUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}">
+          <div class="grid-cover">
+            <img v-if="playlistCoverUrl(pl)" class="grid-cover-image" :src="playlistCoverUrl(pl)" alt="" loading="lazy" decoding="async" draggable="false" @error="markPlaylistCoverFailed(pl)" />
             <div class="grid-play-count">
               <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor">
                 <polygon points="5 3 19 12 5 21 5 3"/>
               </svg>
               <span>{{ pl.playCount || pl.trackCount }}</span>
             </div>
-            <div v-if="!pl.coverUrl" class="cover-center-symbol">
+            <div v-if="!playlistCoverUrl(pl)" class="cover-center-symbol">
               <svg viewBox="0 0 40 40" width="24" height="24" stroke="rgba(255,255,255,0.7)" stroke-width="2" fill="none">
                 <line x1="20" y1="6" x2="20" y2="34"/>
                 <line x1="8" y1="16" x2="32" y2="16"/>
@@ -145,7 +155,7 @@ onMounted(() => { void loadHome() })
       <div class="section-title">首页推荐暂时没有载入</div>
       <div class="empty-source-text">{{ homeLoadError || (hasConfiguredOnlineSource ? '音乐服务已配置，但暂时没有返回首页内容。' : '还没有连接可用的在线音乐服务。') }}</div>
       <div class="empty-actions">
-        <button type="button" @click="loadHome">重新载入</button>
+        <button type="button" @click="() => loadHome()">重新载入</button>
         <button type="button" @click="emit('openSources')">来源管理</button>
       </div>
     </div>
@@ -178,6 +188,25 @@ onMounted(() => { void loadHome() })
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--music-divider, rgba(0, 0, 0, 0.05));
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--music-text-sub, #666666);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.icon-btn:active {
+  background: var(--music-btn-active, rgba(0, 0, 0, 0.06));
 }
 
 .search-input-box {
@@ -368,6 +397,15 @@ onMounted(() => { void loadHome() })
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+
+.grid-cover-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .cover-center-symbol svg {
@@ -395,6 +433,7 @@ onMounted(() => { void loadHome() })
   background: rgba(0, 0, 0, 0.45);
   padding: 1px 5px;
   border-radius: 10px;
+  z-index: 1;
 }
 
 .grid-title {

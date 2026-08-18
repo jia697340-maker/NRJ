@@ -16,6 +16,7 @@ import AppWidgetBeautify from './components/app_WidgetBeautify.vue'
 import AppCharacterWorkshop from './components/app_CharacterWorkshop.vue'
 import AppMusic from './components/app_Music.vue'
 import LockScreen from './components/LockScreen.vue'
+import AppWatermarkOverlay from './components/AppWatermarkOverlay.vue'
 import { globalSettings, appStats } from './store'
 import { useChatState } from './composables/useChatState'
 import { useAppIcons } from './composables/useAppIcons'
@@ -367,6 +368,9 @@ watch(activeApp, appId => {
     </Transition>
     <!-- 夜间护眼滤镜遮罩 -->
     <div class="night-shift-overlay" v-if="globalSettings.nightShift"></div>
+
+    <!-- 全局界面截图水印层 -->
+    <AppWatermarkOverlay />
 
     <!-- 锁屏界面 -->
     <Transition name="lock-fade">

@@ -10,6 +10,7 @@ import MusicTabBar from './music/MusicTabBar.vue'
 import MusicDrawerModal from './music/MusicDrawerModal.vue'
 import MusicSourceModal from './music/modals/MusicSourceModal.vue'
 import MusicDataModal from './music/modals/MusicDataModal.vue'
+import MusicHistoryModal from './music/modals/MusicHistoryModal.vue'
 import MusicPlaybackSettingsModal from './music/modals/MusicPlaybackSettingsModal.vue'
 import MusicPrivacyModal from './music/modals/MusicPrivacyModal.vue'
 import MusicPlaylistCollectionModal from './music/modals/MusicPlaylistCollectionModal.vue'
@@ -20,11 +21,13 @@ import type { MusicPlaylist, MusicTrack } from '../types/music'
 
 const emit = defineEmits(['close'])
 
-const activeTab = ref<'home' | 'listen' | 'mine'>('mine')
+const activeTab = ref<'home' | 'listen' | 'mine'>('home')
 const isFullPlayerOpen = ref<boolean>(false)
 const isPlaylistDrawerOpen = ref<boolean>(false)
 const isSourceModalOpen = ref(false)
 const isDataModalOpen = ref(false)
+const isHistoryModalOpen = ref(false)
+const historyModalTab = ref<'records' | 'edit'>('records')
 const isPlaybackSettingsOpen = ref(false)
 const privacyModalMode = ref<'closed' | 'management' | 'public-consent'>('closed')
 const isCollectionOpen = ref(false)
@@ -77,6 +80,11 @@ const openPlaylist = async (playlist: MusicPlaylist) => {
   catch (error) { playlistError.value = error instanceof Error ? error.message : '歌单读取失败' }
   finally { isPlaylistLoading.value = false }
 }
+const openHistoryModal = (tab: 'records' | 'edit' = 'records') => {
+  historyModalTab.value = tab
+  isHistoryModalOpen.value = true
+}
+
 const playSelected = (index = 0) => { if (selectedPlaylistTracks.value.length) void playTracks(selectedPlaylistTracks.value, index) }
 
 const handleBack = () => {
@@ -92,27 +100,32 @@ const handleBack = () => {
   <div class="music-app-root" :class="{ 'is-dark': globalSettings.darkMode, 'is-light': !globalSettings.darkMode }">
     <!-- 主视图路由切换 -->
     <div class="music-main-viewport">
-      <MusicMineTab
-        v-if="activeTab === 'mine'"
-        @openDrawer="isPlaylistDrawerOpen = true"
-        @openSettings="activeTab = 'mine'"
-        @openSources="isSourceModalOpen = true"
-        @openData="isDataModalOpen = true"
-      />
-      <MusicHomeTab
-        v-else-if="activeTab === 'home'"
-        @openSources="isSourceModalOpen = true"
-        @openPlaylist="openPlaylist"
-        @requestPublicPlaylist="requestPublicPlaylist"
-        @openCollection="openCollection"
-      />
-      <div v-else class="listen-together-wrapper">
-        <MusicPlayerView
-          @collapse="activeTab = 'mine'"
-          @openPlaylistDrawer="isPlaylistDrawerOpen = true"
-          @openPlaybackSettings="isPlaybackSettingsOpen = true"
+      <KeepAlive>
+        <MusicMineTab
+          v-if="activeTab === 'mine'"
+          @close="handleBack"
+          @openDrawer="isPlaylistDrawerOpen = true"
+          @openSettings="activeTab = 'mine'"
+          @openSources="isSourceModalOpen = true"
+          @openData="isDataModalOpen = true"
+          @openHistory="openHistoryModal"
         />
-      </div>
+        <MusicHomeTab
+          v-else-if="activeTab === 'home'"
+          @close="handleBack"
+          @openSources="isSourceModalOpen = true"
+          @openPlaylist="openPlaylist"
+          @requestPublicPlaylist="requestPublicPlaylist"
+          @openCollection="openCollection"
+        />
+        <div v-else class="listen-together-wrapper">
+          <MusicPlayerView
+            @collapse="activeTab = 'mine'"
+            @openPlaylistDrawer="isPlaylistDrawerOpen = true"
+            @openPlaybackSettings="isPlaybackSettingsOpen = true"
+          />
+        </div>
+      </KeepAlive>
     </div>
 
     <!-- 底部悬浮 Mini 播放器 (当不在听歌全屏页时显示) -->
@@ -146,6 +159,7 @@ const handleBack = () => {
     />
     <MusicSourceModal :visible="isSourceModalOpen" @close="isSourceModalOpen = false" @closeApp="handleBack" @openPrivacy="openPrivacy" />
     <MusicDataModal :visible="isDataModalOpen" @close="isDataModalOpen = false" />
+    <MusicHistoryModal :visible="isHistoryModalOpen" :defaultTab="historyModalTab" @close="isHistoryModalOpen = false" />
     <MusicPlaybackSettingsModal :visible="isPlaybackSettingsOpen" @close="isPlaybackSettingsOpen = false" />
     <MusicPrivacyModal :visible="privacyModalMode !== 'closed'" :mode="privacyModalMode === 'closed' ? 'management' : privacyModalMode" :anonymousAllowed="privacyPreferences.allowAnonymousPublicSources" @choose="handlePrivacyChoice" @close="closePrivacy" @clearAccounts="clearOnlineAccountData" />
     <MusicPlaylistCollectionModal :visible="isCollectionOpen" :title="collectionMode === 'charts' ? '排行榜' : '歌单广场'" :subtitle="collectionMode === 'charts' ? '按当前热门播放量排序' : '来自已启用音乐来源的推荐歌单'" :playlists="collectionPlaylists" @close="isCollectionOpen = false" @select="openPlaylist" />

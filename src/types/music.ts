@@ -142,6 +142,8 @@ export interface MusicPersistedState {
   playMode: 'loop' | 'single' | 'random'
   preferredQuality: MusicQuality
   sourceConfigs: MusicSourceConfig[]
+  customTrackCount?: number | null
+  customTotalMinutes?: number | null
 }
 
 export const musicTrackKey = (track: Pick<MusicTrack, 'sourceId' | 'sourceTrackId' | 'id'>) => `${track.sourceId}:${track.sourceTrackId || track.id}`

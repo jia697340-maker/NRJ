@@ -8,8 +8,8 @@ import { readLocalMusicMetadata } from '../services/musicFileMetadata'
 import { parseMusicLyrics } from '../services/musicLyrics'
 import { defaultMusicPrivacyPreferences, loadMusicPrivacyPreferences, saveMusicPrivacyPreferences } from '../services/musicPrivacy'
 import {
-  initializeMusicRuntime, musicCustomPlaylists, musicHistory, musicLikedKeys,
-  musicPlaylistTracks, musicSourceConfigs, persistMusicRuntime
+  initializeMusicRuntime, musicCustomPlaylists, musicCustomTrackCount, musicCustomTotalMinutes,
+  musicHistory, musicLikedKeys, musicPlaylistTracks, musicSourceConfigs, persistMusicRuntime
 } from '../services/musicRuntime'
 
 const searchQuery = ref('')
@@ -112,12 +112,25 @@ export function useMusicLibrary() {
     } finally { isSearching.value = false }
   }
 
-  const loadHome = async () => {
+  const loadHome = async (force = false) => {
     if (isLoadingHome.value) return
+    if (!force && homeSections.value.length > 0) return
+
     isLoadingHome.value = true
     homeLoadError.value = ''
     try {
       await libraryReady
+
+      // 如果非强制刷新，先尝试加载本地缓存以秒开
+      if (!force && !homeSections.value.length) {
+        const cache = await loadMusicHomeCache()
+        const cachedSections = (cache?.sections || []).filter(section => section.id !== 'public-discovery')
+        if (cachedSections.length) {
+          homeSections.value = cachedSections
+          isHomeUsingCache.value = true
+        }
+      }
+
       const capable = providers().filter(provider => provider.getHome)
       const [publicResult, results] = await Promise.all([
         loadPublicMusicHomeSections().catch(() => []),
@@ -135,28 +148,32 @@ export function useMusicLibrary() {
         return
       }
 
-      const cache = await loadMusicHomeCache()
-      const cachedSections = (cache?.sections || []).filter(section => section.id !== 'public-discovery')
-      if (cachedSections.length) {
-        homeSections.value = cachedSections
-        isHomeUsingCache.value = true
-        homeLoadError.value = '在线推荐暂时连接不上，正在显示上次成功载入的首页'
-      } else {
-        homeSections.value = []
-        isHomeUsingCache.value = false
-        homeLoadError.value = '真实推荐暂时没有载入，请点击重试'
+      if (!homeSections.value.length) {
+        const cache = await loadMusicHomeCache()
+        const cachedSections = (cache?.sections || []).filter(section => section.id !== 'public-discovery')
+        if (cachedSections.length) {
+          homeSections.value = cachedSections
+          isHomeUsingCache.value = true
+          homeLoadError.value = '在线推荐暂时连接不上，正在显示上次成功载入的首页'
+        } else {
+          homeSections.value = []
+          isHomeUsingCache.value = false
+          homeLoadError.value = '真实推荐暂时没有载入，请点击重试'
+        }
       }
     } catch {
-      const cache = await loadMusicHomeCache()
-      const cachedSections = (cache?.sections || []).filter(section => section.id !== 'public-discovery')
-      if (cachedSections.length) {
-        homeSections.value = cachedSections
-        isHomeUsingCache.value = true
-        homeLoadError.value = '在线推荐暂时连接不上，正在显示上次成功载入的首页'
-      } else {
-        homeSections.value = []
-        isHomeUsingCache.value = false
-        homeLoadError.value = '真实推荐暂时没有载入，请点击重试'
+      if (!homeSections.value.length) {
+        const cache = await loadMusicHomeCache()
+        const cachedSections = (cache?.sections || []).filter(section => section.id !== 'public-discovery')
+        if (cachedSections.length) {
+          homeSections.value = cachedSections
+          isHomeUsingCache.value = true
+          homeLoadError.value = '在线推荐暂时连接不上，正在显示上次成功载入的首页'
+        } else {
+          homeSections.value = []
+          isHomeUsingCache.value = false
+          homeLoadError.value = '真实推荐暂时没有载入，请点击重试'
+        }
       }
     } finally {
       isLoadingHome.value = false
@@ -281,8 +298,31 @@ export function useMusicLibrary() {
     persistMusicRuntime(); setMessage(`已从歌单文件导入 ${tracks.length} 首`)
   }
 
+  const deleteHistoryTracks = (trackIds: string[]) => {
+    const set = new Set(trackIds)
+    musicHistory.value = musicHistory.value.filter(item => !set.has(item.id))
+    persistMusicRuntime()
+    setMessage(`已清除 ${trackIds.length} 条歌曲记录`)
+  }
+
+  const clearAllHistory = () => {
+    musicHistory.value = []
+    persistMusicRuntime()
+    setMessage('已清空全部歌曲记录')
+  }
+
+  const setCustomTrackCount = (val: number | null) => {
+    musicCustomTrackCount.value = val
+    persistMusicRuntime()
+  }
+
+  const setCustomTotalMinutes = (val: number | null) => {
+    musicCustomTotalMinutes.value = val
+    persistMusicRuntime()
+  }
+
   const exportLibrary = () => {
-    const payload = JSON.stringify({ version: 2, exportedAt: Date.now(), likedTrackKeys: musicLikedKeys.value, history: musicHistory.value, customPlaylists: musicCustomPlaylists.value, playlistTracks: { ...musicPlaylistTracks }, sourceConfigs: musicSourceConfigs.value.map(({ token: _token, ...item }) => item) }, null, 2)
+    const payload = JSON.stringify({ version: 2, exportedAt: Date.now(), likedTrackKeys: musicLikedKeys.value, history: musicHistory.value, customPlaylists: musicCustomPlaylists.value, playlistTracks: { ...musicPlaylistTracks }, sourceConfigs: musicSourceConfigs.value.map(({ token: _token, ...item }) => item), customTrackCount: musicCustomTrackCount.value, customTotalMinutes: musicCustomTotalMinutes.value }, null, 2)
     const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = `黏人机音乐备份-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url)
   }
@@ -293,10 +333,23 @@ export function useMusicLibrary() {
     musicLikedKeys.value = Array.from(new Set([...musicLikedKeys.value, ...(data.likedTrackKeys || [])]))
     musicHistory.value = [...(data.history || []), ...musicHistory.value].slice(0, 500)
     musicCustomPlaylists.value = [...(data.customPlaylists || []), ...musicCustomPlaylists.value.filter(item => !(data.customPlaylists || []).some((other: MusicPlaylist) => other.id === item.id))]
+    if (typeof data.customTrackCount === 'number') musicCustomTrackCount.value = data.customTrackCount
+    if (typeof data.customTotalMinutes === 'number') musicCustomTotalMinutes.value = data.customTotalMinutes
     Object.entries(data.playlistTracks || {}).forEach(([key, tracks]) => { musicPlaylistTracks[key] = tracks as MusicTrack[] })
     persistMusicRuntime()
     setMessage('音乐资料已合并导入')
   }
 
-  return { searchQuery, searchResult, homeSections, accountProfiles, isSearching, isLoadingHome, homeLoadError, isHomeUsingCache, libraryMessage, localTracks, likedTracks, history: musicHistory, customPlaylists: musicCustomPlaylists, playlistTracks: musicPlaylistTracks, sourceConfigs: musicSourceConfigs, privacyPreferences, isPrivacyReady, searchAll, loadHome, refreshProfiles, loadPlaylist, importLocalFiles, toggleLikeTrack, createPlaylist, addToPlaylist, updateSourceConfig, setAnonymousPublicSources, clearOnlineAccountData, importPlaylistLink, importPlaylistFile, exportLibrary, importLibraryBackup, setMessage }
+  return {
+    searchQuery, searchResult, homeSections, accountProfiles, isSearching, isLoadingHome,
+    homeLoadError, isHomeUsingCache, libraryMessage, localTracks, likedTracks,
+    history: musicHistory, customPlaylists: musicCustomPlaylists, playlistTracks: musicPlaylistTracks,
+    sourceConfigs: musicSourceConfigs, privacyPreferences, isPrivacyReady,
+    customTrackCount: musicCustomTrackCount, customTotalMinutes: musicCustomTotalMinutes,
+    searchAll, loadHome, refreshProfiles, loadPlaylist, importLocalFiles, toggleLikeTrack,
+    createPlaylist, addToPlaylist, updateSourceConfig, setAnonymousPublicSources,
+    clearOnlineAccountData, importPlaylistLink, importPlaylistFile, exportLibrary,
+    importLibraryBackup, deleteHistoryTracks, clearAllHistory, setCustomTrackCount,
+    setCustomTotalMinutes, setMessage
+  }
 }

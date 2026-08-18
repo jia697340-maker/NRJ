@@ -5,14 +5,27 @@ import { horizontalCards, useMusicPlayer } from '../../composables/useMusicPlaye
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
 const { playTracks } = useMusicPlayer()
-const { likedTracks, localTracks, history, customPlaylists, playlistTracks, sourceConfigs, accountProfiles, refreshProfiles } = useMusicLibrary()
+const {
+  likedTracks,
+  localTracks,
+  history,
+  customPlaylists,
+  playlistTracks,
+  sourceConfigs,
+  accountProfiles,
+  customTrackCount,
+  customTotalMinutes,
+  refreshProfiles
+} = useMusicLibrary()
+
 const activeSubTab = ref<'music' | 'podcast' | 'notes'>('music')
 
-const emit = defineEmits(['openDrawer', 'openSettings', 'openSources', 'openData'])
+const emit = defineEmits(['close', 'openDrawer', 'openSettings', 'openSources', 'openData', 'openHistory'])
 
 const enabledSourceCount = computed(() => sourceConfigs.value.filter(item => item.enabled).length)
 const primaryProfile = computed(() => accountProfiles.value[0] || null)
-const totalMinutes = computed(() => Math.round(history.value.reduce((sum, item) => sum + (item.duration || 0) * (item.playCount || 1), 0) / 60))
+const displayTrackCount = computed(() => customTrackCount.value !== null ? customTrackCount.value : history.value.length)
+const displayTotalMinutes = computed(() => customTotalMinutes.value !== null ? customTotalMinutes.value : Math.round(history.value.reduce((sum, item) => sum + (item.duration || 0) * (item.playCount || 1), 0) / 60))
 const libraryPlaylists = computed(() => [
   { id: 'liked', sourceId: 'local', name: '我喜欢的音乐', trackCount: likedTracks.value.length, playCount: 0 },
   { id: 'local', sourceId: 'local', name: '本地音乐', trackCount: localTracks.value.length, playCount: 0 },
@@ -39,13 +52,20 @@ onMounted(() => { void refreshProfiles() })
   <div class="mine-tab-view">
     <!-- 顶部导航栏 -->
     <div class="mine-top-bar">
-      <button class="icon-btn" title="来源" @click="emit('openSources')">
-        <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round">
-          <line x1="3" y1="6" x2="21" y2="6"></line>
-          <line x1="3" y1="12" x2="21" y2="12"></line>
-          <line x1="3" y1="18" x2="21" y2="18"></line>
-        </svg>
-      </button>
+      <div class="top-bar-left">
+        <button class="icon-btn" title="返回桌面" @click="emit('close')">
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+        <button class="icon-btn" title="来源" @click="emit('openSources')">
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round">
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+      </div>
 
       <div class="status-badge" @click="emit('openSources')">
         <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none">
@@ -97,7 +117,7 @@ onMounted(() => { void refreshProfiles() })
             <circle cx="12" cy="12" r="4" fill="#d4af37"/>
             <circle cx="12" cy="12" r="1.5" fill="#fff"/>
           </svg>
-          <span class="vip-text">{{ primaryProfile?.vipLabel || `${enabledSourceCount} 个来源` }}</span>
+          <span class="vip-text">{{ primaryProfile?.vipLabel || 'SVIP' }}</span>
         </div>
       </div>
 
@@ -108,9 +128,9 @@ onMounted(() => { void refreshProfiles() })
       <!-- 社交统计数据栏 -->
       <div class="stats-row">
         <div class="stat-item"><span class="stat-num">{{ likedTracks.length }}</span><span class="stat-label">喜欢</span></div>
-        <div class="stat-item"><span class="stat-num">{{ localTracks.length }}</span><span class="stat-label">本地</span></div>
-        <div class="stat-item"><span class="stat-level">{{ history.length }}首</span></div>
-        <div class="stat-item"><span class="stat-num">{{ totalMinutes }}</span><span class="stat-label">分钟</span></div>
+        <div class="stat-item" style="cursor: pointer;" @click="emit('openData')"><span class="stat-num">{{ localTracks.length }}</span><span class="stat-label">本地</span></div>
+        <div class="stat-item clickable-stat" title="查看歌曲记录 / 自定义首数" @click="emit('openHistory', 'records')"><span class="stat-level">{{ displayTrackCount }}首</span></div>
+        <div class="stat-item clickable-stat" title="修改累计分钟 / 重置" @click="emit('openHistory', 'edit')"><span class="stat-num">{{ displayTotalMinutes }}</span><span class="stat-label">分钟</span></div>
       </div>
     </div>
 
@@ -302,6 +322,12 @@ onMounted(() => { void refreshProfiles() })
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--music-divider, rgba(0, 0, 0, 0.05));
+}
+
+.top-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .icon-btn {
@@ -502,6 +528,16 @@ onMounted(() => { void refreshProfiles() })
   display: flex;
   align-items: baseline;
   gap: 3px;
+}
+
+.clickable-stat {
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.clickable-stat:active {
+  transform: scale(0.95);
+  opacity: 0.8;
 }
 
 .stat-num {

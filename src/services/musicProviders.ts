@@ -59,6 +59,12 @@ const stringMap = (value: unknown): Record<string, string> | undefined => {
 }
 const sessionHeaders = (sessionId?: string): HeadersInit => sessionId ? { 'X-Music-Session': sessionId } : {}
 const secureImageUrl = (value: unknown) => textValue(value).replace(/^http:\/\//i, 'https://') || undefined
+const aggregateImageUrl = (base: string, value: unknown) => {
+  const original = textValue(value).trim()
+  if (!original) return undefined
+  if (/^http:\/\//i.test(original)) return joinUrl(base, '/api/v1/music/cover', { url: original })
+  return secureImageUrl(original)
+}
 const musicSessionCredentials = (): RequestCredentials => 'include'
 
 const neteaseTrack = (song: any): MusicTrack => ({
@@ -146,11 +152,11 @@ const aggregateTrack = (value: unknown): MusicTrack | null => {
   }
 }
 
-const aggregatePlaylist = (value: unknown): MusicPlaylist | null => {
+const aggregatePlaylist = (value: unknown, apiBase: string): MusicPlaylist | null => {
   if (!isRecord(value)) return null
   const id = textValue(value.id); const source = textValue(value.source)
   if (!id || !source) return null
-  return { id: `${source}:${id}`, sourceId: 'aggregate', name: textValue(value.name, '未命名歌单'), trackCount: numberValue(value.track_count), playCount: numberValue(value.play_count), coverUrl: secureImageUrl(value.cover), description: textValue(value.description) || undefined, ownerName: textValue(value.creator) || undefined }
+  return { id: `${source}:${id}`, sourceId: 'aggregate', name: textValue(value.name, '未命名歌单'), trackCount: numberValue(value.track_count), playCount: numberValue(value.play_count), coverUrl: aggregateImageUrl(apiBase, value.cover), description: textValue(value.description) || undefined, ownerName: textValue(value.creator) || undefined }
 }
 
 const aggregateParams = (track: MusicTrack) => ({
@@ -174,7 +180,7 @@ class AggregateMusicProvider implements MusicProvider {
   }
   async getHome(): Promise<MusicHomeSection[]> {
     const data = unwrapData(await this.request('/api/v1/playlist/recommend'))
-    const playlists = (Array.isArray(data) ? data : []).map(aggregatePlaylist).filter(Boolean) as MusicPlaylist[]
+    const playlists = (Array.isArray(data) ? data : []).map(item => aggregatePlaylist(item, this.base)).filter(Boolean) as MusicPlaylist[]
     return playlists.length ? [{ id: 'aggregate-recommend', title: '多平台热门歌单', type: 'playlists', playlists }] : []
   }
   async getPlaylist(compoundId: string) {

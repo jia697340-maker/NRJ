@@ -15,6 +15,8 @@ export const musicHistory = ref<MusicTrack[]>([])
 export const musicCustomPlaylists = ref<MusicPlaylist[]>([])
 export const musicPlaylistTracks = reactive<Record<string, MusicTrack[]>>({})
 export const musicSourceConfigs = ref<MusicSourceConfig[]>(defaultMusicSourceConfigs())
+export const musicCustomTrackCount = ref<number | null>(null)
+export const musicCustomTotalMinutes = ref<number | null>(null)
 export const musicRuntimeReady = ref(false)
 
 let saveTimer: number | null = null
@@ -35,7 +37,9 @@ export const persistMusicRuntime = () => {
       volume: musicVolume.value,
       playMode: musicPlayMode.value,
       preferredQuality: musicPreferredQuality.value,
-      sourceConfigs: musicSourceConfigs.value
+      sourceConfigs: musicSourceConfigs.value,
+      customTrackCount: musicCustomTrackCount.value,
+      customTotalMinutes: musicCustomTotalMinutes.value
     })
   }, 250)
 }
@@ -62,6 +66,8 @@ export const initializeMusicRuntime = () => {
       musicVolume.value = Number.isFinite(saved.volume) ? Number(saved.volume) : 0.85
       musicPlayMode.value = saved.playMode || 'loop'
       musicPreferredQuality.value = saved.preferredQuality || 'exhigh'
+      musicCustomTrackCount.value = typeof saved.customTrackCount === 'number' ? saved.customTrackCount : null
+      musicCustomTotalMinutes.value = typeof saved.customTotalMinutes === 'number' ? saved.customTotalMinutes : null
       const defaults = defaultMusicSourceConfigs()
       const stored = Array.isArray(saved.sourceConfigs) ? saved.sourceConfigs : []
       musicSourceConfigs.value = defaults.map(item => {
