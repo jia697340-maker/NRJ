@@ -9,6 +9,7 @@ import { getCharacterDirectoryEntry, registerAccountContactsInDirectory } from '
 import { deleteIdentityProfile } from '../../services/identityProfile'
 import { deleteGroupChat, readGroupChats } from '../../services/groupChat'
 import { normalizeMemoryMode } from '../../services/memoryEngine'
+import { normalizeChatModelRules, normalizeModelCommunicationMessages } from '../../services/modelCommunication'
 import localforage from 'localforage'
 
 export const sortChats = () => {
@@ -132,6 +133,8 @@ export const loadCustomContacts = async () => {
       memoryState: c.memoryState || null,
       lastSummaryMsgId: c.lastSummaryMsgId || 0,
       messages: c.messages || [],
+      modelCommunicationRules: normalizeChatModelRules(c.modelCommunicationRules),
+      modelCommunicationMessages: normalizeModelCommunicationMessages(c.modelCommunicationMessages),
       innerThoughts: c.innerThoughts || [],
       userInnerThoughts: c.userInnerThoughts || [],
       pendingUserThought: c.pendingUserThought || '',

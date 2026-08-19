@@ -18,6 +18,7 @@ import { formatTransferForContext } from '../../services/transferLifecycle'
 import { readGroupChats } from '../../services/groupChat'
 import { buildGroupToSingleBridgeContext } from '../../services/memoryBridge'
 import { useChatAuth } from '../useChatAuth'
+import { buildChatModelRulesPrompt } from '../../services/modelCommunication'
 
 // 将 Blob 转为 Base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -190,7 +191,8 @@ export const buildChatMessages = async (
   const baseSystemPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode, options.trace)
   const bilingualPrompt = buildBilingualPrompt(chat)
   const thoughtContext = buildInnerThoughtContext(chat, options.currentUserThought, options.currentTurnId, options.trace)
-  const sysPrompt = baseSystemPrompt + bilingualPrompt + memoryPacket + groupMemoryBridge + thoughtContext + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
+  const modelCommunicationRulesPrompt = buildChatModelRulesPrompt(chat)
+  const sysPrompt = baseSystemPrompt + bilingualPrompt + memoryPacket + groupMemoryBridge + thoughtContext + momentBehaviorPrompt + callTempSummaryContext + callModePrompt + modelCommunicationRulesPrompt
   pushContextTrace(options.trace, { id: 'runtime:bilingual', category: 'system', group: '输出格式与协议', label: '双语对话规则', text: bilingualPrompt, reason: '当前聊天开启了双语输出' })
   const memoryMode = normalizeMemoryMode(chat.memoryMode)
   pushContextTrace(options.trace, {
@@ -203,6 +205,7 @@ export const buildChatMessages = async (
   pushContextTrace(options.trace, { id: 'runtime:moments', category: 'system', group: '朋友圈能力', label: '朋友圈当前行为规则', text: momentBehaviorPrompt, reason: chat.enableCharMoments === false ? '朋友圈已关闭，注入禁用说明' : '依据当前朋友圈模式生成' })
   pushContextTrace(options.trace, { id: 'runtime:call-summary', category: 'memory', group: '通话临时记忆', label: '本次通话前半段提要', text: callTempSummaryContext, reason: '当前通话存在临时总结' })
   pushContextTrace(options.trace, { id: 'runtime:call-mode', category: 'system', group: '通话能力', label: '当前通话模式规则', text: callModePrompt, reason: '当前处于语音或视频通话' })
+  pushContextTrace(options.trace, { id: 'runtime:model-communication-rules', category: 'system', group: '行为与演绎规则', label: '当前聊天纠正规则', text: modelCommunicationRulesPrompt, reason: '用户通过与模型直接沟通保存并启用了当前聊天规则' })
   
   if (chat.enableRoleEmojiVision && roleEmojiImages.length > 0) {
     const contentArr: any[] = [{ type: 'text', text: sysPrompt }]

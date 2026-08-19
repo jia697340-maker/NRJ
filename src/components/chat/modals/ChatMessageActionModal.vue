@@ -17,6 +17,7 @@ const emit = defineEmits<{
   (e: 'reply', messageId?: number): void
   (e: 'edit', messageId?: number): void
   (e: 'resummarize', messageId?: number): void
+  (e: 'model-communication', messageId?: number): void
 }>()
 
 const showResummarizeInfo = ref(false)
@@ -45,6 +46,8 @@ const handleAction = (action: string) => {
     emit('edit', props.messageId)
   } else if (action === 'favorite') {
     emit('mark-message', props.messageId)
+  } else if (action === 'model-communication') {
+    emit('model-communication', props.messageId)
   } else if (action === 'forward') {
     // TODO: 实现具体的占位功能
     console.log(`[调试] 触发了功能: ${action}`)
@@ -177,6 +180,16 @@ const cancelResummarize = () => {
                 </svg>
               </div>
               <span class="action-label">标记重要</span>
+            </div>
+
+            <div class="action-item highlight" @click="handleAction('model-communication')">
+              <div class="action-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="square" stroke-linejoin="miter">
+                  <path d="M4 5h16v11H8l-4 4V5Z"></path>
+                  <path d="M8 9h8M8 12h5"></path>
+                </svg>
+              </div>
+              <span class="action-label">与模型沟通</span>
             </div>
 
             <div v-if="messageObj && ((messageObj.imageData && messageObj.imageData.imageId && !messageObj.imageData.summary) || (messageObj.isEmoji && !messageObj.emojiSummary))" class="action-item highlight" @click="handleAction('resummarize')">

@@ -52,6 +52,8 @@ export function useChatSettingsSave() {
         contacts[idx].memoryConsolidationThreshold = selectedChat.value.memoryConsolidationThreshold || 8
         contacts[idx].memoryState = selectedChat.value.memoryState || null
         contacts[idx].summaryPrompt = selectedChat.value.summaryPrompt || ''
+        contacts[idx].modelCommunicationRules = selectedChat.value.modelCommunicationRules || []
+        contacts[idx].modelCommunicationMessages = selectedChat.value.modelCommunicationMessages || []
         contacts[idx].lastSummaryMsgId = selectedChat.value.lastSummaryMsgId || 0
         // 删除 contacts[idx].messages = selectedChat.value.messages || [] 避免 QuotaExceededError，聊天记录应由单独存储管理
 

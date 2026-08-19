@@ -5,6 +5,7 @@ import { useChatState } from '../../composables/useChatState'
 import { useChatMessageSelection } from '../../composables/useChatMessageSelection'
 import ChatMessageActionModal from './modals/ChatMessageActionModal.vue'
 import ChatMessageEditModal from './modals/ChatMessageEditModal.vue'
+import ChatModelCommunicationModal from './modals/ChatModelCommunicationModal.vue'
 import ChatTransferModal from './modals/ChatTransferModal.vue'
 import ChatVoiceModal from './modals/ChatVoiceModal.vue'
 import ChatMissingVoiceKeyModal from './modals/ChatMissingVoiceKeyModal.vue'
@@ -132,6 +133,8 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
       contacts[index].presenceHistory = targetChat.presenceHistory || []
       contacts[index].presencePendingReply = targetChat.presencePendingReply === true
       contacts[index].webSearchEnabled = targetChat.webSearchEnabled === true
+      contacts[index].modelCommunicationRules = targetChat.modelCommunicationRules || []
+      contacts[index].modelCommunicationMessages = targetChat.modelCommunicationMessages || []
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
     }
   }
@@ -328,6 +331,24 @@ const editInitialContent = ref('')
 const editInitialType = ref('left')
 
 const editHasMedia = ref(false)
+const showModelCommunicationModal = ref(false)
+const modelCommunicationFocusIds = ref<Array<number | string>>([])
+
+const openModelCommunication = (messageIds: Array<number | string> = []) => {
+  if (!selectedChat.value || selectedChat.value.id === 1) return
+  modelCommunicationFocusIds.value = [...messageIds]
+  showActionModal.value = false
+  showExtensionPanel.value = false
+  showEmojiPanel.value = false
+  showModelCommunicationModal.value = true
+}
+
+const onModalModelCommunication = (msgId?: number) => openModelCommunication(msgId ? [msgId] : [])
+const openSelectedModelCommunication = () => {
+  if (!selectedMessageIds.value.size) return
+  openModelCommunication([...selectedMessageIds.value])
+  exitMultiSelectMode()
+}
 
 const onModalEdit = (msgId?: number) => {
   const targetId = msgId || targetMessageId.value
@@ -1180,6 +1201,7 @@ onUnmounted(() => {
       @reply="onModalReply"
       @edit="onModalEdit"
       @resummarize="handleResummarize"
+      @model-communication="onModalModelCommunication"
     />
 
     <ChatMessageEditModal
@@ -1190,6 +1212,14 @@ onUnmounted(() => {
       :has-media="editHasMedia"
       @close="showEditModal = false"
       @save="handleEditSave"
+    />
+
+    <ChatModelCommunicationModal
+      :visible="showModelCommunicationModal"
+      :chat="selectedChat"
+      :initial-focus-ids="modelCommunicationFocusIds"
+      @close="showModelCommunicationModal = false"
+      @persist="saveCustomContacts()"
     />
 
     <transition name="toast-fade">
@@ -1341,6 +1371,7 @@ onUnmounted(() => {
       @recall-selected-messages="recallSelectedMessages"
       @mark-selected-messages="markSelectedMessages"
       @delete-selected-messages="deleteSelectedMessages"
+      @open-model-communication="selectionMode === 'general' ? openSelectedModelCommunication() : openModelCommunication()"
       @cancel-reply="cancelReply"
       @toggle-extension-panel="toggleExtensionPanel"
       @toggle-emoji-panel="toggleEmojiPanel"

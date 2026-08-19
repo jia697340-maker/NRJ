@@ -23,6 +23,7 @@ const emit = defineEmits<{
   (e: 'recall-selected-messages'): void
   (e: 'mark-selected-messages', flag: boolean): void
   (e: 'delete-selected-messages'): void
+  (e: 'open-model-communication'): void
   (e: 'cancel-reply'): void
   (e: 'toggle-extension-panel'): void
   (e: 'toggle-emoji-panel'): void
@@ -164,6 +165,9 @@ const handleEnter = () => { const option = filteredMentionOptions.value.find(ite
             <polyline points="9 11 12 14 22 4"></polyline>
             <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
           </svg>
+        </div>
+        <div class="ms-icon-btn primary-action" :class="{ disabled: getSelectedCount === 0 }" @click="emit('open-model-communication')" title="与模型沟通">
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4V5Z"/><path d="M8 9h8M8 12h5"/></svg>
         </div>
         <div class="ms-icon-btn danger" :class="{ disabled: getSelectedCount === 0 }" @click="emit('delete-selected-messages')" title="删除">
           <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -402,8 +406,15 @@ const handleEnter = () => { const option = filteredMentionOptions.value.find(ite
               <span class="extension-label">{{ selectedChat?.webSearchEnabled ? '联网已开启' : '联网搜索' }}</span>
             </div>
 
-            <!-- 剩余 6 个占位项 -->
-            <div v-for="i in 6" :key="`placeholder-${i}`" class="extension-item placeholder">
+            <div class="extension-item is-active" @click="emit('open-model-communication')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4V5Z"/><path d="M8 9h8M8 12h5"/></svg>
+              </div>
+              <span class="extension-label">模型沟通</span>
+            </div>
+
+            <!-- 剩余 5 个占位项 -->
+            <div v-for="i in 5" :key="`placeholder-${i}`" class="extension-item placeholder">
               <div class="extension-icon-box placeholder-box">
                 <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3" fill="none" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="6" ry="6"></rect>
