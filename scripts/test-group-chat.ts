@@ -16,6 +16,7 @@ const { buildGroupChatMessages, createGroupChat, normalizeGroupChat, parseGroupR
 const { applyMemoryExtraction, buildExtractionPrompt, formatMessagesForMemory, getUncoveredMessages, invalidateMemoriesForMessages } = await import('../src/services/memoryEngine.ts')
 const { findRoleEmojiByResponse, normalizeEmojiScope, selectRoleAvailableEmojis, selectUserSendableEmojis } = await import('../src/services/chatEmojiScope.ts')
 const { awardGroupActivity, consumeAtAll, ensureGroupManagementState, getAtAllUsage, getGroupPermissions, getSpeakableCharacterIds, groupManagementService, isGroupMemberMuted } = await import('../src/services/groupManagementService.ts')
+const { buildGroupToSingleBridgeContext, normalizeMemoryBridgeConfig } = await import('../src/services/memoryBridge.ts')
 
 const scopedEmojis = [
   { id: 'user-1', name: '用户笑', category: 'user' as const },
@@ -76,6 +77,10 @@ assert.equal(configured.imageRecognitionMode, 'visual')
 assert.equal(configured.voiceCallMemoryValue, 24)
 assert.equal(configured.autonomyEnabled, false)
 assert.equal(configured.incomingCallEnabled, false)
+assert.equal(normalizeMemoryBridgeConfig(null).groupToSingle.shortTermValue, 20)
+assert.equal(normalizeMemoryBridgeConfig(null).singleToGroup.shortTermValue, 10)
+assert.equal(normalizeMemoryBridgeConfig({ groupToSingle: { shortTermValue: 999, longTermTokenBudget: 1 } }).groupToSingle.shortTermValue, 200)
+assert.equal(normalizeMemoryBridgeConfig({ groupToSingle: { shortTermValue: 999, longTermTokenBudget: 1 } }).groupToSingle.longTermTokenBudget, 200)
 
 const parityConfigured = normalizeGroupChat({
   ...group,
@@ -174,6 +179,43 @@ payload = await buildGroupChatMessages(callGroup, contacts, { name: '小满' })
 assert.ok(!payload.some(item => typeof item.content === 'string' && item.content.includes('群语音内容')))
 assert.equal(normalizeGroupChat({ id: 'legacy', memberIds: [] }).userProfile.name, '我')
 
+const bridgeGroup = normalizeGroupChat({
+  id: 'bridge-group',
+  name: '互通测试群',
+  memberIds: ['a', 'b'],
+  memberSettings: {
+    a: {
+      enableMemoryBridge: true,
+      memoryBridgeConfig: {
+        groupToSingle: { shortTermEnabled: true, shortTermValue: 2, longTermEnabled: true, longTermTokenBudget: 300 },
+        singleToGroup: { shortTermEnabled: true, shortTermValue: 2, longTermEnabled: true, longTermTokenBudget: 300 }
+      }
+    }
+  },
+  memberNicknames: { a: '阿岚', b: '白露' },
+  userProfile: { name: '小满' },
+  memberMemories: { a: [{ id: 'am1', content: '我记得大家约好周六露营。', enabled: true, updatedAt: Date.now() }] },
+  messages: [
+    { id: Date.now() - 2, type: 'right', content: '别忘了带帐篷' },
+    { id: Date.now() - 1, type: 'left', senderId: 'b', content: '我会带手电筒' }
+  ]
+})
+const groupToSingleBridge = await buildGroupToSingleBridgeContext([bridgeGroup], 'a', '露营')
+assert.match(groupToSingleBridge, /互通测试群/)
+assert.match(groupToSingleBridge, /周六露营/)
+assert.match(groupToSingleBridge, /白露：我会带手电筒/)
+assert.equal(await buildGroupToSingleBridgeContext([bridgeGroup], 'b', '露营'), '')
+
+const bridgeContacts = [
+  { ...contacts[0], memoryBook: [{ id: 'private-a', content: '我和小满私下约好带咖啡。', enabled: true, updatedAt: Date.now() }], messages: [{ id: Date.now(), type: 'right', content: '咖啡记得少糖' }] },
+  contacts[1]
+]
+payload = await buildGroupChatMessages(bridgeGroup, bridgeContacts, bridgeGroup.userProfile)
+assert.match(payload[0].content, /仅属于阿岚的单聊记忆/)
+assert.match(payload[0].content, /私下约好带咖啡/)
+assert.match(payload[0].content, /咖啡记得少糖/)
+assert.doesNotMatch(payload[0].content, /仅属于白露的单聊记忆/)
+
 const sourceMessages = [
   { id: 101, type: 'right', content: '周六一起去海边吧' },
   { id: 102, type: 'left', senderId: 'a', senderNameSnapshot: '阿岚', content: '好，我带相机。' },
@@ -182,7 +224,8 @@ const sourceMessages = [
 group.messages.push(...sourceMessages)
 assert.match(formatMessagesForMemory(sourceMessages), /阿岚: 好，我带相机/)
 assert.match(formatMessagesForMemory(sourceMessages), /白露: 我下午才能到/)
-assert.match(buildExtractionPrompt(sourceMessages, 'hybrid', '', { name: group.name, members: [{ id: 'a', name: '阿岚' }, { id: 'b', name: '白露' }] }), /memberMemories/)
+assert.match(buildExtractionPrompt(sourceMessages, 'long_text', '', { name: group.name, members: [{ id: 'a', name: '阿岚' }, { id: 'b', name: '白露' }] }), /memberMemories/)
+assert.doesNotMatch(buildExtractionPrompt(sourceMessages, 'structured', '', { name: group.name, members: [{ id: 'a', name: '阿岚' }, { id: 'b', name: '白露' }] }), /memberMemories/)
 
 applyMemoryExtraction(group, {
   narrative: '群里约定周六去海边，阿岚带相机，白露下午到。',
@@ -190,7 +233,7 @@ applyMemoryExtraction(group, {
   memberMemories: { a: '我答应周六去海边并带相机。', b: '我会在周六下午到海边。', unknown: '不应保存' },
   events: [{ title: '周六海边计划', summary: '群成员约定周六去海边。', participants: ['用户', '阿岚', '白露'], evidence: { messageIds: [101, 102, 103] } }],
   variables: [], tableRows: [], relations: []
-}, sourceMessages, 'hybrid')
+}, sourceMessages, 'long_text')
 assert.equal(group.memoryBook.length, 1)
 assert.equal(group.memberMemories.a.length, 1)
 assert.equal(group.memberMemories.b.length, 1)

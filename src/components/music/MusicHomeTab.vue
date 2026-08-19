@@ -1,13 +1,13 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { MusicPlaylist, MusicTrack } from '../../types/music'
 import { useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'openSources'): void; (e: 'openPlaylist', playlist: MusicPlaylist): void; (e: 'requestPublicPlaylist', playlist: MusicPlaylist): void; (e: 'openCollection', mode: 'playlists' | 'charts'): void }>()
 const { playTrack, playTracks } = useMusicPlayer()
-const { searchResult, homeSections, history, sourceConfigs, isSearching, isLoadingHome, homeLoadError, searchAll, loadHome, toggleLikeTrack, setMessage } = useMusicLibrary()
+const { searchResult, homeSections, history, sourceConfigs, isSearching, isLoadingHome, homeLoadError, searchAll, clearSearch, loadHome, toggleLikeTrack, setMessage } = useMusicLibrary()
 const searchQuery = ref('')
 const hasSearched = ref(false)
 const failedPlaylistCovers = ref(new Set<string>())
@@ -17,6 +17,27 @@ const quickCategories = [
   { id: 'recommend', name: '每日推荐' }, { id: 'radio', name: '私人漫游' },
   { id: 'playlists', name: '歌单广场' }, { id: 'charts', name: '排行榜' }
 ]
+
+const handleClearSearch = () => {
+  searchQuery.value = ''
+  hasSearched.value = false
+  clearSearch()
+}
+
+watch(searchQuery, (newVal) => {
+  if (!newVal.trim() && (hasSearched.value || searchResult.value.tracks.length)) {
+    hasSearched.value = false
+    clearSearch()
+  }
+})
+
+const handleHeaderBack = () => {
+  if (hasSearched.value || searchResult.value.tracks.length || searchQuery.value) {
+    handleClearSearch()
+  } else {
+    emit('close')
+  }
+}
 
 const submitSearch = () => { if (!searchQuery.value.trim()) return; hasSearched.value = true; void searchAll(searchQuery.value) }
 const handleQuick = (id: string) => {
@@ -44,7 +65,7 @@ onMounted(() => { void loadHome() })
   <div class="home-tab-view">
     <!-- 顶部搜索栏与菜单 -->
     <div class="home-top-bar">
-      <button class="icon-btn back-btn" title="返回桌面" @click="emit('close')">
+      <button class="icon-btn back-btn" :title="hasSearched || searchResult.tracks.length ? '返回首页推荐' : '返回桌面'" @click="handleHeaderBack">
         <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="15 18 9 12 15 6"></polyline>
         </svg>
@@ -54,7 +75,13 @@ onMounted(() => { void loadHome() })
           <circle cx="11" cy="11" r="8"></circle>
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
-        <input v-model="searchQuery" type="search" placeholder="搜索可完整播放的歌曲..." class="search-native-input" @keyup.enter="submitSearch" />
+        <input v-model="searchQuery" type="text" placeholder="搜索可完整播放的歌曲..." class="search-native-input" @keyup.enter="submitSearch" />
+        <button v-if="searchQuery" class="clear-search-btn" title="清空搜索" @click="handleClearSearch">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
       </div>
       <button class="icon-voice-btn" title="搜索" @click="submitSearch">
         <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
@@ -66,7 +93,13 @@ onMounted(() => { void loadHome() })
     <div v-if="isSearching" class="banner-carousel"><div class="banner-card"><div class="banner-tag">搜索中</div><div class="banner-content"><div class="banner-title">正在查找完整歌曲</div><div class="banner-desc">试听、官网外链与不可播放结果不会显示</div></div></div></div>
 
     <div v-else-if="searchResult.tracks.length" class="section-container search-section">
-      <div class="section-header"><div class="section-title">搜索结果</div><div class="section-more">{{ searchResult.tracks.length }} 首</div></div>
+      <div class="section-header">
+        <div class="section-title">搜索结果</div>
+        <div class="search-header-actions">
+          <span class="search-count-badge">{{ searchResult.tracks.length }} 首</span>
+          <button class="exit-search-btn" @click="handleClearSearch">返回推荐</button>
+        </div>
+      </div>
       <div class="song-list-group">
         <div v-for="track in searchResult.tracks" :key="track.id" class="song-row-item" @click="handleTrack(track)">
           <div class="song-cover-thumb" :style="track.coverUrl ? { backgroundImage: `url(${track.coverUrl})`, backgroundSize: 'cover' } : {}"><span v-if="!track.coverUrl">{{ String(track.sourceId).slice(0,1).toUpperCase() }}</span></div>
@@ -77,7 +110,14 @@ onMounted(() => { void loadHome() })
       </div>
     </div>
 
-    <div v-else-if="hasSearched && !searchResult.tracks.length" class="section-container empty-source-card" @click="emit('openSources')"><div class="section-title">{{ hasConfiguredOnlineSource ? '没有找到可完整播放的结果' : '还没有连接在线音乐服务' }}</div><div class="empty-source-text">{{ hasConfiguredOnlineSource ? '当前服务没有返回可完整播放的音源，请检查服务状态。' : '搜索需要一个音乐数据服务；登录不是搜索前提，连接服务后即可免登录搜索和播放公开可用曲目。' }}</div><div class="section-more">打开来源管理 ›</div></div>
+    <div v-else-if="hasSearched && !searchResult.tracks.length" class="section-container empty-source-card">
+      <div class="section-title">{{ hasConfiguredOnlineSource ? '没有找到可完整播放的结果' : '还没有连接在线音乐服务' }}</div>
+      <div class="empty-source-text">{{ hasConfiguredOnlineSource ? '当前服务没有返回可完整播放的音源，请检查服务状态。' : '搜索需要一个音乐数据服务；登录不是搜索前提，连接服务后即可免登录搜索和播放公开可用曲目。' }}</div>
+      <div class="empty-actions">
+        <button type="button" @click="handleClearSearch">返回推荐首页</button>
+        <button type="button" @click="emit('openSources')">打开来源管理</button>
+      </div>
+    </div>
 
     <!-- 四大金刚快捷入口 -->
     <div class="quick-circles-row">
@@ -517,6 +557,51 @@ onMounted(() => { void loadHome() })
 
 .bottom-spacer {
   height: 110px;
+}
+
+.clear-search-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--music-text-muted, #aeaeb2);
+  border-radius: 50%;
+  transition: color 0.2s, background 0.2s;
+}
+
+.clear-search-btn:hover {
+  color: var(--music-text, #1c1c1e);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.search-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-count-badge {
+  font-size: 12px;
+  color: var(--music-text-sub, #8e8e93);
+}
+
+.exit-search-btn {
+  border: 1px solid var(--music-card-border, rgba(0, 0, 0, 0.1));
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--music-pill-bg, #f0f2f5);
+  color: var(--music-text, #1c1c1e);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.exit-search-btn:active {
+  background: var(--music-btn-active, rgba(0, 0, 0, 0.1));
 }
 
 .search-native-input::-webkit-search-cancel-button { display: none; }

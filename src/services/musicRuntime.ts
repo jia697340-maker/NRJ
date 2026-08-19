@@ -17,6 +17,9 @@ export const musicPlaylistTracks = reactive<Record<string, MusicTrack[]>>({})
 export const musicSourceConfigs = ref<MusicSourceConfig[]>(defaultMusicSourceConfigs())
 export const musicCustomTrackCount = ref<number | null>(null)
 export const musicCustomTotalMinutes = ref<number | null>(null)
+export const musicCustomNickname = ref<string | null>(null)
+export const musicCustomVipLabel = ref<string | null>(null)
+export const musicCustomSignature = ref<string | null>(null)
 export const musicRuntimeReady = ref(false)
 
 let saveTimer: number | null = null
@@ -39,7 +42,10 @@ export const persistMusicRuntime = () => {
       preferredQuality: musicPreferredQuality.value,
       sourceConfigs: musicSourceConfigs.value,
       customTrackCount: musicCustomTrackCount.value,
-      customTotalMinutes: musicCustomTotalMinutes.value
+      customTotalMinutes: musicCustomTotalMinutes.value,
+      customNickname: musicCustomNickname.value,
+      customVipLabel: musicCustomVipLabel.value,
+      customSignature: musicCustomSignature.value
     })
   }, 250)
 }
@@ -68,6 +74,9 @@ export const initializeMusicRuntime = () => {
       musicPreferredQuality.value = saved.preferredQuality || 'exhigh'
       musicCustomTrackCount.value = typeof saved.customTrackCount === 'number' ? saved.customTrackCount : null
       musicCustomTotalMinutes.value = typeof saved.customTotalMinutes === 'number' ? saved.customTotalMinutes : null
+      musicCustomNickname.value = typeof saved.customNickname === 'string' ? saved.customNickname : null
+      musicCustomVipLabel.value = typeof saved.customVipLabel === 'string' ? saved.customVipLabel : null
+      musicCustomSignature.value = typeof saved.customSignature === 'string' ? saved.customSignature : null
       const defaults = defaultMusicSourceConfigs()
       const stored = Array.isArray(saved.sourceConfigs) ? saved.sourceConfigs : []
       musicSourceConfigs.value = defaults.map(item => {

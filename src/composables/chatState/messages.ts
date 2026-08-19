@@ -2,7 +2,7 @@
 import localforage from 'localforage'
 import { selectRoleAvailableEmojis } from '../../services/chatEmojiScope'
 import { filterOnlineHistoryByOfflineSessions } from '../../services/offlineSessions'
-import { buildMemoryPacket } from '../../services/memoryEngine'
+import { buildMemoryPacket, normalizeMemoryMode } from '../../services/memoryEngine'
 import { buildBilingualPrompt } from '../../services/bilingualChat'
 import { getMomentBehavior } from '../../services/moments'
 import { getEffectiveUserProfile } from '../useChatUserProfiles'
@@ -15,6 +15,9 @@ import { chatSettings, globalPromptSettings, taskPromptSettings } from '../../st
 import { pushContextTrace, type ContextTraceCollector } from '../../services/contextTrace'
 import { buildInnerThoughtContext } from '../../services/innerThoughtContext'
 import { formatTransferForContext } from '../../services/transferLifecycle'
+import { readGroupChats } from '../../services/groupChat'
+import { buildGroupToSingleBridgeContext } from '../../services/memoryBridge'
+import { useChatAuth } from '../useChatAuth'
 
 // 将 Blob 转为 Base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -178,12 +181,25 @@ export const buildChatMessages = async (
   const memoryPacket = await buildMemoryPacket(chat, String(latestMemoryQuery), chat.memoryTokenBudget, {
     allowEmbedding: options.allowExternalMemoryLookup !== false
   })
+  const { currentChatUserId } = useChatAuth()
+  const groupMemoryBridge = await buildGroupToSingleBridgeContext(
+    readGroupChats(currentChatUserId.value),
+    String(chat.characterEntityId || chat.id || ''),
+    String(latestMemoryQuery)
+  )
   const baseSystemPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode, options.trace)
   const bilingualPrompt = buildBilingualPrompt(chat)
   const thoughtContext = buildInnerThoughtContext(chat, options.currentUserThought, options.currentTurnId, options.trace)
-  const sysPrompt = baseSystemPrompt + bilingualPrompt + memoryPacket + thoughtContext + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
+  const sysPrompt = baseSystemPrompt + bilingualPrompt + memoryPacket + groupMemoryBridge + thoughtContext + momentBehaviorPrompt + callTempSummaryContext + callModePrompt
   pushContextTrace(options.trace, { id: 'runtime:bilingual', category: 'system', group: '输出格式与协议', label: '双语对话规则', text: bilingualPrompt, reason: '当前聊天开启了双语输出' })
-  pushContextTrace(options.trace, { id: 'runtime:memory', category: 'memory', group: '本轮召回', label: '按需长期记忆包', text: memoryPacket, reason: '按当前话题、重要度与时间筛选' })
+  const memoryMode = normalizeMemoryMode(chat.memoryMode)
+  pushContextTrace(options.trace, {
+    id: 'runtime:memory', category: 'memory', group: '本轮召回',
+    label: memoryMode === 'long_text' ? '完整长文本记忆' : memoryMode === 'structured' ? '完整结构化记忆' : '向量召回记忆',
+    text: memoryPacket,
+    reason: memoryMode === 'vector' ? '按当前语义通过 Embedding 召回' : '读取当前模式的全部启用记忆'
+  })
+  pushContextTrace(options.trace, { id: 'runtime:group-memory-bridge', category: 'memory', group: '跨会话记忆', label: '群聊与单聊互通记忆', text: groupMemoryBridge, reason: '该角色已与一个或多个群聊开启记忆互通' })
   pushContextTrace(options.trace, { id: 'runtime:moments', category: 'system', group: '朋友圈能力', label: '朋友圈当前行为规则', text: momentBehaviorPrompt, reason: chat.enableCharMoments === false ? '朋友圈已关闭，注入禁用说明' : '依据当前朋友圈模式生成' })
   pushContextTrace(options.trace, { id: 'runtime:call-summary', category: 'memory', group: '通话临时记忆', label: '本次通话前半段提要', text: callTempSummaryContext, reason: '当前通话存在临时总结' })
   pushContextTrace(options.trace, { id: 'runtime:call-mode', category: 'system', group: '通话能力', label: '当前通话模式规则', text: callModePrompt, reason: '当前处于语音或视频通话' })

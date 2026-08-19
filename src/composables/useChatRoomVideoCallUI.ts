@@ -13,7 +13,16 @@ export function useChatRoomVideoCallUI(
   triggerAPI: (callMode?: false | 'voice' | 'video') => void,
   handleStopCall: () => void
 ) {
-  const { summarizeVideoCall } = useChatSummary(selectedChat, saveCustomContacts, showToast)
+  const { summarizeVideoCall, storeExternalMemory } = useChatSummary(selectedChat, saveCustomContacts, showToast)
+
+  const storeCallMemory = async (callMessages: any[], summary: string, recordId: string | number) => {
+    try {
+      await storeExternalMemory(callMessages, summary, { callType: 'video', callRecordId: recordId })
+    } catch (error) {
+      console.warn('视频通话总结已保存，但长期记忆写入失败', error)
+      showToast('视频总结已保存，但长期记忆写入失败')
+    }
+  }
 
   const {
     status: videoCallStatus,
@@ -197,6 +206,7 @@ export function useChatRoomVideoCallUI(
           if (record) {
             if (summaryContent) {
               record.content = summaryContent
+              await storeCallMemory(callMsgs, summaryContent, recordId)
               showToast('视频通话总结已生成')
             } else {
               record.content = '总结生成失败，您可在详情中重新总结'
@@ -321,6 +331,7 @@ export function useChatRoomVideoCallUI(
           const record = selectedChat.value.callSummaries.find((r: any) => r.id === recordId)
           if (record) {
             record.content = summaryContent || '总结生成失败，您可在详情中重新总结'
+            if (summaryContent) await storeCallMemory(callMsgs, summaryContent, recordId)
             saveCustomContacts()
           }
         } catch {

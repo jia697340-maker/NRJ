@@ -708,12 +708,15 @@ const finishOfflineSession = async (options: {
       )
     }
 
+    if (summary && options.carryoverMode !== 'none') {
+      await storeExternalMemory(sourceMessages, summary, {
+        isOfflineMeetSummary: true,
+        offlineSessionId: session.id
+      })
+    }
     const preview = finishMixedOfflineSession(chat, session, { ...options, summary })
     updatePreviewAndTime(preview.split('\n')[0])
     saveCustomContacts()
-    if (summary && options.carryoverMode !== 'none') {
-      indexChatMemories(chat).catch(error => console.warn('线下见面摘要已保存，但记忆索引未完成', error))
-    }
     showOfflineSessionEndModal.value = false
     showToast('已结束线下见面并返回线上')
     await scrollToBottom()
@@ -747,6 +750,11 @@ const updateTime = () => {
 const currentRoomWallpaper = ref<string | null>(null)
 const currentMediaThumb = ref<string | null>(null)
 const showMemoryModal = ref(false)
+const openMemoryModal = () => {
+  const mode = normalizeMemoryMode(selectedChat.value?.memoryMode)
+  if (mode === 'long_text') showMemoryModal.value = true
+  else showToast(mode === 'structured' ? '结构化记忆请到“总结”页面查看' : '向量模式不使用记忆书架')
+}
 const isSummarizingMemories = ref(false)
 
 const showInnerThoughtModal = ref(false)
@@ -782,8 +790,8 @@ const {
 )
 
 import { useChatSummary } from '../../composables/useChatSummary'
-import { indexChatMemories, replaceStructuredMemoriesForEvidence } from '../../services/memoryEngine'
-const { summarizeMemories, handleAutoSummary, handleManualSummaryLatest } = useChatSummary(selectedChat, saveCustomContacts, showToast)
+import { normalizeMemoryMode } from '../../services/memoryEngine'
+const { summarizeMemories, handleAutoSummary, handleManualSummaryLatest, storeExternalMemory } = useChatSummary(selectedChat, saveCustomContacts, showToast)
 let autoSummaryTimer: any = null
 let idleSummaryTimer: any = null
 const runAutoSummaryWhenChatIdle = (force = false) => {
@@ -923,7 +931,6 @@ const handleUpdateMemories = (newMemories: any[]) => {
   if (selectedChat.value) {
     selectedChat.value.memoryBook = newMemories
     saveCustomContacts()
-    indexChatMemories(selectedChat.value).catch(error => console.warn('记忆书架已更新，向量同步稍后重试', error))
   }
 }
 
@@ -931,6 +938,7 @@ const handleSummarizeMemories = async (selectedIds: number[], strategy: 'replace
   if (!selectedChat.value || !selectedChat.value.memoryBook) return
 
   const chat = selectedChat.value
+  if (normalizeMemoryMode(chat.memoryMode) !== 'long_text') return showToast('只有长文本模式使用记忆书架精简')
   const validMessages = (chat.messages || []).filter((message: any) =>
     message.type === 'left' || message.type === 'right' || message.type === 'system'
   )
@@ -971,7 +979,7 @@ const handleSummarizeMemories = async (selectedIds: number[], strategy: 'replace
         childMemoryIds: memoriesToSummarize.map((memory: any) => memory.id),
         isCondensed: true,
         memoryLevel: Math.max(2, ...memoriesToSummarize.map((memory: any) => Number(memory.memoryLevel || 1))),
-        memoryMode: chat.memoryMode || 'hybrid',
+        memoryMode: 'long_text',
         version: 2,
         createdAt: now,
         updatedAt: now,
@@ -987,16 +995,7 @@ const handleSummarizeMemories = async (selectedIds: number[], strategy: 'replace
       nextMemories.sort((left: any, right: any) => Number(left.id) - Number(right.id))
 
       chat.memoryBook = nextMemories
-      const structuredItemCount = extraction.events.length + extraction.variables.length + extraction.tableRows.length + extraction.relations.length
-      if (structuredItemCount > 0) {
-        replaceStructuredMemoriesForEvidence(chat, extraction, memoriesToSummarize, chat.memoryMode || 'hybrid')
-      }
       saveCustomContacts()
-      try {
-        await indexChatMemories(chat)
-      } catch (error) {
-        console.warn('刷新总结已保存，向量同步稍后重试', error)
-      }
       showToast(strategy === 'replace' ? '总结已覆盖刷新' : '已生成新版本，旧版已归档')
     }
   } catch (err) {
@@ -1100,7 +1099,7 @@ onUnmounted(() => {
       @back="handleRoomBack"
       @open-settings="emit('open-settings')"
       @show-inner-thought-modal="showInnerThoughtModal = true"
-      @show-memory-modal="showMemoryModal = true"
+      @show-memory-modal="openMemoryModal"
       @open-call-records="handleOpenCallRecords"
       @open-offline-meet="emit('open-offline-meet')"
       @click-overlay="showExtensionPanel = false; showEmojiPanel = false"

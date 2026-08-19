@@ -42,6 +42,29 @@ export interface MusicTrack {
   playbackType?: 'full' | 'local'
 }
 
+export interface MusicComment {
+  id: string
+  content: string
+  time: number
+  timeText?: string
+  likedCount: number
+  user: {
+    nickname: string
+    avatarUrl?: string
+  }
+  reply?: {
+    content: string
+    nickname: string
+  } | null
+}
+
+export interface MusicCommentPage {
+  total: number
+  more: boolean
+  hotComments: MusicComment[]
+  comments: MusicComment[]
+}
+
 export interface MusicPlaylist {
   id: string
   sourceId: MusicSourceId
@@ -144,6 +167,9 @@ export interface MusicPersistedState {
   sourceConfigs: MusicSourceConfig[]
   customTrackCount?: number | null
   customTotalMinutes?: number | null
+  customNickname?: string | null
+  customVipLabel?: string | null
+  customSignature?: string | null
 }
 
 export const musicTrackKey = (track: Pick<MusicTrack, 'sourceId' | 'sourceTrackId' | 'id'>) => `${track.sourceId}:${track.sourceTrackId || track.id}`

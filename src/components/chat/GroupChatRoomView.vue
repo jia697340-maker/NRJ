@@ -20,7 +20,7 @@ import { useSeedreamImage } from '../../composables/useSeedreamImage'
 import { useChatSummary } from '../../composables/useChatSummary'
 import { worldBooks } from '../../store'
 import { activeGroupReplyIds, groupReplyControllers, requestGroupReply, saveGroupChat } from '../../services/groupChat'
-import { indexChatMemories, invalidateMemoriesForMessages, replaceStructuredMemoriesForEvidence } from '../../services/memoryEngine'
+import { invalidateMemoriesForMessages, invalidateVectorMemoriesForMessages, normalizeMemoryMode } from '../../services/memoryEngine'
 import ChatRoomMessageList from './room/ChatRoomMessageList.vue'
 import ChatRoomInputArea from './room/ChatRoomInputArea.vue'
 import ChatMessageActionModal from './modals/ChatMessageActionModal.vue'
@@ -58,6 +58,11 @@ const showEmojiPanel = ref(false)
 const showUserThoughtModal = ref(false)
 const showInnerThoughtModal = ref(false)
 const showMemoryModal = ref(false)
+const openMemoryModal = () => {
+  const mode = normalizeMemoryMode(props.group.memoryMode)
+  if (mode === 'long_text') showMemoryModal.value = true
+  else showToast(mode === 'structured' ? '结构化记忆请到群聊“总结”页面查看' : '向量模式不使用记忆书架')
+}
 const showSeparateOffline = ref(false)
 const showEditModal = ref(false)
 const editTargetId = ref<number>()
@@ -161,7 +166,7 @@ const { generateImage: generateNijiImage } = useNijiImage()
 const { generateImage: generateSeedreamImage } = useSeedreamImage()
 const imageGen = useChatRoomImageGen(selectedGroup, groupUserProfile, generateNovelImage, generateGptImage, generateGeminiImage, generateFluxImage, generateNijiImage, generateSeedreamImage, () => persist(), scrollBottom)
 
-const { handleAutoSummary, handleManualSummaryLatest, summarizeMemories, isSummarizing } = useChatSummary(selectedGroup, persist, showToast)
+const { handleAutoSummary, handleManualSummaryLatest, summarizeMemories, storeExternalMemory, isSummarizing } = useChatSummary(selectedGroup, persist, showToast)
 const isSummarizingMemories = ref(false)
 let autoSummaryTimer: ReturnType<typeof setTimeout> | null = null
 let idleSummaryTimer: ReturnType<typeof setTimeout> | null = null
@@ -364,7 +369,7 @@ const mentionsFromText = (text: string) => {
   return mentions
 }
 const handleAddMessage = async (raw: string) => { if (isGroupMemberMuted(props.group, 'user')) return showToast('当前处于禁言状态，无法发送消息'); const content = raw.trim(); if (!content) return; if (/(^|\s)@全体成员(?=\s|$|[，。！？、,!?])/.test(content)) { try { consumeAtAll(props.group, 'user') } catch (error: any) { return showToast(error?.message || '@全体成员失败') } } const now = Date.now(); const turnId = `user_group_turn_${now}`; const quote = media.replyTargetMessage.value ? { ...media.replyTargetMessage.value } : undefined; props.group.messages.push({ id: now, timestamp: now, type: 'right', senderType: 'user', senderId: 'user', content, quote, mentions: mentionsFromText(content), replyToMessageId: quote?.id || '', turnId }); awardGroupActivity(props.group, 'user', turnId, now); media.replyTargetId.value = undefined; persist(); await scrollBottom() }
-const regenerate = async () => { if (isGenerating.value) return; if (![...props.group.messages].some((message: any) => message.type === 'right')) return showToast('还没有可重新生成的用户消息'); const removedIds: any[] = []; while (props.group.messages.length && props.group.messages.at(-1).type !== 'right') { const removed = props.group.messages.pop(); if (removed?.id != null) removedIds.push(removed.id) }; if (removedIds.length) invalidateMemoriesForMessages(props.group, removedIds); persist(); if (removedIds.length) void indexChatMemories(props.group); await runReply() }
+const regenerate = async () => { if (isGenerating.value) return; if (![...props.group.messages].some((message: any) => message.type === 'right')) return showToast('还没有可重新生成的用户消息'); const removedIds: any[] = []; while (props.group.messages.length && props.group.messages.at(-1).type !== 'right') { const removed = props.group.messages.pop(); if (removed?.id != null) removedIds.push(removed.id) }; if (removedIds.length) { invalidateMemoriesForMessages(props.group, removedIds); await invalidateVectorMemoriesForMessages(props.group, removedIds) }; persist(); await runReply() }
 const stopReply = () => groupReplyControllers.get(String(props.group.id))?.abort()
 const sceneDisablesMedia = () => Boolean((props.group.activeCallType && props.group.disableMediaDuringCall) || (props.group.isMixedOfflineActive && props.group.disableMediaDuringOffline))
 const canUserSend = () => { if (isGroupMemberMuted(props.group, 'user')) { showToast('当前处于禁言状态，无法发送消息'); return false } return true }
@@ -406,7 +411,6 @@ const handleEditSave = (payload: any) => {
   }
   showEditModal.value = false;
   persist();
-  void indexChatMemories(props.group);
 }
 const handleSaveUserThought = (text: string) => { if ((props.group.activeCallType && props.group.disableThoughtDuringCall) || (props.group.isMixedOfflineActive && props.group.disableThoughtDuringOffline)) return showToast('当前场景已禁用心声功能'); props.group.pendingUserThought = text; showUserThoughtModal.value = false; persist(); showToast(text ? '本轮心声已保存' : '已清除本轮心声') }
 const toggleMixedOffline = () => {
@@ -476,7 +480,11 @@ const endGroupCall = () => {
   const callStartMessage = (props.group.messages || []).find((message: any) => String(message.id) === String(props.group.activeCallStartMessageId))
   const callDirection = callStartMessage?.callData?.status === 'incoming' ? 'in' : 'out'
   props.group.callSummaries ||= []
-  props.group.callSummaries.push({ id: `group_call_${now}`, date: new Date(now).toLocaleString('zh-CN'), duration, direction: callDirection, callType: kind, content: rawMessages.map((message: any) => `${message.type === 'right' ? (groupUserProfile.value.name || '我') : memberName(String(message.senderId || ''))}：${message.content}`).join('\n') || '本次群通话无文字记录', rawMessages })
+  const recordId = `group_call_${now}`
+  const recordContent = rawMessages.map((message: any) => `${message.type === 'right' ? (groupUserProfile.value.name || '我') : memberName(String(message.senderId || ''))}：${message.content}`).join('\n') || '本次群通话无文字记录'
+  props.group.callSummaries.push({ id: recordId, date: new Date(now).toLocaleString('zh-CN'), duration, direction: callDirection, callType: kind, content: recordContent, rawMessages })
+  if (rawMessages.length) void storeExternalMemory(rawMessages, recordContent, { callType: kind, callRecordId: recordId })
+    .catch(error => { console.warn('群通话记录已保存，但长期记忆写入失败', error); showToast('群通话记录已保存，但长期记忆写入失败') })
   props.group.messages.push({ id: now, timestamp: now, type: 'system', content: `群${kind === 'voice' ? '语音' : '视频'}通话已结束，通话时长 ${duration}`, messageType: 'call', callData: { callType: kind, status: 'ended', duration: seconds } })
   props.group.activeCallType = null
   props.group.activeCallStartedAt = 0
@@ -494,8 +502,9 @@ const handlePlayVoice = async (id: number, text: string) => {
   try { await playVoice(id, text, member) } catch (error: any) { showToast(error?.message?.startsWith('MISSING_') ? '请先在角色语音设置中配置密钥' : (error?.message || '语音播放失败')) }
 }
 
-const updateGroupMemories = (memories: any[]) => { props.group.memoryBook = memories; persist(); void indexChatMemories(props.group) }
+const updateGroupMemories = (memories: any[]) => { if (normalizeMemoryMode(props.group.memoryMode) !== 'long_text') return; props.group.memoryBook = memories; persist() }
 const refreshGroupMemories = async (selectedIds: number[], strategy: 'replace' | 'archive') => {
+  if (normalizeMemoryMode(props.group.memoryMode) !== 'long_text') return showToast('只有长文本模式使用记忆书架精简')
   const chosen = (props.group.memoryBook || []).filter((item: any) => selectedIds.includes(item.id))
   if (!chosen.length) return
   isSummarizingMemories.value = true
@@ -507,10 +516,9 @@ const refreshGroupMemories = async (selectedIds: number[], strategy: 'replace' |
     const next = strategy === 'replace'
       ? props.group.memoryBook.filter((item: any) => !selectedIds.includes(item.id))
       : props.group.memoryBook.map((item: any) => selectedIds.includes(item.id) ? { ...item, archived: true, enabled: false, archivedAt: now } : item)
-    next.push({ id: now, date: new Date().toLocaleDateString('zh-CN'), content: extraction.narrative, evidenceMessageIds, childMemoryIds: chosen.map((item: any) => item.id), messageCount: evidenceMessageIds.length, isCondensed: true, memoryLevel: 2, memoryMode: props.group.memoryMode || 'hybrid', version: 2, createdAt: now, updatedAt: now, enabled: true })
+    next.push({ id: now, date: new Date().toLocaleDateString('zh-CN'), content: extraction.narrative, evidenceMessageIds, childMemoryIds: chosen.map((item: any) => item.id), messageCount: evidenceMessageIds.length, isCondensed: true, memoryLevel: 2, memoryMode: 'long_text', version: 2, createdAt: now, updatedAt: now, enabled: true })
     props.group.memoryBook = next
-    replaceStructuredMemoriesForEvidence(props.group, extraction, chosen, props.group.memoryMode || 'hybrid')
-    persist(); await indexChatMemories(props.group)
+    persist()
   } finally { isSummarizingMemories.value = false }
 }
 
@@ -548,7 +556,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @back="emit('back')"
       @open-settings="emit('open-settings')"
       @show-inner-thought-modal="showInnerThoughtModal = true"
-      @show-memory-modal="showMemoryModal = true"
+      @show-memory-modal="openMemoryModal"
       @open-offline-meet="toggleMixedOffline"
       @click-overlay="showExtensionPanel = false; showEmojiPanel = false"
     />

@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { computed, ref } from 'vue'
-import type { MusicHomeSection, MusicPlaylist, MusicSearchPage, MusicSourceConfig, MusicTrack, MusicUserProfile } from '../types/music'
+import type { MusicCommentPage, MusicHomeSection, MusicPlaylist, MusicSearchPage, MusicSourceConfig, MusicTrack, MusicUserProfile } from '../types/music'
 import { musicTrackKey } from '../types/music'
 import { createMusicProviders, loadPublicMusicHomeSections, logoutBundledMusicAccounts } from '../services/musicProviders'
 import { loadMusicHomeCache, saveLocalMusicFile, saveMusicHomeCache } from '../services/musicStorage'
@@ -9,6 +9,7 @@ import { parseMusicLyrics } from '../services/musicLyrics'
 import { defaultMusicPrivacyPreferences, loadMusicPrivacyPreferences, saveMusicPrivacyPreferences } from '../services/musicPrivacy'
 import {
   initializeMusicRuntime, musicCustomPlaylists, musicCustomTrackCount, musicCustomTotalMinutes,
+  musicCustomNickname, musicCustomVipLabel, musicCustomSignature,
   musicHistory, musicLikedKeys, musicPlaylistTracks, musicSourceConfigs, persistMusicRuntime
 } from '../services/musicRuntime'
 
@@ -112,6 +113,12 @@ export function useMusicLibrary() {
     } finally { isSearching.value = false }
   }
 
+  const clearSearch = () => {
+    searchQuery.value = ''
+    searchResult.value = { tracks: [] }
+    isSearching.value = false
+  }
+
   const loadHome = async (force = false) => {
     if (isLoadingHome.value) return
     if (!force && homeSections.value.length > 0) return
@@ -193,6 +200,14 @@ export function useMusicLibrary() {
     musicPlaylistTracks[`${playlist.sourceId}:${playlist.id}`] = result.tracks
     persistMusicRuntime()
     return result
+  }
+
+  const loadComments = async (track: MusicTrack, page = 1): Promise<MusicCommentPage> => {
+    if (track.originSourceId !== 'netease') throw new Error('该歌曲不是网易云来源，暂无对应评论')
+    const provider = providers().find(item => item.id === track.sourceId && item.getComments)
+      || providers().find(item => item.id === 'aggregate' && item.getComments)
+    if (!provider?.getComments) throw new Error('本站评论服务尚未连接')
+    return provider.getComments(track, page)
   }
 
   const importLocalFiles = async (files: File[]) => {
@@ -321,8 +336,23 @@ export function useMusicLibrary() {
     persistMusicRuntime()
   }
 
+  const setCustomProfile = (profile: { nickname?: string | null; vipLabel?: string | null; signature?: string | null }) => {
+    if (profile.nickname !== undefined) musicCustomNickname.value = profile.nickname
+    if (profile.vipLabel !== undefined) musicCustomVipLabel.value = profile.vipLabel
+    if (profile.signature !== undefined) musicCustomSignature.value = profile.signature
+    persistMusicRuntime()
+  }
+
+  const resetCustomProfile = () => {
+    musicCustomNickname.value = null
+    musicCustomVipLabel.value = null
+    musicCustomSignature.value = null
+    persistMusicRuntime()
+    setMessage('音乐个人信息已重置')
+  }
+
   const exportLibrary = () => {
-    const payload = JSON.stringify({ version: 2, exportedAt: Date.now(), likedTrackKeys: musicLikedKeys.value, history: musicHistory.value, customPlaylists: musicCustomPlaylists.value, playlistTracks: { ...musicPlaylistTracks }, sourceConfigs: musicSourceConfigs.value.map(({ token: _token, ...item }) => item), customTrackCount: musicCustomTrackCount.value, customTotalMinutes: musicCustomTotalMinutes.value }, null, 2)
+    const payload = JSON.stringify({ version: 2, exportedAt: Date.now(), likedTrackKeys: musicLikedKeys.value, history: musicHistory.value, customPlaylists: musicCustomPlaylists.value, playlistTracks: { ...musicPlaylistTracks }, sourceConfigs: musicSourceConfigs.value.map(({ token: _token, ...item }) => item), customTrackCount: musicCustomTrackCount.value, customTotalMinutes: musicCustomTotalMinutes.value, customNickname: musicCustomNickname.value, customVipLabel: musicCustomVipLabel.value, customSignature: musicCustomSignature.value }, null, 2)
     const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = `黏人机音乐备份-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(url)
   }
@@ -335,6 +365,9 @@ export function useMusicLibrary() {
     musicCustomPlaylists.value = [...(data.customPlaylists || []), ...musicCustomPlaylists.value.filter(item => !(data.customPlaylists || []).some((other: MusicPlaylist) => other.id === item.id))]
     if (typeof data.customTrackCount === 'number') musicCustomTrackCount.value = data.customTrackCount
     if (typeof data.customTotalMinutes === 'number') musicCustomTotalMinutes.value = data.customTotalMinutes
+    if (typeof data.customNickname === 'string') musicCustomNickname.value = data.customNickname
+    if (typeof data.customVipLabel === 'string') musicCustomVipLabel.value = data.customVipLabel
+    if (typeof data.customSignature === 'string') musicCustomSignature.value = data.customSignature
     Object.entries(data.playlistTracks || {}).forEach(([key, tracks]) => { musicPlaylistTracks[key] = tracks as MusicTrack[] })
     persistMusicRuntime()
     setMessage('音乐资料已合并导入')
@@ -346,10 +379,11 @@ export function useMusicLibrary() {
     history: musicHistory, customPlaylists: musicCustomPlaylists, playlistTracks: musicPlaylistTracks,
     sourceConfigs: musicSourceConfigs, privacyPreferences, isPrivacyReady,
     customTrackCount: musicCustomTrackCount, customTotalMinutes: musicCustomTotalMinutes,
-    searchAll, loadHome, refreshProfiles, loadPlaylist, importLocalFiles, toggleLikeTrack,
+    customNickname: musicCustomNickname, customVipLabel: musicCustomVipLabel, customSignature: musicCustomSignature,
+    searchAll, clearSearch, loadHome, refreshProfiles, loadPlaylist, loadComments, importLocalFiles, toggleLikeTrack,
     createPlaylist, addToPlaylist, updateSourceConfig, setAnonymousPublicSources,
     clearOnlineAccountData, importPlaylistLink, importPlaylistFile, exportLibrary,
     importLibraryBackup, deleteHistoryTracks, clearAllHistory, setCustomTrackCount,
-    setCustomTotalMinutes, setMessage
+    setCustomTotalMinutes, setCustomProfile, resetCustomProfile, setMessage
   }
 }

@@ -8,7 +8,7 @@ import TextEditModal from '../TextEditModal.vue'
 import LongTextEditModal from '../LongTextEditModal.vue'
 import ChatSummaryPresetsModal from './modals/ChatSummaryPresetsModal.vue'
 import ChatStructuredMemoryModal from './modals/ChatStructuredMemoryModal.vue'
-import { clearChatVectors, ensureMemoryState, indexChatMemories, isEmbeddingReady, type MemoryMode, type StructuredMemoryState } from '../../services/memoryEngine'
+import { ensureMemoryState, isEmbeddingReady, normalizeMemoryMode, type MemoryMode, type StructuredMemoryState } from '../../services/memoryEngine'
 
 const emit = defineEmits<{
   (e: 'back'): void
@@ -64,10 +64,10 @@ const saveCurrentChat = async () => {
   contacts[idx].autoSummaryOnTopicChange = selectedChat.value.autoSummaryOnTopicChange ?? false
   contacts[idx].autoSummaryOnExit = selectedChat.value.autoSummaryOnExit ?? false
   contacts[idx].autoSummaryIdleMinutes = selectedChat.value.autoSummaryIdleMinutes || 0
-  contacts[idx].memoryMode = selectedChat.value.memoryMode || 'hybrid'
+  contacts[idx].memoryMode = selectedChat.value.memoryMode || 'long_text'
   contacts[idx].memoryBatchSize = selectedChat.value.memoryBatchSize || 150
   contacts[idx].memoryTokenBudget = selectedChat.value.memoryTokenBudget || 1200
-  contacts[idx].autoMemoryConsolidation = selectedChat.value.autoMemoryConsolidation ?? true
+  contacts[idx].autoMemoryConsolidation = selectedChat.value.autoMemoryConsolidation === true
   contacts[idx].memoryConsolidationThreshold = selectedChat.value.memoryConsolidationThreshold || 8
   contacts[idx].memoryState = selectedChat.value.memoryState || null
   contacts[idx].summaryPrompt = selectedChat.value.summaryPrompt || ''
@@ -82,10 +82,12 @@ const saveCurrentChat = async () => {
 
 const {
   isSummarizing,
+  isConvertingMemory,
   summaryModalVisible,
   handleManualSummaryLatest,
   handleManualSummaryRange,
-  getUnsummarizedCount
+  getUnsummarizedCount,
+  convertMemoryMode
 } = useChatSummary(selectedChat, saveCurrentChat, showToast)
 
 const rangeStart = ref(1)
@@ -101,7 +103,8 @@ const promptStatusText = computed(() =>
 )
 const structuredMemoryVisible = ref(false)
 const choiceModal = ref<'mode' | 'trigger' | null>(null)
-const isIndexing = ref(false)
+const pendingMode = ref<MemoryMode | null>(null)
+const modeConvertVisible = ref(false)
 const tutorialVisible = ref(false)
 const advancedVisible = ref(false)
 const extraTriggersVisible = ref(false)
@@ -109,14 +112,8 @@ const memoryState = computed(() => selectedChat.value ? ensureMemoryState(select
 const memoryStatsText = computed(() => {
   const state = memoryState.value
   if (!state) return '0 项'
-  const memberCount = selectedChat.value?.chatType === 'group'
-    ? Object.values(selectedChat.value.memberMemories || {}).reduce((total: number, list: any) => total + (Array.isArray(list) ? list.filter((item: any) => item.enabled !== false).length : 0), 0)
-    : 0
-  return `${state.events.length + state.variables.length + state.tableRows.length + state.relations.length + memberCount} 项`
+  return `${state.events.length + state.variables.length + state.tableRows.length + state.relations.length} 项`
 })
-const groupMemberNames = computed(() => selectedChat.value?.chatType === 'group'
-  ? Object.fromEntries((selectedChat.value.memberIds || []).map((id: string) => [id, selectedChat.value.memberNicknames?.[id] || selectedChat.value.memoryMemberNames?.[id] || id]))
-  : undefined)
 type ModeOption = {
   value: MemoryMode
   label: string
@@ -128,57 +125,30 @@ type ModeOption = {
 }
 const modeOptions: ModeOption[] = [
   {
-    value: 'hybrid',
-    label: '综合记忆（推荐）',
-    shortLabel: '什么都想记住',
-    desc: '同时生成文字总结、角色感受、重要事件、人物资料和分类记录。',
-    result: '系统会把同一段聊天分别整理成多种记忆，信息最完整。',
-    suitable: '不确定该选什么，或希望角色尽量记住完整经历的人。',
-    example: '既记住“去过哪里”，也记住“角色当时有什么感受”。'
+    value: 'long_text',
+    label: '长文本记忆',
+    shortLabel: '记忆书架',
+    desc: '把聊天总结成一本本连续的长文本记忆。',
+    result: '聊天时会读取全部启用的记忆书，不进行向量或关键词筛选。',
+    suitable: '希望直接阅读、编辑和手动精简记忆的用户。',
+    example: '每一阶段生成一本记忆书，之后可选中多本重新精简。'
   },
   {
-    value: 'narrative',
-    label: '经典文字总结',
-    shortLabel: '像故事一样总结',
-    desc: '把聊天整理成一段客观、连贯的文字，使用方式最接近旧版总结。',
-    result: '主要得到一段可以直接阅读的阶段故事摘要。',
-    suitable: '喜欢传统总结，只想回顾发生过什么的人。',
-    example: '“两人在周末讨论了旅行计划，并约定下月出发。”'
+    value: 'vector',
+    label: '向量记忆',
+    shortLabel: '语义召回',
+    desc: '把聊天整理成独立记忆条目，并使用 Embedding 模型向量化。',
+    result: '聊天时只通过向量相似度召回相关记忆，不使用本地关键词降级。',
+    suitable: '已经配置向量模型、长期记忆数量很多的用户。',
+    example: '当前谈到旅行时，召回措辞不同但语义相关的旅行经历。'
   },
   {
-    value: 'subjective',
-    label: '角色主观记忆',
-    shortLabel: '记住角色的感受',
-    desc: '用角色第一人称记录感受、想法和对关系的理解。',
-    result: '主要得到角色视角的内心记忆，并把感受和客观事实分开。',
-    suitable: '重视角色代入感、情绪变化和感情发展的用户。',
-    example: '“我很期待和你一起旅行，也有一点担心计划会改变。”'
-  },
-  {
-    value: 'event',
-    label: '重要事件记忆',
-    shortLabel: '记住发生过的事情',
-    desc: '把聊天拆成独立事件，记录人物、时间、结果和未完成事项。',
-    result: '主要得到一张张事件记录，方便追踪约定、冲突和后续计划。',
-    suitable: '长篇剧情、角色扮演或经常有连续任务的用户。',
-    example: '“旅行约定｜参与者：用户和角色｜状态：尚未出发。”'
-  },
-  {
-    value: 'variable',
-    label: '人物资料与状态',
-    shortLabel: '记住资料和喜好',
-    desc: '持续更新称呼、喜好、禁忌、关系、计划和当前状态。',
-    result: '主要得到可以更新的资料项；新信息会替换过时信息并保留历史。',
-    suitable: '希望角色准确记住个人资料、偏好和边界的用户。',
-    example: '“喜欢的饮料：拿铁”“旅行计划：下个月出发”。'
-  },
-  {
-    value: 'table',
-    label: '分类表格记忆',
-    shortLabel: '分门别类保存',
-    desc: '把人物、地点、礼物、承诺等内容整理成可编辑的分类记录。',
-    result: '主要得到整齐的分类条目，适合之后逐项查看和修改。',
-    suitable: '喜欢自己管理资料，或需要大量分类信息的用户。',
+    value: 'structured',
+    label: '结构化记忆',
+    shortLabel: '表格管理',
+    desc: '把人物、地点、事件、喜好、承诺和关系整理成表格。',
+    result: '聊天时读取全部当前有效的结构化数据，不生成记忆书或向量。',
+    suitable: '希望逐项查看、修改、锁定和更新资料的用户。',
     example: '在“承诺”分类中保存“下个月一起旅行”。'
   }
 ]
@@ -187,7 +157,7 @@ const triggerOptions = [
   { value: 'count', label: '按聊天条数', desc: '每积累一定数量的未整理消息后开始。容易理解，消息特别长时可能整理较晚。' },
   { value: 'token', label: '按内容长度', desc: '根据所有文字的大致长度判断。长消息较多时更合适，但普通用户不需要选择。' }
 ]
-const currentMode = computed(() => modeOptions.find(item => item.value === (selectedChat.value?.memoryMode || 'hybrid')) || modeOptions[0])
+const currentMode = computed(() => modeOptions.find(item => item.value === normalizeMemoryMode(selectedChat.value?.memoryMode)) || modeOptions[0])
 const modeLabel = computed(() => currentMode.value.label)
 const triggerLabel = computed(() => triggerOptions.find(item => item.value === (selectedChat.value?.autoSummaryTrigger || 'both'))?.label || '系统自动判断（推荐）')
 const vectorReady = computed(() => isEmbeddingReady())
@@ -216,40 +186,32 @@ const automationSummary = computed(() => {
 
 const selectChoice = (value: string) => {
   if (!selectedChat.value || !choiceModal.value) return
-  if (choiceModal.value === 'mode') selectedChat.value.memoryMode = value
+  if (choiceModal.value === 'mode') {
+    const target = value as MemoryMode
+    choiceModal.value = null
+    if (target === normalizeMemoryMode(selectedChat.value.memoryMode)) return
+    pendingMode.value = target
+    modeConvertVisible.value = true
+    return
+  }
   if (choiceModal.value === 'trigger') selectedChat.value.autoSummaryTrigger = value
   choiceModal.value = null
   saveCurrentChat()
+}
+
+const confirmModeConversion = async () => {
+  if (!pendingMode.value) return
+  const target = pendingMode.value
+  modeConvertVisible.value = false
+  const converted = await convertMemoryMode(target)
+  if (converted) showToast(`已切换为${modeOptions.find(item => item.value === target)?.label || '新模式'}`)
+  pendingMode.value = null
 }
 
 const updateStructuredState = (state: StructuredMemoryState) => {
   if (!selectedChat.value) return
   selectedChat.value.memoryState = state
   saveCurrentChat()
-  indexChatMemories(selectedChat.value).catch(error => console.warn('结构化记忆已保存，向量同步稍后重试', error))
-}
-const updateMemberMemories = (memories: Record<string, any[]>) => {
-  if (!selectedChat.value || selectedChat.value.chatType !== 'group') return
-  selectedChat.value.memberMemories = memories
-  saveCurrentChat()
-}
-
-const rebuildVectorIndex = async () => {
-  if (!selectedChat.value) return
-  if (!isEmbeddingReady()) {
-    showToast('请先在 API 设置中启用并配置向量节点')
-    return
-  }
-  isIndexing.value = true
-  try {
-    await clearChatVectors(selectedChat.value.id)
-    const result = await indexChatMemories(selectedChat.value)
-    showToast(`智能搜索资料已更新：${result.indexed} 条`)
-  } catch (error: any) {
-    showToast(error.message || '智能搜索资料更新失败')
-  } finally {
-    isIndexing.value = false
-  }
 }
 
 const openLatestSummaryModal = () => {
@@ -387,7 +349,7 @@ const resetSummaryPromptToDefault = () => {
           <div class="item-label">区间总结</div>
           <div class="item-value"><span class="arrow">></span></div>
         </div>
-        <div class="glass-list-item" @click="structuredMemoryVisible = true">
+        <div v-if="currentMode.value === 'structured'" class="glass-list-item" @click="structuredMemoryVisible = true">
           <div class="item-label">结构化记忆</div>
           <div class="item-value"><span class="item-value-text">{{ memoryStatsText }}</span><span class="arrow">></span></div>
         </div>
@@ -395,7 +357,7 @@ const resetSummaryPromptToDefault = () => {
 
       <div class="section-label step-label"><span>第 1 步</span> 选择想怎样整理记忆</div>
       <div class="glass-panel">
-        <div class="glass-list-item" @click="choiceModal = 'mode'">
+        <div class="glass-list-item" :class="{ 'disabled-block': isConvertingMemory }" @click="choiceModal = 'mode'">
           <div class="item-copy">
             <div class="item-label">总结方式</div>
             <div class="item-help">点这里可以更换；不知道选什么就保持推荐项。</div>
@@ -407,7 +369,8 @@ const resetSummaryPromptToDefault = () => {
           <div class="explanation-text">{{ currentMode.result }}</div>
           <div class="explanation-row"><b>适合：</b>{{ currentMode.suitable }}</div>
           <div class="explanation-row"><b>举例：</b>{{ currentMode.example }}</div>
-          <div class="safe-note">不需要配置向量模型，也能正常总结和读取记忆。</div>
+          <div class="safe-note" v-if="currentMode.value === 'vector'">该模式必须先配置并实际连通 Embedding 模型。</div>
+          <div class="safe-note" v-else>该模式不需要配置向量模型。</div>
         </div>
       </div>
 
@@ -503,28 +466,19 @@ const resetSummaryPromptToDefault = () => {
         </div>
       </template>
 
-      <div class="section-label">记忆搜索方式</div>
+      <template v-if="currentMode.value === 'vector'">
+      <div class="section-label">向量节点</div>
       <div class="glass-panel">
         <div class="vector-status">
-          <div class="status-icon" :class="{ active: vectorReady }">{{ vectorReady ? '✓' : '普' }}</div>
+          <div class="status-icon" :class="{ active: vectorReady }">{{ vectorReady ? '✓' : '!' }}</div>
           <div class="status-copy">
-            <b>{{ vectorReady ? '智能记忆搜索已开启' : '正在使用普通记忆搜索' }}</b>
-            <span v-if="vectorReady">系统会利用已配置的向量模型，更准确地寻找和当前话题意思相近的旧记忆。</span>
-            <span v-else>不需要配置任何模型，也能正常总结和读取记忆。系统会按照关键词、重要程度和时间寻找旧记忆。</span>
+            <b>{{ vectorReady ? '向量节点配置完整' : '向量节点尚未配置完整' }}</b>
+            <span v-if="vectorReady">系统将只使用 Embedding 模型写入和召回向量记忆。</span>
+            <span v-else>向量模式不会降级成本地关键词搜索；请先到 API 节点配置完成向量节点。</span>
           </div>
-        </div>
-        <div v-if="vectorReady" class="glass-list-item" :class="{ 'disabled-block': isIndexing }" @click="rebuildVectorIndex">
-          <div class="item-copy">
-            <div class="item-label">重新整理搜索索引</div>
-            <div class="item-help">只有更换向量模型后才需要操作，平时不用点。</div>
-          </div>
-          <div class="item-value"><span class="item-value-text">{{ isIndexing ? '处理中...' : '重新建立' }}</span><span class="arrow">></span></div>
-        </div>
-        <div v-else class="plain-guidance">
-          <b>需要配置吗？</b>
-          <span>通常不需要。只有保存了非常多记忆，并且普通搜索经常找不到相关内容时，再到“API 节点配置 → 向量节点”开启。</span>
         </div>
       </div>
+      </template>
 
       <div class="section-label">高级设置</div>
       <div class="glass-panel">
@@ -543,26 +497,12 @@ const resetSummaryPromptToDefault = () => {
             </div>
             <div class="item-value"><span class="item-value-text">{{ selectedChat.memoryBatchSize || 150 }} 条</span><span class="arrow">></span></div>
           </div>
-        <div class="glass-list-item" @click="openTextModal('每次最多读取多少旧记忆', String(selectedChat.memoryTokenBudget || 1200), '1200', '建议保持 1200', 'memoryTokenBudget')">
+        <div v-if="currentMode.value === 'vector'" class="glass-list-item" @click="openTextModal('每次最多读取多少旧记忆', String(selectedChat.memoryTokenBudget || 1200), '1200', '建议保持 1200', 'memoryTokenBudget')">
           <div class="item-copy">
             <div class="item-label">每次最多读取多少旧记忆</div>
             <div class="item-help">建议保持 1200。调大会读取更多历史，但可能更费额度、干扰当前聊天。</div>
           </div>
           <div class="item-value"><span class="item-value-text">{{ selectedChat.memoryTokenBudget || 1200 }} Token</span><span class="arrow">></span></div>
-        </div>
-        <div class="glass-list-item">
-          <div class="item-copy">
-            <div class="item-label">自动压缩很久以前的记忆</div>
-            <div class="item-help">阶段总结过多时生成一条更精简的长期总结。建议开启，原记录不会被删除。</div>
-          </div>
-          <div class="item-value"><label class="switch" @click.stop><input type="checkbox" v-model="selectedChat.autoMemoryConsolidation" @change="saveCurrentChat"><span class="slider"></span></label></div>
-        </div>
-        <div class="glass-list-item" :class="{ 'disabled-block': selectedChat.autoMemoryConsolidation === false }" @click="openTextModal('积累多少段后自动压缩', String(selectedChat.memoryConsolidationThreshold || 8), '8', '建议保持 8，可填写 4-20', 'memoryConsolidationThreshold')">
-          <div class="item-copy">
-            <div class="item-label">积累多少段后压缩</div>
-            <div class="item-help">建议保持 8。数字越小，旧总结被压缩得越频繁。</div>
-          </div>
-          <div class="item-value"><span class="item-value-text">{{ selectedChat.memoryConsolidationThreshold || 8 }} 条摘要</span><span class="arrow">></span></div>
         </div>
         <div
           class="glass-list-item"
@@ -624,7 +564,7 @@ const resetSummaryPromptToDefault = () => {
         <div class="choice-title">{{ choiceModal === 'mode' ? '你想怎样整理记忆？' : '什么时候开始自动整理？' }}</div>
         <div class="choice-intro">
           {{ choiceModal === 'mode'
-            ? '所有方式都不要求配置向量模型。只需按照自己最想保留的内容选择。'
+            ? '三种模式互斥运行。切换时会把当前记忆转换为目标模式；进入向量模式必须先连通 Embedding 模型。'
             : '这只决定开始整理的时间，不会改变总结出来的内容。普通用户选择推荐项即可。' }}
         </div>
         <div class="choice-list">
@@ -632,10 +572,24 @@ const resetSummaryPromptToDefault = () => {
             <div>
               <div class="choice-name">{{ item.label }}</div>
               <div class="choice-desc">{{ item.desc }}</div>
-              <div v-if="choiceModal === 'mode'" class="choice-requirement">无需向量模型 · 可随时更换</div>
+              <div v-if="choiceModal === 'mode'" class="choice-requirement">{{ item.value === 'vector' ? '需要 Embedding 模型 · 支持转换' : '无需向量模型 · 支持转换' }}</div>
             </div>
-            <div class="choice-check" v-if="(choiceModal === 'mode' ? (selectedChat?.memoryMode || 'hybrid') : (selectedChat?.autoSummaryTrigger || 'both')) === item.value">✓</div>
+            <div class="choice-check" v-if="(choiceModal === 'mode' ? normalizeMemoryMode(selectedChat?.memoryMode) : (selectedChat?.autoSummaryTrigger || 'both')) === item.value">✓</div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="modeConvertVisible" class="wb-modal-overlay" @click.self="modeConvertVisible = false">
+      <div class="custom-confirm-modal">
+        <div class="confirm-title">转换并切换记忆模式</div>
+        <div class="confirm-desc">
+          系统会将当前“{{ currentMode.label }}”记忆转换为“{{ modeOptions.find(item => item.value === pendingMode)?.label }}”。转换全部成功后才会切换，原模式数据会保留但不参与聊天。
+          <span v-if="pendingMode === 'vector'">进入向量模式前会实际测试 Embedding 节点。</span>
+        </div>
+        <div class="confirm-actions">
+          <div class="confirm-btn cancel" @click="modeConvertVisible = false; pendingMode = null">取消</div>
+          <div class="confirm-btn primary" @click="confirmModeConversion">转换并切换</div>
         </div>
       </div>
     </div>
@@ -648,7 +602,7 @@ const resetSummaryPromptToDefault = () => {
             <b>你现在的设置</b>
             <span>总结方式：{{ currentMode.label }}</span>
             <span>自动整理：{{ selectedChat?.autoSummaryEnabled ? '已开启' : '未开启' }}</span>
-            <span>记忆搜索：{{ vectorReady ? '智能记忆搜索' : '普通记忆搜索' }}</span>
+            <span>当前模式：{{ currentMode.label }}</span>
           </div>
           <div class="tutorial-step">
             <b>1. 你选择的“{{ currentMode.label }}”会做什么？</b>
@@ -671,20 +625,21 @@ const resetSummaryPromptToDefault = () => {
           </div>
           <div class="tutorial-step">
             <b>{{ selectedChat?.autoSummaryEnabled ? '4' : '3' }}. 需要配置向量模型吗？</b>
-            <span v-if="vectorReady">你已经配置了向量模型，智能记忆搜索正在工作。它只负责更准确地寻找旧记忆，不负责生成总结。</span>
-            <span v-else>不需要。当前普通记忆搜索可以正常工作，会根据关键词、重要程度和时间寻找旧记忆。向量模型只是在记忆特别多时提高搜索准确度。</span>
-            <span>无论有没有向量模型，“{{ currentMode.label }}”都会保存相同类型的记忆。</span>
+            <span v-if="currentMode.value === 'vector'">需要。向量模式必须配置并连通 Embedding 模型，不会降级成本地搜索。</span>
+            <span v-else>不需要。{{ currentMode.label }}与向量记忆互斥运行。</span>
           </div>
           <div class="tutorial-step">
             <b>{{ selectedChat?.autoSummaryEnabled ? '5' : '4' }}. 高级设置需要修改吗？</b>
-            <span>通常不需要。一次整理 150 条、每次读取 1200 Token、每 8 段压缩一次，已经适合大多数聊天。</span>
+            <span>通常不需要。批次与自动触发设置只影响什么时候整理，不会把三种记忆模式混在一起。</span>
             <span>只有遇到整理失败、费用明显增加或读取旧记忆太少时，才建议逐项调整。</span>
           </div>
           <div class="tutorial-step">
             <b>{{ selectedChat?.autoSummaryEnabled ? '6' : '5' }}. 怎样检查结果？</b>
-            <span>整理完成后，点击页面上方的“结构化记忆”查看事件、人物资料、表格和关系。发现错误可以直接修改或删除；重要资料可以锁定，避免以后被自动覆盖。</span>
+            <span v-if="currentMode.value === 'structured'">整理完成后，点击页面上方的“结构化记忆”查看和修改表格记录。</span>
+            <span v-else-if="currentMode.value === 'long_text'">整理完成后，可在记忆书架查看、编辑或选中多本进行精简。</span>
+            <span v-else>向量记忆会在整理时直接写入向量库，并在聊天中按语义召回。</span>
           </div>
-          <div class="tutorial-note">最简单的用法：选择一种总结方式，开启自动整理，然后保持所有推荐值。向量模型和高级设置都不是必需项。</div>
+          <div class="tutorial-note">三种记忆模式只能选择一种。切换模式会先转换已有记忆，转换完成后再启用目标模式。</div>
         </div>
       </div>
     </div>
@@ -751,11 +706,8 @@ const resetSummaryPromptToDefault = () => {
       <ChatStructuredMemoryModal
         :visible="structuredMemoryVisible"
         :state="memoryState"
-        :member-memories="selectedChat?.chatType === 'group' ? selectedChat.memberMemories : undefined"
-        :member-names="groupMemberNames"
         @close="structuredMemoryVisible = false"
         @update-state="updateStructuredState"
-        @update-member-memories="updateMemberMemories"
       />
     </Teleport>
   </div>

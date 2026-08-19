@@ -54,6 +54,7 @@ import ChatNijiImageDetailModal from './modals/ChatNijiImageDetailModal.vue'
 import ChatSeedreamImageDetailModal from './modals/ChatSeedreamImageDetailModal.vue'
 import ChatImageProviderModal from './modals/ChatImageProviderModal.vue'
 import ChatIdentityProfileModal from './modals/ChatIdentityProfileModal.vue'
+import ChatGroupMemoryBridgeModal from './modals/ChatGroupMemoryBridgeModal.vue'
 
 const searchQuery = ref('')
 const matchSearch = (...keywords: (string | undefined | null)[]) => {
@@ -205,6 +206,7 @@ const showNijiImageDetailModal = ref(false)
 const showSeedreamImageDetailModal = ref(false)
 const showImageProviderModal = ref(false)
 const showIdentityProfileModal = ref(false)
+const showGroupMemoryBridgeModal = ref(false)
 const identityProfileTarget = ref<'character' | 'user'>('character')
 const openIdentityProfile = (target: 'character' | 'user') => {
   identityProfileTarget.value = target
@@ -818,6 +820,7 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @show-world-book-bind-selector="showWorldBookBindSelector = true"
         @show-bilingual-option-modal="openBilingualOptionModal"
         @show-bilingual-language-modal="openBilingualLanguageModal"
+        @show-group-memory-bridge-modal="showGroupMemoryBridgeModal = true"
         @open-character-profile="emit('open-character-profile')"
         @save="saveCurrentChat"
       />
@@ -1003,6 +1006,12 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         :owner-avatar="identityProfileTarget === 'character' ? selectedChat.avatarUrl : effectiveMyProfile.avatarUrl"
         :provider="selectedChat.imageGenProvider || 'novelai'"
         :available-characters="mockChats"
+      />
+
+      <!-- 群聊记忆互通弹窗 -->
+      <ChatGroupMemoryBridgeModal
+        v-model:visible="showGroupMemoryBridgeModal"
+        :character="selectedChat"
       />
 
       <!-- 语音详细配置弹窗 -->

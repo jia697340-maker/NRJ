@@ -6,6 +6,7 @@ import { SecureSessionStore } from './secure-store.mjs'
 const PORT = Number(process.env.PORT || 8787)
 const PUBLIC_UPSTREAM = String(process.env.MUSIC_PUBLIC_UPSTREAM || 'http://music-public:8080').replace(/\/$/, '')
 const AUTH_UPSTREAM = String(process.env.MUSIC_AUTH_UPSTREAM || 'http://music-auth:8080').replace(/\/$/, '')
+const NETEASE_UPSTREAM = String(process.env.MUSIC_NETEASE_UPSTREAM || 'https://music.163.com').replace(/\/$/, '')
 const DATA_DIR = process.env.MUSIC_DATA_DIR || '/data'
 const COOKIE_NAME = 'clingy_music_session'
 const COOKIE_SAME_SITE = process.env.MUSIC_COOKIE_SAME_SITE || 'None'
@@ -23,6 +24,9 @@ pruneTimer.unref()
 const signingKey = store.key
 let authQueue = Promise.resolve()
 const rateBuckets = new Map()
+const commentCache = new Map()
+const COMMENT_CACHE_TTL_MS = 60_000
+const COMMENT_CACHE_MAX_ENTRIES = 200
 
 const json = (response, status, body, headers = {}) => {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers })
@@ -114,6 +118,57 @@ const upstreamJson = async (base, path, init = {}) => {
   return { response, body }
 }
 
+const publicComment = value => {
+  const reply = Array.isArray(value?.beReplied) ? value.beReplied[0] : null
+  return {
+    id: String(value?.commentId || ''),
+    content: typeof value?.content === 'string' ? value.content : '',
+    time: Number(value?.time || 0),
+    timeText: typeof value?.timeStr === 'string' ? value.timeStr : '',
+    likedCount: Number(value?.likedCount || 0),
+    user: {
+      nickname: typeof value?.user?.nickname === 'string' ? value.user.nickname : '网易云用户',
+      avatarUrl: typeof value?.user?.avatarUrl === 'string' ? value.user.avatarUrl.replace(/^http:\/\//i, 'https://') : ''
+    },
+    reply: reply && typeof reply.content === 'string' ? {
+      content: reply.content,
+      nickname: typeof reply.user?.nickname === 'string' ? reply.user.nickname : '网易云用户'
+    } : null
+  }
+}
+
+const handleMusicComments = async (response, url) => {
+  const id = String(url.searchParams.get('id') || '').trim()
+  const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || 20) || 20))
+  const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0)
+  if (!/^\d+$/.test(id)) return json(response, 400, { code: 400, msg: '无效的网易云歌曲 ID' })
+
+  const cacheKey = `${id}:${limit}:${offset}`
+  const cached = commentCache.get(cacheKey)
+  if (cached && Date.now() - cached.createdAt < COMMENT_CACHE_TTL_MS) return json(response, 200, cached.body)
+
+  const path = `/api/v1/resource/comments/R_SO_4_${encodeURIComponent(id)}?limit=${limit}&offset=${offset}`
+  const { response: upstreamResponse, body } = await upstreamJson(NETEASE_UPSTREAM, path, {
+    headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://music.163.com/' },
+    signal: AbortSignal.timeout(10_000)
+  })
+  if (!upstreamResponse.ok || Number(body?.code) !== 200) return json(response, 502, { code: 502, msg: '网易云评论暂时不可用' })
+
+  const result = {
+    code: 200,
+    msg: 'success',
+    data: {
+      total: Number(body?.total || 0),
+      more: body?.more === true,
+      hotComments: (Array.isArray(body?.hotComments) ? body.hotComments : []).map(publicComment),
+      comments: (Array.isArray(body?.comments) ? body.comments : []).map(publicComment)
+    }
+  }
+  commentCache.set(cacheKey, { createdAt: Date.now(), body: result })
+  if (commentCache.size > COMMENT_CACHE_MAX_ENTRIES) commentCache.delete(commentCache.keys().next().value)
+  return json(response, 200, result)
+}
+
 const extractQrCookie = (body) => {
   const data = body?.data || body
   if (typeof data?.cookie === 'string' && data.cookie.trim()) return data.cookie.trim()
@@ -196,6 +251,9 @@ const server = createServer(async (request, response) => {
     if (request.method !== 'GET' && request.method !== 'POST') return json(response, 405, { error: 'method not allowed' })
 
     if (url.pathname === '/health') return json(response, 200, { status: 'ok' })
+    if (url.pathname === '/api/v1/music/comments' && request.method === 'GET') {
+      return await handleMusicComments(response, url)
+    }
     const session = sessionFor(request)
     if (url.pathname === '/api/v1/system/privacy/capabilities') {
       return json(response, 200, { data: {

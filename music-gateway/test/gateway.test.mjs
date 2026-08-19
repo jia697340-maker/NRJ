@@ -20,6 +20,20 @@ const close = server => new Promise(resolve => server.close(resolve))
 
 test('isolates QR ownership, strips credentials and deletes the current account session', async t => {
   let authCookies = {}
+  let commentRequests = 0
+  const neteaseUpstream = await listen((request, response) => {
+    const url = new URL(request.url, 'http://mock')
+    commentRequests += 1
+    assert.equal(url.pathname, '/api/v1/resource/comments/R_SO_4_186016')
+    assert.equal(url.searchParams.get('limit'), '20')
+    assert.equal(url.searchParams.get('offset'), '0')
+    response.setHeader('Content-Type', 'application/json')
+    response.end(JSON.stringify({
+      code: 200, total: 2, more: false,
+      hotComments: [{ commentId: 9, content: '热门评论', time: 1000, timeStr: '很久以前', likedCount: 88, user: { userId: 123, nickname: '云用户', avatarUrl: 'http://avatar.test/a.jpg', secret: 'hidden' } }],
+      comments: [{ commentId: 10, content: '最新评论', time: 2000, likedCount: 3, user: { userId: 456, nickname: '听众', avatarUrl: 'https://avatar.test/b.jpg' }, beReplied: [{ content: '原评论', user: { nickname: '另一位听众' } }] }]
+    }))
+  })
   const publicUpstream = await listen((request, response) => {
     response.setHeader('Content-Type', 'application/json')
     response.end(JSON.stringify({ data: { owner: 'anonymous' } }))
@@ -56,6 +70,7 @@ test('isolates QR ownership, strips credentials and deletes the current account 
       MUSIC_DATA_DIR: dataDir,
       MUSIC_PUBLIC_UPSTREAM: address(publicUpstream),
       MUSIC_AUTH_UPSTREAM: address(authUpstream),
+      MUSIC_NETEASE_UPSTREAM: address(neteaseUpstream),
       MUSIC_ALLOWED_ORIGINS: 'https://app.example.test',
       MUSIC_COOKIE_SECURE: 'false',
       MUSIC_COOKIE_SAME_SITE: 'Lax'
@@ -64,7 +79,7 @@ test('isolates QR ownership, strips credentials and deletes the current account 
   })
   t.after(async () => {
     child.kill()
-    await Promise.all([close(publicUpstream), close(authUpstream)])
+    await Promise.all([close(publicUpstream), close(authUpstream), close(neteaseUpstream)])
   })
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('gateway startup timeout')), 5000)
@@ -82,6 +97,17 @@ test('isolates QR ownership, strips credentials and deletes the current account 
   assert.equal((await capability.json()).data.session_isolation, true)
   const rejectedOrigin = await fetch(`${base}/api/v1/system/privacy/capabilities`, { headers: { Origin: 'https://evil.example.test' } })
   assert.equal(rejectedOrigin.status, 403)
+  const invalidComments = await fetch(`${base}/api/v1/music/comments?id=bad`, { headers })
+  assert.equal(invalidComments.status, 400)
+  const comments = await fetch(`${base}/api/v1/music/comments?id=186016`, { headers })
+  const commentsBody = await comments.json()
+  assert.equal(comments.status, 200)
+  assert.equal(commentsBody.data.total, 2)
+  assert.equal(commentsBody.data.hotComments[0].user.avatarUrl, 'https://avatar.test/a.jpg')
+  assert.equal(commentsBody.data.comments[0].reply.nickname, '另一位听众')
+  assert.equal(JSON.stringify(commentsBody).includes('userId'), false)
+  await fetch(`${base}/api/v1/music/comments?id=186016`, { headers })
+  assert.equal(commentRequests, 1)
   const protectedCookies = await fetch(`${base}/api/v1/system/cookies`, { headers: { ...headers, Cookie: cookieA } })
   assert.equal(protectedCookies.status, 404)
 

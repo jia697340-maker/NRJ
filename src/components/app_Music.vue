@@ -12,6 +12,7 @@ import MusicSourceModal from './music/modals/MusicSourceModal.vue'
 import MusicDataModal from './music/modals/MusicDataModal.vue'
 import MusicHistoryModal from './music/modals/MusicHistoryModal.vue'
 import MusicPlaybackSettingsModal from './music/modals/MusicPlaybackSettingsModal.vue'
+import MusicCommentsModal from './music/modals/MusicCommentsModal.vue'
 import MusicPrivacyModal from './music/modals/MusicPrivacyModal.vue'
 import MusicPlaylistCollectionModal from './music/modals/MusicPlaylistCollectionModal.vue'
 import MusicPlaylistDetailModal from './music/modals/MusicPlaylistDetailModal.vue'
@@ -29,6 +30,7 @@ const isDataModalOpen = ref(false)
 const isHistoryModalOpen = ref(false)
 const historyModalTab = ref<'records' | 'edit'>('records')
 const isPlaybackSettingsOpen = ref(false)
+const isCommentsOpen = ref(false)
 const privacyModalMode = ref<'closed' | 'management' | 'public-consent'>('closed')
 const isCollectionOpen = ref(false)
 const collectionMode = ref<'playlists' | 'charts'>('playlists')
@@ -38,8 +40,8 @@ const pendingPublicPlaylist = ref<MusicPlaylist | null>(null)
 const selectedPlaylistTracks = ref<MusicTrack[]>([])
 const isPlaylistLoading = ref(false)
 const playlistError = ref('')
-const { libraryMessage, homeSections, sourceConfigs, privacyPreferences, loadPlaylist, setAnonymousPublicSources, clearOnlineAccountData } = useMusicLibrary()
-const { playTracks } = useMusicPlayer()
+const { libraryMessage, homeSections, sourceConfigs, privacyPreferences, clearSearch, loadPlaylist, setAnonymousPublicSources, clearOnlineAccountData } = useMusicLibrary()
+const { currentTrack, playTracks } = useMusicPlayer()
 const handlePrivacyChoice = async (allowed: boolean) => {
   await setAnonymousPublicSources(allowed)
   privacyModalMode.value = 'closed'
@@ -123,6 +125,7 @@ const handleBack = () => {
             @collapse="activeTab = 'mine'"
             @openPlaylistDrawer="isPlaylistDrawerOpen = true"
             @openPlaybackSettings="isPlaybackSettingsOpen = true"
+            @openComments="isCommentsOpen = true"
           />
         </div>
       </KeepAlive>
@@ -139,7 +142,12 @@ const handleBack = () => {
     <MusicTabBar
       v-if="!isFullPlayerOpen"
       :activeTab="activeTab"
-      @update:activeTab="(tab) => activeTab = tab"
+      @update:activeTab="(tab) => {
+        if (tab === 'home' && activeTab === 'home') {
+          clearSearch()
+        }
+        activeTab = tab
+      }"
     />
 
     <!-- 全屏黑胶播放器弹出层 (无摆臂) -->
@@ -149,6 +157,7 @@ const handleBack = () => {
         @collapse="isFullPlayerOpen = false"
         @openPlaylistDrawer="isPlaylistDrawerOpen = true"
         @openPlaybackSettings="isPlaybackSettingsOpen = true"
+        @openComments="isCommentsOpen = true"
       />
     </transition>
 
@@ -161,6 +170,7 @@ const handleBack = () => {
     <MusicDataModal :visible="isDataModalOpen" @close="isDataModalOpen = false" />
     <MusicHistoryModal :visible="isHistoryModalOpen" :defaultTab="historyModalTab" @close="isHistoryModalOpen = false" />
     <MusicPlaybackSettingsModal :visible="isPlaybackSettingsOpen" @close="isPlaybackSettingsOpen = false" />
+    <MusicCommentsModal :visible="isCommentsOpen" :track="currentTrack" @close="isCommentsOpen = false" />
     <MusicPrivacyModal :visible="privacyModalMode !== 'closed'" :mode="privacyModalMode === 'closed' ? 'management' : privacyModalMode" :anonymousAllowed="privacyPreferences.allowAnonymousPublicSources" @choose="handlePrivacyChoice" @close="closePrivacy" @clearAccounts="clearOnlineAccountData" />
     <MusicPlaylistCollectionModal :visible="isCollectionOpen" :title="collectionMode === 'charts' ? '排行榜' : '歌单广场'" :subtitle="collectionMode === 'charts' ? '按当前热门播放量排序' : '来自已启用音乐来源的推荐歌单'" :playlists="collectionPlaylists" @close="isCollectionOpen = false" @select="openPlaylist" />
     <MusicPlaylistDetailModal :visible="isPlaylistDetailOpen" :playlist="selectedPlaylist" :tracks="selectedPlaylistTracks" :loading="isPlaylistLoading" :error="playlistError" @close="isPlaylistDetailOpen = false" @playAll="playSelected(0)" @play="(_track, index) => playSelected(index)" />

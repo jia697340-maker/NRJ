@@ -44,7 +44,9 @@ const THIRD_PAGE_APP_IDS = new Set([
   'text_game'
 ])
 const FOURTH_PAGE_APP_IDS = new Set([
-  'book_store'
+  'book_store',
+  'game',
+  'bubble'
 ])
 
 const state = reactive<DesktopLayoutState>({

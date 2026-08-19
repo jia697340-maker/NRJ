@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import type { MusicHomeSection, MusicPlaylist, MusicQuality, MusicSearchPage, MusicSourceConfig, MusicTrack, MusicUserProfile } from '../types/music'
+import type { MusicComment, MusicCommentPage, MusicHomeSection, MusicPlaylist, MusicQuality, MusicSearchPage, MusicSourceConfig, MusicTrack, MusicUserProfile } from '../types/music'
 import { parseMusicLyrics } from './musicLyrics'
 
 export interface MusicProvider {
@@ -9,6 +9,7 @@ export interface MusicProvider {
   getPlaylist?(id: string): Promise<{ playlist: MusicPlaylist; tracks: MusicTrack[] }>
   getStreamUrl?(track: MusicTrack, quality: MusicQuality): Promise<string | null>
   getLyrics?(track: MusicTrack): Promise<MusicTrack['lyrics']>
+  getComments?(track: MusicTrack, page?: number): Promise<MusicCommentPage>
   getProfile?(): Promise<MusicUserProfile | null>
 }
 
@@ -165,6 +166,17 @@ const aggregateParams = (track: MusicTrack) => ({
   extra: track.originExtra ? JSON.stringify(track.originExtra) : undefined
 })
 
+const aggregateComment = (value: unknown): MusicComment | null => {
+  if (!isRecord(value) || !textValue(value.id) || !textValue(value.content) || !isRecord(value.user)) return null
+  const reply = isRecord(value.reply) ? value.reply : null
+  return {
+    id: textValue(value.id), content: textValue(value.content), time: numberValue(value.time),
+    timeText: textValue(value.timeText) || undefined, likedCount: numberValue(value.likedCount),
+    user: { nickname: textValue(value.user.nickname, '网易云用户'), avatarUrl: secureImageUrl(value.user.avatarUrl) },
+    reply: reply && textValue(reply.content) ? { content: textValue(reply.content), nickname: textValue(reply.nickname, '网易云用户') } : null
+  }
+}
+
 class AggregateMusicProvider implements MusicProvider {
   id = 'aggregate'
   private config: MusicSourceConfig
@@ -202,6 +214,17 @@ class AggregateMusicProvider implements MusicProvider {
   async getLyrics(track: MusicTrack) {
     const data = unwrapData(await this.request('/api/v1/music/lyric', aggregateParams(track)).catch(() => null))
     return parseMusicLyrics(isRecord(data) ? textValue(data.lyric) : '')
+  }
+  async getComments(track: MusicTrack, page = 1): Promise<MusicCommentPage> {
+    if (track.originSourceId !== 'netease') throw new Error('该歌曲不是网易云来源，暂无对应评论')
+    const limit = 20
+    const data = unwrapData(await this.request('/api/v1/music/comments', { id: track.sourceTrackId, limit, offset: (Math.max(1, page) - 1) * limit }))
+    if (!isRecord(data)) throw new Error('评论响应格式无效')
+    return {
+      total: numberValue(data.total), more: data.more === true,
+      hotComments: (Array.isArray(data.hotComments) ? data.hotComments : []).map(aggregateComment).filter(Boolean) as MusicComment[],
+      comments: (Array.isArray(data.comments) ? data.comments : []).map(aggregateComment).filter(Boolean) as MusicComment[]
+    }
   }
 }
 

@@ -153,27 +153,6 @@ export const finishMixedOfflineSession = (
   session.messageIds.push(boundaryId)
   chat.activeOfflineSessionId = null
 
-  if (options.summary && options.carryoverMode !== 'none') {
-    if (!Array.isArray(chat.memoryBook)) chat.memoryBook = []
-    chat.memoryBook.push({
-      id: boundaryId + 1,
-      date: new Date().toLocaleDateString('zh-CN'),
-      content: options.summary,
-      messageCount: sourceMessages.length,
-      fromMsgId: session.messageIds[0],
-      toMsgId: boundaryId,
-      evidenceMessageIds: sourceMessages.map((item: any) => item.id),
-      isOfflineMeetSummary: true,
-      offlineSessionId: session.id,
-      memoryLevel: 1,
-      memoryMode: 'narrative',
-      version: 2,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      enabled: true
-    })
-  }
-
   return boundaryContent
 }
 

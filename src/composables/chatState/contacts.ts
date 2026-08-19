@@ -8,6 +8,7 @@ import { normalizeSocialProfile } from '../../services/characterSocialProfile'
 import { getCharacterDirectoryEntry, registerAccountContactsInDirectory } from '../../services/characterDirectory'
 import { deleteIdentityProfile } from '../../services/identityProfile'
 import { deleteGroupChat, readGroupChats } from '../../services/groupChat'
+import { normalizeMemoryMode } from '../../services/memoryEngine'
 import localforage from 'localforage'
 
 export const sortChats = () => {
@@ -123,10 +124,10 @@ export const loadCustomContacts = async () => {
       autoSummaryOnTopicChange: c.autoSummaryOnTopicChange ?? false,
       autoSummaryOnExit: c.autoSummaryOnExit ?? false,
       autoSummaryIdleMinutes: c.autoSummaryIdleMinutes || 0,
-      memoryMode: c.memoryMode || 'hybrid',
+      memoryMode: normalizeMemoryMode(c.memoryMode),
       memoryBatchSize: c.memoryBatchSize || 150,
       memoryTokenBudget: c.memoryTokenBudget || 1200,
-      autoMemoryConsolidation: c.autoMemoryConsolidation ?? true,
+      autoMemoryConsolidation: c.autoMemoryConsolidation === true,
       memoryConsolidationThreshold: c.memoryConsolidationThreshold || 8,
       memoryState: c.memoryState || null,
       lastSummaryMsgId: c.lastSummaryMsgId || 0,

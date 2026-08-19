@@ -1,10 +1,12 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { chatSettings } from '../../../store'
 import localforage from 'localforage'
 import { canViewMoment } from '../../../services/moments'
 import { getChatLanguageLabel } from '../../../constants/chatLanguages'
+import { readGroupChats } from '../../../services/groupChat'
+import { useChatAuth } from '../../../composables/useChatAuth'
 
 const props = defineProps<{
   selectedChat: any
@@ -30,9 +32,24 @@ const emit = defineEmits<{
   (e: 'show-world-book-bind-selector'): void
   (e: 'show-bilingual-option-modal', kind: 'mode' | 'display'): void
   (e: 'show-bilingual-language-modal', kind: 'output' | 'translation'): void
+  (e: 'show-group-memory-bridge-modal'): void
   (e: 'open-character-profile'): void
   (e: 'save'): void
 }>()
+
+const { currentChatUserId } = useChatAuth()
+
+const memoryBridgeSummary = computed(() => {
+  if (!props.selectedChat) return '未开启'
+  const entityId = String(props.selectedChat.characterEntityId || props.selectedChat.id || '')
+  if (!entityId) return '未开启'
+  const allGroups = readGroupChats(currentChatUserId.value)
+  const connectedCount = allGroups.filter(g => 
+    (g.memberIds || []).map(String).includes(entityId) && 
+    Boolean(g.memberSettings?.[entityId]?.enableMemoryBridge)
+  ).length
+  return connectedCount > 0 ? `已开启 ${connectedCount} 个群聊` : '未开启'
+})
 
 const handleSave = () => {
   emit('save')
@@ -379,6 +396,13 @@ watch(() => props.selectedChat, calculateMomentTokens)
             <template v-if="!selectedChat.boundWorldBooks?.length && !selectedChat.boundWorldBookGroups?.length">未绑定</template>
             <template v-else>已绑定 {{ (selectedChat.boundWorldBookGroups?.length || 0) + (selectedChat.boundWorldBooks?.length || 0) }} 项</template>
           </span>
+          <span class="arrow">></span>
+        </div>
+      </div>
+      <div class="glass-list-item" v-show="matchSearch('群聊记忆互通', '记忆互通', '群记忆', '单聊记忆')" @click="emit('show-group-memory-bridge-modal')">
+        <div class="item-label">群聊记忆互通</div>
+        <div class="item-value">
+          <span class="item-value-text">{{ memoryBridgeSummary }}</span>
           <span class="arrow">></span>
         </div>
       </div>

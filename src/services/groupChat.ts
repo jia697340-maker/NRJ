@@ -4,13 +4,14 @@ import { sendChatMessage } from './api'
 import { buildSystemPrompt } from '../composables/chatState/prompt'
 import { buildBilingualPrompt, parseBilingualMessage } from './bilingualChat'
 import { buildInnerThoughtContext } from './innerThoughtContext'
-import { buildMemoryPacket } from './memoryEngine'
+import { buildMemoryPacket, getMemoryExportItems, normalizeMemoryMode, type MemoryMode } from './memoryEngine'
 import { reactive } from 'vue'
 import localforage from 'localforage'
 import type { OfflineModelProfile } from './offlinePresets'
 import type { GroupMembershipRequest } from '../types/groupManagement'
 import { selectRoleAvailableEmojis } from './chatEmojiScope'
 import { buildGroupManagementPrompt, ensureGroupManagementState, getSpeakableCharacterIds } from './groupManagementService'
+import { buildSingleToGroupBridgeContext, normalizeMemoryBridgeMemberSettings } from './memoryBridge'
 
 export const activeGroupReplyIds = reactive(new Set<string>())
 export const groupReplyControllers = new Map<string, AbortController>()
@@ -44,7 +45,7 @@ export interface GroupChatRecord {
   autoSummaryOnTopicChange: boolean
   autoSummaryOnExit: boolean
   autoSummaryIdleMinutes: number
-  memoryMode: 'narrative' | 'subjective' | 'event' | 'variable' | 'table' | 'hybrid'
+  memoryMode: MemoryMode
   memoryBatchSize: number
   memoryTokenBudget: number
   autoMemoryConsolidation: boolean
@@ -185,7 +186,7 @@ const normalizeMemberMemories = (raw: any) => Object.fromEntries(Object.entries(
 export const normalizeGroupChat = (raw: any): GroupChatRecord => ensureGroupManagementState({
   id: String(raw.id || `group_${Date.now()}`), chatType: 'group', name: String(raw.name || '未命名群聊'),
   groupContext: String(raw.groupContext || ''), memberIds: Array.isArray(raw.memberIds) ? raw.memberIds.map(String) : [],
-  memberNotes: raw.memberNotes || {}, memberNicknames: raw.memberNicknames || {}, memberHasCustomAvatar: raw.memberHasCustomAvatar || {}, memberSettings: raw.memberSettings && typeof raw.memberSettings === 'object' ? raw.memberSettings : {}, messages: Array.isArray(raw.messages) ? raw.messages : [],
+  memberNotes: raw.memberNotes || {}, memberNicknames: raw.memberNicknames || {}, memberHasCustomAvatar: raw.memberHasCustomAvatar || {}, memberSettings: raw.memberSettings && typeof raw.memberSettings === 'object' ? Object.fromEntries(Object.entries(raw.memberSettings).map(([k, v]: [string, any]) => [k, normalizeMemoryBridgeMemberSettings(v)])) : {}, messages: Array.isArray(raw.messages) ? raw.messages : [],
   memoryBook: (Array.isArray(raw.memoryBook) ? raw.memoryBook : []).map((item: any, index: number) => normalizeLegacyMemory(item, `group_memory_${index}_${Date.now()}`)), memberMemories: normalizeMemberMemories(raw.memberMemories), memoryMemberNames: raw.memoryMemberNames || {}, memoryState: raw.memoryState || null,
   boundWorldBooks: Array.isArray(raw.boundWorldBooks) ? raw.boundWorldBooks : [], boundWorldBookGroups: Array.isArray(raw.boundWorldBookGroups) ? raw.boundWorldBookGroups : [], userProfile: raw.userProfile && typeof raw.userProfile === 'object' ? raw.userProfile : { name: '我', persona: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
   userProfileSource: raw.userProfileSource || null, memoryType: raw.memoryType === 'round' ? 'round' : 'count',
@@ -200,10 +201,10 @@ export const normalizeGroupChat = (raw: any): GroupChatRecord => ensureGroupMana
   autoSummaryOnTopicChange: raw.autoSummaryOnTopicChange === true,
   autoSummaryOnExit: raw.autoSummaryOnExit === true,
   autoSummaryIdleMinutes: Math.max(0, Math.min(1440, Number(raw.autoSummaryIdleMinutes || 0))),
-  memoryMode: ['narrative', 'subjective', 'event', 'variable', 'table'].includes(raw.memoryMode) ? raw.memoryMode : 'hybrid',
+  memoryMode: normalizeMemoryMode(raw.memoryMode),
   memoryBatchSize: Math.max(20, Math.min(500, Number(raw.memoryBatchSize || 150))),
   memoryTokenBudget: Math.max(200, Number(raw.memoryTokenBudget || 1200)),
-  autoMemoryConsolidation: raw.autoMemoryConsolidation !== false,
+  autoMemoryConsolidation: raw.autoMemoryConsolidation === true,
   memoryConsolidationThreshold: Math.max(4, Math.min(20, Number(raw.memoryConsolidationThreshold || 8))),
   memorySummaryRetryCount: Math.max(1, Math.min(4, Number(raw.memorySummaryRetryCount || 2))),
   summaryPrompt: String(raw.summaryPrompt || ''),
@@ -376,13 +377,16 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
     const basePrompt = buildSystemPrompt(isolatedMember, roleEmojiNames || '无', false, offlineMode as any, undefined, 'group')
     const bilingualPrompt = buildBilingualPrompt(isolatedMember)
     const thoughtContext = buildInnerThoughtContext(isolatedMember, group.pendingUserThought || '', turnId)
-    const subjectiveMemory = await buildMemoryPacket({
-      id: `${group.id}:member:${id}`,
-      memoryBook: group.memberMemories[id] || [],
-      memoryState: null,
-      memoryTokenBudget: Math.max(200, Math.floor(group.memoryTokenBudget / Math.max(1, members.length)))
-    }, memoryQuery, undefined, { allowEmbedding: false })
-    return `<member_context id="${escapeXml(id)}" display_name="${escapeXml(nickname)}">\n${basePrompt}${bilingualPrompt ? `\n\n${bilingualPrompt}` : ''}${thoughtContext ? `\n\n${thoughtContext}` : ''}${subjectiveMemory ? `\n\n【只属于${nickname}的群内主观记忆】${subjectiveMemory}` : ''}\n</member_context>`
+    const singleMemoryBridge = await buildSingleToGroupBridgeContext(group, member, id, memoryQuery)
+    const subjectiveMemory = normalizeMemoryMode(group.memoryMode) === 'long_text'
+      ? await buildMemoryPacket({
+        id: `${group.id}:member:${id}`,
+        memoryMode: 'long_text',
+        memoryBook: group.memberMemories[id] || [],
+        memoryState: null
+      }, memoryQuery, undefined, { allowEmbedding: false })
+      : ''
+    return `<member_context id="${escapeXml(id)}" display_name="${escapeXml(nickname)}">\n${basePrompt}${bilingualPrompt ? `\n\n${bilingualPrompt}` : ''}${thoughtContext ? `\n\n${thoughtContext}` : ''}${subjectiveMemory ? `\n\n【只属于${nickname}的群内主观记忆】${subjectiveMemory}` : ''}${singleMemoryBridge ? `\n\n${singleMemoryBridge}` : ''}\n</member_context>`
   }))
   const roster = members.map(member => `${group.memberNicknames[memberIdentity(member)] || member.name}（ID：${memberIdentity(member)}）`).join('\n')
   const sharedMemory = await buildMemoryPacket(group, memoryQuery, group.memoryTokenBudget)
@@ -541,7 +545,8 @@ export const parseGroupResponse = (raw: string, allowedIds: string[], formerIds:
 export const requestGroupReply = async (group: GroupChatRecord, allChats: any[], userProfile: any, signal?: AbortSignal, worldBookText = '') => {
   const payload = await buildGroupChatMessages(group, allChats, userProfile, worldBookText)
   const offlineActive = group.offlineMeetEnabled && (group.offlineMeetMode === 'separate' || group.isMixedOfflineActive)
-  const result = await sendChatMessage(payload, signal, false, false, 'default', offlineActive ? (group.offlineModelProfile || 'auto') : 'auto', { chatId: group.id, chatName: group.name, memoryEntries: group.memoryBook.map((item: any) => item.content || '') })
+  const activeMemories = await getMemoryExportItems(group)
+  const result = await sendChatMessage(payload, signal, false, false, 'default', offlineActive ? (group.offlineModelProfile || 'auto') : 'auto', { chatId: group.id, chatName: group.name, memoryEntries: activeMemories.map((item: any) => item.text) })
   const raw = typeof result === 'string' ? result : result.content
   return {
     ...parseGroupResponse(raw, getSpeakableCharacterIds(group), Object.keys(group.removedMembers || {})),

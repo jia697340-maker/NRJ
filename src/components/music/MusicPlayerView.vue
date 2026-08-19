@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
@@ -23,8 +24,20 @@ const {
   formatTime
 } = useMusicPlayer()
 
-const emit = defineEmits(['collapse', 'openPlaylistDrawer', 'openPlaybackSettings'])
+const emit = defineEmits(['collapse', 'openPlaylistDrawer', 'openPlaybackSettings', 'openComments'])
 const { setMessage } = useMusicLibrary()
+const canViewComments = computed(() => currentTrack.value?.originSourceId === 'netease')
+
+const lyricsWrapperRef = ref<HTMLElement | null>(null)
+const lyricsScrollBoxRef = ref<HTMLElement | null>(null)
+const isUserScrolling = ref(false)
+let userScrollTimer: number | null = null
+
+const openComments = () => {
+  if (!currentTrack.value) { setMessage('请先播放一首歌曲'); return }
+  if (!canViewComments.value) { setMessage('只有网易云来源歌曲提供真实评论'); return }
+  emit('openComments')
+}
 
 const handleSeek = (e: MouseEvent) => {
   const target = e.currentTarget as HTMLElement
@@ -39,6 +52,62 @@ const handleSeek = (e: MouseEvent) => {
 const toggleLyricView = () => {
   isLyricMode.value = !isLyricMode.value
 }
+
+const handleLyricClick = (time: number, e: MouseEvent) => {
+  e.stopPropagation()
+  seek(time)
+}
+
+const onLyricsScroll = () => {
+  isUserScrolling.value = true
+  if (userScrollTimer !== null) {
+    window.clearTimeout(userScrollTimer)
+  }
+  userScrollTimer = window.setTimeout(() => {
+    isUserScrolling.value = false
+    scrollToCurrentLyric(true)
+  }, 3000)
+}
+
+const scrollToCurrentLyric = (smooth = true) => {
+  if (isUserScrolling.value) return
+  if (!lyricsWrapperRef.value || !lyricsScrollBoxRef.value) return
+  const container = lyricsWrapperRef.value
+  const activeEl = lyricsScrollBoxRef.value.querySelector('.lyric-line.active') as HTMLElement | null
+  if (!activeEl) return
+
+  const containerHeight = container.clientHeight
+  const elOffsetTop = activeEl.offsetTop
+  const elHeight = activeEl.clientHeight
+  const targetScrollTop = elOffsetTop - containerHeight / 2 + elHeight / 2
+
+  container.scrollTo({
+    top: Math.max(0, targetScrollTop),
+    behavior: smooth ? 'smooth' : 'auto'
+  })
+}
+
+watch(currentLyricIndex, () => {
+  if (isLyricMode.value) {
+    nextTick(() => {
+      scrollToCurrentLyric(true)
+    })
+  }
+})
+
+watch(isLyricMode, (val) => {
+  if (val) {
+    nextTick(() => {
+      scrollToCurrentLyric(false)
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  if (userScrollTimer !== null) {
+    window.clearTimeout(userScrollTimer)
+  }
+})
 
 const shareCurrent = async () => {
   if (!currentTrack.value) return
@@ -58,7 +127,7 @@ const shareCurrent = async () => {
         </svg>
       </button>
 
-      <div class="header-track-info">
+      <div class="header-track-info" @click="toggleLyricView">
         <div class="track-title">{{ currentTrack?.title || '未在播放' }}</div>
         <div class="track-artist">{{ currentTrack?.artist || '独奏' }}</div>
       </div>
@@ -75,9 +144,9 @@ const shareCurrent = async () => {
     </div>
 
     <!-- 中央核心：无摆臂经典纯黑胶唱片 / 歌词模式切换 -->
-    <div class="center-content-area" @click="toggleLyricView">
+    <div class="center-content-area">
       <!-- 黑胶唱片模式 (无摆臂，纯圆盘与同心纹) -->
-      <div class="disc-wrapper" v-if="!isLyricMode">
+      <div class="disc-wrapper" v-if="!isLyricMode" @click="toggleLyricView">
           <div class="vinyl-record" :class="{ 'is-rotating': isPlaying }">
           <!-- 黑胶外圈光泽纹理 -->
           <div class="vinyl-groove groove-1"></div>
@@ -101,16 +170,29 @@ const shareCurrent = async () => {
       </div>
 
       <!-- 歌词展示模式 -->
-      <div class="lyrics-wrapper" v-else>
-        <div class="lyrics-scroll-box">
-          <div
-            v-for="(lyric, idx) in currentTrack?.lyrics || []"
-            :key="idx"
-            class="lyric-line"
-            :class="{ active: currentLyricIndex === idx }"
-          >
-            <span>{{ lyric.text }}</span><small v-if="lyric.translation">{{ lyric.translation }}</small>
+      <div
+        class="lyrics-wrapper"
+        ref="lyricsWrapperRef"
+        v-else
+        @scroll="onLyricsScroll"
+        @click.self="toggleLyricView"
+      >
+        <div class="lyrics-scroll-box" ref="lyricsScrollBoxRef">
+          <div v-if="!currentTrack?.lyrics?.length" class="no-lyrics-tip" @click="toggleLyricView">
+            暂无歌词
           </div>
+          <template v-else>
+            <div
+              v-for="(lyric, idx) in currentTrack.lyrics"
+              :key="idx"
+              class="lyric-line"
+              :class="{ active: currentLyricIndex === idx, past: currentLyricIndex > idx }"
+              @click="handleLyricClick(lyric.time, $event)"
+            >
+              <span class="lyric-text">{{ lyric.text }}</span>
+              <small v-if="lyric.translation" class="lyric-trans">{{ lyric.translation }}</small>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -126,7 +208,7 @@ const shareCurrent = async () => {
         </svg>
       </button>
 
-      <button class="interact-btn" title="评论" @click="setMessage('该来源暂未提供评论，歌曲播放不受影响')">
+      <button class="interact-btn" title="评论" :class="{ unavailable: currentTrack && !canViewComments }" @click="openComments">
         <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
         </svg>
@@ -420,37 +502,90 @@ const shareCurrent = async () => {
 .lyrics-wrapper {
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 24px;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+}
+
+.lyrics-wrapper::-webkit-scrollbar {
+  display: none;
 }
 
 .lyrics-scroll-box {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 24px;
   text-align: center;
+  padding-top: 50%;
+  padding-bottom: 50%;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.no-lyrics-tip {
+  font-size: 15px;
+  color: #8e8e93;
+  padding: 40px 0;
+  user-select: none;
 }
 
 .lyric-line {
   font-size: 15px;
-  color: #8e8e93;
-  transition: all 0.3s;
+  line-height: 1.5;
+  color: rgba(142, 142, 147, 0.6);
+  transition: color 0.35s cubic-bezier(0.25, 1, 0.5, 1), transform 0.35s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.35s;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 12px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.lyric-line:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.is-dark .lyric-line:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .is-dark .lyric-line {
-  color: #71717a;
+  color: rgba(113, 113, 122, 0.55);
+}
+
+.lyric-line.past {
+  opacity: 0.7;
 }
 
 .lyric-line.active {
   font-size: 18px;
   font-weight: 700;
   color: #111111;
-  transform: scale(1.06);
+  opacity: 1;
+  transform: scale(1.08);
 }
 
-.lyric-line small { display:block;margin-top:5px;color:inherit;font-size:11px;font-weight:400;opacity:.66; }
+.lyric-text {
+  word-break: break-word;
+}
+
+.lyric-trans {
+  display: block;
+  margin-top: 4px;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.78;
+  line-height: 1.35;
+}
 .playback-message { margin:-2px 28px 8px;padding:8px 11px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.68);font-size:10px;line-height:1.45;text-align:center; }
 
 .is-dark .lyric-line.active {

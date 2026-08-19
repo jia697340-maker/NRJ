@@ -42,8 +42,16 @@ const isLikedCurrent = computed(() => currentTrack.value ? musicLikedKeys.value.
 const progressPercent = computed(() => currentTrack.value?.duration ? Math.min(100, Math.max(0, musicCurrentTime.value / currentTrack.value.duration * 100)) : 0)
 const currentLyricIndex = computed(() => {
   const lyrics = currentTrack.value?.lyrics || []
+  if (!lyrics.length) return -1
+  if (musicCurrentTime.value < lyrics[0].time) return -1
   let result = 0
-  for (let index = 0; index < lyrics.length; index += 1) { if (musicCurrentTime.value >= lyrics[index].time) result = index; else break }
+  for (let index = 0; index < lyrics.length; index += 1) {
+    if (musicCurrentTime.value >= lyrics[index].time) {
+      result = index
+    } else {
+      break
+    }
+  }
   return result
 })
 

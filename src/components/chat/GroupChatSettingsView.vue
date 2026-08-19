@@ -11,7 +11,7 @@ import ChatSummaryView from './ChatSummaryView.vue'
 import ChatMemoryTypeModal from './modals/ChatMemoryTypeModal.vue'
 import ChatMemoryValueModal from './modals/ChatMemoryValueModal.vue'
 import AvatarUploadModal from '../AvatarUploadModal.vue'
-import { clearChatVectors, ensureMemoryState } from '../../services/memoryEngine'
+import { clearChatVectors, ensureMemoryState, normalizeMemoryMode } from '../../services/memoryEngine'
 import ChatBilingualOptionModal from './modals/ChatBilingualOptionModal.vue'
 import ChatDialogueLanguageModal from './modals/ChatDialogueLanguageModal.vue'
 import ChatTimezoneModal from './modals/ChatTimezoneModal.vue'
@@ -38,6 +38,7 @@ import GroupAdminManagementModal from './group/GroupAdminManagementModal.vue'
 import GroupAnnouncementListModal from './group/GroupAnnouncementListModal.vue'
 import GroupAnnouncementDetailModal from './group/GroupAnnouncementDetailModal.vue'
 import GroupAnnouncementEditModal from './group/GroupAnnouncementEditModal.vue'
+import { normalizeMemoryBridgeMemberSettings } from '../../services/memoryBridge'
 
 const props = defineProps<{ group: GroupChatRecord; chats: any[] }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'deleted'): void; (e: 'open-member-settings', memberId: string): void }>()
@@ -76,6 +77,7 @@ const deleteGroupEmojiData = ref(true)
 const groupOptionKind = ref<'offlineMode' | 'offlineLocation'>('offlineMode')
 const showUserEditor = ref(false)
 const showUserSyncConfirm = ref(false)
+const memoryModeLabel = computed(() => ({ long_text: '长文本记忆', vector: '向量记忆', structured: '结构化记忆' })[normalizeMemoryMode(props.group.memoryMode)])
 const userAvatarInput = ref<HTMLInputElement | null>(null)
 const editingUser = ref({ name: '', persona: '', avatarUrl: '' })
 const userAvatarData = ref<string | null>(null)
@@ -310,16 +312,17 @@ const openEditingMember = async (member: any) => {
   const id = memberId(member)
   editingMemberId.value = id
   props.group.memberSettings ||= {}
-  props.group.memberSettings[id] ||= {
+  props.group.memberSettings[id] = normalizeMemoryBridgeMemberSettings(props.group.memberSettings[id] || {
     enableVoiceReply: !!member.enableVoiceReply,
     enableVoiceCall: !!member.enableVoiceCall,
     enableVideoCall: !!member.enableVideoCall,
-    allowIncomingGroupCall: !!(member.enableVoiceCall || member.enableVideoCall),
+    allowIncomingGroupCall: member.allowIncomingGroupCall !== false,
     enableNAIImageGen: !!member.enableNAIImageGen,
     enableEmojiVision: !!member.enableEmojiVision,
     enableRoleEmojiVision: !!member.enableRoleEmojiVision,
-    enableImmersiveStatus: !!member.enableImmersiveStatus
-  }
+    enableImmersiveStatus: !!member.enableImmersiveStatus,
+    enableMemoryBridge: !!member.enableMemoryBridge
+  })
   if (props.group.memberEmojiLibraryEnabled[id] === undefined) props.group.memberEmojiLibraryEnabled[id] = true
   customAvatarData.value = loadedAvatars.value[id] || null
   if (props.group.memberNotes[id] === undefined) {
@@ -594,8 +597,8 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
         <div v-show="match('自动总结', '沉淀', '长期记忆')" class="glass-panel">
           <div class="group-section-title">长期记忆沉淀</div>
           <div class="glass-list-item" @click="showSummaryView = true">
-            <div><div class="item-label">总结与长期记忆</div><div class="group-item-desc">自动触发、手动区间、结构化记忆与智能召回</div></div>
-            <div class="item-value"><span class="item-value-text">已生成 {{ group.memoryBook.length }} 条</span><span class="arrow">›</span></div>
+            <div><div class="item-label">总结与长期记忆</div><div class="group-item-desc">三种模式互斥运行，可转换后切换</div></div>
+            <div class="item-value"><span class="item-value-text">{{ memoryModeLabel }}</span><span class="arrow">›</span></div>
           </div>
           <div class="group-explain">使用与聊天一致的完整记忆体系；是否自动整理、何时触发及每次处理范围均可单独配置。</div>
         </div>
@@ -714,6 +717,24 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
           <div class="glass-list-item"><span class="item-label">根据表情包图形发送</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableRoleEmojiVision" type="checkbox"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">引用该成员单人表情包</span><label class="switch"><input v-model="group.memberEmojiLibraryEnabled[editingMemberId]" type="checkbox" :disabled="!group.referenceMemberEmojiLibraries"><span class="slider"></span></label></div>
           <div class="glass-list-item"><span class="item-label">沉浸式状态与时间流逝</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableImmersiveStatus" type="checkbox"><span class="slider"></span></label></div>
+          <div class="glass-list-item">
+            <div>
+              <div class="item-label">群聊与单聊记忆互通</div>
+              <div class="group-item-desc">启用后与单聊上下文双向互通，仅限该角色自身隔离生效</div>
+            </div>
+            <label class="switch">
+              <input v-model="group.memberSettings[editingMemberId].enableMemoryBridge" type="checkbox">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <template v-if="group.memberSettings[editingMemberId].enableMemoryBridge">
+            <div class="group-section-title">群聊传入单聊</div>
+            <div class="glass-list-item"><span class="item-label bilingual-child-label">读取短期上下文</span><div class="item-value"><input v-model.number="group.memberSettings[editingMemberId].memoryBridgeConfig.groupToSingle.shortTermValue" class="group-inline-number" type="number" min="1" max="200"><span class="item-value-text">条</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].memoryBridgeConfig.groupToSingle.shortTermEnabled" type="checkbox"><span class="slider"></span></label></div></div>
+            <div class="glass-list-item"><span class="item-label bilingual-child-label">读取长期记忆</span><div class="item-value"><input v-model.number="group.memberSettings[editingMemberId].memoryBridgeConfig.groupToSingle.longTermTokenBudget" class="group-inline-number bridge-token-number" type="number" min="200" max="4000" step="100"><span class="item-value-text">Token</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].memoryBridgeConfig.groupToSingle.longTermEnabled" type="checkbox"><span class="slider"></span></label></div></div>
+            <div class="group-section-title">单聊传入群聊</div>
+            <div class="glass-list-item"><span class="item-label bilingual-child-label">读取短期上下文</span><div class="item-value"><input v-model.number="group.memberSettings[editingMemberId].memoryBridgeConfig.singleToGroup.shortTermValue" class="group-inline-number" type="number" min="1" max="200"><span class="item-value-text">条</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].memoryBridgeConfig.singleToGroup.shortTermEnabled" type="checkbox"><span class="slider"></span></label></div></div>
+            <div class="glass-list-item"><span class="item-label bilingual-child-label">读取长期记忆</span><div class="item-value"><input v-model.number="group.memberSettings[editingMemberId].memoryBridgeConfig.singleToGroup.longTermTokenBudget" class="group-inline-number bridge-token-number" type="number" min="200" max="4000" step="100"><span class="item-value-text">Token</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].memoryBridgeConfig.singleToGroup.longTermEnabled" type="checkbox"><span class="slider"></span></label></div></div>
+          </template>
           <div class="glass-list-item" @click="emit('open-member-settings', editingMemberId)"><div><div class="item-label">语音与生图详细配置</div><div class="group-item-desc">参数继承自该成员单聊设置</div></div><div class="item-value"><span class="item-value-text">前往私聊配置</span><span class="arrow">›</span></div></div>
         </div>
         <div class="group-remove-member" :class="{ disabled: group.memberIds.length <= 2 }" @click="removeMember(editingMemberId)">移出群聊</div>

@@ -17,6 +17,7 @@ import { attachActiveOfflineSession } from '../services/offlineSessions'
 import { beginOfflinePresence, reconcilePresence } from '../services/presenceLifecycle'
 import { useVoicePlayer } from './useVoicePlayer'
 import { createChatMessageId, createTransferData, resolveTransfer } from '../services/transferLifecycle'
+import { getMemoryExportItems } from '../services/memoryEngine'
 import { useChatAuth } from './useChatAuth'
 import { createIncomingWalletPayment } from '../services/walletService'
 import { extractEmbeddedReasoning } from '../services/reasoning'
@@ -299,6 +300,7 @@ export function useChatRoomAPI(
       saveCustomContacts(targetChat)
     }
     const boundBookIds = Array.isArray(selectedChat.value.boundWorldBooks) ? selectedChat.value.boundWorldBooks : []
+    const activeMemoryEntries = await getMemoryExportItems(selectedChat.value)
     const diagnosticContext = {
       chatId: selectedChat.value.id,
       chatName: selectedChat.value.name,
@@ -307,12 +309,7 @@ export function useChatRoomAPI(
         .flatMap((book: any) => (book.entries || [])
           .filter((entry: any) => entry.enabled)
           .map((entry: any) => `${book.name || book.title || '世界书'} · ${entry.title || '未命名条目'}`)),
-      memoryEntries: [
-        ...(selectedChat.value.memoryBook || []).map((item: any) => item.title || `叙事记忆 ${item.id || ''}`),
-        ...(selectedChat.value.memoryState?.events || []).map((item: any) => `事件 · ${item.title || '未命名'}`),
-        ...(selectedChat.value.memoryState?.variables || []).map((item: any) => `变量 · ${item.key || '未命名'}`),
-        ...(selectedChat.value.memoryState?.relations || []).map((item: any) => `关系 · ${item.source || ''}${item.relation || ''}${item.target || ''}`)
-      ]
+      memoryEntries: activeMemoryEntries.map((item: any) => item.text)
     }
     
     if (targetChat) targetChat.isTyping = true

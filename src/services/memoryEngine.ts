@@ -3,7 +3,16 @@ import localforage from 'localforage'
 import { embeddingApiSettings, globalPromptSettings } from '../store'
 import { estimateTextTokens } from '../utils/tokenEstimate'
 
-export type MemoryMode = 'narrative' | 'subjective' | 'event' | 'variable' | 'table' | 'hybrid'
+export type MemoryMode = 'long_text' | 'vector' | 'structured'
+
+const LEGACY_STRUCTURED_MODES = new Set(['event', 'variable', 'table'])
+
+export const normalizeMemoryMode = (value: unknown): MemoryMode => {
+  if (value === 'long_text' || value === 'vector' || value === 'structured') return value
+  if (LEGACY_STRUCTURED_MODES.has(String(value || ''))) return 'structured'
+  // 旧版 narrative / subjective / hybrid 都会生成可读的记忆书；升级后默认保留为长文本模式。
+  return 'long_text'
+}
 
 export interface MemoryEvidence {
   messageIds: Array<number | string>
@@ -97,6 +106,11 @@ export interface MemoryExtractionResult {
   narrative: string
   subjective: string
   memberMemories: Record<string, string>
+  vectorMemories: Array<{
+    text: string
+    importance?: number
+    evidenceMessageIds?: Array<number | string>
+  }>
   events: Array<Partial<MemoryEvent>>
   variables: Array<Partial<MemoryVariable>>
   tableRows: Array<Partial<MemoryTableRow>>
@@ -106,13 +120,16 @@ export interface MemoryExtractionResult {
 interface VectorRecord {
   id: string
   chatId: string
-  sourceType: 'narrative' | 'event' | 'variable' | 'table' | 'relation'
+  sourceType: 'memory'
   sourceId: string
   text: string
   vector: number[]
   model: string
   dimensions: number
   createdAt: number
+  updatedAt: number
+  importance: number
+  evidenceMessageIds: Array<number | string>
 }
 
 const vectorStore = localforage.createInstance({ name: 'nrt-app', storeName: 'memoryVectors' })
@@ -156,7 +173,7 @@ export const ensureMemoryState = (chat: any): StructuredMemoryState => {
         fromMsgId: first,
         toMsgId: Number(chat.lastSummaryMsgId),
         summarizedAt: Date.now(),
-        mode: 'narrative'
+        mode: 'long_text'
       })
     }
   }
@@ -201,6 +218,10 @@ export const addCoverage = (chat: any, messages: any[], mode: MemoryMode) => {
   chat.lastSummaryMsgId = Math.max(Number(chat.lastSummaryMsgId || 0), ids[ids.length - 1])
 }
 
+export const markMemoryCoverage = (chat: any, messages: any[], mode: MemoryMode = normalizeMemoryMode(chat?.memoryMode)) => {
+  addCoverage(chat, messages, mode)
+}
+
 const safeId = (prefix: string, seed = '') => `${prefix}_${Date.now()}_${Math.abs(hashText(seed || Math.random().toString()))}`
 
 const clamp = (value: unknown, min: number, max: number, fallback: number) => {
@@ -220,14 +241,13 @@ export const applyMemoryExtraction = (
   mode: MemoryMode,
   options: { includeNarrative?: boolean; addCoverage?: boolean } = {}
 ) => {
+  if (mode === 'vector') throw new Error('向量记忆必须通过向量写入流程保存')
   const state = ensureMemoryState(chat)
   const now = Date.now()
   const evidenceIds = sourceMessages.map(item => item.id).filter((id: any) => id !== undefined)
 
-  const narrativeContent = chat.chatType === 'group'
-    ? result.narrative
-    : (mode === 'subjective' && result.subjective ? result.subjective : (result.narrative || result.subjective))
-  if (options.includeNarrative !== false && narrativeContent) {
+  const narrativeContent = result.narrative || result.subjective
+  if (mode === 'long_text' && options.includeNarrative !== false && narrativeContent) {
     const content = narrativeContent
     chat.memoryBook.push({
       id: now,
@@ -246,7 +266,7 @@ export const applyMemoryExtraction = (
     })
   }
 
-  if (chat.chatType === 'group' && result.memberMemories && typeof result.memberMemories === 'object') {
+  if (mode === 'long_text' && chat.chatType === 'group' && result.memberMemories && typeof result.memberMemories === 'object') {
     if (!chat.memberMemories || typeof chat.memberMemories !== 'object') chat.memberMemories = {}
     for (const [memberId, rawContent] of Object.entries(result.memberMemories)) {
       const content = String(rawContent || '').trim()
@@ -262,7 +282,7 @@ export const applyMemoryExtraction = (
     }
   }
 
-  for (const raw of result.events || []) {
+  if (mode === 'structured') for (const raw of result.events || []) {
     if (!raw.title && !raw.summary) continue
     const title = String(raw.title || '未命名事件').slice(0, 80)
     const summary = String(raw.summary || '').slice(0, 800)
@@ -290,7 +310,7 @@ export const applyMemoryExtraction = (
     })
   }
 
-  for (const raw of result.variables || []) {
+  if (mode === 'structured') for (const raw of result.variables || []) {
     const key = String(raw.key || '').trim()
     const value = String(raw.value || '').trim()
     if (!key || !value) continue
@@ -320,7 +340,7 @@ export const applyMemoryExtraction = (
   }
 
   const allowedTables = new Set(['people', 'preferences', 'events', 'commitments', 'gifts', 'relationships', 'timeline', 'conflicts', 'places'])
-  for (const raw of result.tableRows || []) {
+  if (mode === 'structured') for (const raw of result.tableRows || []) {
     const title = String(raw.title || '').trim()
     const value = String(raw.value || '').trim()
     if (!title || !value) continue
@@ -344,7 +364,7 @@ export const applyMemoryExtraction = (
       })
     }
   }
-  for (const raw of result.relations || []) {
+  if (mode === 'structured') for (const raw of result.relations || []) {
     const source = String(raw.source || '').trim()
     const target = String(raw.target || '').trim()
     const relation = String(raw.relation || '').trim()
@@ -418,43 +438,33 @@ export const buildExtractionPrompt = (
   customPrompt = '',
   groupContext?: { name?: string; members?: Array<{ id: string; name: string }> }
 ) => {
-  const groupRules = groupContext
-    ? `\n这是群聊“${groupContext.name || '未命名群聊'}”。成员清单：${(groupContext.members || []).map(item => `${item.name}(ID:${item.id})`).join('、')}。\n群聊附加要求：客观记忆必须保留真实发言者和参与者。JSON 顶层额外输出 memberMemories 对象，键只能使用成员 ID，值为该成员的第一人称主观记忆。只记录该成员亲历、听见或被明确告知的内容，不得让成员知道其未接触的信息；没有内容的成员不要生成键。`
-    : ''
-  if (globalPromptSettings.language === 'en') {
-    const modeInstruction: Record<MemoryMode, string> = {
-      narrative: 'Prioritize an objective narrative summary. Extract events, variables, and table rows only when explicit and important.',
-      subjective: 'Prioritize the character’s first-person subjective memory. Never present subjective feelings as objective facts.',
-      event: 'Prioritize separate event cards with time, participants, causality, result, unresolved matters, and evidence.',
-      variable: 'Prioritize updatable user/character profile variables, preferences, boundaries, relationship states, and commitments.',
-      table: 'Prioritize records suitable for table management and assign the specified table category.',
-      hybrid: 'Produce a short narrative, character-subjective memory, event cards, variable updates, and table rows together.'
-    }
-    return `You are a long-term memory organization engine. Build memory only from the original conversation and never add facts absent from the source.\n${modeInstruction[mode]}${groupRules}\n${customPrompt ? `Additional user requirements:\n${customPrompt}\n` : ''}
-Requirements:
-1. Leave unclear times blank. Any uncertain fact must have confidence below 0.7.
-2. Never turn a temporary emotion into a permanent personality trait.
-3. Preserve evidence.messageIds for every item.
-4. Output valid JSON only—no Markdown, explanation, or reasoning.
-5. Return [] for empty arrays and an empty string for absent text.
-6. Write natural-language memory content in Simplified Chinese when the source conversation is Chinese; preserve the source language otherwise.
+  const isEnglish = globalPromptSettings.language === 'en'
+  const source = formatMessagesForMemory(messages)
+  const members = (groupContext?.members || []).map(item => `${item.name}(ID:${item.id})`).join(isEnglish ? ', ' : '、')
+  const common = isEnglish
+    ? `Use only facts supported by the source conversation. Never invent missing facts. Preserve source message IDs. Output valid JSON only, without Markdown or explanation. Write memory text in the source conversation's language.${customPrompt ? `\nAdditional requirement: ${customPrompt}` : ''}`
+    : `只能依据聊天原文建立记忆，不得补写原文不存在的事实。必须保留来源消息 ID。只输出合法 JSON，不要 Markdown、解释或思维过程。${customPrompt ? `\n用户补充要求：${customPrompt}` : ''}`
 
-JSON schema:
-{"narrative":"100–300 Chinese characters of objective summary","subjective":"character's first-person subjective memory","events":[{"title":"","summary":"","startTime":"","endTime":"","participants":[],"location":"","result":"","decisions":[],"unresolved":[],"tags":[],"importance":1,"emotionBefore":"","emotionAfter":"","relationshipChange":"","evidence":{"messageIds":[],"excerpt":""}}],"variables":[{"category":"身份/称呼/日期/喜好/禁忌/习惯/人物/工作学校/位置/关系/计划/承诺/矛盾/状态/其他","key":"","value":"","confidence":0.8,"validFrom":"","validTo":"","evidence":{"messageIds":[],"excerpt":""}}],"tableRows":[{"table":"people/preferences/events/commitments/gifts/relationships/timeline/conflicts/places","title":"","value":"","status":"有效","time":"","tags":[],"importance":1,"evidence":{"messageIds":[],"excerpt":""}}],"relations":[{"source":"person or entity","target":"person or entity","relation":"relationship or effect","startTime":"","endTime":"","confidence":0.8,"evidence":{"messageIds":[],"excerpt":""}}]}
+  if (mode === 'long_text') {
+    const groupRule = groupContext
+      ? (isEnglish
+          ? `\nThis is group chat “${groupContext.name || 'Unnamed group'}”. Members: ${members}. Keep actual speakers in the objective narrative. Also return memberMemories keyed only by member ID. Each value is that member's first-person memory limited to what they personally experienced, heard, or were explicitly told.`
+          : `\n这是群聊“${groupContext.name || '未命名群聊'}”。成员：${members}。客观长文本必须保留真实发言者。另返回 memberMemories，键只能是成员 ID，值为该成员第一人称记忆；只能记录其亲历、听见或被明确告知的内容。`)
+      : ''
+    return isEnglish
+      ? `You write traditional long-form memory for an ongoing relationship. Produce one coherent objective narrative that preserves important events, chronology, promises, boundaries, emotional changes, relationship development, and unfinished matters. Do not output tables, vectors, event cards, variables, or relations.${groupRule}\n${common}\nJSON: {"narrative":"100–500 Chinese characters when the source is Chinese","memberMemories":{}}\n\nConversation:\n${source}`
+      : `你负责生成传统长文本记忆。请写成一段连贯、可直接阅读的客观记忆，保留重要事件、先后顺序、承诺、边界、情绪变化、关系发展和未完成事项。不要输出表格、向量条目、事件卡、变量或关系图。${groupRule}\n${common}\nJSON：{"narrative":"100-500字长文本记忆","memberMemories":{}}\n\n聊天记录：\n${source}`
+  }
 
-Conversation:
-${formatMessagesForMemory(messages)}`
+  if (mode === 'vector') {
+    return isEnglish
+      ? `You prepare atomic memories for vector storage. Split the conversation into self-contained memory statements. Each statement must include the people or entities involved and enough context to make sense when retrieved alone. Preserve dates, changes, promises, boundaries, relationship developments, and unfinished matters. Do not output a narrative summary or tables.\n${common}\nJSON: {"vectorMemories":[{"text":"self-contained memory","importance":1,"evidenceMessageIds":[]}]}\n\nConversation:\n${source}`
+      : `你负责生成向量记忆条目。把聊天拆成可以独立召回的原子记忆；每条必须写清涉及的人物或实体，并包含脱离上下文后仍能理解的必要背景。保留时间、变化、承诺、边界、关系发展和未完成事项。不要输出长文本总结或表格。\n${common}\nJSON：{"vectorMemories":[{"text":"可独立理解的记忆","importance":1,"evidenceMessageIds":[]}]}\n\n聊天记录：\n${source}`
   }
-  const modeInstruction: Record<MemoryMode, string> = {
-    narrative: '重点生成客观叙事摘要；事件、变量和表格只提取明确且重要的内容。',
-    subjective: '重点生成角色第一人称的主观记忆；主观感受不得冒充客观事实。',
-    event: '重点拆分独立事件卡，保留时间、人物、因果、结果、未完成事项和证据。',
-    variable: '重点提取可更新的用户/角色档案变量、喜好、边界、关系状态和承诺。',
-    table: '重点生成适合表格管理的记录行，按指定 table 分类。',
-    hybrid: '同时生成简短叙事、角色主观记忆、事件卡、变量更新和表格行。'
-  }
-  return `你是长期记忆整理引擎。只能依据聊天原文建立记忆，不得补写原文不存在的事实。\n${modeInstruction[mode]}${groupRules}\n${customPrompt ? `用户补充要求：\n${customPrompt}\n` : ''}
-要求：\n1. 时间不明确就留空；不确定事实的 confidence 必须低于 0.7。\n2. 临时情绪不得写成永久性格。\n3. 每项都保留 evidence.messageIds。\n4. 只输出合法 JSON，不要 Markdown、解释或思维过程。\n5. 没有内容的数组返回 []，没有文本返回空字符串。\n\nJSON 结构：\n{"narrative":"100-300字客观摘要","subjective":"角色第一人称主观记忆","events":[{"title":"","summary":"","startTime":"","endTime":"","participants":[],"location":"","result":"","decisions":[],"unresolved":[],"tags":[],"importance":1,"emotionBefore":"","emotionAfter":"","relationshipChange":"","evidence":{"messageIds":[],"excerpt":""}}],"variables":[{"category":"身份/称呼/日期/喜好/禁忌/习惯/人物/工作学校/位置/关系/计划/承诺/矛盾/状态/其他","key":"","value":"","confidence":0.8,"validFrom":"","validTo":"","evidence":{"messageIds":[],"excerpt":""}}],"tableRows":[{"table":"people/preferences/events/commitments/gifts/relationships/timeline/conflicts/places","title":"","value":"","status":"有效","time":"","tags":[],"importance":1,"evidence":{"messageIds":[],"excerpt":""}}],"relations":[{"source":"人物或实体","target":"人物或实体","relation":"关系或作用","startTime":"","endTime":"","confidence":0.8,"evidence":{"messageIds":[],"excerpt":""}}]}\n\n聊天记录：\n${formatMessagesForMemory(messages)}`
+
+  return isEnglish
+    ? `You maintain structured table memory. Extract only explicit, useful structured records. Current values supersede older values when the source clearly changes them. Keep uncertainty and evidence. Do not output a narrative summary or vector memories.\n${common}\nJSON: {"events":[{"title":"","summary":"","startTime":"","endTime":"","participants":[],"location":"","result":"","decisions":[],"unresolved":[],"tags":[],"importance":1,"emotionBefore":"","emotionAfter":"","relationshipChange":"","evidence":{"messageIds":[],"excerpt":""}}],"variables":[{"category":"identity/name/date/preference/boundary/habit/person/work/school/location/relationship/plan/promise/conflict/status/other","key":"","value":"","confidence":0.8,"validFrom":"","validTo":"","evidence":{"messageIds":[],"excerpt":""}}],"tableRows":[{"table":"people/preferences/events/commitments/gifts/relationships/timeline/conflicts/places","title":"","value":"","status":"active","time":"","tags":[],"importance":1,"evidence":{"messageIds":[],"excerpt":""}}],"relations":[{"source":"","target":"","relation":"","startTime":"","endTime":"","confidence":0.8,"evidence":{"messageIds":[],"excerpt":""}}]}\n\nConversation:\n${source}`
+    : `你负责维护结构化表格记忆。只提取原文明确且有用的结构化记录；原文明确定义新状态时，新值覆盖旧状态。保留不确定性和证据。不要输出长文本总结或向量记忆。\n${common}\nJSON：{"events":[{"title":"","summary":"","startTime":"","endTime":"","participants":[],"location":"","result":"","decisions":[],"unresolved":[],"tags":[],"importance":1,"emotionBefore":"","emotionAfter":"","relationshipChange":"","evidence":{"messageIds":[],"excerpt":""}}],"variables":[{"category":"身份/称呼/日期/喜好/禁忌/习惯/人物/工作学校/位置/关系/计划/承诺/矛盾/状态/其他","key":"","value":"","confidence":0.8,"validFrom":"","validTo":"","evidence":{"messageIds":[],"excerpt":""}}],"tableRows":[{"table":"people/preferences/events/commitments/gifts/relationships/timeline/conflicts/places","title":"","value":"","status":"有效","time":"","tags":[],"importance":1,"evidence":{"messageIds":[],"excerpt":""}}],"relations":[{"source":"","target":"","relation":"","startTime":"","endTime":"","confidence":0.8,"evidence":{"messageIds":[],"excerpt":""}}]}\n\n聊天记录：\n${source}`
 }
 
 export const parseMemoryExtraction = (raw: string): MemoryExtractionResult => {
@@ -467,13 +477,14 @@ export const parseMemoryExtraction = (raw: string): MemoryExtractionResult => {
       narrative: typeof parsed.narrative === 'string' ? parsed.narrative.trim() : '',
       subjective: typeof parsed.subjective === 'string' ? parsed.subjective.trim() : '',
       memberMemories: parsed.memberMemories && typeof parsed.memberMemories === 'object' && !Array.isArray(parsed.memberMemories) ? parsed.memberMemories : {},
+      vectorMemories: Array.isArray(parsed.vectorMemories) ? parsed.vectorMemories : [],
       events: Array.isArray(parsed.events) ? parsed.events : [],
       variables: Array.isArray(parsed.variables) ? parsed.variables : [],
       tableRows: Array.isArray(parsed.tableRows) ? parsed.tableRows : [],
       relations: Array.isArray(parsed.relations) ? parsed.relations : []
     }
   } catch {
-    return { narrative: cleaned, subjective: '', memberMemories: {}, events: [], variables: [], tableRows: [], relations: [] }
+    return { narrative: cleaned, subjective: '', memberMemories: {}, vectorMemories: [], events: [], variables: [], tableRows: [], relations: [] }
   }
 }
 
@@ -504,48 +515,85 @@ export const createEmbeddings = async (texts: string[]): Promise<number[][]> => 
   return data.data.sort((a: any, b: any) => a.index - b.index).map((item: any) => item.embedding)
 }
 
-export const indexChatMemories = async (chat: any) => {
-  if (!isEmbeddingReady()) return { indexed: 0, skipped: true }
-  const state = ensureMemoryState(chat)
-  const sources: Array<{ sourceType: VectorRecord['sourceType']; sourceId: string; text: string }> = []
-  for (const item of chat.memoryBook || []) if (item.enabled !== false && !item.archived && item.content) sources.push({ sourceType: 'narrative', sourceId: String(item.id), text: item.content })
-  for (const item of state.events) if (item.enabled !== false) sources.push({ sourceType: 'event', sourceId: item.id, text: `${item.title}\n${item.summary}\n${item.tags.join(' ')}` })
-  for (const item of state.variables) if (item.status === 'active') sources.push({ sourceType: 'variable', sourceId: item.id, text: `${item.category} ${item.key}: ${item.value}` })
-  for (const item of state.tableRows) sources.push({ sourceType: 'table', sourceId: item.id, text: `${item.table} ${item.title}: ${item.value}` })
-  for (const item of state.relations) if (item.status === 'active') sources.push({ sourceType: 'relation', sourceId: item.id, text: `${item.source} ${item.relation} ${item.target}` })
-
-  const validKeys = new Set(sources.map(source => `${chat.id}:${source.sourceType}:${source.sourceId}`))
-  const staleKeys: string[] = []
-  await vectorStore.iterate<VectorRecord, void>((record, key) => {
-    if (record.chatId === String(chat.id) && !validKeys.has(key)) staleKeys.push(key)
-  })
-  await Promise.all(staleKeys.map(key => vectorStore.removeItem(key)))
-
-  let indexed = 0
-  const batchSize = Math.max(1, Math.min(100, Number(embeddingApiSettings.batchSize || 20)))
-  for (let offset = 0; offset < sources.length; offset += batchSize) {
-    const batch = sources.slice(offset, offset + batchSize)
-    const missing: typeof batch = []
-    for (const source of batch) {
-      const key = `${chat.id}:${source.sourceType}:${source.sourceId}`
-      const existing = await vectorStore.getItem<VectorRecord>(key)
-      if (!existing || existing.model !== embeddingApiSettings.model || existing.text !== source.text) missing.push(source)
-    }
-    if (missing.length === 0) continue
-    const vectors = await createEmbeddings(missing.map(item => item.text))
-    for (let index = 0; index < missing.length; index++) {
-      const source = missing[index]
-      const vector = vectors[index]
-      if (!Array.isArray(vector)) continue
-      const record: VectorRecord = {
-        id: `${chat.id}:${source.sourceType}:${source.sourceId}`, chatId: String(chat.id),
-        ...source, vector, model: embeddingApiSettings.model, dimensions: vector.length, createdAt: Date.now()
-      }
-      await vectorStore.setItem(record.id, record)
-      indexed++
-    }
+export const assertEmbeddingReady = async () => {
+  if (!isEmbeddingReady()) throw new Error('请先启用并完整配置向量节点')
+  const [probe] = await createEmbeddings(['长期记忆向量节点连接测试'])
+  if (!Array.isArray(probe) || probe.length === 0 || probe.some(value => !Number.isFinite(Number(value)))) {
+    throw new Error('向量节点没有返回有效向量')
   }
-  return { indexed, skipped: false }
+  return probe.length
+}
+
+export const readChatVectorMemories = async (chatId: string | number) => {
+  const records: VectorRecord[] = []
+  await vectorStore.iterate<VectorRecord, void>((record) => {
+    if (record.chatId === String(chatId) && record.sourceType === 'memory') records.push(record)
+  })
+  return records.sort((left, right) => left.createdAt - right.createdAt)
+}
+
+export const writeVectorMemoryTexts = async (
+  chat: any,
+  items: Array<{ id?: string; text: string; importance?: number; evidenceMessageIds?: Array<number | string>; createdAt?: number }>,
+  options: { replace?: boolean } = {}
+) => {
+  if (!isEmbeddingReady()) throw new Error('请先启用并完整配置向量节点')
+  const valid = items.map(item => ({ ...item, text: String(item.text || '').trim() })).filter(item => item.text)
+  if (!valid.length) throw new Error('没有可写入的向量记忆')
+  const batchSize = Math.max(1, Math.min(100, Number(embeddingApiSettings.batchSize || 20)))
+  const staged: VectorRecord[] = []
+  for (let offset = 0; offset < valid.length; offset += batchSize) {
+    const batch = valid.slice(offset, offset + batchSize)
+    const vectors = await createEmbeddings(batch.map(item => item.text))
+    if (vectors.length !== batch.length) throw new Error('向量节点返回数量与记忆条目不一致')
+    batch.forEach((item, index) => {
+      const vector = vectors[index]
+      if (!Array.isArray(vector) || vector.length === 0) throw new Error('向量节点返回了无效条目')
+      const sourceId = String(item.id || safeId('vector', item.text))
+      staged.push({
+        id: `${chat.id}:memory:${sourceId}`,
+        chatId: String(chat.id),
+        sourceType: 'memory',
+        sourceId,
+        text: item.text,
+        vector,
+        model: embeddingApiSettings.model,
+        dimensions: vector.length,
+        createdAt: Number(item.createdAt || Date.now()),
+        updatedAt: Date.now(),
+        importance: clamp(item.importance, 1, 5, 3),
+        evidenceMessageIds: Array.isArray(item.evidenceMessageIds) ? item.evidenceMessageIds : []
+      })
+    })
+  }
+  if (options.replace) await clearChatVectors(chat.id)
+  await Promise.all(staged.map(record => vectorStore.setItem(record.id, record)))
+  return { indexed: staged.length, skipped: false }
+}
+
+export const applyVectorExtraction = async (chat: any, result: MemoryExtractionResult, sourceMessages: any[]) => {
+  const fallbackIds = sourceMessages.map(item => item.id).filter((id: any) => id !== undefined)
+  const items = (result.vectorMemories || []).map(item => ({
+    text: item.text,
+    importance: item.importance,
+    evidenceMessageIds: item.evidenceMessageIds?.length ? item.evidenceMessageIds : fallbackIds
+  }))
+  const written = await writeVectorMemoryTexts(chat, items)
+  addCoverage(chat, sourceMessages, 'vector')
+  return written
+}
+
+export const indexChatMemories = async (chat: any) => {
+  if (normalizeMemoryMode(chat?.memoryMode) !== 'vector') return { indexed: 0, skipped: true }
+  const records = await readChatVectorMemories(chat.id)
+  if (!records.length) return { indexed: 0, skipped: false }
+  return writeVectorMemoryTexts(chat, records.map(record => ({
+    id: record.sourceId,
+    text: record.text,
+    importance: record.importance,
+    evidenceMessageIds: record.evidenceMessageIds,
+    createdAt: record.createdAt
+  })), { replace: true })
 }
 
 const cosine = (a: number[], b: number[]) => {
@@ -565,32 +613,77 @@ const hashText = (text: string) => {
   return hash
 }
 
-const terms = (text: string) => {
-  const normalized = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')
-  const result = new Set(normalized.split(/\s+/).filter(Boolean))
-  const chinese = normalized.replace(/[^\u4e00-\u9fff]/g, '')
-  for (let index = 0; index < chinese.length - 1; index++) result.add(chinese.slice(index, index + 2))
-  return result
-}
+// 仅用于判断自动总结的主题边界，不参与任何记忆召回。
+const terms = (text: string) => new Set(
+  String(text || '').toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []
+)
 
-const lexicalScore = (query: string, text: string) => {
-  const queryTerms = terms(query)
-  const textTerms = terms(text)
-  if (!queryTerms.size) return 0
-  let matches = 0
-  queryTerms.forEach(term => { if (textTerms.has(term)) matches++ })
-  return matches / queryTerms.size
-}
-
-const collectCandidates = (chat: any) => {
+const collectStructuredMemoryLines = (chat: any) => {
   const state = ensureMemoryState(chat)
   return [
-    ...(chat.memoryBook || []).filter((item: any) => item.enabled !== false && !item.archived).map((item: any) => ({ type: '叙事', id: String(item.id), text: item.content, importance: item.isMarked ? 5 : item.memoryLevel > 1 ? 4 : 3, updatedAt: item.updatedAt || item.id || 0 })),
-    ...state.events.filter(item => item.enabled !== false).map(item => ({ type: '事件', id: item.id, text: `${item.title}：${item.summary}${item.unresolved.length ? `；未完成：${item.unresolved.join('、')}` : ''}`, importance: item.importance, updatedAt: item.updatedAt })),
-    ...state.variables.filter(item => item.status === 'active').map(item => ({ type: '变量', id: item.id, text: `${item.category}/${item.key}：${item.value}`, importance: item.locked ? 5 : 4, updatedAt: item.lastConfirmedAt })),
-    ...state.tableRows.map(item => ({ type: '表格', id: item.id, text: `${item.title}：${item.value}（${item.status}）`, importance: item.importance, updatedAt: item.updatedAt })),
-    ...state.relations.filter(item => item.status === 'active').map(item => ({ type: '关系', id: item.id, text: `${item.source} —${item.relation}→ ${item.target}`, importance: 4, updatedAt: item.updatedAt }))
+    ...state.events.filter(item => item.enabled !== false).map(item => `[事件] ${item.title}：${item.summary}${item.unresolved.length ? `；未完成：${item.unresolved.join('、')}` : ''}`),
+    ...state.variables.filter(item => item.status === 'active').map(item => `[资料] ${item.category}/${item.key}：${item.value}`),
+    ...state.tableRows.filter(item => item.status !== 'archived').map(item => `[${item.table}] ${item.title}：${item.value}（${item.status}）`),
+    ...state.relations.filter(item => item.status === 'active').map(item => `[关系] ${item.source} —${item.relation}→ ${item.target}`)
   ]
+}
+
+export const getMemoryExportItems = async (chat: any, mode: MemoryMode = normalizeMemoryMode(chat?.memoryMode)) => {
+  if (mode === 'long_text') {
+    return (chat.memoryBook || [])
+      .filter((item: any) => item.enabled !== false && !item.archived && String(item.content || '').trim())
+      .map((item: any) => ({
+        id: String(item.id),
+        text: String(item.content),
+        evidenceMessageIds: Array.isArray(item.evidenceMessageIds) ? item.evidenceMessageIds : [],
+        createdAt: Number(item.createdAt || item.id || Date.now()),
+        importance: item.isMarked ? 5 : Number(item.memoryLevel || 1) > 1 ? 4 : 3
+      }))
+  }
+  if (mode === 'vector') {
+    return (await readChatVectorMemories(chat.id)).map(record => ({
+      id: record.sourceId,
+      text: record.text,
+      evidenceMessageIds: record.evidenceMessageIds,
+      createdAt: record.createdAt,
+      importance: record.importance
+    }))
+  }
+  return collectStructuredMemoryLines(chat).map((text, index) => ({
+    id: `structured_${index}`,
+    text,
+    evidenceMessageIds: [],
+    createdAt: Number(ensureMemoryState(chat).lastConsolidatedAt || Date.now()),
+    importance: 4
+  }))
+}
+
+export const resetStructuredMemory = (chat: any) => {
+  const state = ensureMemoryState(chat)
+  state.events = []
+  state.variables = []
+  state.tableRows = []
+  state.relations = []
+  state.lastConsolidatedAt = 0
+  return state
+}
+
+export const replaceLongTextMemories = (chat: any, items: Array<{ text: string; evidenceMessageIds?: Array<number | string>; createdAt?: number }>) => {
+  const now = Date.now()
+  chat.memoryBook = items.map((item, index) => ({
+    id: now + index,
+    date: new Date(Number(item.createdAt || now)).toLocaleDateString('zh-CN'),
+    content: String(item.text || '').trim(),
+    evidenceMessageIds: Array.isArray(item.evidenceMessageIds) ? item.evidenceMessageIds : [],
+    messageCount: Array.isArray(item.evidenceMessageIds) ? item.evidenceMessageIds.length : 0,
+    memoryLevel: 1,
+    memoryMode: 'long_text',
+    version: 3,
+    createdAt: Number(item.createdAt || now + index),
+    updatedAt: now,
+    enabled: true
+  })).filter((item: any) => item.content)
+  return chat.memoryBook.length
 }
 
 export const buildMemoryPacket = async (
@@ -599,45 +692,48 @@ export const buildMemoryPacket = async (
   tokenBudget?: number,
   options: { allowEmbedding?: boolean } = {}
 ) => {
-  const candidates = collectCandidates(chat)
-  if (candidates.length === 0) return ''
-  const now = Date.now()
-  const vectorScores = new Map<string, number>()
-  if (options.allowEmbedding !== false && isEmbeddingReady() && query.trim()) {
-    try {
-      const [queryVector] = await createEmbeddings([query])
-      await vectorStore.iterate<VectorRecord, void>((record) => {
-        if (record.chatId === String(chat.id) && record.model === embeddingApiSettings.model) {
-          vectorScores.set(`${record.sourceType}:${record.sourceId}`, cosine(queryVector, record.vector))
-        }
-      })
-    } catch (error) {
-      console.warn('向量召回失败，已降级为本地混合检索', error)
-    }
+  const mode = normalizeMemoryMode(chat?.memoryMode)
+  const english = globalPromptSettings.language === 'en'
+  if (mode === 'long_text') {
+    const books = (chat.memoryBook || [])
+      .filter((item: any) => item.enabled !== false && !item.archived && String(item.content || '').trim())
+      .sort((left: any, right: any) => Number(left.fromMsgId || left.createdAt || left.id || 0) - Number(right.fromMsgId || right.createdAt || right.id || 0))
+    if (!books.length) return ''
+    const body = books.map((item: any, index: number) => `[${index + 1}] ${item.date || ''}\n${item.content}`).join('\n\n')
+    return english
+      ? `\n\n[Complete active long-form memory]\nUse every active memory below. If an older memory conflicts with a newer explicit statement, follow the newer statement.\n${body}`
+      : `\n\n【全部启用的长文本记忆】\n以下为当前全部启用的记忆，必须整体参考；较新的明确说法与旧内容冲突时，以较新的为准。\n${body}`
   }
-  const typeMap: Record<string, string> = { '叙事': 'narrative', '事件': 'event', '变量': 'variable', '表格': 'table', '关系': 'relation' }
-  const ranked = candidates.map(item => {
-    const vector = vectorScores.get(`${typeMap[item.type]}:${item.id}`) || 0
-    const lexical = lexicalScore(query, item.text)
-    const recency = Math.max(0, 1 - (now - item.updatedAt) / (1000 * 60 * 60 * 24 * 180))
-    const score = vector * 0.55 + lexical * 0.25 + (item.importance / 5) * 0.15 + recency * 0.05
-    return { ...item, score }
-  }).sort((a, b) => b.score - a.score)
-
+  if (mode === 'structured') {
+    const lines = collectStructuredMemoryLines(chat)
+    if (!lines.length) return ''
+    return english
+      ? `\n\n[Complete active structured memory]\n${lines.join('\n')}`
+      : `\n\n【全部当前有效的结构化记忆】\n${lines.join('\n')}`
+  }
+  if (options.allowEmbedding === false) return ''
+  if (!isEmbeddingReady()) throw new Error('当前使用向量记忆，但向量节点尚未完整配置')
+  if (!query.trim()) return ''
+  const [queryVector] = await createEmbeddings([query])
+  if (!Array.isArray(queryVector)) throw new Error('向量节点没有返回查询向量')
+  const records = (await readChatVectorMemories(chat.id))
+    .filter(record => record.model === embeddingApiSettings.model && record.vector.length === queryVector.length)
+    .map(record => ({ ...record, score: cosine(queryVector, record.vector) }))
+    .sort((left, right) => right.score - left.score)
+  if (!records.length) return ''
   const budget = Math.max(200, Number(tokenBudget || chat.memoryTokenBudget || 1200))
-  const selected: typeof ranked = []
+  const selected: VectorRecord[] = []
   let used = 0
-  for (const item of ranked) {
-    const lineSize = estimateTextTokens(`- [${item.type}] ${item.text}\n`)
-    if (selected.length > 0 && used + lineSize > budget) continue
-    selected.push(item)
-    used += lineSize
+  for (const record of records) {
+    const size = estimateTextTokens(`- ${record.text}\n`)
+    if (selected.length > 0 && used + size > budget) continue
+    selected.push(record)
+    used += size
     if (selected.length >= 16) break
   }
-  if (!selected.length) return ''
-  return globalPromptSettings.language === 'en'
-    ? `\n\n[Relevant long-term memory]\nThe system selected these memories by current topic, importance, and recency. If they conflict with the latest conversation, follow the latest explicit statement.\n${selected.map(item => `- [${item.type}] ${item.text}`).join('\n')}`
-    : `\n\n【按需长期记忆】\n以下记忆由系统按当前话题、重要度和时间筛选；若与最新对话冲突，以最新明确表达为准。\n${selected.map(item => `- [${item.type}] ${item.text}`).join('\n')}`
+  return english
+    ? `\n\n[Vector-recalled memory]\n${selected.map(item => `- ${item.text}`).join('\n')}`
+    : `\n\n【向量记忆召回】\n${selected.map(item => `- ${item.text}`).join('\n')}`
 }
 
 export const invalidateMemoriesForMessages = (chat: any, messageIds: Array<number | string>) => {
@@ -670,6 +766,18 @@ export const invalidateMemoriesForMessages = (chat: any, messageIds: Array<numbe
     structured: beforeStructured - (state.events.length + state.variables.length + state.tableRows.length + state.relations.length),
     memberMemories: removedMemberMemories
   }
+}
+
+export const invalidateVectorMemoriesForMessages = async (chat: any, messageIds: Array<number | string>) => {
+  if (!chat || messageIds.length === 0 || normalizeMemoryMode(chat.memoryMode) !== 'vector') return 0
+  const ids = new Set(messageIds.flatMap(id => [id, String(id), Number(id)]))
+  const keys: string[] = []
+  await vectorStore.iterate<VectorRecord, void>((record, key) => {
+    if (record.chatId !== String(chat.id)) return
+    if (record.evidenceMessageIds?.some(id => ids.has(id) || ids.has(String(id)) || ids.has(Number(id)))) keys.push(key)
+  })
+  await Promise.all(keys.map(key => vectorStore.removeItem(key)))
+  return keys.length
 }
 
 export const clearChatVectors = async (chatId: string | number) => {

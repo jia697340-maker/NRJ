@@ -45,10 +45,10 @@ export function useChatSettingsSave() {
         contacts[idx].autoSummaryOnTopicChange = selectedChat.value.autoSummaryOnTopicChange ?? false
         contacts[idx].autoSummaryOnExit = selectedChat.value.autoSummaryOnExit ?? false
         contacts[idx].autoSummaryIdleMinutes = selectedChat.value.autoSummaryIdleMinutes || 0
-        contacts[idx].memoryMode = selectedChat.value.memoryMode || 'hybrid'
+        contacts[idx].memoryMode = selectedChat.value.memoryMode || 'long_text'
         contacts[idx].memoryBatchSize = selectedChat.value.memoryBatchSize || 150
         contacts[idx].memoryTokenBudget = selectedChat.value.memoryTokenBudget || 1200
-        contacts[idx].autoMemoryConsolidation = selectedChat.value.autoMemoryConsolidation ?? true
+        contacts[idx].autoMemoryConsolidation = selectedChat.value.autoMemoryConsolidation === true
         contacts[idx].memoryConsolidationThreshold = selectedChat.value.memoryConsolidationThreshold || 8
         contacts[idx].memoryState = selectedChat.value.memoryState || null
         contacts[idx].summaryPrompt = selectedChat.value.summaryPrompt || ''

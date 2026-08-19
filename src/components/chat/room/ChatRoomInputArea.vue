@@ -38,6 +38,7 @@ const emit = defineEmits<{
   (e: 'show-voice-call-modal'): void
   (e: 'show-video-call-modal'): void
   (e: 'show-user-thought-modal'): void
+  (e: 'show-contact-card-modal'): void
   (e: 'toggle-mixed-offline'): void
   (e: 'open-relationship'): void
   (e: 'advance-relationship'): void
@@ -371,10 +372,25 @@ const handleEnter = () => { const option = filteredMentionOptions.value.find(ite
           </div>
         </div>
 
-        <!-- 第二页：8 个占位功能项 -->
+        <!-- 第二页：名片与 7 个占位功能项 -->
         <div class="extension-page">
           <div class="extension-grid">
-            <div v-for="i in 8" :key="`placeholder-${i}`" class="extension-item placeholder">
+            <!-- 功能: 名片 (UI 占位) -->
+            <div class="extension-item is-active" @click="emit('show-contact-card-modal')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="3" ry="3"></rect>
+                  <circle cx="9" cy="10" r="2.5"></circle>
+                  <path d="M15 8h2"></path>
+                  <path d="M15 12h2"></path>
+                  <path d="M6 16c0-1.5 1.5-2.5 3-2.5s3 1 3 2.5"></path>
+                </svg>
+              </div>
+              <span class="extension-label">名片</span>
+            </div>
+
+            <!-- 剩余 7 个占位项 -->
+            <div v-for="i in 7" :key="`placeholder-${i}`" class="extension-item placeholder">
               <div class="extension-icon-box placeholder-box">
                 <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3" fill="none" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="6" ry="6"></rect>

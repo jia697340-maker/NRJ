@@ -1,6 +1,9 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import localforage from 'localforage'
+import AvatarUploadModal from '../AvatarUploadModal.vue'
+import MusicProfileEditModal from './modals/MusicProfileEditModal.vue'
 import { horizontalCards, useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
@@ -15,6 +18,9 @@ const {
   accountProfiles,
   customTrackCount,
   customTotalMinutes,
+  customNickname,
+  customVipLabel,
+  customSignature,
   refreshProfiles
 } = useMusicLibrary()
 
@@ -22,8 +28,21 @@ const activeSubTab = ref<'music' | 'podcast' | 'notes'>('music')
 
 const emit = defineEmits(['close', 'openDrawer', 'openSettings', 'openSources', 'openData', 'openHistory'])
 
+// 自定义音乐头像状态与持久化（localforage IndexedDB 存储）
+const customAvatar = ref<string | null>(null)
+const avatarModalVisible = ref(false)
+const profileEditModalVisible = ref(false)
+
+const store = localforage.createInstance({
+  name: 'nrt-app',
+  storeName: 'avatars'
+})
+
 const enabledSourceCount = computed(() => sourceConfigs.value.filter(item => item.enabled).length)
 const primaryProfile = computed(() => accountProfiles.value[0] || null)
+const displayNickname = computed(() => customNickname.value ?? primaryProfile.value?.nickname ?? '我的音乐')
+const displayVipLabel = computed(() => customVipLabel.value ?? primaryProfile.value?.vipLabel ?? 'SVIP')
+const displaySignature = computed(() => customSignature.value ?? primaryProfile.value?.signature ?? 'Unified Music Library')
 const displayTrackCount = computed(() => customTrackCount.value !== null ? customTrackCount.value : history.value.length)
 const displayTotalMinutes = computed(() => customTotalMinutes.value !== null ? customTotalMinutes.value : Math.round(history.value.reduce((sum, item) => sum + (item.duration || 0) * (item.playCount || 1), 0) / 60))
 const libraryPlaylists = computed(() => [
@@ -45,27 +64,46 @@ const handleCard = (name: string) => {
   if (name === '每日推荐' || name === '私人漫游' || name === '排行榜') { emit('openSources'); return }
   handleOpenTrack(name)
 }
-onMounted(() => { void refreshProfiles() })
+
+const openAvatarModal = () => {
+  avatarModalVisible.value = true
+}
+
+const handleAvatarSaved = async (url: string | null) => {
+  try {
+    customAvatar.value = url
+    if (url) {
+      await store.setItem('avatar-music-user', url)
+    } else {
+      await store.removeItem('avatar-music-user')
+    }
+  } catch (e) {
+    console.error('Failed to save music avatar', e)
+  }
+}
+
+onMounted(async () => {
+  void refreshProfiles()
+  try {
+    const saved = await store.getItem<string>('avatar-music-user')
+    if (saved) customAvatar.value = saved
+  } catch (e) {
+    console.error('Failed to load music avatar from localforage', e)
+  }
+})
 </script>
 
 <template>
   <div class="mine-tab-view">
     <!-- 顶部导航栏 -->
     <div class="mine-top-bar">
-      <div class="top-bar-left">
-        <button class="icon-btn" title="返回桌面" @click="emit('close')">
-          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-        </button>
-        <button class="icon-btn" title="来源" @click="emit('openSources')">
-          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round">
-            <line x1="3" y1="6" x2="21" y2="6"></line>
-            <line x1="3" y1="12" x2="21" y2="12"></line>
-            <line x1="3" y1="18" x2="21" y2="18"></line>
-          </svg>
-        </button>
-      </div>
+      <button class="icon-btn" title="来源" @click="emit('openSources')">
+        <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round">
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
 
       <div class="status-badge" @click="emit('openSources')">
         <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none">
@@ -87,7 +125,7 @@ onMounted(() => { void refreshProfiles() })
     <!-- 用户信息卡片区 (1:1 复刻设计) -->
     <div class="user-profile-section">
       <!-- 带有花边天使光环的头像 -->
-      <div class="avatar-wrapper">
+      <div class="avatar-wrapper" @click="openAvatarModal" title="点击更换头像">
         <div class="halo-circle">
           <svg class="halo-crown" viewBox="0 0 100 40" fill="none" stroke="currentColor" stroke-width="2">
             <ellipse cx="50" cy="20" rx="42" ry="12" stroke-dasharray="3 3"/>
@@ -95,7 +133,7 @@ onMounted(() => { void refreshProfiles() })
         </div>
         <div class="lace-border">
           <div class="avatar-inner">
-            <img v-if="primaryProfile?.avatarUrl" class="avatar-photo" :src="primaryProfile.avatarUrl" alt="音乐账号头像" />
+            <img v-if="customAvatar || primaryProfile?.avatarUrl" class="avatar-photo" :src="customAvatar || primaryProfile?.avatarUrl || ''" alt="音乐头像" />
             <svg v-else viewBox="0 0 100 100" class="avatar-svg" fill="none">
               <circle cx="50" cy="50" r="48" class="avatar-circle-outer" stroke-width="1.5"/>
               <circle cx="50" cy="50" r="32" class="avatar-circle-mid"/>
@@ -109,20 +147,24 @@ onMounted(() => { void refreshProfiles() })
       </div>
 
       <!-- 用户名称与 VIP 徽章 -->
-      <div class="user-name-row">
-        <span class="user-nickname">{{ primaryProfile?.nickname || '我的音乐' }}</span>
+      <div class="user-name-row clickable-name" title="点击修改名字与资料" @click="profileEditModalVisible = true">
+        <span class="user-nickname">{{ displayNickname }}</span>
         <div class="vip-badge">
           <svg class="vip-record-icon" viewBox="0 0 24 24" width="14" height="14" fill="#000">
             <circle cx="12" cy="12" r="10" fill="#222"/>
             <circle cx="12" cy="12" r="4" fill="#d4af37"/>
             <circle cx="12" cy="12" r="1.5" fill="#fff"/>
           </svg>
-          <span class="vip-text">{{ primaryProfile?.vipLabel || 'SVIP' }}</span>
+          <span class="vip-text">{{ displayVipLabel }}</span>
         </div>
+        <svg class="edit-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+        </svg>
       </div>
 
       <!-- 优雅副标题与艺术签名 -->
-      <div class="motto-text">{{ primaryProfile?.signature || 'Unified Music Library' }}</div>
+      <div class="motto-text clickable-motto" title="点击修改个性签名" @click="profileEditModalVisible = true">{{ displaySignature }}</div>
       <div class="signature-cursive">{{ primaryProfile ? `${primaryProfile.sourceId} · Lv.${primaryProfile.level || 0}` : 'listen in your own way' }}</div>
 
       <!-- 社交统计数据栏 -->
@@ -223,67 +265,67 @@ onMounted(() => { void refreshProfiles() })
 
     <!-- 歌单工具栏：近期、创建 7、批量操作 -->
     <div v-if="activeSubTab === 'music'" class="sub-content">
-    <div class="playlist-tool-row">
-      <div class="tool-left">
-        <div class="tool-lock-tag">
-          <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-          <span>近期</span>
-        </div>
-        <div class="tool-create-title">创建 <span class="badge-sub">7</span></div>
-      </div>
-
-      <div class="tool-right">
-        <button class="tool-action-btn" title="批量导入" @click="emit('openData')">
-          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
-            <polyline points="9 10 4 15 9 20"/>
-            <path d="M20 4v7a4 4 0 0 1-4 4H4"/>
-          </svg>
-        </button>
-        <button class="tool-action-btn" title="更多" @click="emit('openData')">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
-            <circle cx="12" cy="5" r="1.8"/>
-            <circle cx="12" cy="12" r="1.8"/>
-            <circle cx="12" cy="19" r="1.8"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-
-    <!-- 蕾丝暗纹艺术字 -->
-    <div class="art-bg-text">with your soft lips</div>
-
-    <!-- 歌单列表 -->
-    <div class="playlist-list-container">
-      <div
-        class="playlist-item-card"
-        v-for="pl in libraryPlaylists"
-        :key="pl.id"
-        @click="handleOpenTrack(pl.name)"
-      >
-        <div class="playlist-cover-box">
-          <svg viewBox="0 0 60 60" width="32" height="32" class="playlist-cross-icon" stroke-width="2" fill="none">
-            <line x1="30" y1="12" x2="30" y2="48"/>
-            <line x1="16" y1="24" x2="44" y2="24"/>
-          </svg>
+      <div class="playlist-tool-row">
+        <div class="tool-left">
+          <div class="tool-lock-tag">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <span>近期</span>
+          </div>
+          <div class="tool-create-title">创建 <span class="badge-sub">7</span></div>
         </div>
 
-        <div class="playlist-info">
-          <div class="playlist-name">{{ pl.name }}</div>
-          <div class="playlist-meta">{{ pl.trackCount }}首 · {{ pl.playCount }}次播放</div>
+        <div class="tool-right">
+          <button class="tool-action-btn" title="批量导入" @click="emit('openData')">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+              <polyline points="9 10 4 15 9 20"/>
+              <path d="M20 4v7a4 4 0 0 1-4 4H4"/>
+            </svg>
+          </button>
+          <button class="tool-action-btn" title="更多" @click="emit('openData')">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+              <circle cx="12" cy="5" r="1.8"/>
+              <circle cx="12" cy="12" r="1.8"/>
+              <circle cx="12" cy="19" r="1.8"/>
+            </svg>
+          </button>
         </div>
-
-        <button class="item-more-btn" title="歌单工具" @click.stop="emit('openData')">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
-            <circle cx="12" cy="5" r="1.8"/>
-            <circle cx="12" cy="12" r="1.8"/>
-            <circle cx="12" cy="19" r="1.8"/>
-          </svg>
-        </button>
       </div>
-    </div>
+
+      <!-- 蕾丝暗纹艺术字 -->
+      <div class="art-bg-text">with your soft lips</div>
+
+      <!-- 歌单列表 -->
+      <div class="playlist-list-container">
+        <div
+          class="playlist-item-card"
+          v-for="pl in libraryPlaylists"
+          :key="pl.id"
+          @click="handleOpenTrack(pl.name)"
+        >
+          <div class="playlist-cover-box">
+            <svg viewBox="0 0 60 60" width="32" height="32" class="playlist-cross-icon" stroke-width="2" fill="none">
+              <line x1="30" y1="12" x2="30" y2="48"/>
+              <line x1="16" y1="24" x2="44" y2="24"/>
+            </svg>
+          </div>
+
+          <div class="playlist-info">
+            <div class="playlist-name">{{ pl.name }}</div>
+            <div class="playlist-meta">{{ pl.trackCount }}首 · {{ pl.playCount }}次播放</div>
+          </div>
+
+          <button class="item-more-btn" title="歌单工具" @click.stop="emit('openData')">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+              <circle cx="12" cy="5" r="1.8"/>
+              <circle cx="12" cy="12" r="1.8"/>
+              <circle cx="12" cy="19" r="1.8"/>
+            </svg>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-else-if="activeSubTab === 'podcast'" class="sub-empty-card" @click="emit('openSources')"><strong>播客与电台来源</strong><span>通过来源管理连接播客目录或私人曲库。歌曲与播客会保持独立播放队列。</span><b>打开来源管理 ›</b></div>
@@ -294,6 +336,22 @@ onMounted(() => { void refreshProfiles() })
 
     <!-- 底部占位以防 Mini 播放器遮挡 -->
     <div class="bottom-spacer"></div>
+
+    <AvatarUploadModal
+      v-model:visible="avatarModalVisible"
+      :current-avatar="customAvatar || primaryProfile?.avatarUrl"
+      shape="circle"
+      title="更换音乐头像"
+      @saved="handleAvatarSaved"
+    />
+
+    <MusicProfileEditModal
+      :visible="profileEditModalVisible"
+      :defaultNickname="primaryProfile?.nickname"
+      :defaultVipLabel="primaryProfile?.vipLabel"
+      :defaultSignature="primaryProfile?.signature"
+      @close="profileEditModalVisible = false"
+    />
   </div>
 </template>
 
@@ -322,12 +380,6 @@ onMounted(() => { void refreshProfiles() })
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--music-divider, rgba(0, 0, 0, 0.05));
-}
-
-.top-bar-left {
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 
 .icon-btn {
@@ -376,6 +428,16 @@ onMounted(() => { void refreshProfiles() })
   width: 90px;
   height: 90px;
   margin-bottom: 12px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.avatar-wrapper:hover {
+  transform: scale(1.04);
+}
+
+.avatar-wrapper:active {
+  transform: scale(0.96);
 }
 
 .halo-circle {
@@ -471,6 +533,42 @@ onMounted(() => { void refreshProfiles() })
   justify-content: center;
   gap: 8px;
   margin-bottom: 4px;
+}
+
+.clickable-name {
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 8px;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.clickable-name:hover {
+  background: var(--music-pill-bg, rgba(0, 0, 0, 0.04));
+}
+
+.clickable-name:active {
+  transform: scale(0.97);
+}
+
+.edit-icon {
+  color: var(--music-text-muted, #999999);
+  opacity: 0.6;
+  margin-left: -2px;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.clickable-name:hover .edit-icon {
+  opacity: 1;
+  color: var(--music-text, #111111);
+}
+
+.clickable-motto {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.clickable-motto:hover {
+  opacity: 0.8;
 }
 
 .user-nickname {
