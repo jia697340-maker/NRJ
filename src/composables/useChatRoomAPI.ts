@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
 import { sendChatMessage, isMomentApiReady, type ChatApiPurpose } from '../services/api'
-import { chatSettings, worldBooks } from '../store'
+import { chatSettings, webSearchSettings, worldBooks } from '../store'
 import { characterBlocksUser, deleteFriendByCharacter, setRelationshipPlan } from './useChatRelationship'
 import localforage from 'localforage'
 import { selectRoleAvailableEmojis } from '../services/chatEmojiScope'
@@ -319,6 +319,16 @@ export function useChatRoomAPI(
     try {
       const startTime = Date.now()
       let result
+      const latestUserMessage = [...(targetChat?.messages || [])].reverse().find((message: any) => message.type === 'right' && !message.isUndelivered)
+      const webSearchOptions = {
+        enabled: Boolean(targetChat?.webSearchEnabled && !callMode && apiPurpose === 'default'),
+        mode: webSearchSettings.mode,
+        query: String(latestUserMessage?.content || ''),
+        selfHostedUrl: webSearchSettings.selfHostedUrl,
+        selfHostedToken: webSearchSettings.selfHostedToken,
+        maxResults: webSearchSettings.maxResults,
+        timeoutSeconds: webSearchSettings.timeoutSeconds
+      } as const
       try {
         result = await sendChatMessage(
           apiMessages,
@@ -327,7 +337,9 @@ export function useChatRoomAPI(
           false,
           apiPurpose,
           offlineMeetMode ? (selectedChat.value.offlineModelProfile || 'auto') : 'auto',
-          diagnosticContext
+          diagnosticContext,
+          false,
+          webSearchOptions
         )
       } catch (specializedError: any) {
         const shouldFallbackToGlobal = apiPurpose === 'moment-followup' && isMomentApiReady() && specializedError?.name !== 'AbortError'
@@ -341,7 +353,9 @@ export function useChatRoomAPI(
           false,
           'default',
           offlineMeetMode ? (selectedChat.value.offlineModelProfile || 'auto') : 'auto',
-          diagnosticContext
+          diagnosticContext,
+          false,
+          { ...webSearchOptions, enabled: false }
         )
       }
       const costSeconds = ((Date.now() - startTime) / 1000).toFixed(1)
@@ -350,6 +364,7 @@ export function useChatRoomAPI(
       let thinkingText = ''
       let thinkingSource: 'native' | 'prompt' | 'none' = 'none'
       let providerState: any
+      let webSearchTrace: any
       
       if (typeof result === 'string') {
         replyText = result
@@ -358,6 +373,7 @@ export function useChatRoomAPI(
         thinkingText = result.thinking || ''
         thinkingSource = result.reasoningSource || (thinkingText ? 'native' : 'none')
         providerState = result.providerState
+        webSearchTrace = result.webSearch
       }
       
       // 优先拦截并处理朋友圈相关的特殊标签
@@ -931,6 +947,7 @@ export function useChatRoomAPI(
               thinking: thinking,
               thinkingSource: index === 0 ? thinkingSource : undefined,
               providerState: index === 0 ? providerState : undefined,
+              webSearch: index === 0 ? webSearchTrace : undefined,
               costTime: isLastMsg ? costSeconds : undefined,
               quote: action.quote,
               isVoiceCallProcessMsg: callMode === 'voice',

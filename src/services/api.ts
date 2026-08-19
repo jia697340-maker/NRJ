@@ -7,6 +7,7 @@ import { extractEmbeddedReasoning, isGeminiPrefillUnsupported, mergeProviderReas
 import { saveTokenUsageSnapshot } from './tokenUsageSnapshot'
 import { commitDiagnosticTrace, createDiagnosticDraft, type DiagnosticContextMeta } from './diagnosticTrace'
 import { isRawApiConsoleLoggingEnabled, logApiFallback, logApiRequest, logApiResponse } from './apiDebug'
+import { buildWebSearchContext, inferWebSearchQuery, mergeWebSearchTrace, runSelfHostedWebSearch, supportsManagedWebSearch, type WebSearchRequestOptions, type WebSearchTrace } from './webSearch'
 
 export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global' | 'prompt-generation'
 
@@ -95,7 +96,8 @@ export async function sendChatMessage(
   purpose: ChatApiPurpose = 'default',
   adapterOverride: ModelAdapterProfile = 'auto',
   diagnosticContext?: DiagnosticContextMeta,
-  payloadReady: boolean = false
+  payloadReady: boolean = false,
+  webSearch?: WebSearchRequestOptions
 ) {
   // 定义一个包含所有可能属性的接口，包括各个设置独有的属性
   interface MergedApiSettings {
@@ -154,11 +156,25 @@ export async function sendChatMessage(
     claudeNativeEnabled: cotSettings.claudeNativeEnabled
   }
   // payloadReady 表示调用方已完成相同装饰，避免二次注入。
-  const payloadMessages = payloadReady ? JSON.parse(JSON.stringify(messages)) : decorateChatPayload(messages, isSummary, purpose, {
+  let payloadMessages = payloadReady ? JSON.parse(JSON.stringify(messages)) : decorateChatPayload(messages, isSummary, purpose, {
     profile: resolvedProfile,
     model,
     applyCot: reasoningPolicy.enabled
   })
+
+  let webSearchTrace: WebSearchTrace | undefined
+  const webSearchEnabled = Boolean(webSearch?.enabled && purpose === 'default' && !isSummary && !isVision)
+  if (webSearchEnabled) {
+    webSearch!.query ||= inferWebSearchQuery(payloadMessages)
+    if (webSearch!.mode === 'self-hosted') {
+      webSearchTrace = await runSelfHostedWebSearch(webSearch!, signal)
+      const contextMessage = { role: 'system', content: buildWebSearchContext(webSearchTrace) }
+      const lastUserIndex = payloadMessages.map((item: any) => item.role).lastIndexOf('user')
+      payloadMessages.splice(lastUserIndex >= 0 ? lastUserIndex : payloadMessages.length, 0, contextMessage)
+    } else if (!supportsManagedWebSearch({ provider: activeSettings.provider, url, profile: resolvedProfile })) {
+      throw new Error('当前聊天节点不支持服务商联网。请改用 OpenRouter、OpenAI Responses、Claude、Gemini，或切换到自建联网服务。')
+    }
+  }
 
   const preparedRequest = prepareAdapterRequest({
     provider: activeSettings.provider,
@@ -172,7 +188,10 @@ export async function sendChatMessage(
     topP: activeSettings.enableTopP ? activeSettings.topP : undefined,
     frequencyPenalty: activeSettings.enableFrequencyPenalty ? activeSettings.frequencyPenalty : undefined,
     presencePenalty: activeSettings.enablePresencePenalty ? activeSettings.presencePenalty : undefined,
-    reasoning: reasoningPolicy
+    reasoning: reasoningPolicy,
+    webSearch: webSearchEnabled && webSearch?.mode === 'managed'
+      ? { enabled: true, maxResults: webSearch.maxResults }
+      : undefined
   }, payloadMessages)
 
   let diagnosticType = 'Chat'
@@ -375,6 +394,7 @@ export async function sendChatMessage(
             if (delta.thinking) thinking += delta.thinking
             if (delta.reasoningSource) reasoningSource = delta.reasoningSource
             if (delta.providerState) providerState = mergeProviderReasoningState(providerState, delta.providerState)
+            if (delta.webSearch) webSearchTrace = mergeWebSearchTrace(webSearchTrace, delta.webSearch)
             if (delta.stopReason) stopReason = delta.stopReason
             if (delta.tokens) tokensUsage = delta.tokens
             if (delta.inputTokens) inputTokensUsage = delta.inputTokens
@@ -395,6 +415,7 @@ export async function sendChatMessage(
         if (delta.thinking) thinking += delta.thinking
         if (delta.reasoningSource) reasoningSource = delta.reasoningSource
         if (delta.providerState) providerState = mergeProviderReasoningState(providerState, delta.providerState)
+        if (delta.webSearch) webSearchTrace = mergeWebSearchTrace(webSearchTrace, delta.webSearch)
         if (delta.stopReason) stopReason = delta.stopReason
         if (delta.tokens) tokensUsage = delta.tokens
         if (delta.inputTokens) inputTokensUsage = delta.inputTokens
@@ -410,6 +431,7 @@ export async function sendChatMessage(
     thinking = parsed.thinking
     reasoningSource = parsed.reasoningSource || (thinking ? 'native' : 'none')
     providerState = parsed.providerState
+    webSearchTrace = mergeWebSearchTrace(webSearchTrace, parsed.webSearch)
     if (parsed.tokens) tokensUsage = parsed.tokens
     if (parsed.inputTokens) inputTokensUsage = parsed.inputTokens
     if (parsed.outputTokens) outputTokensUsage = parsed.outputTokens
@@ -418,6 +440,15 @@ export async function sendChatMessage(
 
   if (inputTokensUsage > 0 || outputTokensUsage > 0) {
     tokensUsage = inputTokensUsage + outputTokensUsage
+  }
+  if (webSearchEnabled && webSearch?.mode === 'managed' && webSearchTrace) {
+    webSearchTrace = mergeWebSearchTrace(webSearchTrace, {
+      mode: 'managed',
+      provider: webSearchTrace.provider || '服务商联网',
+      status: webSearchTrace.sources?.length ? 'success' : (webSearchTrace.status || 'empty'),
+      queries: webSearchTrace.queries?.length ? webSearchTrace.queries : (webSearch.query ? [webSearch.query] : []),
+      searchedAt: webSearchTrace.searchedAt || Date.now()
+    })
   }
   if (rawStreamEvents) {
     logApiResponse({
@@ -500,6 +531,7 @@ export async function sendChatMessage(
     thinking,
     reasoningSource,
     providerState,
+    webSearch: webSearchTrace,
     stopReason,
     truncated: ['length', 'max_tokens', 'MAX_TOKENS'].includes(stopReason)
   }

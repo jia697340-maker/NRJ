@@ -8,6 +8,7 @@ import {
   type ReasoningPolicy,
   type ReasoningSource
 } from './reasoning'
+import type { WebSearchTrace, WebSearchSource } from './webSearch'
 
 export type ModelAdapterProfile = OfflineModelProfile
 
@@ -24,6 +25,7 @@ export interface AdapterSettings {
   frequencyPenalty?: number
   presencePenalty?: number
   reasoning?: ReasoningPolicy
+  webSearch?: { enabled: boolean; maxResults?: number }
 }
 
 export interface PreparedAdapterRequest {
@@ -44,9 +46,42 @@ export interface ParsedAdapterResponse {
   stopReason?: string
   reasoningSource?: ReasoningSource
   providerState?: ProviderReasoningState
+  webSearch?: WebSearchTrace
 }
 
 const trimSlash = (value: string) => value.replace(/\/+$/, '')
+
+const isOpenRouterEndpoint = (settings: AdapterSettings) => {
+  if (String(settings.provider || '').toLowerCase() === 'openrouter') return true
+  try {
+    const hostname = new URL(settings.url).hostname.toLowerCase()
+    return hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai')
+  } catch { return false }
+}
+
+const webTrace = (provider: string, queries: unknown[] = [], sources: WebSearchSource[] = []): WebSearchTrace => ({
+  mode: 'managed',
+  provider,
+  status: sources.length ? 'success' : 'empty',
+  queries: Array.from(new Set(queries.map(item => String(item || '').trim()).filter(Boolean))),
+  sources,
+  searchedAt: Date.now()
+})
+
+const citationSources = (items: any[]): WebSearchSource[] => {
+  const seen = new Set<string>()
+  const sources: WebSearchSource[] = []
+  for (const item of items || []) {
+    const citation = item?.url_citation || item
+    const url = String(citation?.url || citation?.uri || '').trim()
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
+    seen.add(url)
+    let fallbackTitle = url
+    try { fallbackTitle = new URL(url).hostname } catch {}
+    sources.push({ title: String(citation?.title || fallbackTitle), url, snippet: String(citation?.content || citation?.cited_text || '').trim() || undefined })
+  }
+  return sources
+}
 
 export const resolveModelAdapterProfile = (
   provider: string,
@@ -177,6 +212,9 @@ const prepareOpenAICompatible = (settings: AdapterSettings, messages: any[], pro
     return normalized
   })
   const body: any = { model: settings.model, messages: sanitizedMessages, stream: Boolean(settings.stream) }
+  if (settings.webSearch?.enabled && isOpenRouterEndpoint(settings)) {
+    body.tools = [{ type: 'openrouter:web_search', parameters: { max_results: Math.max(1, Math.min(10, Number(settings.webSearch.maxResults) || 5)) } }]
+  }
   if (settings.maxTokens !== undefined) body.max_tokens = settings.maxTokens
 
   if (profile !== 'deepseek-reasoner') {
@@ -201,7 +239,7 @@ const prepareOpenAICompatible = (settings: AdapterSettings, messages: any[], pro
 
 const prepareClaude = (settings: AdapterSettings, messages: any[]): PreparedAdapterRequest => {
   const nativeThinking = Boolean(settings.reasoning?.enabled && settings.reasoning.claudeNativeEnabled)
-  const prefillForbidden = nativeThinking || /claude-.*-5/i.test(settings.model)
+  const prefillForbidden = nativeThinking || settings.webSearch?.enabled || /claude-.*-5/i.test(settings.model)
   const safeMessages = prefillForbidden && messages[messages.length - 1]?.role === 'assistant' ? messages.slice(0, -1) : messages
   const { system, conversation } = splitSystemPrefix(restoreProviderTurns(safeMessages, 'claude'))
   const normalized = conversation.map(message => ({
@@ -215,6 +253,7 @@ const prepareClaude = (settings: AdapterSettings, messages: any[]): PreparedAdap
     stream: Boolean(settings.stream)
   }
   if (system) body.system = system
+  if (settings.webSearch?.enabled) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }]
   if (nativeThinking) {
     if (settings.reasoning!.mode === 'skip') {
       if (!/(?:fable|mythos)/i.test(settings.model)) body.thinking = { type: 'disabled' }
@@ -250,6 +289,7 @@ const prepareGeminiGenerateContent = (settings: AdapterSettings, messages: any[]
     parts: message._restoredProviderContent || toGeminiParts(message.content)
   }))
   const body: any = { contents: mergeProviderMessages(contents, 'parts') }
+  if (settings.webSearch?.enabled) body.tools = [{ google_search: {} }]
   if (system) body.systemInstruction = { parts: [{ text: system }] }
 
   const generationConfig: any = {}
@@ -333,6 +373,7 @@ const prepareGeminiInteractions = (settings: AdapterSettings, messages: any[], f
     store: true,
     generation_config: generationConfig
   }
+  if (settings.webSearch?.enabled) body.tools = [{ type: 'google_search' }]
   if (system) body.system_instruction = system
   if (state?.responseId) body.previous_interaction_id = state.responseId
   const base = trimSlash(settings.url).replace(/\/v1(?:beta)?$/i, '')
@@ -373,6 +414,7 @@ const prepareOpenAIResponses = (settings: AdapterSettings, messages: any[]): Pre
     content: contentToText(message.content)
   }))
   const body: any = { model: settings.model, input, stream: Boolean(settings.stream) }
+  if (settings.webSearch?.enabled) body.tools = [{ type: 'web_search' }]
   if (state?.responseId) body.previous_response_id = state.responseId
   if (settings.maxTokens !== undefined) body.max_output_tokens = settings.maxTokens
   if (settings.reasoning?.enabled) {
@@ -397,6 +439,11 @@ export const prepareAdapterRequest = (settings: AdapterSettings, messages: any[]
 
 const parseGeminiInteractionResponse = (data: any): ParsedAdapterResponse => {
   const steps = Array.isArray(data.steps) ? data.steps : []
+  const searchCalls = steps.filter((item: any) => item.type === 'google_search_call')
+  const searchQueries = searchCalls.flatMap((item: any) => item.arguments?.queries || (item.arguments?.query ? [item.arguments.query] : []))
+  const annotations = steps.filter((item: any) => item.type === 'model_output')
+    .flatMap((item: any) => item.content || []).flatMap((item: any) => item.annotations || [])
+  const searchSources = citationSources(annotations)
   const thinking = steps.filter((item: any) => item.type === 'thought')
     .flatMap((item: any) => item.summary || [])
     .filter((item: any) => item.type === 'text')
@@ -413,7 +460,8 @@ const parseGeminiInteractionResponse = (data: any): ParsedAdapterResponse => {
     outputTokens: data.usage?.total_output_tokens,
     stopReason: data.status,
     reasoningSource: thinking ? 'native' : 'none',
-    providerState: data.id ? { provider: 'gemini', responseId: data.id } : undefined
+    providerState: data.id ? { provider: 'gemini', responseId: data.id } : undefined,
+    webSearch: searchCalls.length || searchSources.length ? webTrace('Google Search', searchQueries, searchSources) : undefined
   }
 }
 
@@ -421,6 +469,12 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
   if (profile === 'claude') {
     const blocks = Array.isArray(data.content) ? data.content : []
     const thinking = blocks.filter((item: any) => item.type === 'thinking').map((item: any) => item.thinking || '').join('\n')
+    const searchUseBlocks = blocks.filter((item: any) => item.type === 'server_tool_use' && item.name === 'web_search')
+    const searchResultBlocks = blocks.filter((item: any) => item.type === 'web_search_tool_result')
+    const searchSources = citationSources([
+      ...blocks.filter((item: any) => item.type === 'text').flatMap((item: any) => item.citations || []),
+      ...searchResultBlocks.flatMap((item: any) => Array.isArray(item.content) ? item.content : [])
+    ])
     return {
       content: blocks.filter((item: any) => item.type === 'text').map((item: any) => item.text || '').join(''),
       thinking,
@@ -431,6 +485,9 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       reasoningSource: thinking ? 'native' : 'none',
       providerState: blocks.some((item: any) => item.type === 'thinking' && item.signature)
         ? { provider: 'claude', blocks: blocks.map((item: any) => ({ ...item })) }
+        : undefined,
+      webSearch: searchUseBlocks.length || searchSources.length
+        ? webTrace('Claude Web Search', searchUseBlocks.map((item: any) => item.input?.query), searchSources)
         : undefined
     }
   }
@@ -438,6 +495,8 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
     if (protocol === 'gemini-interactions' || Array.isArray(data.steps)) return parseGeminiInteractionResponse(data)
     const parts = data.candidates?.[0]?.content?.parts || []
     const thinking = parts.filter((item: any) => item.thought).map((item: any) => item.text || '').join('\n')
+    const grounding = data.candidates?.[0]?.groundingMetadata || {}
+    const searchSources = citationSources((grounding.groundingChunks || []).map((item: any) => item.web || item))
     return {
       content: parts.filter((item: any) => !item.thought).map((item: any) => item.text || '').join(''),
       thinking,
@@ -448,6 +507,9 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       reasoningSource: thinking ? 'native' : 'none',
       providerState: parts.some((item: any) => item.thoughtSignature)
         ? { provider: 'gemini', parts: parts.map((item: any) => ({ ...item })) }
+        : undefined,
+      webSearch: (grounding.webSearchQueries?.length || searchSources.length)
+        ? webTrace('Google Search', grounding.webSearchQueries || [], searchSources)
         : undefined
     }
   }
@@ -459,6 +521,9 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       .flatMap((item: any) => item.content || [])
       .filter((item: any) => item.type === 'output_text')
       .map((item: any) => item.text || '').join('')
+    const searchCalls = output.filter((item: any) => item.type === 'web_search_call')
+    const searchSources = citationSources(output.filter((item: any) => item.type === 'message')
+      .flatMap((item: any) => item.content || []).flatMap((item: any) => item.annotations || []))
     return {
       content,
       thinking,
@@ -467,11 +532,23 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       outputTokens: data.usage?.output_tokens,
       stopReason: data.status === 'incomplete' ? (data.incomplete_details?.reason || 'incomplete') : data.status,
       reasoningSource: thinking ? 'native' : 'none',
-      providerState: data.id ? { provider: 'openai', responseId: data.id } : undefined
+      providerState: data.id ? { provider: 'openai', responseId: data.id } : undefined,
+      webSearch: searchCalls.length || searchSources.length
+        ? webTrace('OpenAI Web Search', searchCalls.flatMap((item: any) => item.action?.queries || (item.action?.query ? [item.action.query] : [])), searchSources)
+        : undefined
     }
   }
   const message = data.choices?.[0]?.message || {}
   const thinking = message.reasoning_content || ''
+  const annotations = Array.isArray(message.annotations) ? message.annotations : []
+  const openRouterSearch = citationSources(annotations)
+  const toolQueries = (message.tool_calls || []).filter((item: any) => String(item?.function?.name || item?.type || '').includes('web_search'))
+    .flatMap((item: any) => {
+      try {
+        const parsed = JSON.parse(item?.function?.arguments || '{}')
+        return parsed.queries || (parsed.query ? [parsed.query] : [])
+      } catch { return [] }
+    })
   return {
     content: message.content || '',
     thinking,
@@ -480,7 +557,8 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
     outputTokens: data.usage?.completion_tokens,
     stopReason: data.choices?.[0]?.finish_reason,
     reasoningSource: thinking ? 'native' : 'none',
-    providerState: profile === 'glm' && thinking ? { provider: 'glm', reasoningContent: thinking } : undefined
+    providerState: profile === 'glm' && thinking ? { provider: 'glm', reasoningContent: thinking } : undefined,
+    webSearch: openRouterSearch.length || toolQueries.length ? webTrace('OpenRouter Web Search', toolQueries, openRouterSearch) : undefined
   }
 }
 
@@ -488,9 +566,14 @@ export const consumeAdapterStreamEvent = (
   profile: PreparedAdapterRequest['profile'],
   data: any,
   protocol = ''
-): { content?: string; thinking?: string; stopReason?: string; inputTokens?: number; outputTokens?: number; tokens?: number; reasoningSource?: ReasoningSource; providerState?: ProviderReasoningState } => {
+): { content?: string; thinking?: string; stopReason?: string; inputTokens?: number; outputTokens?: number; tokens?: number; reasoningSource?: ReasoningSource; providerState?: ProviderReasoningState; webSearch?: WebSearchTrace } => {
   if (profile === 'claude') {
     const delta = data.delta || {}
+    if (data.type === 'content_block_start') {
+      const block = data.content_block || {}
+      if (block.type === 'server_tool_use' && block.name === 'web_search') return { webSearch: webTrace('Claude Web Search', block.input?.query ? [block.input.query] : [], []) }
+      if (block.type === 'web_search_tool_result') return { webSearch: webTrace('Claude Web Search', [], citationSources(Array.isArray(block.content) ? block.content : [])) }
+    }
     if (data.usage) return {
       inputTokens: data.usage.input_tokens,
       outputTokens: data.usage.output_tokens,
@@ -515,8 +598,10 @@ export const consumeAdapterStreamEvent = (
           return thinking ? { thinking, reasoningSource: 'native' } : {}
         }
         if (step.type === 'model_output') {
-          return { content: (step.content || []).filter((item: any) => item.type === 'text').map((item: any) => item.text || '').join('') }
+          const textItems = (step.content || []).filter((item: any) => item.type === 'text')
+          return { content: textItems.map((item: any) => item.text || '').join(''), webSearch: textItems.some((item: any) => item.annotations?.length) ? webTrace('Google Search', [], citationSources(textItems.flatMap((item: any) => item.annotations || []))) : undefined }
         }
+        if (step.type === 'google_search_call') return { webSearch: webTrace('Google Search', step.arguments?.queries || (step.arguments?.query ? [step.arguments.query] : []), []) }
       }
       if (data.event_type === 'step.delta') {
         const delta = data.delta || {}
@@ -530,7 +615,8 @@ export const consumeAdapterStreamEvent = (
           inputTokens: usage.total_input_tokens,
           outputTokens: usage.total_output_tokens,
           tokens: usage.total_tokens,
-          providerState: data.interaction.id ? { provider: 'gemini', responseId: data.interaction.id } : undefined
+          providerState: data.interaction.id ? { provider: 'gemini', responseId: data.interaction.id } : undefined,
+          webSearch: parseGeminiInteractionResponse(data.interaction).webSearch
         }
       }
       return {}
@@ -560,18 +646,21 @@ export const consumeAdapterStreamEvent = (
         inputTokens: parsed.inputTokens,
         outputTokens: parsed.outputTokens,
         tokens: parsed.tokens,
-        providerState: parsed.providerState
+        providerState: parsed.providerState,
+        webSearch: parsed.webSearch
       }
     }
     return {}
   }
   const delta = data.choices?.[0]?.delta || {}
   if (data.usage) return { inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens, tokens: data.usage.total_tokens }
+  const streamedSources = citationSources(delta.annotations || data.choices?.[0]?.message?.annotations || [])
   return {
     content: delta.content || '',
     thinking: delta.reasoning_content || '',
     stopReason: data.choices?.[0]?.finish_reason,
     reasoningSource: delta.reasoning_content ? 'native' : undefined,
-    providerState: profile === 'glm' && delta.reasoning_content ? { provider: 'glm', reasoningContent: delta.reasoning_content } : undefined
+    providerState: profile === 'glm' && delta.reasoning_content ? { provider: 'glm', reasoningContent: delta.reasoning_content } : undefined,
+    webSearch: streamedSources.length ? webTrace('OpenRouter Web Search', [], streamedSources) : undefined
   }
 }

@@ -100,6 +100,15 @@ const showThinkingContent = computed(() => shouldDisplayThinking({
   mode: cotSettings.mode === 'custom' ? 'custom' : 'skip',
   showThinking: cotSettings.showThinking
 }, props.msg))
+const webSearchTrace = computed(() => props.msg?.webSearch || null)
+const webSearchSummary = computed(() => {
+  const trace = webSearchTrace.value
+  if (!trace) return ''
+  const queryCount = Array.isArray(trace.queries) ? trace.queries.length : 0
+  const sourceCount = Array.isArray(trace.sources) ? trace.sources.length : 0
+  if (trace.status === 'error') return '联网搜索失败'
+  return `联网搜索${queryCount ? ` ${queryCount} 次` : ''}${sourceCount ? ` · ${sourceCount} 个来源` : ''}`
+})
 const groupBadge = (memberId: string) => {
   const role = getGroupMemberRole(props.selectedChat, memberId)
   const level = getGroupLevelInfo(props.selectedChat, memberId)
@@ -110,6 +119,33 @@ const groupBadge = (memberId: string) => {
 </script>
 
 <template>
+  <div v-if="webSearchTrace" class="thinking-standalone-wrapper web-search-trace-wrapper">
+    <div class="thinking-standalone web-search-trace">
+      <details>
+        <summary class="thinking-summary magazine-slogan">{{ webSearchSummary }}</summary>
+        <div class="thinking-content web-search-content">
+          <div class="search-provider">{{ webSearchTrace.provider || '联网搜索' }}</div>
+          <div v-for="(query, queryIndex) in webSearchTrace.queries || []" :key="`query-${queryIndex}`" class="search-query">
+            搜索词：{{ query }}
+          </div>
+          <div v-if="!(webSearchTrace.sources || []).length" class="search-empty">没有返回可展示的来源</div>
+          <a
+            v-for="(source, sourceIndex) in webSearchTrace.sources || []"
+            :key="source.url || sourceIndex"
+            class="search-source"
+            :href="source.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click.stop
+          >
+            <span>{{ Number(sourceIndex) + 1 }}. {{ source.title }}</span>
+            <small>{{ source.url }}</small>
+          </a>
+        </div>
+      </details>
+    </div>
+  </div>
+
   <!-- 独立块模式下的思考过程（彻底移出 message-row，独立一行紧贴左侧） -->
   <div v-if="showThinkingContent && !chatSettings.cotInSameBubble" class="thinking-standalone-wrapper">
     <div class="thinking-standalone">
@@ -604,6 +640,7 @@ const groupBadge = (memberId: string) => {
 .thinking-standalone .thinking-summary {
   color: var(--text-tertiary);
 }
+.web-search-trace-wrapper{margin-bottom:3px}.web-search-content{white-space:normal}.search-provider{margin-bottom:5px;color:var(--text-secondary);font-size:10px;font-weight:600}.search-query{margin-bottom:4px;line-height:1.45;word-break:break-word}.search-source{display:flex;min-width:0;flex-direction:column;gap:2px;padding:5px 0;border-top:1px solid var(--border-color);color:var(--text-secondary);text-decoration:none}.search-source:first-of-type{margin-top:5px}.search-source span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.search-source small{overflow:hidden;color:var(--text-tertiary);font-size:9px;text-overflow:ellipsis;white-space:nowrap}.search-empty{color:var(--text-tertiary);font-size:10px}
 .undelivered-label {
   margin-top: 4px;
   color: var(--text-tertiary);

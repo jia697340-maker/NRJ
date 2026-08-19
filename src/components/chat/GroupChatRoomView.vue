@@ -29,6 +29,7 @@ import ChatTransferModal from './modals/ChatTransferModal.vue'
 import ChatVoiceModal from './modals/ChatVoiceModal.vue'
 import ChatImageModal from './modals/ChatImageModal.vue'
 import ChatUserThoughtModal from './modals/ChatUserThoughtModal.vue'
+import ChatWebSearchModal from './modals/ChatWebSearchModal.vue'
 import ChatInnerThoughtModal from './modals/ChatInnerThoughtModal.vue'
 import ChatMemoryModal from './modals/ChatMemoryModal.vue'
 import ChatRoomHeader from './room/ChatRoomHeader.vue'
@@ -56,6 +57,7 @@ const wallpaper = ref<string | null>(null)
 const showExtensionPanel = ref(false)
 const showEmojiPanel = ref(false)
 const showUserThoughtModal = ref(false)
+const showWebSearchModal = ref(false)
 const showInnerThoughtModal = ref(false)
 const showMemoryModal = ref(false)
 const openMemoryModal = () => {
@@ -149,6 +151,13 @@ watch(() => groupMgmt.toastMessage.value, value => { if (value) showToast(value)
 const openEmojiSettings = () => { props.group.openEmojiManagerRequested = true; emit('open-settings') }
 const updatePreviewAndTime = (content: string) => { props.group.preview = content || '暂无消息'; props.group.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
 const persist = (record = props.group) => { const last = record.messages?.at(-1); record.preview = last?.content || '群聊已创建'; record.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); saveGroupChat(currentChatUserId.value, record) }
+const handleSaveWebSearch = (enabled: boolean) => {
+  props.group.webSearchEnabled = enabled
+  showWebSearchModal.value = false
+  showExtensionPanel.value = false
+  persist()
+  showToast(enabled ? '已为当前群聊开启联网搜索' : '已关闭当前群聊的联网搜索')
+}
 
 const { emojis, loadEmojis } = useChatEmoji()
 const panelEmojis = computed(() => selectUserSendableEmojis(emojis.value, String(props.group.id)))
@@ -326,6 +335,7 @@ const runReply = async () => {
         item.thinkingSource = result.reasoningSource
         item.providerState = result.providerState
       }
+      if (index === 0 && result.webSearch) item.webSearch = result.webSearch
       if (index === result.messages.length - 1) item.costTime = ((Date.now() - requestStartedAt) / 1000).toFixed(1)
       const imageMember = memberMap.value.get(String(message.senderId))
       if (message.messageType === 'image' && imageMember?.enableNAIImageGen) imageJobs.push({ item, member: imageMember })
@@ -622,6 +632,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @show-voice-call-modal="addCallEvent('voice')"
       @show-video-call-modal="addCallEvent('video')"
       @show-user-thought-modal="showUserThoughtModal = true"
+      @show-web-search-modal="showWebSearchModal = true"
       @toggle-mixed-offline="toggleMixedOffline"
       @focus-input="scrollBottom"
       @update:showExtensionPanel="showExtensionPanel = $event"
@@ -631,6 +642,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
     <ChatVoiceModal :visible="media.showVoiceModal.value" @close="media.showVoiceModal.value = false" @send="handleSendVoice" />
     <ChatImageModal :visible="media.showImageModal.value" @close="media.showImageModal.value = false" @send="handleSendImage" />
     <ChatUserThoughtModal :visible="showUserThoughtModal" :initial-text="group.pendingUserThought || ''" @close="showUserThoughtModal = false" @save="handleSaveUserThought" />
+    <ChatWebSearchModal :visible="showWebSearchModal" :enabled="group.webSearchEnabled === true" @close="showWebSearchModal = false" @save="handleSaveWebSearch" />
     <ChatInnerThoughtModal :visible="showInnerThoughtModal" :chat="group" @close="showInnerThoughtModal = false" @save="persist" />
     <ChatMemoryModal :visible="showMemoryModal" :memories="group.memoryBook || []" :messages="group.messages || []" :is-summarizing="isSummarizing || isSummarizingMemories" @close="showMemoryModal = false" @update-memories="updateGroupMemories" @summarize-memories="refreshGroupMemories" />
     <transition name="folder-fade">

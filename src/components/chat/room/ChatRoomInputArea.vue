@@ -39,6 +39,7 @@ const emit = defineEmits<{
   (e: 'show-video-call-modal'): void
   (e: 'show-user-thought-modal'): void
   (e: 'show-contact-card-modal'): void
+  (e: 'show-web-search-modal'): void
   (e: 'toggle-mixed-offline'): void
   (e: 'open-relationship'): void
   (e: 'advance-relationship'): void
@@ -389,8 +390,20 @@ const handleEnter = () => { const option = filteredMentionOptions.value.find(ite
               <span class="extension-label">名片</span>
             </div>
 
-            <!-- 剩余 7 个占位项 -->
-            <div v-for="i in 7" :key="`placeholder-${i}`" class="extension-item placeholder">
+            <div class="extension-item is-active" :class="{ 'web-search-active': selectedChat?.webSearchEnabled }" @click="emit('show-web-search-modal')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <path d="M3 12h18"></path>
+                  <path d="M12 3a14 14 0 0 1 0 18"></path>
+                  <path d="M12 3a14 14 0 0 0 0 18"></path>
+                </svg>
+              </div>
+              <span class="extension-label">{{ selectedChat?.webSearchEnabled ? '联网已开启' : '联网搜索' }}</span>
+            </div>
+
+            <!-- 剩余 6 个占位项 -->
+            <div v-for="i in 6" :key="`placeholder-${i}`" class="extension-item placeholder">
               <div class="extension-icon-box placeholder-box">
                 <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3" fill="none" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="6" ry="6"></rect>
@@ -454,6 +467,10 @@ const handleEnter = () => { const option = filteredMentionOptions.value.find(ite
 }
 
 .extension-item.thought-ready .extension-icon-box {
+  background: var(--text-primary);
+  color: var(--sys-bg-secondary);
+}
+.extension-item.web-search-active .extension-icon-box {
   background: var(--text-primary);
   color: var(--sys-bg-secondary);
 }

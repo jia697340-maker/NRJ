@@ -14,6 +14,7 @@ import ChatMemoryModal from './modals/ChatMemoryModal.vue'
 import ChatEmojiPreviewModal from './modals/ChatEmojiPreviewModal.vue'
 import ChatInnerThoughtModal from './modals/ChatInnerThoughtModal.vue'
 import ChatUserThoughtModal from './modals/ChatUserThoughtModal.vue'
+import ChatWebSearchModal from './modals/ChatWebSearchModal.vue'
 import ChatImageGalleryModal from './modals/ChatImageGalleryModal.vue'
 import ChatOfflineSessionEndModal from './modals/ChatOfflineSessionEndModal.vue'
 import ChatVoiceCallView from './ChatVoiceCallView.vue'
@@ -130,6 +131,7 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
       contacts[index].presenceSession = targetChat.presenceSession || null
       contacts[index].presenceHistory = targetChat.presenceHistory || []
       contacts[index].presencePendingReply = targetChat.presencePendingReply === true
+      contacts[index].webSearchEnabled = targetChat.webSearchEnabled === true
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
     }
   }
@@ -169,6 +171,7 @@ const { mockChats, selectedChat, effectiveMyProfile: myProfile, buildChatMessage
 const showExtensionPanel = ref(false)
 const showEmojiPanel = ref(false)
 const showOfflineSessionEndModal = ref(false)
+const showWebSearchModal = ref(false)
 const isEndingOfflineSession = ref(false)
 const offlineSessionEndError = ref('')
 const isMixedOfflineSessionActive = computed(() => checkMixedOfflineActive(selectedChat.value))
@@ -769,6 +772,15 @@ const handleSaveUserThought = (content: string) => {
   showToast(content ? '心声已保存到本轮' : '本轮心声已清空')
 }
 
+const handleSaveWebSearch = (enabled: boolean) => {
+  if (!selectedChat.value) return
+  selectedChat.value.webSearchEnabled = enabled
+  showWebSearchModal.value = false
+  showExtensionPanel.value = false
+  saveCustomContacts(selectedChat.value)
+  showToast(enabled ? '已为当前聊天开启联网搜索' : '已关闭当前聊天的联网搜索')
+}
+
 const showCallRecordsView = ref(false)
 const handleOpenCallRecords = () => {
   showCallRecordsView.value = true
@@ -1344,6 +1356,7 @@ onUnmounted(() => {
       @show-voice-call-modal="startVoiceCall"
       @show-video-call-modal="startVideoCall"
       @show-user-thought-modal="showUserThoughtModal = true"
+      @show-web-search-modal="showWebSearchModal = true"
       @toggle-mixed-offline="toggleMixedOfflineSession"
       @open-relationship="emit('open-relationship')"
       @advance-relationship="handleRelationshipAdvance"
@@ -1376,6 +1389,13 @@ onUnmounted(() => {
       :initial-text="selectedChat?.pendingUserThought || ''"
       @close="showUserThoughtModal = false"
       @save="handleSaveUserThought"
+    />
+
+    <ChatWebSearchModal
+      :visible="showWebSearchModal"
+      :enabled="selectedChat?.webSearchEnabled === true"
+      @close="showWebSearchModal = false"
+      @save="handleSaveWebSearch"
     />
     
     <ChatMemoryModal

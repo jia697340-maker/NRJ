@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { getActiveGroupPrompt } from '../store'
+import { getActiveGroupPrompt, webSearchSettings } from '../store'
 import { sendChatMessage } from './api'
 import { buildSystemPrompt } from '../composables/chatState/prompt'
 import { buildBilingualPrompt, parseBilingualMessage } from './bilingualChat'
@@ -27,6 +27,7 @@ export interface GroupChatRecord {
   memberHasCustomAvatar?: Record<string, boolean>
   memberSettings: Record<string, Record<string, any>>
   messages: any[]
+  webSearchEnabled?: boolean
   memoryBook: any[]
   memberMemories: Record<string, any[]>
   memoryMemberNames?: Record<string, string>
@@ -546,12 +547,32 @@ export const requestGroupReply = async (group: GroupChatRecord, allChats: any[],
   const payload = await buildGroupChatMessages(group, allChats, userProfile, worldBookText)
   const offlineActive = group.offlineMeetEnabled && (group.offlineMeetMode === 'separate' || group.isMixedOfflineActive)
   const activeMemories = await getMemoryExportItems(group)
-  const result = await sendChatMessage(payload, signal, false, false, 'default', offlineActive ? (group.offlineModelProfile || 'auto') : 'auto', { chatId: group.id, chatName: group.name, memoryEntries: activeMemories.map((item: any) => item.text) })
+  const latestUserMessage = [...group.messages].reverse().find((message: any) => message.type === 'right' && !message.isUndelivered)
+  const result = await sendChatMessage(
+    payload,
+    signal,
+    false,
+    false,
+    'default',
+    offlineActive ? (group.offlineModelProfile || 'auto') : 'auto',
+    { chatId: group.id, chatName: group.name, memoryEntries: activeMemories.map((item: any) => item.text) },
+    false,
+    {
+      enabled: group.webSearchEnabled === true && !group.activeCallType,
+      mode: webSearchSettings.mode,
+      query: String(latestUserMessage?.content || ''),
+      selfHostedUrl: webSearchSettings.selfHostedUrl,
+      selfHostedToken: webSearchSettings.selfHostedToken,
+      maxResults: webSearchSettings.maxResults,
+      timeoutSeconds: webSearchSettings.timeoutSeconds
+    }
+  )
   const raw = typeof result === 'string' ? result : result.content
   return {
     ...parseGroupResponse(raw, getSpeakableCharacterIds(group), Object.keys(group.removedMembers || {})),
     thinking: typeof result === 'string' ? '' : (result.thinking || ''),
     reasoningSource: typeof result === 'string' ? 'none' : (result.reasoningSource || (result.thinking ? 'native' : 'none')),
-    providerState: typeof result === 'string' ? undefined : result.providerState
+    providerState: typeof result === 'string' ? undefined : result.providerState,
+    webSearch: typeof result === 'string' ? undefined : result.webSearch
   }
 }

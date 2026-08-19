@@ -1,0 +1,21 @@
+use_default_settings: true
+
+general:
+  instance_name: "粘人精联网服务"
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  default_lang: "auto"
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "nianrenjin-private-search-gateway"
+  limiter: false
+  image_proxy: false
+
+outgoing:
+  request_timeout: 8.0
+  max_request_timeout: 15.0

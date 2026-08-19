@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: nianrenjin-web-search
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./deployment/web-search/Dockerfile
+    dockerContext: ./deployment/web-search
+    healthCheckPath: /ready
+    autoDeploy: false
+    envVars:
+      - key: SEARCH_ACCESS_TOKEN
+        sync: false
+      - key: ALLOWED_ORIGIN
+        value: "*"
