@@ -11,6 +11,8 @@ import { useFluxImageReference } from './useFluxImageReference'
 import { useNijiImage } from './useNijiImage'
 import { useSeedreamImage } from './useSeedreamImage'
 import { useSeedreamImageReference } from './useSeedreamImageReference'
+import { usePollinationsImage } from './usePollinationsImage'
+import { useAiHordeImage } from './useAiHordeImage'
 import { buildNovelAIVibeReferences, type VibeGroup, type VibeImage } from './useNovelAIVibe'
 import { resolveIdentityContext } from '../services/identityProfile'
 import { addIdentityAsset, loadIdentityProfile, saveIdentityProfile } from '../services/identityProfile'
@@ -51,9 +53,46 @@ export function useChatRoomGalleryUI(
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('flux_img_') ? 'flux' : '')
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('niji_img_') ? 'niji' : '')
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('seedream_img_') ? 'seedream' : '')
+      || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('pollinations_img_') ? 'pollinations' : '')
+      || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('aihorde_img_') ? 'aihorde' : '')
       || (String(galleryTargetMessage.value.imageData?.imageId || '').startsWith('nai_img_') ? 'novelai' : '')
     const provider = storedProvider || selectedChat.value.imageGenProvider || 'novelai'
     const identity = await resolveIdentityContext('character', String(selectedChat.value.characterEntityId || selectedChat.value.id), provider === 'seedream' ? 10 : 8)
+    if (provider === 'pollinations' || provider === 'aihorde') {
+      const isPollinations = provider === 'pollinations'
+      const config = isPollinations ? (selectedChat.value.pollinationsImageConfig || {}) : (selectedChat.value.aiHordeImageConfig || {})
+      const name = isPollinations ? 'Pollinations' : 'AI Horde'
+      showToast(isPollinations ? '正在使用 Pollinations 重新生成...' : '正在等待 AI Horde 社区算力...')
+      try {
+        if (!isPollinations && !config.privacyAcknowledged) throw new Error('请先确认 AI Horde 分布式隐私风险')
+        const finalPrompt = [config.promptPrefix, identity.prompt, prompt].filter(Boolean).join('\n')
+        const image = isPollinations
+          ? await usePollinationsImage().generateImage({ apiKey: config.apiKey || localStorage.getItem('app_pollinations_image_apikey') || '', baseUrl: config.baseUrl || localStorage.getItem('app_pollinations_image_baseurl') || 'https://gen.pollinations.ai/v1' }, {
+              model: config.model || localStorage.getItem('app_pollinations_image_model') || 'zimage', prompt: finalPrompt,
+              size: config.size || localStorage.getItem('app_pollinations_image_size') || '1024x1024', quality: config.quality || localStorage.getItem('app_pollinations_image_quality') || 'medium',
+              safe: config.safe || localStorage.getItem('app_pollinations_image_safe') || 'privacy,secrets,sexual,violence', referenceImages: config.useIdentityReferences === false ? [] : identity.referenceImages.slice(0, 8)
+            })
+          : await useAiHordeImage().generateImage({ apiKey: config.apiKey || localStorage.getItem('app_ai_horde_image_apikey') || '', baseUrl: config.baseUrl || localStorage.getItem('app_ai_horde_image_baseurl') || 'https://aihorde.net/api/v2' }, {
+              prompt: finalPrompt, negativePrompt: config.negativePrompt || '', model: config.model || localStorage.getItem('app_ai_horde_image_model') || '', width: config.width || 768, height: config.height || 1024,
+              steps: config.steps || 24, cfgScale: config.cfgScale || 7, sampler: config.sampler || 'k_euler_a', seed: config.seed ?? '', timeout: config.timeout || 600000,
+              trustedWorkers: config.trustedWorkers !== false, validatedBackends: config.validatedBackends !== false, censorNsfw: config.censorNsfw !== false
+            })
+        const imageId = `${provider}_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+        const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+        await imageStore.setItem(imageId, image)
+        let localUrl = image
+        try { localUrl = URL.createObjectURL(await (await fetch(image)).blob()) } catch { /* 保留原地址。 */ }
+        if (!galleryTargetMessage.value.imageData.history) galleryTargetMessage.value.imageData.history = []
+        galleryTargetMessage.value.imageData.history.push({ imageId, prompt, url: localUrl, provider })
+        galleryTargetMessage.value.imageData.imageId = imageId
+        galleryTargetMessage.value.imageData.prompt = finalPrompt
+        galleryTargetMessage.value.imageData.provider = provider
+        galleryTargetMessage.value._localImageUrl = localUrl
+        saveCustomContacts()
+        showToast(`${name} 重新生成成功！`)
+      } catch (error: any) { showToast(`${name} 生成失败: ${error.message}`) }
+      return
+    }
     if (provider === 'seedream') {
       const seedreamConfig = selectedChat.value.seedreamImageConfig || {}
       showToast('正在使用 Seedream 5.0 重新生成...')

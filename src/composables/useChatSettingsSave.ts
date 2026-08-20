@@ -104,6 +104,12 @@ export function useChatSettingsSave() {
         contacts[idx].seedreamImageConfig = selectedChat.value.seedreamImageConfig
           ? JSON.parse(JSON.stringify(selectedChat.value.seedreamImageConfig))
           : null
+        contacts[idx].pollinationsImageConfig = selectedChat.value.pollinationsImageConfig
+          ? JSON.parse(JSON.stringify(selectedChat.value.pollinationsImageConfig))
+          : null
+        contacts[idx].aiHordeImageConfig = selectedChat.value.aiHordeImageConfig
+          ? JSON.parse(JSON.stringify(selectedChat.value.aiHordeImageConfig))
+          : null
 
         // 语音设置持久化
         contacts[idx].enableVoiceReply = selectedChat.value.enableVoiceReply ?? false

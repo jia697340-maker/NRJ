@@ -8,11 +8,13 @@ import GeminiImageAccessView from './image/GeminiImageAccessView.vue'
 import FluxImageAccessView from './image/FluxImageAccessView.vue'
 import NijiImageAccessView from './image/NijiImageAccessView.vue'
 import SeedreamImageAccessView from './image/SeedreamImageAccessView.vue'
+import PollinationsImageAccessView from './image/PollinationsImageAccessView.vue'
+import AiHordeImageAccessView from './image/AiHordeImageAccessView.vue'
 import IdentityProfileLibraryView from './image/IdentityProfileLibraryView.vue'
 
 const emit = defineEmits(['close'])
 
-const currentView = ref<'platforms' | 'identity' | 'novelai' | 'gptimage' | 'gemini' | 'flux' | 'niji' | 'seedream'>('platforms')
+const currentView = ref<'platforms' | 'identity' | 'novelai' | 'gptimage' | 'gemini' | 'flux' | 'niji' | 'seedream' | 'pollinations' | 'aihorde'>('platforms')
 
 const activeIndex = ref(0)
 const platforms = [
@@ -23,6 +25,8 @@ const platforms = [
   { id: 'flux', name: 'FLUX.2', desc: 'Black Forest Labs\nPro / Max 独立接入', action: '进入配置', disabled: false },
   { id: 'niji', name: 'Niji 7', desc: 'Midjourney 动漫模型\n第三方中转独立接入', action: '进入配置', disabled: false },
   { id: 'seedream', name: 'Seedream', desc: '字节跳动 5.0 系列\n火山方舟独立接入', action: '进入配置', disabled: false }
+  ,{ id: 'pollinations', name: 'Pollinations AI', desc: '多模型与 BYOP\n低门槛统一生图', action: '进入配置', disabled: false }
+  ,{ id: 'aihorde', name: 'AI Horde', desc: '社区志愿算力\n免费排队生图', action: '进入配置', disabled: false }
 ]
 
 const handlePrev = () => {
@@ -32,8 +36,8 @@ const handleNext = () => {
   if (activeIndex.value < platforms.length - 1) activeIndex.value++
 }
 const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && (id === 'identity' || id === 'novelai' || id === 'gptimage' || id === 'gemini' || id === 'flux' || id === 'niji' || id === 'seedream')) {
-    currentView.value = id as 'identity' | 'novelai' | 'gptimage' | 'gemini' | 'flux' | 'niji' | 'seedream'
+  if (!disabled && (id === 'identity' || id === 'novelai' || id === 'gptimage' || id === 'gemini' || id === 'flux' || id === 'niji' || id === 'seedream' || id === 'pollinations' || id === 'aihorde')) {
+    currentView.value = id as typeof currentView.value
   }
 }
 </script>
@@ -72,7 +76,7 @@ const handleSelect = (id: string, disabled: boolean) => {
                 <div class="ripple r2"></div>
               </div>
               
-              <div class="capsule-icon" :style="item.id === 'identity' ? 'background: linear-gradient(135deg,#176b42,#64a47f); color: #fff;' : item.id === 'novelai' ? 'background: #111; color: #fff;' : item.id === 'gptimage' ? 'background: #555a61; color: #fff;' : item.id === 'gemini' ? 'background: linear-gradient(135deg,#4285f4,#a142f4); color: #fff;' : item.id === 'flux' ? 'background: linear-gradient(135deg,#111,#287a50); color: #fff;' : item.id === 'niji' ? 'background: linear-gradient(135deg,#27213e,#765e9b); color: #fff;' : item.id === 'seedream' ? 'background: linear-gradient(135deg,#1c3570,#3566a8); color: #fff;' : ''">
+              <div class="capsule-icon" :style="item.id === 'identity' ? 'background: linear-gradient(135deg,#176b42,#64a47f); color: #fff;' : item.id === 'novelai' ? 'background: #111; color: #fff;' : item.id === 'gptimage' ? 'background: #555a61; color: #fff;' : item.id === 'gemini' ? 'background: linear-gradient(135deg,#4285f4,#a142f4); color: #fff;' : item.id === 'flux' ? 'background: linear-gradient(135deg,#111,#287a50); color: #fff;' : item.id === 'niji' ? 'background: linear-gradient(135deg,#27213e,#765e9b); color: #fff;' : item.id === 'seedream' ? 'background: linear-gradient(135deg,#1c3570,#3566a8); color: #fff;' : item.id === 'pollinations' ? 'background: linear-gradient(135deg,#174f3d,#42a777); color:#fff;' : item.id === 'aihorde' ? 'background: linear-gradient(135deg,#302744,#756095); color:#fff;' : ''">
                 <span v-if="item.id === 'identity'" style="font-weight: 800; font-size: 16px;">ID</span>
                 <span v-else-if="item.id === 'novelai'" style="font-weight: 800; font-style: italic; font-size: 16px;">NAI</span>
                 <span v-else-if="item.id === 'gptimage'" style="font-weight: 800; font-size: 13px;">GPT</span>
@@ -80,6 +84,8 @@ const handleSelect = (id: string, disabled: boolean) => {
                 <span v-else-if="item.id === 'flux'" style="font-weight: 800; font-size: 12px;">FLX</span>
                 <span v-else-if="item.id === 'niji'" style="font-weight: 800; font-size: 12px;">N7</span>
                 <span v-else-if="item.id === 'seedream'" style="font-weight: 800; font-size: 11px;">SDR</span>
+                <span v-else-if="item.id === 'pollinations'" style="font-weight: 800; font-size: 11px;">POL</span>
+                <span v-else-if="item.id === 'aihorde'" style="font-weight: 800; font-size: 11px;">HOR</span>
                 <svg v-else viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
               </div>
 
@@ -111,6 +117,8 @@ const handleSelect = (id: string, disabled: boolean) => {
     <FluxImageAccessView v-else-if="currentView === 'flux'" @back="currentView = 'platforms'" />
     <NijiImageAccessView v-else-if="currentView === 'niji'" @back="currentView = 'platforms'" />
     <SeedreamImageAccessView v-else-if="currentView === 'seedream'" @back="currentView = 'platforms'" />
+    <PollinationsImageAccessView v-else-if="currentView === 'pollinations'" @back="currentView = 'platforms'" />
+    <AiHordeImageAccessView v-else-if="currentView === 'aihorde'" @back="currentView = 'platforms'" />
 
   </div>
 </template>

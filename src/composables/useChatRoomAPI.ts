@@ -11,6 +11,8 @@ import { useGeminiImage } from './useGeminiImage'
 import { useFluxImage } from './useFluxImage'
 import { useNijiImage } from './useNijiImage'
 import { useSeedreamImage } from './useSeedreamImage'
+import { usePollinationsImage } from './usePollinationsImage'
+import { useAiHordeImage } from './useAiHordeImage'
 import { appendMissedIncomingCall, isInDoNotDisturb } from './useCallRecords'
 import { parseBilingualMessage } from '../services/bilingualChat'
 import { attachActiveOfflineSession } from '../services/offlineSessions'
@@ -81,6 +83,8 @@ export function useChatRoomAPI(
   const { generateImage: generateFluxImage, abortGeneration: abortFluxGeneration } = useFluxImage()
   const { generateImage: generateNijiImage, abortGeneration: abortNijiGeneration } = useNijiImage()
   const { generateImage: generateSeedreamImage, abortGeneration: abortSeedreamGeneration } = useSeedreamImage()
+  const { generateImage: generatePollinationsImage, abortGeneration: abortPollinationsGeneration } = usePollinationsImage()
+  const { generateImage: generateAiHordeImage, abortGeneration: abortAiHordeGeneration } = useAiHordeImage()
 
   // 1. 初始化错误处理模块
   const {
@@ -111,6 +115,8 @@ export function useChatRoomAPI(
     generateFluxImage,
     generateNijiImage,
     generateSeedreamImage,
+    generatePollinationsImage,
+    generateAiHordeImage,
     saveCustomContacts,
     scrollToBottom
   )
@@ -126,6 +132,8 @@ export function useChatRoomAPI(
     abortFluxGeneration()
     abortNijiGeneration()
     abortSeedreamGeneration()
+    abortPollinationsGeneration()
+    void abortAiHordeGeneration()
     
     typingTimers.forEach(clearTimeout)
     typingTimers.length = 0

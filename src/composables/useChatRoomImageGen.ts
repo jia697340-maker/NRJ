@@ -17,6 +17,8 @@ export function useChatRoomImageGen(
   generateFluxImage: any,
   generateNijiImage: any,
   generateSeedreamImage: any,
+  generatePollinationsImage: any,
+  generateAiHordeImage: any,
   saveCustomContacts: (targetChat?: any) => void,
   scrollToBottom: () => Promise<void>
 ) {
@@ -34,6 +36,8 @@ export function useChatRoomImageGen(
     const fluxConfig = chatToUpdate.fluxImageConfig || {}
     const nijiConfig = chatToUpdate.nijiImageConfig || {}
     const seedreamConfig = chatToUpdate.seedreamImageConfig || {}
+    const pollinationsConfig = chatToUpdate.pollinationsImageConfig || {}
+    const aiHordeConfig = chatToUpdate.aiHordeImageConfig || {}
     const vibeText = naiConfig.vibeText || ''
     const positivePrompt = naiConfig.positivePrompt || ''
     const visualProfile = naiConfig.visualProfile?.enabled ? naiConfig.visualProfile : null
@@ -66,6 +70,96 @@ export function useChatRoomImageGen(
     chatToUpdate.preview = '[正在作画中...]'
     if (isRoomActive && selectedChat.value && selectedChat.value.id === currentChatId) {
       await scrollToBottom()
+    }
+
+    if (provider === 'pollinations' || provider === 'aihorde') {
+      const config = provider === 'pollinations' ? pollinationsConfig : aiHordeConfig
+      const providerName = provider === 'pollinations' ? 'Pollinations AI' : 'AI Horde'
+      let scenePrompt = actionContent.trim()
+      if (config.enableLlmAssist) {
+        try {
+          const contextSize = Math.min(50, Math.max(1, Number(config.llmContextSize) || 12))
+          const recentMessages = chatToUpdate.messages
+            .filter((message: any) => message.type === 'left' || message.type === 'right')
+            .slice(-contextSize)
+            .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value?.name || '用户')}：${message.content}`)
+            .join('\n')
+          const result = await sendChatMessage([
+            { role: 'system', content: `你是 ${providerName} 的画面整理助手。根据角色设定、聊天上下文和本次要求，输出一段清晰、可直接用于生图的自然语言描述，写明人物外貌、服装、动作、场景、构图、镜头与光线。不要输出 JSON、参数或解释。` },
+            { role: 'user', content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}` }
+          ], undefined, false, true)
+          scenePrompt = (typeof result === 'string' ? result : result.content).trim() || scenePrompt
+        } catch (error) { console.warn(`${providerName} 生图画面整理失败，改用原始描述`, error) }
+      }
+      const finalPrompt = [config.promptPrefix?.trim(), identity.prompt, scenePrompt].filter(Boolean).join('\n')
+      const message = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+      if (message) {
+        message.content = provider === 'pollinations' ? '正在使用 Pollinations AI 绘制图像...' : '正在等待 AI Horde 社区算力...'
+        message.imageData.prompt = finalPrompt
+        message.imageData.sourceText = actionContent
+        message.imageData.provider = provider
+      }
+      try {
+        if (provider === 'aihorde' && !config.privacyAcknowledged) throw new Error('请先在角色 AI Horde 详细配置中确认分布式隐私风险')
+        const generatedImage = provider === 'pollinations'
+          ? await generatePollinationsImage({
+              apiKey: config.apiKey || localStorage.getItem('app_pollinations_image_apikey') || '',
+              baseUrl: config.baseUrl || localStorage.getItem('app_pollinations_image_baseurl') || 'https://gen.pollinations.ai/v1'
+            }, {
+              model: config.model || localStorage.getItem('app_pollinations_image_model') || 'zimage',
+              prompt: finalPrompt,
+              size: config.size || localStorage.getItem('app_pollinations_image_size') || '1024x1024',
+              quality: config.quality || localStorage.getItem('app_pollinations_image_quality') || 'medium',
+              safe: config.safe || localStorage.getItem('app_pollinations_image_safe') || 'privacy,secrets,sexual,violence',
+              referenceImages: config.useIdentityReferences === false ? [] : identity.referenceImages.slice(0, 8)
+            })
+          : await generateAiHordeImage({
+              apiKey: config.apiKey || localStorage.getItem('app_ai_horde_image_apikey') || '',
+              baseUrl: config.baseUrl || localStorage.getItem('app_ai_horde_image_baseurl') || 'https://aihorde.net/api/v2'
+            }, {
+              prompt: finalPrompt,
+              negativePrompt: config.negativePrompt || '',
+              model: config.model || localStorage.getItem('app_ai_horde_image_model') || '',
+              width: config.width || Number(localStorage.getItem('app_ai_horde_image_width') || 768),
+              height: config.height || Number(localStorage.getItem('app_ai_horde_image_height') || 1024),
+              steps: config.steps || Number(localStorage.getItem('app_ai_horde_image_steps') || 24),
+              cfgScale: config.cfgScale || Number(localStorage.getItem('app_ai_horde_image_cfg_scale') || 7),
+              sampler: config.sampler || localStorage.getItem('app_ai_horde_image_sampler') || 'k_euler_a',
+              seed: config.seed ?? '',
+              timeout: config.timeout || Number(localStorage.getItem('app_ai_horde_image_timeout') || 600000),
+              trustedWorkers: config.trustedWorkers !== false,
+              validatedBackends: config.validatedBackends !== false,
+              censorNsfw: config.censorNsfw !== false,
+              onQueued: (queued: any) => {
+                if (!message) return
+                message.imageData.requestId = queued.id
+                message.imageData.kudos = queued.kudos
+                message.content = `AI Horde 已进入队列${queued.kudos !== undefined ? ` · 预计 ${queued.kudos} Kudos` : ''}`
+                saveCustomContacts(chatToUpdate)
+              }
+            })
+        const currentMessage = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (currentMessage) {
+          currentMessage.isGeneratingImage = false
+          currentMessage.content = '[图片]'
+          const imageId = `${provider}_img_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+          const imageStore = localforage.createInstance({ name: 'nrt-app', storeName: 'chatImages' })
+          await imageStore.setItem(imageId, generatedImage)
+          currentMessage.imageData.imageId = imageId
+          currentMessage.imageData.requestId = undefined
+          chatToUpdate.preview = '[发来图片/视频]'
+          saveCustomContacts(chatToUpdate)
+          if (isRoomActive && selectedChat.value?.id === currentChatId) await scrollToBottom()
+        }
+      } catch (error: any) {
+        const currentMessage = chatToUpdate.messages.find((item: any) => item.id === baseMessageId)
+        if (currentMessage) {
+          currentMessage.isGeneratingImage = false
+          currentMessage.content = `[${providerName} 图片生成失败: ${error.message}]`
+          saveCustomContacts(chatToUpdate)
+        }
+      }
+      return
     }
 
     if (provider === 'seedream') {

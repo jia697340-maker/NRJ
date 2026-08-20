@@ -263,7 +263,8 @@ export const resolveIdentityContext = async (
 }
 
 export const providerIdentityCapability = (provider: string) => {
-  if (['gpt', 'gemini', 'flux', 'seedream'].includes(provider)) return { mode: 'image' as const, label: '支持参考素材' }
+  if (['gpt', 'gemini', 'flux', 'seedream', 'pollinations'].includes(provider)) return { mode: 'image' as const, label: provider === 'pollinations' ? '部分模型支持参考素材' : '支持参考素材' }
+  if (provider === 'aihorde') return { mode: 'limited' as const, label: '隐私保护：仅使用文字设定，不发送参考图' }
   if (provider === 'niji') return { mode: 'limited' as const, label: '使用文字设定；单图需可访问链接' }
   return { mode: 'prompt' as const, label: '使用固定特征词保持一致' }
 }

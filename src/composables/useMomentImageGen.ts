@@ -9,6 +9,8 @@ import { useFluxImageReference } from './useFluxImageReference'
 import { useNijiImage } from './useNijiImage'
 import { useSeedreamImage } from './useSeedreamImage'
 import { useSeedreamImageReference } from './useSeedreamImageReference'
+import { usePollinationsImage } from './usePollinationsImage'
+import { useAiHordeImage } from './useAiHordeImage'
 import { sendChatMessage } from '../services/api'
 import { resolveIdentityContext } from '../services/identityProfile'
 
@@ -16,6 +18,38 @@ import { resolveIdentityContext } from '../services/identityProfile'
 export async function generateMomentImage(description: string, character: any): Promise<string> {
   const provider = character?.imageGenProvider || 'novelai'
   const identity = await resolveIdentityContext('character', String(character?.characterEntityId || character?.id), provider === 'seedream' ? 10 : 8)
+  if (provider === 'pollinations') {
+    const config = character?.pollinationsImageConfig || {}
+    const apiKey = config.apiKey || localStorage.getItem('app_pollinations_image_apikey') || ''
+    if (!apiKey) throw new Error('未配置 Pollinations API Key 或 BYOP 授权')
+    const prompt = [config.promptPrefix, identity.prompt, description.trim()].filter(Boolean).join('\n')
+    const { generateImage } = usePollinationsImage()
+    return generateImage({ apiKey, baseUrl: config.baseUrl || localStorage.getItem('app_pollinations_image_baseurl') || 'https://gen.pollinations.ai/v1' }, {
+      model: config.model || localStorage.getItem('app_pollinations_image_model') || 'zimage',
+      prompt,
+      size: config.size || localStorage.getItem('app_pollinations_image_size') || '1024x1024',
+      quality: config.quality || localStorage.getItem('app_pollinations_image_quality') || 'medium',
+      safe: config.safe || localStorage.getItem('app_pollinations_image_safe') || 'privacy,secrets,sexual,violence',
+      referenceImages: config.useIdentityReferences === false ? [] : identity.referenceImages.slice(0, 8)
+    })
+  }
+
+  if (provider === 'aihorde') {
+    const config = character?.aiHordeImageConfig || {}
+    if (!config.privacyAcknowledged) throw new Error('请先确认 AI Horde 分布式隐私风险')
+    const prompt = [config.promptPrefix, identity.prompt, description.trim()].filter(Boolean).join('\n')
+    const { generateImage } = useAiHordeImage()
+    return generateImage({
+      apiKey: config.apiKey || localStorage.getItem('app_ai_horde_image_apikey') || '',
+      baseUrl: config.baseUrl || localStorage.getItem('app_ai_horde_image_baseurl') || 'https://aihorde.net/api/v2'
+    }, {
+      prompt, negativePrompt: config.negativePrompt || '', model: config.model || localStorage.getItem('app_ai_horde_image_model') || '',
+      width: config.width || Number(localStorage.getItem('app_ai_horde_image_width') || 768), height: config.height || Number(localStorage.getItem('app_ai_horde_image_height') || 1024),
+      steps: config.steps || Number(localStorage.getItem('app_ai_horde_image_steps') || 24), cfgScale: config.cfgScale || Number(localStorage.getItem('app_ai_horde_image_cfg_scale') || 7),
+      sampler: config.sampler || localStorage.getItem('app_ai_horde_image_sampler') || 'k_euler_a', seed: config.seed ?? '', timeout: config.timeout || 600000,
+      trustedWorkers: config.trustedWorkers !== false, validatedBackends: config.validatedBackends !== false, censorNsfw: config.censorNsfw !== false
+    })
+  }
   if (character?.imageGenProvider === 'seedream') {
     const seedreamConfig = character?.seedreamImageConfig || {}
     const apiKey = seedreamConfig.apiKey || localStorage.getItem('app_seedream_image_apikey') || ''

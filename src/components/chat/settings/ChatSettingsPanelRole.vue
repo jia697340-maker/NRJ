@@ -7,6 +7,7 @@ import { canViewMoment } from '../../../services/moments'
 import { getChatLanguageLabel } from '../../../constants/chatLanguages'
 import { readGroupChats } from '../../../services/groupChat'
 import { useChatAuth } from '../../../composables/useChatAuth'
+import { getImageProviderName } from '../../../services/imageProviderRegistry'
 
 const props = defineProps<{
   selectedChat: any
@@ -27,6 +28,8 @@ const emit = defineEmits<{
   (e: 'show-flux-image-detail-modal'): void
   (e: 'show-niji-image-detail-modal'): void
   (e: 'show-seedream-image-detail-modal'): void
+  (e: 'show-pollinations-image-detail-modal'): void
+  (e: 'show-ai-horde-image-detail-modal'): void
   (e: 'show-image-provider-modal'): void
   (e: 'show-identity-profile-modal', target: 'character'): void
   (e: 'show-world-book-bind-selector'): void
@@ -270,7 +273,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </template>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('开启角色生图', '固定形象', '锁脸', '生图引擎', 'NAI生图详细配置', 'GPT生图详细配置', 'Gemini生图详细配置', 'FLUX生图详细配置', 'Niji生图详细配置', 'Seedream生图详细配置')">
+    <div class="glass-panel" v-show="matchSearch('开启角色生图', '固定形象', '锁脸', '生图引擎', 'NAI生图详细配置', 'GPT生图详细配置', 'Gemini生图详细配置', 'FLUX生图详细配置', 'Niji生图详细配置', 'Seedream生图详细配置', 'Pollinations生图详细配置', 'AI Horde生图详细配置')">
       <div class="glass-list-item" v-show="matchSearch('开启角色生图')">
         <div class="item-label">开启角色生图</div>
         <div class="item-value">
@@ -285,10 +288,10 @@ watch(() => props.selectedChat, calculateMomentTokens)
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 角色固定形象</div>
           <div class="item-value"><span class="item-value-text">形象版本、参考素材与多人同框</span><span class="arrow">></span></div>
         </div>
-        <div class="glass-list-item" v-show="matchSearch('生图引擎', 'NovelAI', 'GPT Image', 'Gemini Image', 'FLUX.2', 'Niji 7', 'Seedream 5.0')" @click="emit('show-image-provider-modal')">
+        <div class="glass-list-item" v-show="matchSearch('生图引擎', 'NovelAI', 'GPT Image', 'Gemini Image', 'FLUX.2', 'Niji 7', 'Seedream 5.0', 'Pollinations AI', 'AI Horde')" @click="emit('show-image-provider-modal')">
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 生图引擎</div>
           <div class="item-value">
-            <span class="item-value-text">{{ (selectedChat.imageGenProvider || 'novelai') === 'novelai' ? 'NovelAI' : selectedChat.imageGenProvider === 'gemini' ? 'Gemini Image' : selectedChat.imageGenProvider === 'flux' ? 'FLUX.2' : selectedChat.imageGenProvider === 'niji' ? 'Niji 7' : selectedChat.imageGenProvider === 'seedream' ? 'Seedream 5.0' : 'GPT Image' }}</span>
+            <span class="item-value-text">{{ getImageProviderName(selectedChat.imageGenProvider || 'novelai') }}</span>
             <span class="arrow">></span>
           </div>
         </div>
@@ -324,9 +327,17 @@ watch(() => props.selectedChat, calculateMomentTokens)
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ Niji 7 生图详细配置</div>
           <div class="item-value"><span class="item-value-text">设置中转协议、Niji 参数与提示词</span><span class="arrow">></span></div>
         </div>
-        <div v-else class="glass-list-item" v-show="matchSearch('Seedream生图详细配置')" @click="emit('show-seedream-image-detail-modal')">
+        <div v-else-if="selectedChat.imageGenProvider === 'seedream'" class="glass-list-item" v-show="matchSearch('Seedream生图详细配置')" @click="emit('show-seedream-image-detail-modal')">
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ Seedream 生图详细配置</div>
           <div class="item-value"><span class="item-value-text">设置方舟模型、清晰度与独立参考组</span><span class="arrow">></span></div>
+        </div>
+        <div v-else-if="selectedChat.imageGenProvider === 'pollinations'" class="glass-list-item" v-show="matchSearch('Pollinations生图详细配置')" @click="emit('show-pollinations-image-detail-modal')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ Pollinations 生图详细配置</div>
+          <div class="item-value"><span class="item-value-text">设置动态模型、Pollen 与固定形象</span><span class="arrow">></span></div>
+        </div>
+        <div v-else class="glass-list-item" v-show="matchSearch('AI Horde生图详细配置')" @click="emit('show-ai-horde-image-detail-modal')">
+          <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ AI Horde 生图详细配置</div>
+          <div class="item-value"><span class="item-value-text">设置在线模型、排队参数与隐私确认</span><span class="arrow">></span></div>
         </div>
       </template>
     </div>

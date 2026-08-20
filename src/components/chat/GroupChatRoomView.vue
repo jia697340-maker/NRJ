@@ -17,6 +17,8 @@ import { useGeminiImage } from '../../composables/useGeminiImage'
 import { useFluxImage } from '../../composables/useFluxImage'
 import { useNijiImage } from '../../composables/useNijiImage'
 import { useSeedreamImage } from '../../composables/useSeedreamImage'
+import { usePollinationsImage } from '../../composables/usePollinationsImage'
+import { useAiHordeImage } from '../../composables/useAiHordeImage'
 import { useChatSummary } from '../../composables/useChatSummary'
 import { worldBooks } from '../../store'
 import { activeGroupReplyIds, groupReplyControllers, requestGroupReply, saveGroupChat } from '../../services/groupChat'
@@ -173,7 +175,9 @@ const { generateImage: generateGeminiImage } = useGeminiImage()
 const { generateImage: generateFluxImage } = useFluxImage()
 const { generateImage: generateNijiImage } = useNijiImage()
 const { generateImage: generateSeedreamImage } = useSeedreamImage()
-const imageGen = useChatRoomImageGen(selectedGroup, groupUserProfile, generateNovelImage, generateGptImage, generateGeminiImage, generateFluxImage, generateNijiImage, generateSeedreamImage, () => persist(), scrollBottom)
+const { generateImage: generatePollinationsImage } = usePollinationsImage()
+const { generateImage: generateAiHordeImage } = useAiHordeImage()
+const imageGen = useChatRoomImageGen(selectedGroup, groupUserProfile, generateNovelImage, generateGptImage, generateGeminiImage, generateFluxImage, generateNijiImage, generateSeedreamImage, generatePollinationsImage, generateAiHordeImage, () => persist(), scrollBottom)
 
 const { handleAutoSummary, handleManualSummaryLatest, summarizeMemories, storeExternalMemory, isSummarizing } = useChatSummary(selectedGroup, persist, showToast)
 const isSummarizingMemories = ref(false)

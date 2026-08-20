@@ -193,7 +193,13 @@ const handleResetTotalMinutes = () => {
         <!-- 历史列表 -->
         <div class="history-list-view">
           <div v-if="!history.length" class="empty-state">
-            <div class="empty-icon">🎵</div>
+            <div class="empty-icon">
+              <svg viewBox="0 0 24 24" width="36" height="36" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" />
+                <circle cx="18" cy="16" r="3" />
+              </svg>
+            </div>
             <p>暂无播放历史记录</p>
           </div>
 

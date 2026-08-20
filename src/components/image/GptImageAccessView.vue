@@ -633,7 +633,7 @@ textarea { resize: vertical; line-height: 1.55; }
 .library-item label { display: flex; gap: 5px; padding: 8px; font-size: 12px; }
 .library-item label input { width: auto; }
 .empty { padding: 30px 10px; text-align: center; color: #999; font-size: 13px; }
-.overlay { position: fixed; z-index: 12000; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(22,25,35,.48); backdrop-filter: blur(10px); }
+.overlay { position: fixed; z-index: 12000; inset: 0; display: grid; place-items: center; padding: 18px; box-sizing: border-box; background: rgba(22,25,35,.48); backdrop-filter: blur(10px); }
 .modal { width: min(720px,calc(100vw - 36px)); max-height: 84vh; overflow-y: auto; padding: 22px; box-sizing: border-box; border-radius: 22px; background: #fff; box-shadow: 0 24px 80px rgba(0,0,0,.24); margin: 0 auto; }
 .modal.wide { width: min(980px,calc(100vw - 36px)); }
 .modal.preset-modal { width: min(430px,calc(100vw - 36px)); }
@@ -656,7 +656,8 @@ textarea { resize: vertical; line-height: 1.55; }
 .danger-btn { margin-top: 16px; background: #fff0f1; color: #c43f49; }
 .history-grid article p { margin: 8px 8px 2px; font-size: 11px; color: #777; }
 .history-grid article small { display: -webkit-box; margin: 0 8px; overflow: hidden; color: #555; font-size: 11px; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.preview-overlay img { max-width: 95vw; max-height: 92vh; object-fit: contain; border-radius: 12px; }
+.preview-overlay { padding: 24px; box-sizing: border-box; }
+.preview-overlay img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 12px; box-sizing: border-box; }
 @media (max-width: 640px) {
   .gpt-scroll { padding: 10px 12px 48px; }
   .card { padding: 16px; border-radius: 18px; }

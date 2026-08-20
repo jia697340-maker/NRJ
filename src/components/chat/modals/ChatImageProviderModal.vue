@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
+import { IMAGE_PROVIDERS } from '../../../services/imageProviderRegistry'
 const props = defineProps<{
   visible: boolean
   currentProvider: string
@@ -19,14 +20,7 @@ const handleSelect = (provider: string) => {
   close()
 }
 
-const providers = [
-  { id: 'novelai', name: 'NovelAI' },
-  { id: 'gpt', name: 'GPT Image' },
-  { id: 'gemini', name: 'Gemini Image' },
-  { id: 'flux', name: 'FLUX.2' },
-  { id: 'niji', name: 'Niji 7（第三方）' },
-  { id: 'seedream', name: 'Seedream 5.0' }
-]
+const providers = IMAGE_PROVIDERS
 </script>
 
 <template>
@@ -43,6 +37,8 @@ const providers = [
           style="margin-bottom: 0;"
         >
           <div class="type-name" style="margin-bottom: 0;">{{ opt.name }}</div>
+          <div v-if="opt.id === 'aihorde'" style="font-size:10px;color:var(--text-secondary);margin-top:3px;">社区排队 · 分布式隐私风险</div>
+          <div v-else-if="opt.id === 'pollinations'" style="font-size:10px;color:var(--text-secondary);margin-top:3px;">Pollen / BYOP · 动态多模型</div>
         </div>
       </div>
     </div>

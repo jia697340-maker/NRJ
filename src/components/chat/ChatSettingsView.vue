@@ -52,6 +52,7 @@ import ChatGeminiImageDetailModal from './modals/ChatGeminiImageDetailModal.vue'
 import ChatFluxImageDetailModal from './modals/ChatFluxImageDetailModal.vue'
 import ChatNijiImageDetailModal from './modals/ChatNijiImageDetailModal.vue'
 import ChatSeedreamImageDetailModal from './modals/ChatSeedreamImageDetailModal.vue'
+import ChatCommunityImageDetailModal from './modals/ChatCommunityImageDetailModal.vue'
 import ChatImageProviderModal from './modals/ChatImageProviderModal.vue'
 import ChatIdentityProfileModal from './modals/ChatIdentityProfileModal.vue'
 import ChatGroupMemoryBridgeModal from './modals/ChatGroupMemoryBridgeModal.vue'
@@ -205,6 +206,8 @@ const showGeminiImageDetailModal = ref(false)
 const showFluxImageDetailModal = ref(false)
 const showNijiImageDetailModal = ref(false)
 const showSeedreamImageDetailModal = ref(false)
+const showPollinationsImageDetailModal = ref(false)
+const showAiHordeImageDetailModal = ref(false)
 const showImageProviderModal = ref(false)
 const showIdentityProfileModal = ref(false)
 const showGroupMemoryBridgeModal = ref(false)
@@ -817,6 +820,8 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @show-flux-image-detail-modal="showFluxImageDetailModal = true"
         @show-niji-image-detail-modal="showNijiImageDetailModal = true"
         @show-seedream-image-detail-modal="showSeedreamImageDetailModal = true"
+        @show-pollinations-image-detail-modal="showPollinationsImageDetailModal = true"
+        @show-ai-horde-image-detail-modal="showAiHordeImageDetailModal = true"
         @show-image-provider-modal="showImageProviderModal = true"
         @show-identity-profile-modal="openIdentityProfile"
         @show-world-book-bind-selector="showWorldBookBindSelector = true"
@@ -991,6 +996,20 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
       <ChatSeedreamImageDetailModal
         v-model:visible="showSeedreamImageDetailModal"
         :chat="selectedChat"
+        @save="saveCurrentChat"
+      />
+
+      <ChatCommunityImageDetailModal
+        v-model:visible="showPollinationsImageDetailModal"
+        :chat="selectedChat"
+        provider="pollinations"
+        @save="saveCurrentChat"
+      />
+
+      <ChatCommunityImageDetailModal
+        v-model:visible="showAiHordeImageDetailModal"
+        :chat="selectedChat"
+        provider="aihorde"
         @save="saveCurrentChat"
       />
 
