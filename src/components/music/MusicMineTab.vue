@@ -42,7 +42,8 @@ const enabledSourceCount = computed(() => sourceConfigs.value.filter(item => ite
 const primaryProfile = computed(() => accountProfiles.value[0] || null)
 const displayNickname = computed(() => customNickname.value ?? primaryProfile.value?.nickname ?? '我的音乐')
 const displayVipLabel = computed(() => customVipLabel.value ?? primaryProfile.value?.vipLabel ?? 'SVIP')
-const displaySignature = computed(() => customSignature.value ?? primaryProfile.value?.signature ?? 'Unified Music Library')
+const hasCustomSignature = computed(() => !!(customSignature.value || primaryProfile.value?.signature))
+const displaySignature = computed(() => customSignature.value ?? primaryProfile.value?.signature ?? '点击添加个性签名...')
 const displayTrackCount = computed(() => customTrackCount.value !== null ? customTrackCount.value : history.value.length)
 const displayTotalMinutes = computed(() => customTotalMinutes.value !== null ? customTotalMinutes.value : Math.round(history.value.reduce((sum, item) => sum + (item.duration || 0) * (item.playCount || 1), 0) / 60))
 const libraryPlaylists = computed(() => [
@@ -148,24 +149,31 @@ onMounted(async () => {
 
       <!-- 用户名称与 VIP 徽章 -->
       <div class="user-name-row clickable-name" title="点击修改名字与资料" @click="profileEditModalVisible = true">
-        <span class="user-nickname">{{ displayNickname }}</span>
-        <div class="vip-badge">
-          <svg class="vip-record-icon" viewBox="0 0 24 24" width="14" height="14" fill="#000">
-            <circle cx="12" cy="12" r="10" fill="#222"/>
-            <circle cx="12" cy="12" r="4" fill="#d4af37"/>
-            <circle cx="12" cy="12" r="1.5" fill="#fff"/>
-          </svg>
-          <span class="vip-text">{{ displayVipLabel }}</span>
+        <div class="nickname-badge-anchor">
+          <span class="user-nickname">{{ displayNickname }}</span>
+          <div class="vip-badge">
+            <svg class="vip-record-icon" viewBox="0 0 24 24" width="14" height="14" fill="#000">
+              <circle cx="12" cy="12" r="10" fill="#222"/>
+              <circle cx="12" cy="12" r="4" fill="#d4af37"/>
+              <circle cx="12" cy="12" r="1.5" fill="#fff"/>
+            </svg>
+            <span class="vip-text">{{ displayVipLabel }}</span>
+          </div>
         </div>
-        <svg class="edit-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-        </svg>
       </div>
 
-      <!-- 优雅副标题与艺术签名 -->
-      <div class="motto-text clickable-motto" title="点击修改个性签名" @click="profileEditModalVisible = true">{{ displaySignature }}</div>
-      <div class="signature-cursive">{{ primaryProfile ? `${primaryProfile.sourceId} · Lv.${primaryProfile.level || 0}` : 'listen in your own way' }}</div>
+      <!-- 优雅副标题与个性签名 -->
+      <div
+        class="motto-text clickable-motto"
+        :class="{ 'is-placeholder': !hasCustomSignature }"
+        title="点击修改个性签名"
+        @click="profileEditModalVisible = true"
+      >
+        {{ displaySignature }}
+      </div>
+      <div v-if="primaryProfile" class="signature-sub-info">
+        {{ `${primaryProfile.sourceId} · Lv.${primaryProfile.level || 0}` }}
+      </div>
 
       <!-- 社交统计数据栏 -->
       <div class="stats-row">
@@ -531,8 +539,14 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
   margin-bottom: 4px;
+}
+
+.nickname-badge-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .clickable-name {
@@ -548,18 +562,6 @@ onMounted(async () => {
 
 .clickable-name:active {
   transform: scale(0.97);
-}
-
-.edit-icon {
-  color: var(--music-text-muted, #999999);
-  opacity: 0.6;
-  margin-left: -2px;
-  transition: opacity 0.2s, color 0.2s;
-}
-
-.clickable-name:hover .edit-icon {
-  opacity: 1;
-  color: var(--music-text, #111111);
 }
 
 .clickable-motto {
@@ -579,6 +581,9 @@ onMounted(async () => {
 }
 
 .vip-badge {
+  position: absolute;
+  left: 100%;
+  margin-left: 6px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -586,6 +591,7 @@ onMounted(async () => {
   border-radius: 12px;
   background: #18181b;
   border: 1px solid rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
 }
 
 .vip-text {
@@ -597,19 +603,25 @@ onMounted(async () => {
 
 .motto-text {
   font-size: 12px;
-  font-family: 'Times New Roman', Georgia, serif;
-  font-style: italic;
-  letter-spacing: 1px;
   color: var(--music-text-sub, #666666);
-  margin-bottom: 2px;
+  margin-bottom: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  line-height: 1.4;
+  word-break: break-word;
+  max-width: 85%;
 }
 
-.signature-cursive {
-  font-size: 20px;
-  font-family: 'Brush Script MT', 'Times New Roman', cursive, serif;
-  font-style: italic;
-  color: var(--music-text-muted, rgba(0, 0, 0, 0.35));
-  margin-bottom: 12px;
+.motto-text.is-placeholder {
+  color: var(--music-text-muted, #a1a1aa);
+  font-size: 12px;
+}
+
+.signature-sub-info {
+  font-size: 11px;
+  color: var(--music-text-muted, #8e8e93);
+  margin-top: -6px;
+  margin-bottom: 10px;
   user-select: none;
 }
 

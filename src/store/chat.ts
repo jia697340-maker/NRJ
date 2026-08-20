@@ -12,6 +12,8 @@ export const chatSettings = reactive({
   enableGlobalNotification: savedChatSettings.enableGlobalNotification ?? true,
   enableNotificationInChat: savedChatSettings.enableNotificationInChat ?? false,
   notificationStyle: savedChatSettings.notificationStyle ?? 'queue', // 'queue' | 'list' | 'stack'
+  enableFriendRequestNotification: savedChatSettings.enableFriendRequestNotification ?? true, // 是否开启好友申请通知
+  friendRequestNotificationStyle: savedChatSettings.friendRequestNotificationStyle ?? 'modal', // 'banner' (方案A: 顶部横幅) | 'modal' (方案B: 居中弹窗)
   transferStyle: savedChatSettings.transferStyle ?? 'wechat', // 'wechat' | 'ticket' | 'glass'
   cotInSameBubble: savedChatSettings.cotInSameBubble ?? false, // 思考过程包含在正文气泡
   avatarDisplayStyle: savedChatSettings.avatarDisplayStyle ?? 'all', // 'all' | 'first' | 'last'

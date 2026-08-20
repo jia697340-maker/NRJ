@@ -132,8 +132,8 @@ const handleReset = () => {
         <!-- 副标题与签名 -->
         <div class="field-card">
           <div class="field-header">
-            <strong>副标题 / 签名</strong>
-            <small>默认：{{ defaultSignature || 'Unified Music Library' }}</small>
+            <strong>个性签名</strong>
+            <small>默认：{{ defaultSignature || '点击添加个性签名...' }}</small>
           </div>
           <div class="field-input-box">
             <input
@@ -141,7 +141,7 @@ const handleReset = () => {
               type="text"
               class="field-input"
               maxlength="50"
-              placeholder="输入个性签名或副标题"
+              placeholder="输入个性签名（留空则为占位提示）"
               @keydown.enter="handleSave"
             />
             <button

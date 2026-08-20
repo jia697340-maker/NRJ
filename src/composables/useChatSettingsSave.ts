@@ -2,6 +2,7 @@
 import { useChatState } from './useChatState'
 import { useChatAuth } from './useChatAuth'
 import { isDirectoryOwner, saveCharacterDirectoryProfile } from '../services/characterDirectory'
+import { ensureSocialCircle, normalizeSocialCircleSettings } from '../services/socialGraph'
 
 export function useChatSettingsSave() {
   const { selectedChat, myProfile, mockChats } = useChatState()
@@ -19,6 +20,12 @@ export function useChatSettingsSave() {
         contacts[idx].remark = selectedChat.value.remark
         contacts[idx].persona = selectedChat.value.persona
         contacts[idx].socialProfile = selectedChat.value.socialProfile || null
+        contacts[idx].socialCircle = JSON.parse(JSON.stringify(ensureSocialCircle(selectedChat.value)))
+        contacts[idx].socialCircleSettings = JSON.parse(JSON.stringify(normalizeSocialCircleSettings(selectedChat.value)))
+        contacts[idx].socialPrivacy = selectedChat.value.socialPrivacy || 'public'
+        contacts[idx].discoverable = selectedChat.value.discoverable !== false
+        contacts[idx].allowFriendRequests = selectedChat.value.allowFriendRequests !== false
+        contacts[idx].socialDiscoveryContext = selectedChat.value.socialDiscoveryContext || null
         if (isDirectoryOwner(String(selectedChat.value.characterEntityId || selectedChat.value.id))) {
           saveCharacterDirectoryProfile(selectedChat.value)
         }

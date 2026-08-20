@@ -37,7 +37,9 @@ export const appRegistry: AppRegistryItem[] = [
   { id: 'text_game', name: '文游', icon: '<span class="text-icon">游</span>', color: '#ffffff', available: false, allowCustomFont: true },
   { id: 'book_store', name: '书城', icon: '<span class="text-icon">城</span>', color: '#ffffff', available: false, allowCustomFont: true },
   { id: 'game', name: '游戏', icon: '<span class="text-icon">游</span>', color: '#ffffff', available: false, allowCustomFont: true },
-  { id: 'bubble', name: '泡泡', icon: '<span class="text-icon">泡</span>', color: '#ffffff', available: false, allowCustomFont: true }
+  { id: 'bubble', name: '泡泡', icon: '<span class="text-icon">泡</span>', color: '#ffffff', available: false, allowCustomFont: true },
+  { id: 'mall', name: '商城', icon: '<span class="text-icon">商</span>', color: '#ffffff', available: false, allowCustomFont: true },
+  { id: 'fate', name: '缘分', icon: '<span class="text-icon">缘</span>', color: '#ffffff', available: false, allowCustomFont: true }
 ]
 
 export const availableAppIds = new Set(appRegistry.filter(app => app.available).map(app => app.id))

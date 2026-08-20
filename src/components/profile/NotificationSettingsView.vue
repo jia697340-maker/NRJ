@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { chatSettings } from '../../store'
 
 const emit = defineEmits<{
@@ -8,13 +8,26 @@ const emit = defineEmits<{
 }>()
 
 const currentUrl = ref('edge://notification-settings')
+const showStyleModal = ref(false)
 
 const handleBack = () => {
   emit('back')
 }
 
-const handleRefresh = () => {
-  // 模拟刷新动画或不做实际操作
+const handleRefresh = () => {}
+
+const currentStyleName = computed(() => {
+  const style = chatSettings.notificationStyle
+  if (style === 'queue') return '排队 (等上一条消失后显示)'
+  if (style === 'stack') return '叠放 (消息堆叠在一起)'
+  return '列表 (多条消息上下展开)'
+})
+
+const selectStyle = (style: 'queue' | 'list' | 'stack') => {
+  chatSettings.notificationStyle = style
+  setTimeout(() => {
+    showStyleModal.value = false
+  }, 200)
 }
 </script>
 
@@ -49,37 +62,109 @@ const handleRefresh = () => {
       </div>
     </header>
 
-    <!-- 主体区域：留白、好看 -->
+    <!-- 主体区域 -->
     <main class="appearance-main">
-      <div class="appearance-settings-list">
-        <div class="setting-item">
-          <div class="setting-info">
-            <div class="setting-title">消息弹窗通知</div>
-            <div class="setting-desc">当不在聊天室内时，收到新消息会在屏幕顶部弹出通知</div>
+      <div class="settings-scroll-view">
+        <!-- 分组 1: 消息通知偏好 -->
+        <div class="settings-group-card">
+          <div class="group-header">
+            <span class="group-title">消息通知</span>
+            <span class="group-tag">聊天消息</span>
           </div>
-          <label class="switch">
-            <input type="checkbox" v-model="chatSettings.enableGlobalNotification" />
-            <span class="slider"></span>
-          </label>
+
+          <div class="appearance-settings-list">
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-title">消息弹窗通知</div>
+                <div class="setting-desc">当不在聊天室内时，收到新消息会在屏幕顶部弹出通知</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" v-model="chatSettings.enableGlobalNotification" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item clickable" v-if="chatSettings.enableGlobalNotification" @click="showStyleModal = true">
+              <div class="setting-info">
+                <div class="setting-title">通知展示方式</div>
+                <div class="setting-desc">{{ currentStyleName }}</div>
+              </div>
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-tertiary, #999);"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <div class="setting-item" v-if="chatSettings.enableGlobalNotification">
+              <div class="setting-info">
+                <div class="setting-title">聊天室内通知</div>
+                <div class="setting-desc">当停留在当前聊天室内时，收到该聊天对象的新消息也弹出通知</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" v-model="chatSettings.enableNotificationInChat" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
         </div>
 
-        <div class="setting-item clickable" v-if="chatSettings.enableGlobalNotification" @click="showStyleModal = true">
-          <div class="setting-info">
-            <div class="setting-title">通知展示方式</div>
-            <div class="setting-desc">{{ currentStyleName }}</div>
+        <!-- 分组 2: 好友申请通知偏好（新增独立模块） -->
+        <div class="settings-group-card">
+          <div class="group-header">
+            <span class="group-title">好友申请通知</span>
+            <span class="group-tag primary">角色关系</span>
           </div>
-          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-tertiary, #999);"><polyline points="9 18 15 12 9 6"></polyline></svg>
-        </div>
 
-        <div class="setting-item" v-if="chatSettings.enableGlobalNotification">
-          <div class="setting-info">
-            <div class="setting-title">聊天室内通知</div>
-            <div class="setting-desc">当停留在当前聊天室内时，收到该聊天对象的新消息也弹出通知</div>
+          <div class="appearance-settings-list">
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-title">开启好友申请通知</div>
+                <div class="setting-desc">当角色主动向你发起好友申请时，弹出即时提醒</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" v-model="chatSettings.enableFriendRequestNotification" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item radio-group-item" v-if="chatSettings.enableFriendRequestNotification">
+              <div class="setting-info">
+                <div class="setting-title">申请提醒形式</div>
+                <div class="setting-desc">选择收到角色好友申请时的弹窗交互风格</div>
+              </div>
+
+              <div class="radio-options">
+                <!-- 方案 A: 顶部横幅 -->
+                <label
+                  class="radio-card"
+                  :class="{ active: chatSettings.friendRequestNotificationStyle === 'banner' }"
+                  @click="chatSettings.friendRequestNotificationStyle = 'banner'"
+                >
+                  <div class="radio-card-left">
+                    <div class="radio-circle"></div>
+                    <div class="radio-card-text">
+                      <strong>方案 A：顶部横幅通知</strong>
+                      <p>从屏幕顶部轻量滑出通知，点击直接跳转至好友申请页面</p>
+                    </div>
+                  </div>
+                  <span class="scheme-pill">轻量</span>
+                </label>
+
+                <!-- 方案 B: 居中美化弹窗 -->
+                <label
+                  class="radio-card"
+                  :class="{ active: chatSettings.friendRequestNotificationStyle === 'modal' }"
+                  @click="chatSettings.friendRequestNotificationStyle = 'modal'"
+                >
+                  <div class="radio-card-left">
+                    <div class="radio-circle"></div>
+                    <div class="radio-card-text">
+                      <strong>方案 B：居中美化弹窗</strong>
+                      <p>居中弹出申请卡片，展示角色头像与留言，可直接快速同意或拒绝</p>
+                    </div>
+                  </div>
+                  <span class="scheme-pill highlight">推荐</span>
+                </label>
+              </div>
+            </div>
           </div>
-          <label class="switch">
-            <input type="checkbox" v-model="chatSettings.enableNotificationInChat" />
-            <span class="slider"></span>
-          </label>
         </div>
       </div>
     </main>
@@ -139,32 +224,6 @@ const handleRefresh = () => {
   </div>
 </template>
 
-<script lang="ts">
-export default {
-  data() {
-    return {
-      showStyleModal: false
-    }
-  },
-  computed: {
-    currentStyleName() {
-      const style = chatSettings.notificationStyle;
-      if (style === 'queue') return '排队 (等上一条消失后显示)';
-      if (style === 'stack') return '叠放 (消息堆叠在一起)';
-      return '列表 (多条消息上下展开)';
-    }
-  },
-  methods: {
-    selectStyle(style: 'queue' | 'list' | 'stack') {
-      chatSettings.notificationStyle = style;
-      setTimeout(() => {
-        this.showStyleModal = false;
-      }, 200);
-    }
-  }
-}
-</script>
-
 <style scoped>
 .notification-settings-container {
   position: absolute;
@@ -172,11 +231,16 @@ export default {
   left: 0;
   width: 100%;
   height: 100%;
-  background: #ffffff;
+  background: var(--sys-bg-primary, #f5f5f7);
   display: flex;
   flex-direction: column;
   z-index: 100;
   overflow: hidden;
+  color: var(--text-primary, #1c1c1e);
+}
+
+.is-dark .notification-settings-container {
+  background: #000000;
 }
 
 /* 仿 EDGE 地址栏样式 */
@@ -184,10 +248,15 @@ export default {
   display: flex;
   align-items: center;
   padding: 8px 12px;
-  background: #ffffff;
-  border-bottom: 1px solid #e5e5e5;
-  padding-top: calc(8px + env(safe-area-inset-top, 40px)); /* 适配刘海屏 */
+  background: var(--sys-bg-primary, #ffffff);
+  border-bottom: 1px solid var(--border-color, #e5e5e5);
+  padding-top: calc(8px + env(safe-area-inset-top, 40px));
   gap: 8px;
+}
+
+.is-dark .edge-header {
+  background: #1c1c1e;
+  border-bottom-color: #2c2c2e;
 }
 
 .edge-nav-buttons {
@@ -205,13 +274,13 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #4a4a4a;
+  color: var(--text-primary, #4a4a4a);
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
 .nav-btn:hover {
-  background-color: #e5e5e5;
+  background-color: var(--sys-bg-tertiary, #e5e5e5);
 }
 
 .nav-btn.disabled {
@@ -227,13 +296,18 @@ export default {
   flex: 1;
   display: flex;
   align-items: center;
-  background: #ffffff;
-  border: 1px solid #ffffff;
+  background: var(--sys-bg-secondary, #f0f0f2);
+  border: 1px solid var(--border-color, #e5e5e5);
   border-radius: 20px;
   height: 34px;
   padding: 0 12px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.is-dark .edge-address-bar {
+  background: #2c2c2e;
+  border-color: #3a3a3c;
 }
 
 .edge-address-bar:focus-within {
@@ -254,7 +328,7 @@ export default {
   outline: none;
   background: transparent;
   font-size: 13px;
-  color: #333333;
+  color: var(--text-primary, #333333);
   padding: 0 8px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   text-overflow: ellipsis;
@@ -268,22 +342,81 @@ export default {
 /* 主体区域 */
 .appearance-main {
   flex: 1;
-  background: #ffffff;
-  padding: 24px 16px;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.settings-scroll-view {
+  max-width: 680px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 40px;
+}
+
+/* 卡片分组 */
+.settings-group-card {
+  background: var(--sys-bg-secondary, #ffffff);
+  border: 1px solid var(--border-color, #e5e5ea);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.is-dark .settings-group-card {
+  background: #1c1c1e;
+  border-color: #2c2c2e;
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-color, #f0f0f2);
+}
+
+.is-dark .group-header {
+  border-bottom-color: #2c2c2e;
+}
+
+.group-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-primary, #1c1c1e);
+}
+
+.group-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--sys-bg-tertiary, #e5e5ea);
+  color: var(--text-secondary, #8e8e93);
+}
+
+.group-tag.primary {
+  background: rgba(0, 122, 255, 0.12);
+  color: #007aff;
 }
 
 .appearance-settings-list {
-  background: #ffffff;
-  border-radius: 12px;
-  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .setting-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border-color, #e5e5e5);
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-color, #f0f0f2);
+}
+
+.is-dark .setting-item {
+  border-bottom-color: #2c2c2e;
 }
 
 .setting-item:last-child {
@@ -296,10 +429,10 @@ export default {
 }
 
 .setting-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-primary, #333333);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .setting-desc {
@@ -308,48 +441,65 @@ export default {
   line-height: 1.4;
 }
 
-/* 单选组样式 */
+/* 单选方案卡片 */
 .radio-group-item {
   flex-direction: column;
   align-items: flex-start;
-  gap: 16px;
+  gap: 12px;
 }
 
 .radio-options {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
 }
 
-.radio-label {
+.radio-card {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--sys-bg-tertiary, #f8f8fa);
+  border: 1.5px solid var(--border-color, #e5e5ea);
+  border-radius: 12px;
   cursor: pointer;
-  font-size: 14px;
-  color: var(--text-secondary, #666666);
+  transition: all 0.2s ease;
 }
 
-.radio-label input[type="radio"] {
-  display: none;
+.is-dark .radio-card {
+  background: #242426;
+  border-color: #333336;
 }
 
-.radio-custom {
+.radio-card.active {
+  background: rgba(0, 122, 255, 0.05);
+  border-color: #007aff;
+}
+
+.radio-card-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+}
+
+.radio-circle {
   width: 18px;
   height: 18px;
   border-radius: 50%;
   border: 2px solid #ccc;
   position: relative;
-  transition: all 0.2s;
   flex-shrink: 0;
+  margin-top: 2px;
+  transition: all 0.2s;
 }
 
-.radio-label input[type="radio"]:checked + .radio-custom {
+.radio-card.active .radio-circle {
   border-color: #007aff;
 }
 
-.radio-label input[type="radio"]:checked + .radio-custom::after {
+.radio-card.active .radio-circle::after {
   content: "";
   position: absolute;
   top: 50%;
@@ -361,12 +511,33 @@ export default {
   background-color: #007aff;
 }
 
-.is-dark .radio-label {
-  color: var(--text-secondary);
+.radio-card-text strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text-primary, #1c1c1e);
+  margin-bottom: 2px;
 }
 
-.is-dark .radio-custom {
-  border-color: #555;
+.radio-card-text p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-tertiary, #8e8e93);
+  line-height: 1.4;
+}
+
+.scheme-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--sys-bg-tertiary, #e5e5ea);
+  color: var(--text-tertiary, #8e8e93);
+  flex-shrink: 0;
+}
+
+.scheme-pill.highlight {
+  background: rgba(0, 122, 255, 0.15);
+  color: #007aff;
 }
 
 /* Switch 样式 */
@@ -429,13 +600,14 @@ input:checked + .slider:before {
   -webkit-backdrop-filter: blur(4px);
   z-index: 1000;
   display: flex;
-  align-items: flex-end; /* 底部弹出 */
+  align-items: flex-end;
   justify-content: center;
   animation: fadeIn 0.3s ease;
 }
 
 .style-modal {
   width: 100%;
+  max-width: 500px;
   background: var(--sys-bg-primary, #1c1c1e);
   border-radius: 20px 20px 0 0;
   padding: 24px;
@@ -445,8 +617,9 @@ input:checked + .slider:before {
 }
 
 .is-dark .style-modal {
-  background: #1c1c1e; /* 参考图中深色背景 */
+  background: #1c1c1e;
 }
+
 .style-modal-header {
   display: flex;
   justify-content: space-between;
@@ -460,7 +633,6 @@ input:checked + .slider:before {
   font-weight: 600;
   color: var(--text-primary, #ffffff);
 }
-.is-dark .style-modal-header h3 { color: #fff; }
 
 .close-btn {
   background: #3a3a3c;
@@ -502,7 +674,7 @@ input:checked + .slider:before {
   align-items: center;
   transition: all 0.2s;
   box-sizing: border-box;
-  padding-top: 24px; /* 为刘海和时间留出空间 */
+  padding-top: 24px;
   padding-bottom: 12px;
 }
 
@@ -544,7 +716,6 @@ input:checked + .slider:before {
   transition: all 0.2s;
 }
 
-/* 激活状态 */
 .style-option.active .phone-mockup {
   border-color: #0a84ff;
   border-width: 2.5px;
@@ -553,7 +724,6 @@ input:checked + .slider:before {
 .style-option.active .mockup-time { color: #0a84ff; }
 .style-option.active .mockup-block { background: #0a84ff; }
 
-/* 数量(排队) 样式：居底一条 */
 .mockup-content.count {
   justify-content: flex-end;
 }
@@ -561,8 +731,6 @@ input:checked + .slider:before {
   height: 18px;
 }
 
-
-/* 叠放样式 */
 .mockup-content.stack {
   position: relative;
   height: 100%;
@@ -577,7 +745,6 @@ input:checked + .slider:before {
 .mockup-content.stack .block-2 { z-index: 2; width: 70%; bottom: 8px; opacity: 0.6; }
 .mockup-content.stack .block-3 { z-index: 1; width: 60%; bottom: 12px; opacity: 0.3; }
 
-/* 列表样式 */
 .mockup-content.list {
   justify-content: flex-end;
   gap: 4px;

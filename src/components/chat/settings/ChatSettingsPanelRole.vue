@@ -33,6 +33,7 @@ const emit = defineEmits<{
   (e: 'show-bilingual-option-modal', kind: 'mode' | 'display'): void
   (e: 'show-bilingual-language-modal', kind: 'output' | 'translation'): void
   (e: 'show-group-memory-bridge-modal'): void
+  (e: 'show-social-circle-modal'): void
   (e: 'open-character-profile'): void
   (e: 'save'): void
 }>()
@@ -178,7 +179,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </div>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('真名', '备注', '角色设定')">
+    <div class="glass-panel" v-show="matchSearch('真名', '备注', '角色设定', '社交人脉', '朋友圈人物', '生活圈')">
       <div class="glass-list-item" v-show="matchSearch('真名')" @click="emit('open-text-modal', '编辑真名', selectedChat.realName, '', '请输入真名', 'realName')">
         <div class="item-label">真名</div>
         <div class="item-value"><span class="item-value-text">{{ selectedChat.realName || '未设置' }}</span><span class="arrow">></span></div>
@@ -190,6 +191,13 @@ watch(() => props.selectedChat, calculateMomentTokens)
       <div class="glass-list-item" v-show="matchSearch('角色设定')" @click="emit('open-long-text-modal', '编辑角色设定', selectedChat.persona, '', '请详细描述该角色的性格、背景等设定，可以包含多段落...', 'persona')">
         <div class="item-label">角色设定</div>
         <div class="item-value"><span class="item-value-text">{{ selectedChat.persona || '未设置' }}</span><span class="arrow">></span></div>
+      </div>
+      <div class="glass-list-item" v-show="matchSearch('社交人脉', '朋友圈人物', '生活圈')" @click="emit('show-social-circle-modal')">
+        <div class="item-label">社交人脉</div>
+        <div class="item-value">
+          <span class="item-value-text">{{ selectedChat.socialCircle?.length ? `已配置 ${selectedChat.socialCircle.length} 位生活人脉` : '未配置' }}</span>
+          <span class="arrow">></span>
+        </div>
       </div>
     </div>
 

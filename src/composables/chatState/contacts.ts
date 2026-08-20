@@ -5,6 +5,7 @@ import { mockChats, customGroups, avatarStore } from './state'
 import { reconcilePresence } from '../../services/presenceLifecycle'
 import { normalizeChatTransfers } from '../../services/transferLifecycle'
 import { normalizeSocialProfile } from '../../services/characterSocialProfile'
+import { ensureSocialCircle, normalizeSocialCircleSettings } from '../../services/socialGraph'
 import { getCharacterDirectoryEntry, registerAccountContactsInDirectory } from '../../services/characterDirectory'
 import { deleteIdentityProfile } from '../../services/identityProfile'
 import { deleteGroupChat, readGroupChats } from '../../services/groupChat'
@@ -96,6 +97,12 @@ export const loadCustomContacts = async () => {
       remark: c.remark,
       persona: c.persona,
       socialProfile: normalizeSocialProfile(c),
+      socialCircle: ensureSocialCircle(c),
+      socialCircleSettings: normalizeSocialCircleSettings(c),
+      socialPrivacy: c.socialPrivacy || 'public',
+      discoverable: c.discoverable !== false,
+      allowFriendRequests: c.allowFriendRequests !== false,
+      socialDiscoveryContext: c.socialDiscoveryContext || null,
       userProfile: c.userProfile || null,
       userProfileSource: c.userProfileSource || null,
       preview: previewText,

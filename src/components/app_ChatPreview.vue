@@ -20,7 +20,8 @@ import CharacterAutonomyView from './chat/CharacterAutonomyView.vue'
 import ChatAuthView from './chat/ChatAuthView.vue'
 import { useChatState } from '../composables/useChatState'
 import { useChatAuth } from '../composables/useChatAuth'
-import { createDirectoryCandidate, type CharacterDirectoryEntry } from '../services/characterDirectory'
+import { createDirectoryCandidate, upsertSocialCircleCharacter, type CharacterDirectoryEntry } from '../services/characterDirectory'
+import type { SocialCircleItem } from '../services/socialGraph'
 import { useChatSettingsSave } from '../composables/useChatSettingsSave'
 import { processDueRelationshipTimers } from '../composables/useChatRelationship'
 import { useRelationshipAdvance } from '../composables/useRelationshipAdvance'
@@ -77,6 +78,7 @@ const tabs = ['消息', '联系人', '发现', '我的']
 const previousView = ref<ViewType>('list')
 const relationshipBackView = ref<ViewType>('chatSettings')
 const characterProfileBackView = ref<ViewType>('chat')
+const characterProfileStack = ref<any[]>([])
 const hasOpenedChat = ref(false)
 const chatRoomRef = ref<any>(null)
 const chatSettingsRef = ref<any>(null)
@@ -293,6 +295,7 @@ const openRelationship = (chat = selectedChat.value, backView: ViewType = curren
 }
 
 const openCharacterProfile = (backView: ViewType = currentView.value) => {
+  characterProfileStack.value = []
   characterProfileBackView.value = backView
   currentView.value = 'characterProfile'
 }
@@ -305,6 +308,7 @@ const openContactProfile = (chat: any) => {
 }
 
 const openDirectoryCharacter = async (entry: CharacterDirectoryEntry) => {
+  characterProfileStack.value = []
   createDirectoryCandidate(entry)
   await loadCustomContacts()
   const chat = mockChats.value.find(item => String(item.characterEntityId || item.id) === entry.entityId)
@@ -328,6 +332,38 @@ const openChat = (chat: any) => {
   hasOpenedChat.value = true
   selectedChat.value = chat
   currentView.value = 'chat'
+}
+
+const openSocialContact = async (item: SocialCircleItem) => {
+  if (!selectedChat.value) return
+  const previous = selectedChat.value
+  const entry = upsertSocialCircleCharacter(previous, item)
+  createDirectoryCandidate(entry)
+  await loadCustomContacts()
+  const chat = mockChats.value.find(candidate => String(candidate.characterEntityId || candidate.id) === item.entityId)
+  if (!chat) return
+  chat.socialDiscoveryContext = {
+    sourceEntityId: String(previous.characterEntityId || previous.id),
+    sourceName: previous.realName || previous.name,
+    relation: item.relation,
+    privacy: item.privacy,
+    allowFriendRequests: item.allowFriendRequests,
+    enableMoments: item.enableMoments
+  }
+  characterProfileStack.value.push(previous)
+  selectedChat.value = chat
+  await saveCurrentChat()
+  currentView.value = 'characterProfile'
+}
+
+const closeCharacterProfile = () => {
+  const previous = characterProfileStack.value.pop()
+  if (previous) {
+    selectedChat.value = previous
+    currentView.value = 'characterProfile'
+    return
+  }
+  currentView.value = characterProfileBackView.value
 }
 
 const createGroup = async (group: GroupChatRecord) => {
@@ -623,8 +659,9 @@ onUnmounted(() => {
     <CharacterProfileView
       v-if="currentView === 'characterProfile' && selectedChat"
       :chat="selectedChat"
-      @back="currentView = characterProfileBackView"
+      @back="closeCharacterProfile"
       @open-chat="currentView = 'chat'"
+      @open-social-contact="openSocialContact"
       @save="saveCurrentChat"
     />
 
@@ -916,3 +953,4 @@ onUnmounted(() => {
   }
 }
 </style>
+  characterProfileStack.value = []

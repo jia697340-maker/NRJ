@@ -7,6 +7,7 @@ import { pushContextTrace, type ContextTraceCollector } from '../../services/con
 import { buildPresenceContext } from '../../services/presenceLifecycle'
 import { resolvePromptVariables } from '../../services/promptVariables'
 import { buildSocialProfilePrompt } from '../../services/characterSocialProfile'
+import { buildSocialCirclePrompt } from '../../services/socialGraph'
 import { useChatAuth } from '../useChatAuth'
 import {
   buildEnglishCallFormatRules,
@@ -429,5 +430,5 @@ ${usesNaturalPromptV2
   pushContextTrace(trace, { id: 'runtime:language', category: 'system', group: '输出格式与协议', label: '对白语言保护规则', text: usesEnglishPrompt ? englishDialogueLanguageGuard : '', reason: '当前使用英文底层提示词' })
   pushContextTrace(trace, { id: 'runtime:transfer-state', category: 'system', group: '红包与转账', label: '转账状态保护', text: transferStateGuard, reason: '确保历史转账不会被当作新动作或重复处理' })
 
-  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + relationshipRules + offlinePrompt + transferStateGuard + buildSocialProfilePrompt(chat, usesEnglishPrompt) + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
+  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + relationshipRules + offlinePrompt + transferStateGuard + buildSocialProfilePrompt(chat, usesEnglishPrompt) + buildSocialCirclePrompt(chat, usesEnglishPrompt) + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
 }

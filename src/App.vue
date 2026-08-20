@@ -23,13 +23,32 @@ import { useAppIcons } from './composables/useAppIcons'
 import { appRegistry, availableAppIds } from './appRegistry'
 import { useCustomFonts } from './composables/useCustomFonts'
 import { startAutonomyRuntime, stopAutonomyRuntime } from './services/autonomyRuntime'
+import FriendRequestModal from './components/chat/modals/FriendRequestModal.vue'
+import { triggerFriendRequestNotification } from './composables/useFriendRequestPrompt'
 
-const { globalNotifications, dismissNotification, showNotification, loadCustomContacts, loadMyProfile } = useChatState()
+const { globalNotifications, dismissNotification, showNotification, loadCustomContacts, loadMyProfile, mockChats } = useChatState()
 const { loadData: loadAppIconsData, customIcons } = useAppIcons()
 const { setActiveApp: setActiveFontApp } = useCustomFonts()
 
-// 暴露到全局，方便开发者在控制台测试 UI 动画效果
+// 暴露到全局，方便开发者在控制台测试 UI 动画效果与好友申请通知效果
 ;(window as any).testNotification = showNotification
+;(window as any).testFriendRequestNotification = (customName?: string, customMessage?: string) => {
+  const targetChat = mockChats.value.find(c => c.id !== 1) || {
+    id: 'test_char',
+    name: customName || '测试好友',
+    realName: customName || '测试好友',
+    avatarUrl: '',
+    avatarText: (customName || '好友').slice(0, 2)
+  }
+  const testRequest = {
+    id: `test_req_${Date.now()}`,
+    direction: 'character_to_user' as const,
+    message: customMessage || '你好呀，我看我们聊得挺投缘的，可以加个好友吗？',
+    status: 'pending' as const,
+    createdAt: Date.now()
+  }
+  triggerFriendRequestNotification(targetChat, testRequest)
+}
 
 const activeApp = ref<string | null>(null)
 const isLocked = ref(globalSettings.enableLockScreen)
@@ -371,6 +390,9 @@ watch(activeApp, appId => {
 
     <!-- 全局界面截图水印层 -->
     <AppWatermarkOverlay />
+
+    <!-- 好友申请居中美化弹窗 -->
+    <FriendRequestModal />
 
     <!-- 锁屏界面 -->
     <Transition name="lock-fade">

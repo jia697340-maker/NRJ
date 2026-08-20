@@ -10,12 +10,13 @@ import { appendRelationshipEvent, blockCharacter, createFriendRequest, deleteFri
 import { useRelationshipAdvance } from '../../../composables/useRelationshipAdvance'
 import { useChatAuth } from '../../../composables/useChatAuth'
 import ChatIdentityProfileModal from '../modals/ChatIdentityProfileModal.vue'
+import { canDiscoverSocialContact, canViewSocialContactMoments, ensureSocialCircle, normalizeSocialCircleSettings, type SocialCircleItem } from '../../../services/socialGraph'
 
 const props = defineProps<{ chat: any }>()
-const emit = defineEmits<{ (event: 'back'): void; (event: 'open-chat'): void; (event: 'save'): void | Promise<void> }>()
+const emit = defineEmits<{ (event: 'back'): void; (event: 'open-chat'): void; (event: 'save'): void | Promise<void>; (event: 'open-social-contact', item: SocialCircleItem): void }>()
 
 const profile = ref<CharacterSocialProfile>(ensureSocialProfile(props.chat))
-const currentPage = ref<'profile' | 'moments'>('profile')
+const currentPage = ref<'profile' | 'moments' | 'network'>('profile')
 const moments = ref<any[]>([])
 const loadingMoments = ref(true)
 const momentError = ref('')
@@ -57,6 +58,11 @@ const getStatusText = () => {
 }
 
 const relationship = computed(() => ensureRelationship(props.chat))
+const socialCircleSettings = computed(() => normalizeSocialCircleSettings(props.chat))
+const socialCircle = computed(() => ensureSocialCircle(props.chat).filter(canDiscoverSocialContact))
+const discoveryContext = computed(() => relationship.value.friendship === 'friends' ? null : (props.chat.socialDiscoveryContext || null))
+const canViewMoments = computed(() => !discoveryContext.value || canViewSocialContactMoments({ ...props.chat, ...discoveryContext.value } as any, relationship.value.friendship === 'friends'))
+const canRequestFriend = computed(() => props.chat.allowFriendRequests !== false && discoveryContext.value?.allowFriendRequests !== false)
 const canManageProfile = computed(() => isDirectoryOwner(String(props.chat.characterEntityId || props.chat.id)))
 const { chatAccounts, currentAccount } = useChatAuth()
 const { isAdvancing, relationshipError, advanceRelationship } = useRelationshipAdvance()
@@ -70,12 +76,14 @@ const latestOutgoingRequest = computed<FriendRequestRecord | null>(() => relatio
 const profileActionLabel = computed(() => {
   if (relationship.value.blockedBy === 'character') return '对方已将你拉黑'
   if (relationship.value.friendship === 'friends') return '发消息'
+  if (!canRequestFriend.value) return '暂不接受好友申请'
   if (activeOutgoingRequest.value) return activeOutgoingRequest.value.status === 'viewed' ? '请求重新考虑' : '补充申请'
   if (latestOutgoingRequest.value?.status === 'rejected') return '再次申请'
   return '申请添加'
 })
 
-const displayName = computed(() => profile.value.nickname || props.chat.realName || props.chat.name || '未命名角色')
+const displayName = computed(() => discoveryContext.value?.privacy === 'private' ? '私密用户' : (profile.value.nickname || props.chat.realName || props.chat.name || '未命名角色'))
+const displaySignature = computed(() => discoveryContext.value?.privacy === 'private' ? '对方隐藏了主页资料' : (profile.value.signature || '这个人还没有写个性签名'))
 const recentMoments = computed(() => moments.value.slice(0, 3))
 const pendingChanges = computed(() => profile.value.changes.filter(change => change.status === 'pending'))
 const permissionRows = [
@@ -128,7 +136,7 @@ const loadMoments = async () => {
   loadingMoments.value = true
   momentError.value = ''
   try {
-    moments.value = await listMomentsByAuthor(props.chat.id)
+    moments.value = canViewMoments.value ? await listMomentsByAuthor(props.chat.characterEntityId || props.chat.id) : []
   } catch (error: any) {
     momentError.value = error?.message || '朋友圈加载失败'
   } finally {
@@ -171,6 +179,10 @@ const handlePrimaryAction = () => {
   if (relationship.value.blockedBy === 'character') return
   if (relationship.value.friendship === 'friends') {
     emit('open-chat')
+    return
+  }
+  if (!canRequestFriend.value) {
+    notify('对方暂不接受陌生好友申请')
     return
   }
   requestMessage.value = ''
@@ -344,10 +356,10 @@ onUnmounted(() => {
     <Transition name="social-toast"><div v-if="toast" class="character-social-toast" role="status">{{ toast }}</div></Transition>
 
     <nav class="floating-nav-bar" :class="{ 'is-scrolled': isNavScrolled, 'solid-nav': currentPage !== 'profile' }">
-      <button class="nav-circle-btn" type="button" aria-label="返回" @click="currentPage === 'moments' ? currentPage = 'profile' : emit('back')">
+      <button class="nav-circle-btn" type="button" aria-label="返回" @click="currentPage !== 'profile' ? currentPage = 'profile' : emit('back')">
         <svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>
       </button>
-      <span v-if="isNavScrolled || currentPage !== 'profile'" class="nav-title">{{ currentPage === 'moments' ? '随笔手记' : displayName }}</span>
+      <span v-if="isNavScrolled || currentPage !== 'profile'" class="nav-title">{{ currentPage === 'moments' ? '随笔手记' : currentPage === 'network' ? '人脉圈' : displayName }}</span>
       <button v-if="canManageProfile && currentPage === 'profile'" class="nav-circle-btn" type="button" @click="openManage()">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -374,17 +386,22 @@ onUnmounted(() => {
               <h1 class="character-name">{{ displayName }}</h1>
               <span v-if="props.chat.remark" class="remark-pill">{{ props.chat.remark }}</span>
             </div>
-            <p class="social-id-row" @click="copyId">
+            <p v-if="discoveryContext?.privacy !== 'private'" class="social-id-row" @click="copyId">
               <span>@{{ profile.socialId }}</span>
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             </p>
           </section>
 
           <blockquote class="character-quote">
-            “{{ profile.signature || '这个人还没有写个性签名' }}”
+            “{{ displaySignature }}”
           </blockquote>
 
-          <section class="moments-stream">
+          <section v-if="discoveryContext" class="editorial-note social-privacy-note">
+            <svg viewBox="0 0 24 24"><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7z"/><path d="M9 12h6"/></svg>
+            <div><strong>{{ discoveryContext.privacy === 'private' ? '私密用户' : discoveryContext.privacy === 'limited' ? '好友可见主页' : '来自人脉圈' }}</strong><span>{{ discoveryContext.relation ? `与引荐角色的关系：${discoveryContext.relation}` : '公开资料会按对方隐私设置展示' }}</span></div>
+          </section>
+
+          <section v-if="canViewMoments" class="moments-stream">
             <div class="stream-header">
               <h2>随笔手记</h2>
               <span>({{ moments.length }})</span>
@@ -419,6 +436,17 @@ onUnmounted(() => {
             <div><strong>{{ profile.awarenessEnabled ? '角色已感知自己的主页' : '主页目前仅对你可见' }}</strong><span>{{ profile.awarenessEnabled ? `管理模式：${profile.managementMode === 'readonly' ? '只读' : profile.managementMode === 'confirm' ? '修改需确认' : '自主管理'}` : '开启后角色才能感知' }}</span></div>
             <button type="button" @click="openManage('permissions')">设置</button>
           </section>
+          <section v-else class="moments-stream locked-stream"><div class="stream-header"><h2>随笔手记</h2></div><div class="empty-stream"><div class="empty-hint">对方仅向好友公开朋友圈</div></div></section>
+
+          <section v-if="socialCircleSettings.enabled && socialCircle.length" class="editorial-links social-network-preview">
+            <header><strong>人脉圈</strong><span>{{ socialCircle.length }} 位可见人物</span></header>
+            <button v-for="item in socialCircle.slice(0, 4)" :key="item.entityId" type="button" @click="emit('open-social-contact', item)">
+              <span class="network-avatar" :style="item.avatarUrl ? { backgroundImage: `url(${item.avatarUrl})` } : {}">{{ item.avatarUrl ? '' : item.name.charAt(0) }}</span>
+              <span><b>{{ item.privacy === 'private' ? '私密用户' : item.nickname || item.name }}</b><small>{{ item.relation }} · {{ item.category === 'family' ? '亲人' : item.category === 'friend' ? '朋友' : item.category === 'work' ? '工作学业' : '其他' }}</small></span>
+              <em>查看</em>
+            </button>
+            <button v-if="socialCircle.length > 4" class="network-all" type="button" @click="currentPage = 'network'">查看全部 {{ socialCircle.length }} 位人脉</button>
+          </section>
           <section v-if="canManageProfile" class="editorial-note character-awareness-note">
             <svg viewBox="0 0 24 24"><path d="M4 21v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <div><strong>角色固定形象</strong><span>管理形象版本、参考素材与一致性约束</span></div>
@@ -435,7 +463,7 @@ onUnmounted(() => {
         </main>
       </template>
 
-      <template v-else>
+      <template v-else-if="currentPage === 'moments'">
         <div class="full-stream">
           <div class="editorial-moment-toolbar">
             <div>
@@ -474,11 +502,24 @@ onUnmounted(() => {
           </div>
         </div>
       </template>
+      <template v-else>
+        <div class="full-stream social-network-page">
+          <div class="editorial-moment-toolbar"><div><strong>公开人脉</strong><span>隐私人物只展示对方允许公开的资料</span></div></div>
+          <div v-if="!socialCircle.length" class="character-state-card empty"><strong>没有可见人脉</strong><p>此角色尚未公开任何生活关系。</p></div>
+          <div v-else class="network-page-list">
+            <button v-for="item in socialCircle" :key="item.entityId" type="button" @click="emit('open-social-contact', item)">
+              <span class="network-avatar large" :style="item.avatarUrl ? { backgroundImage: `url(${item.avatarUrl})` } : {}">{{ item.avatarUrl ? '' : item.name.charAt(0) }}</span>
+              <span class="network-copy"><b>{{ item.privacy === 'private' ? '私密用户' : item.nickname || item.name }}</b><small>{{ item.relation }}</small><em>{{ item.privacy === 'public' ? (item.signature || '公开主页') : item.privacy === 'limited' ? '部分资料仅好友可见' : '对方隐藏了主页资料' }}</em></span>
+              <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- Thumb Dock -->
     <div v-if="currentPage === 'profile'" class="floating-thumb-dock">
-      <button class="primary-chat-btn" type="button" :disabled="relationship.blockedBy === 'character' || isAdvancing" @click="handlePrimaryAction">
+      <button class="primary-chat-btn" type="button" :disabled="relationship.blockedBy === 'character' || isAdvancing || (relationship.friendship !== 'friends' && !canRequestFriend)" @click="handlePrimaryAction">
         <svg viewBox="0 0 24 24"><path d="M5 5h14v11H9l-4 3z"/></svg>
         <span>{{ isAdvancing ? '等待角色回应…' : profileActionLabel }}</span>
       </button>

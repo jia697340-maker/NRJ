@@ -20,6 +20,7 @@ import {
   type FriendRequestRecord,
   type RelationPlanAction
 } from './useChatRelationship'
+import { triggerFriendRequestNotification } from './useFriendRequestPrompt'
 import { useChatAuth } from './useChatAuth'
 
 type AdvanceTrigger =
@@ -119,7 +120,8 @@ export function useRelationshipAdvance() {
       const action = decision.action || 'none'
       if (delay === 0) {
         if (action === 'send_request' && relationship.friendship !== 'friends') {
-          createFriendRequest(chat, 'character_to_user', decision.requestMessage || '想重新加你为好友')
+          const req = createFriendRequest(chat, 'character_to_user', decision.requestMessage || '想重新加你为好友')
+          triggerFriendRequestNotification(chat, req)
         } else if (action === 'block_user') {
           characterBlocksUser(chat, decision.observableReaction || '')
         } else if (action === 'unblock_user') {

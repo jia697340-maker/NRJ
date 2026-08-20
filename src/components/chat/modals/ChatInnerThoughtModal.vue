@@ -2,18 +2,24 @@
 import { computed, ref, watch } from 'vue'
 import { useChatState } from '../../../composables/useChatState'
 import { useChatSettingsSave } from '../../../composables/useChatSettingsSave'
+import { getEffectiveUserProfile } from '../../../composables/useChatUserProfiles'
 import TextEditModal from '../../TextEditModal.vue'
 import LongTextEditModal from '../../LongTextEditModal.vue'
 
 const props = defineProps<{ visible: boolean; chat?: any }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'save'): void }>()
-const { selectedChat, mockChats } = useChatState()
+const { selectedChat, mockChats, myProfile } = useChatState()
 const { saveCurrentChat } = useChatSettingsSave()
 const activeChat = computed(() => props.chat || selectedChat.value)
 const persist = () => props.chat ? emit('save') : saveCurrentChat()
 
 const isGroup = computed(() => activeChat.value?.chatType === 'group')
 const selectedMemberId = ref<string | null>(null)
+const activeThoughtView = ref<'character' | 'user'>('character')
+
+const effectiveUserProfile = computed(() => {
+  return getEffectiveUserProfile(activeChat.value, myProfile.value)
+})
 
 const groupMembers = computed(() => {
   if (!isGroup.value) return []
@@ -22,8 +28,15 @@ const groupMembers = computed(() => {
   }).filter(Boolean) || []
 })
 
+const hasUserThoughts = computed(() => {
+  return Boolean(activeChat.value?.userInnerThoughts && activeChat.value.userInnerThoughts.length > 0)
+})
+
 const currentThoughtsArray = computed(() => {
   if (!activeChat.value) return []
+  if (activeThoughtView.value === 'user') {
+    return activeChat.value.userInnerThoughts || []
+  }
   if (isGroup.value) {
     if (selectedMemberId.value) {
       return activeChat.value.memberInnerThoughts?.[selectedMemberId.value] || []
@@ -62,7 +75,12 @@ const thoughtCount = computed(() => currentThoughtsArray.value.length)
 const showContentEditModal = ref(false)
 
 const handleContentSaved = (newVal: string) => {
-  const arr = isGroup.value ? activeChat.value?.memberInnerThoughts?.[selectedMemberId.value!] : activeChat.value?.innerThoughts
+  const arr = activeThoughtView.value === 'user'
+    ? activeChat.value?.userInnerThoughts
+    : isGroup.value
+      ? activeChat.value?.memberInnerThoughts?.[selectedMemberId.value!]
+      : activeChat.value?.innerThoughts
+
   if (arr && currentThought.value) {
     arr[currentIndex.value].content = newVal
     persist()
@@ -70,6 +88,9 @@ const handleContentSaved = (newVal: string) => {
 }
 
 const effectiveAvatarUrl = computed(() => {
+  if (activeThoughtView.value === 'user') {
+    return effectiveUserProfile.value?.avatarUrl || ''
+  }
   if (isGroup.value && selectedMemberId.value) {
     const member = groupMembers.value.find((m: any) => String(m.characterEntityId || m.id) === selectedMemberId.value)
     return member?.avatarUrl || ''
@@ -77,6 +98,9 @@ const effectiveAvatarUrl = computed(() => {
   return currentThought.value?.senderAvatar || activeChat.value?.avatarUrl
 })
 const effectiveAvatarText = computed(() => {
+  if (activeThoughtView.value === 'user') {
+    return effectiveUserProfile.value?.name?.charAt(0) || '我'
+  }
   if (isGroup.value && selectedMemberId.value) {
     const member = groupMembers.value.find((m: any) => String(m.characterEntityId || m.id) === selectedMemberId.value)
     return member?.name?.charAt(0) || '?'
@@ -85,6 +109,9 @@ const effectiveAvatarText = computed(() => {
 })
 
 const effectiveName = computed(() => {
+  if (activeThoughtView.value === 'user') {
+    return effectiveUserProfile.value?.name || '我的心声'
+  }
   if (isGroup.value && selectedMemberId.value) {
     const member = groupMembers.value.find((m: any) => String(m.characterEntityId || m.id) === selectedMemberId.value)
     return activeChat.value?.memberNicknames?.[selectedMemberId.value] || member?.name || '群成员'
@@ -121,7 +148,12 @@ const toggleSelectAll = () => {
 const executeDelete = (indexes: number[]) => {
   if (!activeChat.value) return
   
-  const arr = isGroup.value ? activeChat.value.memberInnerThoughts?.[selectedMemberId.value!] : activeChat.value.innerThoughts
+  const arr = activeThoughtView.value === 'user'
+    ? activeChat.value?.userInnerThoughts
+    : isGroup.value
+      ? activeChat.value?.memberInnerThoughts?.[selectedMemberId.value!]
+      : activeChat.value?.innerThoughts
+
   if (!arr) return
   
   const sorted = [...indexes].sort((a, b) => b - a)
@@ -141,6 +173,14 @@ const executeDelete = (indexes: number[]) => {
   }
 }
 
+const toggleThoughtView = (view: 'character' | 'user') => {
+  if (activeThoughtView.value === view) return
+  activeThoughtView.value = view
+  currentIndex.value = 0
+  isManageMode.value = false
+  selectedThoughts.value.clear()
+}
+
 const deleteCurrent = () => executeDelete([currentIndex.value])
 const deleteSelected = () => executeDelete(Array.from(selectedThoughts.value, value => Number(value)))
 
@@ -150,6 +190,7 @@ watch(() => props.visible, (visible) => {
     isManageMode.value = false
     selectedThoughts.value.clear()
     selectedMemberId.value = null
+    activeThoughtView.value = 'character'
   }
 })
 </script>
@@ -210,9 +251,29 @@ watch(() => props.visible, (visible) => {
             <header v-if="activeChat" class="profile-header">
               <div class="profile-info">
                 <div class="char-name">{{ effectiveName }}</div>
-                <div class="char-signature clickable-days" @click="showDaysEditModal = true" title="点击修改天数">
-                  相识第 {{ daysKnown }} 天
+                <div class="char-signature" :class="{ 'clickable-days': activeThoughtView === 'character' }" @click="activeThoughtView === 'character' ? (showDaysEditModal = true) : undefined" :title="activeThoughtView === 'character' ? '点击修改天数' : ''">
+                  {{ activeThoughtView === 'user' ? '我的未说出口的想法' : `相识第 ${daysKnown} 天` }}
                 </div>
+              </div>
+
+              <!-- 角色心声 / 我的心声 切换胶囊 (有用户心声或在非群聊模式下展示) -->
+              <div v-if="hasUserThoughts || activeThoughtView === 'user'" class="thought-view-toggle">
+                <button
+                  type="button"
+                  class="view-toggle-btn"
+                  :class="{ active: activeThoughtView === 'character' }"
+                  @click="toggleThoughtView('character')"
+                >
+                  Ta
+                </button>
+                <button
+                  type="button"
+                  class="view-toggle-btn"
+                  :class="{ active: activeThoughtView === 'user' }"
+                  @click="toggleThoughtView('user')"
+                >
+                  我
+                </button>
               </div>
             </header>
 
@@ -401,11 +462,39 @@ watch(() => props.visible, (visible) => {
 .profile-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; }
 .avatar-text-fallback { color: #999; font: 28px "STKaiti", "KaiTi", serif; }
-.profile-info { display: grid; gap: 6px; margin-left: 62px; /* 根据左侧抽出的头像大小进行避让 */ }
-.char-name { color: #333; font: 600 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-.char-signature { color: #888; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: .5px; }
+.profile-info { display: grid; gap: 6px; margin-left: 62px; /* 根据左侧抽出的头像大小进行避让 */ flex: 1; min-width: 0; }
+.char-name { color: #333; font: 600 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.char-signature { color: #888; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: .5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .clickable-days { cursor: pointer; text-decoration: underline dashed rgba(136, 136, 136, 0.4); text-underline-offset: 3px; transition: color 0.2s; }
 .clickable-days:hover { color: #555; text-decoration-color: rgba(85, 85, 85, 0.6); }
+
+/* 切换胶囊样式 */
+.thought-view-toggle {
+  display: flex;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 3px;
+  border-radius: 14px;
+  gap: 2px;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+.view-toggle-btn {
+  border: none;
+  background: transparent;
+  padding: 3px 10px;
+  border-radius: 11px;
+  font-size: 12px;
+  color: #777;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 500;
+}
+.view-toggle-btn.active {
+  background: #fff;
+  color: #222;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  font-weight: 600;
+}
 .thought-content-area { min-height: 136px; margin-top: 56px; margin-bottom: 22px; }
 .text-content { color: #404040; white-space: pre-wrap; text-align: justify; letter-spacing: 1px; font: 15px/32px "STKaiti", "KaiTi", "Songti SC", Georgia, serif; }
 .empty-thought-state { display: grid; min-height: 136px; place-items: center; color: #a0a0a0; font: 16px "STKaiti", "KaiTi", serif; }

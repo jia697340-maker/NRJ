@@ -55,6 +55,7 @@ import ChatSeedreamImageDetailModal from './modals/ChatSeedreamImageDetailModal.
 import ChatImageProviderModal from './modals/ChatImageProviderModal.vue'
 import ChatIdentityProfileModal from './modals/ChatIdentityProfileModal.vue'
 import ChatGroupMemoryBridgeModal from './modals/ChatGroupMemoryBridgeModal.vue'
+import ChatSocialCircleModal from './modals/ChatSocialCircleModal.vue'
 
 const searchQuery = ref('')
 const matchSearch = (...keywords: (string | undefined | null)[]) => {
@@ -207,6 +208,7 @@ const showSeedreamImageDetailModal = ref(false)
 const showImageProviderModal = ref(false)
 const showIdentityProfileModal = ref(false)
 const showGroupMemoryBridgeModal = ref(false)
+const showSocialCircleModal = ref(false)
 const identityProfileTarget = ref<'character' | 'user'>('character')
 const openIdentityProfile = (target: 'character' | 'user') => {
   identityProfileTarget.value = target
@@ -821,6 +823,7 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @show-bilingual-option-modal="openBilingualOptionModal"
         @show-bilingual-language-modal="openBilingualLanguageModal"
         @show-group-memory-bridge-modal="showGroupMemoryBridgeModal = true"
+        @show-social-circle-modal="showSocialCircleModal = true"
         @open-character-profile="emit('open-character-profile')"
         @save="saveCurrentChat"
       />
@@ -1012,6 +1015,13 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
       <ChatGroupMemoryBridgeModal
         v-model:visible="showGroupMemoryBridgeModal"
         :character="selectedChat"
+      />
+
+      <!-- 社交人脉管理弹窗 -->
+      <ChatSocialCircleModal
+        v-model:visible="showSocialCircleModal"
+        :selected-chat="selectedChat"
+        @save="saveCurrentChat"
       />
 
       <!-- 语音详细配置弹窗 -->

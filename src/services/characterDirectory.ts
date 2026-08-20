@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { normalizeSocialProfile, type CharacterSocialProfile } from './characterSocialProfile'
 import { useChatAuth } from '../composables/useChatAuth'
+import { ensureSocialCircle, normalizeSocialCircleItem, normalizeSocialCircleSettings, type SocialCircleItem, type SocialCircleSettings, type SocialPrivacy } from './socialGraph'
 
 const DIRECTORY_KEY = 'clingy_character_directory_v1'
 const CONTACT_KEY_PREFIX = 'clingy_custom_contacts_'
@@ -12,6 +13,11 @@ export interface CharacterDirectoryEntry {
   persona: string
   avatarKey: string
   socialProfile: CharacterSocialProfile
+  socialCircle: SocialCircleItem[]
+  socialCircleSettings: SocialCircleSettings
+  socialPrivacy: SocialPrivacy
+  discoverable: boolean
+  allowFriendRequests: boolean
   idAliases: string[]
   createdAt: number
   updatedAt: number
@@ -73,6 +79,11 @@ const syncEntryToStoredContacts = (entry: CharacterDirectoryEntry) => {
         contact.name = entry.name
         contact.persona = entry.persona
         contact.socialProfile = clone(entry.socialProfile)
+        contact.socialCircle = clone(entry.socialCircle || [])
+        contact.socialCircleSettings = clone(entry.socialCircleSettings || normalizeSocialCircleSettings(contact))
+        contact.socialPrivacy = entry.socialPrivacy || 'public'
+        contact.discoverable = entry.discoverable !== false
+        contact.allowFriendRequests = entry.allowFriendRequests !== false
         contact.avatarKey = entry.avatarKey || contact.avatarKey
         changed = true
       })
@@ -98,6 +109,11 @@ export const registerAccountContactsInDirectory = (contacts: any[], accountId: s
       contact.name = entry.name
       contact.persona = entry.persona
       contact.socialProfile = clone(entry.socialProfile)
+      contact.socialCircle = clone(entry.socialCircle || [])
+      contact.socialCircleSettings = clone(entry.socialCircleSettings || normalizeSocialCircleSettings(contact))
+      contact.socialPrivacy = entry.socialPrivacy || 'public'
+      contact.discoverable = entry.discoverable !== false
+      contact.allowFriendRequests = entry.allowFriendRequests !== false
       contact.avatarKey = entry.avatarKey || contact.avatarKey
       if (needsSync) changed = true
       return
@@ -113,6 +129,11 @@ export const registerAccountContactsInDirectory = (contacts: any[], accountId: s
       persona: String(contact.persona || ''),
       avatarKey: String(contact.avatarKey || `avatar_contact_${contact.id}`),
       socialProfile: clone(profile),
+      socialCircle: clone(ensureSocialCircle(contact)),
+      socialCircleSettings: clone(normalizeSocialCircleSettings(contact)),
+      socialPrivacy: contact.socialPrivacy || 'public',
+      discoverable: contact.discoverable !== false,
+      allowFriendRequests: contact.allowFriendRequests !== false,
       idAliases: [],
       createdAt: Date.now(),
       updatedAt: Date.now()
@@ -142,7 +163,7 @@ export const searchCharacterDirectory = (query: string) => {
   refreshCharacterDirectoryFromAllAccounts()
   const normalized = cleanId(query.replace(/^id\s*[:：]?\s*/i, '')).toLowerCase()
   if (!normalized) return []
-  return readDirectory().filter(entry => (
+  return readDirectory().filter(entry => entry.discoverable !== false && entry.socialPrivacy !== 'hidden' && (
     entry.socialProfile.socialId.toLowerCase() === normalized
     || entry.idAliases.some(alias => alias.toLowerCase() === normalized)
   ))
@@ -170,6 +191,11 @@ export const saveCharacterDirectoryProfile = (chat: any) => {
   entry.name = String(chat.realName || chat.name || entry.name).trim()
   entry.persona = String(chat.persona || entry.persona)
   entry.socialProfile = clone(profile)
+  entry.socialCircle = clone(ensureSocialCircle(chat))
+  entry.socialCircleSettings = clone(normalizeSocialCircleSettings(chat))
+  entry.socialPrivacy = chat.socialPrivacy || entry.socialPrivacy || 'public'
+  entry.discoverable = chat.discoverable !== false
+  entry.allowFriendRequests = chat.allowFriendRequests !== false
   entry.updatedAt = Date.now()
   writeDirectory(entries)
   syncEntryToStoredContacts(entry)
@@ -193,6 +219,19 @@ export const createDirectoryCandidate = (entry: CharacterDirectoryEntry) => {
     persona: entry.persona,
     avatarKey: entry.avatarKey,
     socialProfile: clone(entry.socialProfile),
+    socialCircle: clone(entry.socialCircle || []),
+    socialCircleSettings: clone(entry.socialCircleSettings || normalizeSocialCircleSettings(null)),
+    socialPrivacy: entry.socialPrivacy || 'public',
+    discoverable: entry.discoverable !== false,
+    allowFriendRequests: entry.allowFriendRequests !== false,
+    socialDiscoveryContext: entry.ownerAccountId === accountId ? null : {
+      sourceEntityId: '',
+      sourceName: '',
+      relation: '',
+      privacy: entry.socialPrivacy || 'public',
+      allowFriendRequests: entry.allowFriendRequests !== false,
+      enableMoments: true
+    },
     contactState: 'candidate',
     groups: [],
     messages: [],
@@ -213,4 +252,76 @@ export const createDirectoryCandidate = (entry: CharacterDirectoryEntry) => {
 export const isDirectoryOwner = (entityId: string) => {
   const { currentChatUserId } = useChatAuth()
   return getCharacterDirectoryEntry(entityId)?.ownerAccountId === currentChatUserId.value
+}
+
+export const upsertSocialCircleCharacter = (ownerChat: any, rawItem: SocialCircleItem) => {
+  const item = normalizeSocialCircleItem(rawItem)
+  const entries = readDirectory()
+  const ownerEntry = entries.find(entry => entry.entityId === String(ownerChat.characterEntityId || ownerChat.id))
+  const accountId = ownerEntry?.ownerAccountId || useChatAuth().currentChatUserId.value || 'default-user'
+  let entry = entries.find(existing => existing.entityId === item.entityId)
+  const socialProfile = normalizeSocialProfile({
+    id: item.entityId,
+    name: item.name,
+    socialProfile: { nickname: item.nickname, socialId: item.socialId, signature: item.signature }
+  })
+  socialProfile.nickname = item.nickname || item.name
+  socialProfile.socialId = uniqueSocialId(entries, item.socialId, item.entityId)
+  socialProfile.signature = item.signature
+  const reciprocalCircle = item.reciprocalVisible ? [normalizeSocialCircleItem({
+    id: `edge_${item.entityId}_${String(ownerChat.characterEntityId || ownerChat.id)}`,
+    entityId: String(ownerChat.characterEntityId || ownerChat.id),
+    name: ownerChat.realName || ownerChat.name,
+    nickname: ownerChat.socialProfile?.nickname || ownerChat.realName || ownerChat.name,
+    socialId: ownerChat.socialProfile?.socialId,
+    signature: ownerChat.socialProfile?.signature || '',
+    relation: `我的${item.relation || '熟人'}`,
+    category: item.category,
+    persona: String(ownerChat.persona || '').slice(0, 800),
+    avatarUrl: ownerChat.avatarUrl || '',
+    privacy: 'public',
+    discoverable: true,
+    allowFriendRequests: true,
+    reciprocalVisible: true,
+    enableMoments: true,
+    allowMention: true,
+    interactionFrequency: item.interactionFrequency,
+    origin: 'directory'
+  })] : []
+  if (entry) {
+    entry.name = item.name
+    entry.persona = item.persona
+    entry.socialProfile = socialProfile
+    entry.socialPrivacy = item.privacy
+    entry.discoverable = item.discoverable
+    entry.allowFriendRequests = item.allowFriendRequests
+    entry.socialCircle ||= reciprocalCircle
+    if (item.reciprocalVisible && !entry.socialCircle.some(person => person.entityId === reciprocalCircle[0]?.entityId)) entry.socialCircle.unshift(...reciprocalCircle)
+    entry.updatedAt = Date.now()
+  } else {
+    entry = {
+      entityId: item.entityId,
+      ownerAccountId: accountId,
+      name: item.name,
+      persona: item.persona,
+      avatarKey: '',
+      socialProfile,
+      socialCircle: reciprocalCircle,
+      socialCircleSettings: normalizeSocialCircleSettings(null),
+      socialPrivacy: item.privacy,
+      discoverable: item.discoverable,
+      allowFriendRequests: item.allowFriendRequests,
+      idAliases: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+    entries.push(entry)
+  }
+  writeDirectory(entries)
+  return entry
+}
+
+export const syncSocialCircleToDirectory = (chat: any) => {
+  ensureSocialCircle(chat).forEach(item => upsertSocialCircleCharacter(chat, item))
+  if (isDirectoryOwner(String(chat.characterEntityId || chat.id))) saveCharacterDirectoryProfile(chat)
 }

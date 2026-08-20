@@ -431,8 +431,11 @@ const handleResetTotalMinutes = () => {
 }
 
 .empty-icon {
-  font-size: 32px;
   margin-bottom: 8px;
+  color: var(--music-text-muted, #a1a1aa);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .history-track-card {

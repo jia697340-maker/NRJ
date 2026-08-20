@@ -108,11 +108,11 @@ onUnmounted(() => window.removeEventListener('clingy:character-directory-updated
       <section v-if="directoryResults.length" class="directory-results" aria-label="角色 ID 搜索结果">
         <div class="search-result-title">角色 ID 搜索结果</div>
         <button v-for="entry in directoryResults" :key="entry.entityId" type="button" class="directory-result" @click="emit('open-directory-character', entry)">
-          <div class="contact-avatar" :style="directoryAvatars[entry.entityId] ? { backgroundImage: `url(${directoryAvatars[entry.entityId]})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}">{{ directoryAvatars[entry.entityId] ? '' : (entry.socialProfile.nickname.charAt(0) || entry.name.charAt(0) || '伴') }}</div>
+          <div class="contact-avatar" :style="entry.socialPrivacy !== 'private' && directoryAvatars[entry.entityId] ? { backgroundImage: `url(${directoryAvatars[entry.entityId]})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' } : {}">{{ entry.socialPrivacy === 'private' ? '隐' : directoryAvatars[entry.entityId] ? '' : (entry.socialProfile.nickname.charAt(0) || entry.name.charAt(0) || '伴') }}</div>
           <div class="directory-copy">
-            <strong>{{ entry.socialProfile.nickname || entry.name }}</strong>
-            <span>ID：{{ entry.socialProfile.socialId }}</span>
-            <small>{{ entry.socialProfile.signature || '这个人还没有写个性签名' }}</small>
+            <strong>{{ entry.socialPrivacy === 'private' ? '私密用户' : (entry.socialProfile.nickname || entry.name) }}</strong>
+            <span>{{ entry.socialPrivacy === 'private' ? '对方隐藏了公开身份' : `ID：${entry.socialProfile.socialId}` }}</span>
+            <small>{{ entry.socialPrivacy === 'private' ? '主页资料仅在对方允许时展示' : (entry.socialProfile.signature || '这个人还没有写个性签名') }}</small>
           </div>
           <span class="directory-status">{{ entry.status }}</span>
           <svg class="directory-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m9 18 6-6-6-6"/></svg>

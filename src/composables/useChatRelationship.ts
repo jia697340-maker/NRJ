@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useChatAuth } from './useChatAuth'
 import { mockChats } from './chatState/state'
 import { ensureMemoryState } from '../services/memoryEngine'
+import { triggerFriendRequestNotification } from './useFriendRequestPrompt'
 
 export type FriendshipStatus = 'friends' | 'strangers' | 'deleted_by_user' | 'deleted_by_character'
 export type BlockedBy = 'none' | 'user' | 'character'
@@ -271,7 +272,10 @@ export const processDueRelationshipTimers = () => {
     relationship.requests.forEach(request => {
       if (request.status === 'scheduled' && request.scheduledAt && request.scheduledAt <= now) {
         request.status = relationship.friendship === 'friends' ? 'superseded' : 'pending'
-        if (request.status === 'pending') request.sentAt = now
+        if (request.status === 'pending') {
+          request.sentAt = now
+          triggerFriendRequestNotification(chat, request)
+        }
         changed = true
         if (request.status === 'pending') relationship.events.unshift({ id: nowId('event'), type: 'request_sent', title: '对方向你发送了好友申请', detail: request.message, createdAt: now })
       }
@@ -282,7 +286,10 @@ export const processDueRelationshipTimers = () => {
       if (plan.action === 'unblock_user' && relationship.blockedBy === 'character') characterUnblocksUser(chat)
       else if (plan.action === 'block_user') characterBlocksUser(chat)
       else if (plan.action === 'delete_friend') deleteFriendByCharacter(chat)
-      else if (plan.action === 'send_request' && relationship.friendship !== 'friends') createFriendRequest(chat, 'character_to_user', plan.requestMessage || '想重新加你为好友')
+      else if (plan.action === 'send_request' && relationship.friendship !== 'friends') {
+        const req = createFriendRequest(chat, 'character_to_user', plan.requestMessage || '想重新加你为好友')
+        triggerFriendRequestNotification(chat, req)
+      }
       else if (plan.action === 'accept_request' && request) acceptFriendRequest(chat, request)
       else if (plan.action === 'reject_request' && request) rejectFriendRequest(chat, request, plan.rejectionReason || '')
       relationship.plan = { action: 'none', summary: '计划已经执行', visibility: plan.visibility, status: 'completed' }

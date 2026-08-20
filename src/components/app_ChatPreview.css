@@ -308,10 +308,10 @@
   flex: 1; overflow-y: auto; display: flex; flex-direction: column; z-index: 10; position: relative; padding: 0 20px 40px;
 }
 
-/* 胶囊状分类 TAB 栏 */
+/* 胶囊状分类 TAB 栏 (iOS 质感悬浮分段器) */
 .capsule-tab-container {
   width: 100%;
-  padding: 0 4px;
+  padding: 0 2px;
   margin-top: 10px;
   flex-shrink: 0;
   box-sizing: border-box;
@@ -325,15 +325,20 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  background: var(--sys-bg-secondary);
-  border: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.04);
   border-radius: 999px;
-  padding: 6px 0;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  padding: 3px;
+  gap: 2px;
   width: 100%;
   box-sizing: border-box;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+.dark-theme .capsule-tab-bar {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .capsule-tab-bar::-webkit-scrollbar {
@@ -341,22 +346,40 @@
 }
 
 .capsule-tab-item {
-  flex: 0 0 20%;
+  flex: 1 0 auto;
+  min-width: 50px;
   text-align: center;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-tertiary);
-  padding: 8px 0;
+  padding: 6px 10px;
   border-radius: 999px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  letter-spacing: 0.5px;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 0.3px;
   white-space: nowrap;
+  user-select: none;
+}
+
+.capsule-tab-item:hover {
+  color: var(--text-secondary);
+}
+
+.capsule-tab-item:active {
+  transform: scale(0.96);
 }
 
 .capsule-tab-item.active {
-  background: var(--sys-bg-primary);
+  background: var(--sys-bg-secondary);
   color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0.5px 1.5px rgba(0, 0, 0, 0.04);
+}
+
+.dark-theme .capsule-tab-item.active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .user-avatar-action-box {
