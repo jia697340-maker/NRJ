@@ -1,9 +1,10 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import ChatSocialCircleEditModal, { type SocialContactItem } from './ChatSocialCircleEditModal.vue'
 import { generateSocialCircleDraft, normalizeSocialCircleSettings, type SocialCircleSettings } from '../../../services/socialGraph'
 import { syncSocialCircleToDirectory } from '../../../services/characterDirectory'
+import { removeSocialAvatarIfUnused, resolveSocialAvatarSource, saveSocialAvatarAsset } from '../../../services/socialAvatar'
 
 const props = defineProps<{
   visible: boolean
@@ -21,6 +22,9 @@ const editingContact = ref<SocialContactItem | null>(null)
 const searchQuery = ref('')
 const generating = ref(false)
 const generationError = ref('')
+const avatarSources = ref<Record<string, string>>({})
+let avatarLoadToken = 0
+const avatarObjectUrls = new Set<string>()
 
 const settings = computed<SocialCircleSettings>(() => normalizeSocialCircleSettings(props.selectedChat))
 const persist = () => {
@@ -73,6 +77,61 @@ const filteredList = computed(() => {
   return list
 })
 
+const revokeAvatarObjectUrls = () => {
+  avatarObjectUrls.forEach(url => URL.revokeObjectURL(url))
+  avatarObjectUrls.clear()
+}
+
+const refreshAvatarSources = async () => {
+  const token = ++avatarLoadToken
+  let migratedLegacyAvatar = false
+  for (const item of socialList.value) {
+    if (item.avatarKey || !item.avatarUrl?.startsWith('data:image/')) continue
+    try {
+      item.avatarKey = await saveSocialAvatarAsset(item.entityId, item.avatarUrl)
+      item.avatarUrl = ''
+      item.updatedAt = Date.now()
+      migratedLegacyAvatar = true
+    } catch {
+      // 旧头像迁移失败时保留原数据，避免影响现有显示和人物资料。
+    }
+  }
+  if (migratedLegacyAvatar) persist()
+  const entries = await Promise.all(socialList.value.map(async item => {
+    const resolved = await resolveSocialAvatarSource(item.avatarKey, item.avatarUrl)
+    return { id: item.id, ...resolved }
+  }))
+  if (token !== avatarLoadToken) {
+    entries.filter(item => item.objectUrl).forEach(item => URL.revokeObjectURL(item.url))
+    return
+  }
+  revokeAvatarObjectUrls()
+  const next: Record<string, string> = {}
+  entries.forEach(item => {
+    next[item.id] = item.url
+    if (item.objectUrl) avatarObjectUrls.add(item.url)
+  })
+  avatarSources.value = next
+}
+
+watch(
+  () => [props.visible, socialList.value.map(item => `${item.id}:${item.avatarKey || ''}:${item.avatarUrl || ''}`).join('|')],
+  () => {
+    if (props.visible) void refreshAvatarSources()
+    else {
+      avatarLoadToken += 1
+      revokeAvatarObjectUrls()
+      avatarSources.value = {}
+    }
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  avatarLoadToken += 1
+  revokeAvatarObjectUrls()
+})
+
 const handleClose = () => {
   emit('update:visible', false)
 }
@@ -90,6 +149,7 @@ const openEditModal = (item: SocialContactItem) => {
 const handleSaveContact = (item: SocialContactItem) => {
   const list = [...socialList.value]
   const idx = list.findIndex((c) => c.id === item.id)
+  const previousAvatarKey = idx !== -1 ? list[idx].avatarKey : ''
   if (idx !== -1) {
     list[idx] = item
   } else {
@@ -97,11 +157,14 @@ const handleSaveContact = (item: SocialContactItem) => {
   }
   socialList.value = list
   persist()
+  if (previousAvatarKey && previousAvatarKey !== item.avatarKey) void removeSocialAvatarIfUnused(previousAvatarKey)
 }
 
 const handleDeleteContact = (id: string) => {
+  const previousAvatarKey = socialList.value.find(item => item.id === id)?.avatarKey
   socialList.value = socialList.value.filter((item) => item.id !== id)
   persist()
+  if (previousAvatarKey) void removeSocialAvatarIfUnused(previousAvatarKey)
 }
 
 // 快速生成预设示例
@@ -305,7 +368,7 @@ const generatePresets = async () => {
             <div class="memo-card-inner">
               <!-- 左侧：小头像 -->
               <div class="memo-avatar-polaroid">
-                <img v-if="item.avatarUrl" :src="item.avatarUrl" class="memo-avatar-img" />
+                <img v-if="avatarSources[item.id] || item.avatarUrl" :src="avatarSources[item.id] || item.avatarUrl" class="memo-avatar-img" />
                 <div v-else class="memo-avatar-letter">
                   {{ item.name ? item.name.slice(0, 1) : '友' }}
                 </div>
@@ -381,6 +444,7 @@ const generatePresets = async () => {
     <ChatSocialCircleEditModal
       v-model:visible="showEditModal"
       :edit-item="editingContact"
+      :owner-chat="selectedChat"
       @save="handleSaveContact"
     />
   </div>

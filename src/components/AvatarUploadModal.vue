@@ -22,14 +22,14 @@
         <div class="option-group">
           <label class="custom-file-upload">
             <input type="file" accept="image/*" @change="handleFileChange" class="hidden-file-input" />
-            <span class="upload-btn-text">📁 点击选择本地图片</span>
+            <span class="upload-btn-text">选择本地图片</span>
           </label>
         </div>
         
         <div class="option-divider">或</div>
         
         <div class="option-group url-group">
-          <label>🔗 网络URL：</label>
+          <label>网络图片地址</label>
           <div class="url-input-wrap">
             <input type="text" v-model="inputUrl" placeholder="输入图片链接..." />
             <button @click="applyUrl" class="btn btn-small">应用</button>
@@ -38,7 +38,7 @@
       </div>
       
       <div class="modal-actions">
-        <button @click="resetAvatar" class="btn btn-secondary">重置头像</button>
+        <button @click="resetAvatar" class="btn btn-secondary">恢复默认</button>
         <button @click="saveAvatar" class="btn btn-primary" :class="{ 'is-disabled': isOptimizing }">{{ isOptimizing ? '优化中…' : '保存' }}</button>
       </div>
     </div>

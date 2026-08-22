@@ -4,6 +4,7 @@ import { IMAGE_PROVIDERS } from '../../../services/imageProviderRegistry'
 const props = defineProps<{
   visible: boolean
   currentProvider: string
+  zIndex?: number
 }>()
 
 const emit = defineEmits<{
@@ -24,8 +25,12 @@ const providers = IMAGE_PROVIDERS
 </script>
 
 <template>
-  <div v-if="visible" class="wb-modal-overlay" style="z-index: 10010;" @click.self="close">
-    <div class="custom-confirm-modal" style="max-width: 320px; padding-bottom: 20px;">
+  <div v-if="visible" class="wb-modal-overlay" :style="{ zIndex: zIndex || 10010 }" @click.self="close">
+    <div class="custom-confirm-modal" style="position: relative; max-width: 320px; padding-bottom: 20px;">
+      <!-- 关闭按钮 -->
+      <div @click="close" style="position: absolute; right: 16px; top: 16px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary); font-size: 22px; font-weight: 300; line-height: 1; z-index: 2;">
+        &times;
+      </div>
       <div class="confirm-title" style="margin-bottom: 16px;">选择生图引擎</div>
       <div style="padding: 0 16px; display: flex; flex-direction: column; gap: 8px;">
         <div 

@@ -1,12 +1,22 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { normalizeSocialCircleItem, type SocialCircleItem } from '../../../services/socialGraph'
+import { IMAGE_PROVIDERS, type ImageProviderId } from '../../../services/imageProviderRegistry'
+import {
+  generateSocialAvatarImage,
+  inferSocialAvatarConcept,
+  resolveSocialAvatarSource,
+  saveSocialAvatarAsset,
+  type SocialAvatarConcept
+} from '../../../services/socialAvatar'
+import ChatImageProviderModal from './ChatImageProviderModal.vue'
 export type SocialContactItem = SocialCircleItem
 
 const props = defineProps<{
   visible: boolean
   editItem?: SocialContactItem | null
+  ownerChat?: any
 }>()
 
 const emit = defineEmits<{
@@ -15,6 +25,26 @@ const emit = defineEmits<{
 }>()
 
 const form = ref<SocialContactItem>(normalizeSocialCircleItem({ id: '', name: '', relation: '', category: 'friend' }))
+const avatarPreview = ref('')
+const pendingAvatar = ref<Blob | string | null>(null)
+const pendingGeneratedAvatar = ref(false)
+const showAvatarGenerator = ref(false)
+const showProviderModal = ref(false)
+const avatarProvider = ref<ImageProviderId>('novelai')
+const avatarConcept = ref<SocialAvatarConcept | null>(null)
+const avatarGenerating = ref(false)
+const avatarError = ref('')
+const saving = ref(false)
+let previewObjectUrl = ''
+let generationSession = 0
+
+const providerName = computed(() => IMAGE_PROVIDERS.find(item => item.id === avatarProvider.value)?.name || '生图引擎')
+
+const setAvatarPreview = (url: string, isObjectUrl = false) => {
+  if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
+  previewObjectUrl = isObjectUrl ? url : ''
+  avatarPreview.value = url
+}
 
 const quickRelations = [
   { label: '母亲', cat: 'family' as const },
@@ -30,8 +60,19 @@ const quickRelations = [
 
 watch(
   () => props.visible,
-  (val) => {
+  async (val) => {
     if (val) {
+      const session = ++generationSession
+      setAvatarPreview('')
+      pendingAvatar.value = null
+      pendingGeneratedAvatar.value = false
+      showAvatarGenerator.value = false
+      avatarConcept.value = null
+      avatarError.value = ''
+      saving.value = false
+      avatarProvider.value = (IMAGE_PROVIDERS.some(item => item.id === props.ownerChat?.imageGenProvider)
+        ? props.ownerChat.imageGenProvider
+        : 'novelai') as ImageProviderId
       if (props.editItem) {
         form.value = JSON.parse(JSON.stringify(props.editItem))
       } else {
@@ -49,6 +90,12 @@ watch(
           origin: 'manual'
         })
       }
+      const resolved = await resolveSocialAvatarSource(form.value.avatarKey, form.value.avatarUrl)
+      if (session !== generationSession) {
+        if (resolved.objectUrl) URL.revokeObjectURL(resolved.url)
+        return
+      }
+      setAvatarPreview(resolved.url, resolved.objectUrl)
     }
   },
   { immediate: true }
@@ -65,29 +112,99 @@ const handleAvatarPick = () => {
   input.accept = 'image/*'
   input.onchange = (e: any) => {
     const file = e.target?.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = () => {
-        form.value.avatarUrl = reader.result as string
-      }
-      reader.readAsDataURL(file)
-    }
+    if (!file) return
+    pendingAvatar.value = file
+    pendingGeneratedAvatar.value = false
+    form.value.avatarUrl = ''
+    form.value.avatarGeneration = undefined
+    avatarError.value = ''
+    setAvatarPreview(URL.createObjectURL(file), true)
   }
   input.click()
 }
 
+const handleClearAvatar = () => {
+  pendingAvatar.value = null
+  pendingGeneratedAvatar.value = false
+  form.value.avatarKey = ''
+  form.value.avatarUrl = ''
+  form.value.avatarGeneration = undefined
+  setAvatarPreview('')
+}
+
+const handleProviderSelect = (provider: string) => {
+  if (IMAGE_PROVIDERS.some(item => item.id === provider)) avatarProvider.value = provider as ImageProviderId
+}
+
+const inferAvatar = async () => {
+  avatarError.value = ''
+  avatarConcept.value = await inferSocialAvatarConcept(normalizeSocialCircleItem(form.value), props.ownerChat)
+}
+
+const handleGenerateAvatar = async (reinfer = false) => {
+  if (avatarGenerating.value) return
+  avatarGenerating.value = true
+  avatarError.value = ''
+  const session = generationSession
+  try {
+    if (reinfer || !avatarConcept.value) await inferAvatar()
+    if (!avatarConcept.value) throw new Error('没有可用的头像构想')
+    const image = await generateSocialAvatarImage(
+      normalizeSocialCircleItem(form.value),
+      props.ownerChat,
+      avatarProvider.value,
+      avatarConcept.value
+    )
+    if (session !== generationSession) return
+    pendingAvatar.value = image
+    pendingGeneratedAvatar.value = true
+    form.value.avatarUrl = ''
+    setAvatarPreview(image)
+  } catch (error: any) {
+    if (session === generationSession) avatarError.value = error?.message || '头像生成失败，请检查 API 设置后重试'
+  } finally {
+    if (session === generationSession) avatarGenerating.value = false
+  }
+}
+
 const handleClose = () => {
+  generationSession += 1
+  avatarGenerating.value = false
+  setAvatarPreview('')
   emit('update:visible', false)
 }
 
-const handleSave = () => {
+const handleSave = async () => {
   if (!form.value.name.trim()) {
     return
   }
-  if (!form.value.nickname.trim() || form.value.nickname === '未命名人物') form.value.nickname = form.value.name.trim()
-  form.value.updatedAt = Date.now()
-  emit('save', normalizeSocialCircleItem(JSON.parse(JSON.stringify(form.value))))
-  handleClose()
+  saving.value = true
+  avatarError.value = ''
+  try {
+    let source = pendingAvatar.value
+    if (!source && form.value.avatarUrl?.startsWith('data:')) source = form.value.avatarUrl
+    if (source) {
+      form.value.avatarKey = await saveSocialAvatarAsset(form.value.entityId, source)
+      form.value.avatarUrl = ''
+      if (pendingGeneratedAvatar.value && avatarConcept.value) {
+        form.value.avatarGeneration = {
+          provider: avatarProvider.value,
+          concept: avatarConcept.value.concept,
+          prompt: avatarConcept.value.visualPrompt,
+          generatedAt: Date.now()
+        }
+      }
+    }
+    if (form.value.avatarUrl?.startsWith('data:')) form.value.avatarUrl = ''
+    if (!form.value.nickname.trim() || form.value.nickname === '未命名人物') form.value.nickname = form.value.name.trim()
+    form.value.updatedAt = Date.now()
+    emit('save', normalizeSocialCircleItem(JSON.parse(JSON.stringify(form.value))))
+    handleClose()
+  } catch (error: any) {
+    avatarError.value = error?.message || '头像保存失败，请检查浏览器存储空间'
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 
@@ -98,7 +215,7 @@ const handleSave = () => {
       <div class="social-edit-header">
         <button class="social-edit-btn-cancel" @click="handleClose">取消</button>
         <div class="social-edit-title">{{ editItem ? '编辑社交人脉' : '新建社交人脉' }}</div>
-        <button class="social-edit-btn-save" :disabled="!form.name.trim()" @click="handleSave">保存</button>
+        <button class="social-edit-btn-save" :disabled="!form.name.trim() || saving" @click="handleSave">{{ saving ? '保存中…' : '保存' }}</button>
       </div>
 
       <!-- 表单主体 -->
@@ -106,7 +223,7 @@ const handleSave = () => {
         <!-- 头像区 -->
         <div class="social-avatar-section">
           <div class="social-avatar-uploader" @click="handleAvatarPick">
-            <img v-if="form.avatarUrl" :src="form.avatarUrl" class="social-avatar-preview" />
+            <img v-if="avatarPreview" :src="avatarPreview" class="social-avatar-preview" />
             <div v-else class="social-avatar-placeholder">
               <span>{{ form.name ? form.name.slice(0, 1) : '脉' }}</span>
             </div>
@@ -117,7 +234,33 @@ const handleSave = () => {
               </svg>
             </div>
           </div>
-          <div class="social-avatar-hint">点击设置人物头像</div>
+          <div class="social-avatar-hint">头像保存在本机图片库，不占用联系人文本存储</div>
+          <div class="social-avatar-actions">
+            <button type="button" class="social-avatar-action" @click="handleAvatarPick">本地上传</button>
+            <button type="button" class="social-avatar-action primary" @click="showAvatarGenerator = !showAvatarGenerator">AI 推测头像</button>
+            <button v-if="avatarPreview" type="button" class="social-avatar-action danger" @click="handleClearAvatar">清除</button>
+          </div>
+          <p v-if="avatarError && !showAvatarGenerator" class="social-avatar-error">{{ avatarError }}</p>
+        </div>
+
+        <div v-if="showAvatarGenerator" class="social-avatar-ai-card">
+          <div class="social-avatar-ai-head">
+            <div><strong>按性格推测头像</strong><span>推测此人会主动使用的头像，不默认生成本人照片</span></div>
+            <button type="button" class="social-provider-btn" @click="showProviderModal = true">{{ providerName }}</button>
+          </div>
+          <div v-if="avatarConcept" class="social-avatar-concept">
+            <div class="social-avatar-concept-title">头像构想</div>
+            <textarea v-model="avatarConcept.concept" class="social-avatar-concept-textarea compact" rows="2" maxlength="160"></textarea>
+            <div v-if="avatarConcept.choiceBasis" class="social-avatar-basis">{{ avatarConcept.choiceBasis }}</div>
+            <div class="social-avatar-concept-title prompt">画面描述</div>
+            <textarea v-model="avatarConcept.visualPrompt" class="social-avatar-concept-textarea" rows="4" maxlength="3000"></textarea>
+          </div>
+          <div v-else class="social-avatar-ai-empty">填写姓名和性格设定后，AI 会先判断适合真人、动物、风景、物件、插画或抽象图形，再进行生图。</div>
+          <p v-if="avatarError" class="social-avatar-error">{{ avatarError }}</p>
+          <div class="social-avatar-ai-actions">
+            <button v-if="avatarConcept" type="button" class="social-ai-secondary" :disabled="avatarGenerating" @click="handleGenerateAvatar(true)">重新推测</button>
+            <button type="button" class="social-ai-generate" :disabled="avatarGenerating || !form.name.trim() || !form.persona.trim()" @click="handleGenerateAvatar(false)">{{ avatarGenerating ? '正在推测并生成…' : avatarConcept ? '按此构想生成' : '推测并生成头像' }}</button>
+          </div>
         </div>
 
         <!-- 基本信息区 -->
@@ -290,6 +433,7 @@ const handleSave = () => {
         </div>
       </div>
     </div>
+    <ChatImageProviderModal v-model:visible="showProviderModal" :current-provider="avatarProvider" :z-index="10080" @select="handleProviderSelect" />
   </div>
 </template>
 
@@ -448,6 +592,171 @@ const handleSave = () => {
 .social-avatar-hint {
   font-size: 11.5px;
   color: #888888;
+}
+
+.social-avatar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.social-avatar-action,
+.social-provider-btn,
+.social-ai-secondary,
+.social-ai-generate {
+  border: 1px solid #e3e3e4;
+  border-radius: 8px;
+  background: #f6f6f7;
+  color: #555555;
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.social-avatar-action {
+  height: 29px;
+  padding: 0 10px;
+}
+
+.social-avatar-action.primary,
+.social-ai-generate {
+  border-color: #1a1a1a;
+  background: #1a1a1a;
+  color: #ffffff;
+}
+
+.social-avatar-action.danger {
+  color: #a25b59;
+}
+
+.social-avatar-action:hover,
+.social-provider-btn:hover,
+.social-ai-secondary:hover {
+  border-color: #cfcfd1;
+  background: #eeeeef;
+}
+
+.social-avatar-ai-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #e8e8e8;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.social-avatar-ai-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.social-avatar-ai-head > div {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.social-avatar-ai-head strong {
+  color: #252525;
+  font-size: 12.5px;
+}
+
+.social-avatar-ai-head span,
+.social-avatar-ai-empty,
+.social-avatar-basis {
+  color: #858585;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.social-provider-btn {
+  flex: 0 0 auto;
+  min-width: 74px;
+  height: 28px;
+  padding: 0 9px;
+  background: #ffffff;
+}
+
+.social-avatar-concept {
+  padding: 10px;
+  border: 1px solid #ebebeb;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.social-avatar-concept-title {
+  margin-bottom: 5px;
+  color: #626262;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.social-avatar-concept-title.prompt {
+  margin-top: 9px;
+}
+
+.social-avatar-concept-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  outline: none;
+  resize: vertical;
+  background: #f8f8f9;
+  color: #2a2a2a;
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.social-avatar-concept-textarea:focus {
+  border-color: #bdbdbd;
+  background: #ffffff;
+}
+
+.social-avatar-concept-textarea.compact {
+  resize: none;
+}
+
+.social-avatar-basis {
+  margin-top: 5px;
+  padding-left: 2px;
+}
+
+.social-avatar-error {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 9px;
+  border-radius: 8px;
+  background: #fff1f0;
+  color: #b64b47;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.social-avatar-ai-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.social-ai-secondary,
+.social-ai-generate {
+  min-height: 31px;
+  padding: 0 11px;
+}
+
+.social-ai-generate:disabled,
+.social-ai-secondary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* 表单组合 */

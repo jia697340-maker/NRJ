@@ -16,7 +16,14 @@ export interface SocialCircleItem {
   relation: string
   category: SocialCircleCategory
   persona: string
+  avatarKey?: string
   avatarUrl?: string
+  avatarGeneration?: {
+    provider: string
+    concept: string
+    prompt: string
+    generatedAt: number
+  }
   privacy: SocialPrivacy
   discoverable: boolean
   allowFriendRequests: boolean
@@ -91,7 +98,14 @@ export const normalizeSocialCircleItem = (raw: any, index = 0): SocialCircleItem
     relation: String(raw?.relation || '生活中的熟人').trim().slice(0, 30),
     category: ['family', 'friend', 'work', 'other'].includes(raw?.category) ? raw.category : 'other',
     persona: String(raw?.persona || '').trim().slice(0, 4000),
+    avatarKey: String(raw?.avatarKey || ''),
     avatarUrl: String(raw?.avatarUrl || ''),
+    avatarGeneration: raw?.avatarGeneration && typeof raw.avatarGeneration === 'object' ? {
+      provider: String(raw.avatarGeneration.provider || ''),
+      concept: String(raw.avatarGeneration.concept || '').slice(0, 160),
+      prompt: String(raw.avatarGeneration.prompt || '').slice(0, 3000),
+      generatedAt: Number(raw.avatarGeneration.generatedAt || 0)
+    } : undefined,
     privacy: ['public', 'limited', 'private', 'hidden'].includes(raw?.privacy) ? raw.privacy : 'public',
     discoverable: raw?.discoverable !== false,
     allowFriendRequests: raw?.allowFriendRequests !== false,

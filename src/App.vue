@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch, watchEffect } f
 import StatusBar from './components/StatusBar.vue'
 import Desktop from './components/Desktop.vue'
 import AppearanceSettings from './components/AppearanceSettings.vue'
+import AppAppearanceWardrobe from './components/app_AppearanceWardrobe.vue'
 import ApiSettings from './components/ApiSettings.vue'
 import AppChatPreview from './components/app_ChatPreview.vue'
 import AppSMS from './components/app_SMS.vue'
@@ -416,6 +417,13 @@ watch(activeApp, appId => {
         v-if="activeApp === 'appearance'" 
         data-font-app="appearance"
         @close="activeApp = null" 
+      />
+    </Transition>
+    <Transition name="app-fade">
+      <AppAppearanceWardrobe
+        v-if="activeApp === 'appearance_wardrobe'"
+        data-font-app="appearance_wardrobe"
+        @close="activeApp = null"
       />
     </Transition>
     <Transition name="app-fade">

@@ -278,6 +278,7 @@ export const upsertSocialCircleCharacter = (ownerChat: any, rawItem: SocialCircl
     relation: `我的${item.relation || '熟人'}`,
     category: item.category,
     persona: String(ownerChat.persona || '').slice(0, 800),
+    avatarKey: ownerChat.avatarKey || '',
     avatarUrl: ownerChat.avatarUrl || '',
     privacy: 'public',
     discoverable: true,
@@ -291,6 +292,7 @@ export const upsertSocialCircleCharacter = (ownerChat: any, rawItem: SocialCircl
   if (entry) {
     entry.name = item.name
     entry.persona = item.persona
+    entry.avatarKey = item.avatarKey || ''
     entry.socialProfile = socialProfile
     entry.socialPrivacy = item.privacy
     entry.discoverable = item.discoverable
@@ -304,7 +306,7 @@ export const upsertSocialCircleCharacter = (ownerChat: any, rawItem: SocialCircl
       ownerAccountId: accountId,
       name: item.name,
       persona: item.persona,
-      avatarKey: '',
+      avatarKey: item.avatarKey || '',
       socialProfile,
       socialCircle: reciprocalCircle,
       socialCircleSettings: normalizeSocialCircleSettings(null),

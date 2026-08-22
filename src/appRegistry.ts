@@ -12,6 +12,7 @@ export interface AppRegistryItem {
 // 桌面、图标管理与字体作用范围共用此清单。以后新增 APP 只需在这里注册一次。
 export const appRegistry: AppRegistryItem[] = [
   { id: 'appearance', name: '外观设置', icon: '<span class="text-icon">颜</span>', color: '#ffffff', available: true, allowCustomFont: true },
+  { id: 'appearance_wardrobe', name: '外观衣柜', icon: '<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14v15H5z"/><path d="M12 5v15M8.5 9h.01M15.5 9h.01M9 2h6v3"/></svg>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'world_book', name: '世界书', icon: '<span class="text-icon">书</span>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'settings', name: '高级设置', icon: '<span class="text-icon">设</span>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'messages', name: '短信', icon: '<span class="text-icon">信</span>', color: '#ffffff', available: true, allowCustomFont: true },

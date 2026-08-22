@@ -767,10 +767,11 @@ export function useAdvancedSettingsStorage(showConfirm: (message: string, title?
       for (let index = 0; index < localStorage.length; index++) {
         const raw = localStorage.getItem(localStorage.key(index) || '') || ''
         for (const match of raw.matchAll(/localforage:([^"'\\\s}]+)/g)) referencedAvatars.add(match[1])
+        for (const match of raw.matchAll(/"avatarKey"\s*:\s*"([^"\\]+)"/g)) referencedAvatars.add(match[1])
       }
       const avatarStore = localforage.createInstance({ name: 'nrt-app', storeName: 'avatars' })
       for (const key of await avatarStore.keys()) {
-        if (!(key.startsWith('persona_avatar_') || key.startsWith('avatar_content_') || key.startsWith('avatar_st_')) || referencedAvatars.has(key)) continue
+        if (!(key.startsWith('persona_avatar_') || key.startsWith('avatar_content_') || key.startsWith('avatar_st_') || key.startsWith('avatar_social_')) || referencedAvatars.has(key)) continue
         const value = await avatarStore.getItem<any>(key)
         if (typeof value === 'string') releasedBytes += value.startsWith('data:') ? decodedDataUrlSize(value) : utf8Size(value)
         else if (value instanceof Blob) releasedBytes += value.size

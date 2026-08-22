@@ -1,6 +1,7 @@
 <!-- WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ -->
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import localforage from 'localforage'
 import CharacterProfileAiModal from './CharacterProfileAiModal.vue'
 import { applySocialProfilePatch, ensureSocialProfile, type CharacterSocialProfile, type SocialManagementMode } from '../../../services/characterSocialProfile'
 import { createCharacterMoment, deleteCharacterMoment, listMomentsByAuthor, updateCharacterMoment } from '../../../services/momentRepository'
@@ -11,6 +12,10 @@ import { useRelationshipAdvance } from '../../../composables/useRelationshipAdva
 import { useChatAuth } from '../../../composables/useChatAuth'
 import ChatIdentityProfileModal from '../modals/ChatIdentityProfileModal.vue'
 import { canDiscoverSocialContact, canViewSocialContactMoments, ensureSocialCircle, normalizeSocialCircleSettings, type SocialCircleItem } from '../../../services/socialGraph'
+import { getAppearanceStyleId } from '../../../store'
+import MagazineProfileStyle from './MagazineProfileStyle.vue'
+import LetterProfileStyle from './LetterProfileStyle.vue'
+import AvatarUploadModal from '../../AvatarUploadModal.vue'
 
 const props = defineProps<{ chat: any }>()
 const emit = defineEmits<{ (event: 'back'): void; (event: 'open-chat'): void; (event: 'save'): void | Promise<void>; (event: 'open-social-contact', item: SocialCircleItem): void }>()
@@ -64,7 +69,11 @@ const discoveryContext = computed(() => relationship.value.friendship === 'frien
 const canViewMoments = computed(() => !discoveryContext.value || canViewSocialContactMoments({ ...props.chat, ...discoveryContext.value } as any, relationship.value.friendship === 'friends'))
 const canRequestFriend = computed(() => props.chat.allowFriendRequests !== false && discoveryContext.value?.allowFriendRequests !== false)
 const canManageProfile = computed(() => isDirectoryOwner(String(props.chat.characterEntityId || props.chat.id)))
-const { chatAccounts, currentAccount } = useChatAuth()
+const { chatAccounts, currentAccount, currentChatUserId } = useChatAuth()
+const appearanceStyleId = computed(() => getAppearanceStyleId('characterProfile', currentChatUserId.value))
+const coverStore = localforage.createInstance({ name: 'nrt-app', storeName: 'character_profile_covers' })
+const profileCoverUrl = ref('')
+const showCoverUpload = ref(false)
 const { isAdvancing, relationshipError, advanceRelationship } = useRelationshipAdvance()
 const linkedAccounts = computed(() => (currentAccount.value?.linkedAccountIds || [])
   .map(id => chatAccounts.value.find(account => account.id === id))
@@ -90,12 +99,31 @@ const permissionRows = [
   { key: 'nickname', title: '修改网名', description: '允许角色调整对外显示的昵称' },
   { key: 'socialId', title: '修改社交 ID', description: '身份标识较稳定，建议谨慎开启' },
   { key: 'signature', title: '修改个性签名', description: '允许角色根据状态更新签名' },
+  { key: 'cover', title: '修改主页封面', description: '允许角色提出更换独立主页封面的申请' },
   { key: 'publishMoments', title: '发布朋友圈', description: '允许角色主动发布新内容' },
   { key: 'editMoments', title: '编辑自己的朋友圈', description: '默认仅管理角色自己生成的内容' },
   { key: 'deleteMoments', title: '删除自己的朋友圈', description: '高风险操作，默认关闭' },
   { key: 'manageUserMoments', title: '管理用户代发内容', description: '允许角色修改或删除你替其发布的内容' },
   { key: 'generateImages', title: '生成朋友圈配图', description: '可能消耗图像额度' }
 ] as const
+
+const loadProfileCover = async () => {
+  try { profileCoverUrl.value = await coverStore.getItem<string>(profile.value.coverImageKey) || '' }
+  catch { profileCoverUrl.value = '' }
+}
+
+const saveProfileCover = async (url: string | null) => {
+  try {
+    if (url) await coverStore.setItem(profile.value.coverImageKey, url)
+    else await coverStore.removeItem(profile.value.coverImageKey)
+    profileCoverUrl.value = url || ''
+    profile.value.changes.unshift({ id: `${Date.now()}_cover_user`, field: 'cover', before: '原封面', after: url ? '已更新封面' : '纯白封面', source: 'user', createdAt: Date.now(), status: 'applied' })
+    profile.value.changes = profile.value.changes.slice(0, 80)
+    profile.value.updatedAt = Date.now()
+    await persist()
+    notify(url ? '主页封面已更新' : '已恢复纯白封面')
+  } catch { notify('主页封面保存失败') }
+}
 
 const isNavScrolled = ref(false)
 
@@ -341,8 +369,14 @@ const sourceLabel = (moment: any) => ({ manual: '用户代发', 'ai-assist': 'AI
 
 onMounted(() => {
   void loadMoments()
+  void loadProfileCover()
   window.addEventListener('clingy:moments-updated', loadMoments)
   timeUpdateTimer = setInterval(() => { now.value = Date.now() }, 1000)
+})
+watch(() => props.chat?.id, () => {
+  profile.value = ensureSocialProfile(props.chat)
+  void loadMoments()
+  void loadProfileCover()
 })
 onUnmounted(() => {
   window.removeEventListener('clingy:moments-updated', loadMoments)
@@ -368,6 +402,7 @@ onUnmounted(() => {
 
     <div class="profile-scroll-container" :class="{ 'with-solid-nav': currentPage !== 'profile' }" @scroll="handleScroll">
       <template v-if="currentPage === 'profile'">
+        <template v-if="appearanceStyleId === 'default'">
         <header class="character-hero-cover">
           <div 
             class="cover-image" 
@@ -461,6 +496,47 @@ onUnmounted(() => {
             </button>
           </section>
         </main>
+        </template>
+
+        <template v-else>
+          <div class="profile-style-wrapper" :class="`profile-style-${appearanceStyleId}`">
+            <MagazineProfileStyle
+              v-if="appearanceStyleId === 'magazine'"
+              :chat="props.chat"
+              :cover-url="profileCoverUrl"
+              :display-name="displayName"
+              :display-signature="displaySignature"
+              :moments="moments"
+              :loading="loadingMoments"
+              :can-view-moments="canViewMoments"
+              @copy-id="copyId"
+              @open-moments="currentPage = 'moments'"
+            />
+            <LetterProfileStyle
+              v-else
+              :chat="props.chat"
+              :cover-url="profileCoverUrl"
+              :display-name="displayName"
+              :display-signature="displaySignature"
+              :moments="moments"
+              :loading="loadingMoments"
+              :can-view-moments="canViewMoments"
+              @copy-id="copyId"
+              @open-moments="currentPage = 'moments'"
+            />
+            <main class="editorial-body alternate-profile-extras">
+              <section v-if="discoveryContext" class="editorial-note social-privacy-note">
+                <svg viewBox="0 0 24 24"><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7z"/><path d="M9 12h6"/></svg>
+                <div><strong>{{ discoveryContext.privacy === 'private' ? '私密用户' : discoveryContext.privacy === 'limited' ? '好友可见主页' : '来自人脉圈' }}</strong><span>{{ discoveryContext.relation ? `与引荐角色的关系：${discoveryContext.relation}` : '公开资料会按对方隐私设置展示' }}</span></div>
+              </section>
+              <section v-if="canManageProfile" class="editorial-note character-awareness-note" :class="{ enabled: profile.awarenessEnabled }"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-9h.01"/></svg><div><strong>{{ profile.awarenessEnabled ? '角色已感知自己的主页' : '主页目前仅对你可见' }}</strong><span>{{ profile.awarenessEnabled ? `管理模式：${profile.managementMode === 'readonly' ? '只读' : profile.managementMode === 'confirm' ? '修改需确认' : '自主管理'}` : '开启后角色才能感知' }}</span></div><button type="button" @click="openManage('permissions')">设置</button></section>
+              <section v-else-if="!canViewMoments" class="moments-stream locked-stream"><div class="stream-header"><h2>随笔手记</h2></div><div class="empty-stream"><div class="empty-hint">对方仅向好友公开朋友圈</div></div></section>
+              <section v-if="socialCircleSettings.enabled && socialCircle.length" class="editorial-links social-network-preview"><header><strong>人脉圈</strong><span>{{ socialCircle.length }} 位可见人物</span></header><button v-for="item in socialCircle.slice(0,4)" :key="item.entityId" type="button" @click="emit('open-social-contact',item)"><span class="network-avatar" :style="item.avatarUrl ? {backgroundImage:`url(${item.avatarUrl})`}:{}">{{ item.avatarUrl?'':item.name.charAt(0) }}</span><span><b>{{ item.privacy==='private'?'私密用户':item.nickname||item.name }}</b><small>{{ item.relation }} · {{ item.category==='family'?'亲人':item.category==='friend'?'朋友':item.category==='work'?'工作学业':'其他' }}</small></span><em>查看</em></button><button v-if="socialCircle.length>4" class="network-all" type="button" @click="currentPage='network'">查看全部 {{ socialCircle.length }} 位人脉</button></section>
+              <section v-if="canManageProfile" class="editorial-note character-awareness-note"><svg viewBox="0 0 24 24"><path d="M4 21v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2"/><circle cx="12" cy="7" r="4"/></svg><div><strong>角色固定形象</strong><span>管理形象版本、参考素材与一致性约束</span></div><button type="button" @click="showIdentityProfile=true">设置</button></section>
+              <section v-if="linkedAccounts.length" class="editorial-links character-account-links"><header><strong>关联账号</strong><span>默认保密，只在你选择后告诉这个角色</span></header><button v-for="account in linkedAccounts" :key="account!.id" type="button" :class="{disclosed:relationship.disclosedLinkedAccountIds.includes(account!.id)}" @click="toggleLinkedAccountDisclosure(account!.id)"><span><b>{{ account!.name }}</b><small>ID：{{ account!.accountId }}</small></span><em>{{ relationship.disclosedLinkedAccountIds.includes(account!.id)?'角色已知':'告诉角色' }}</em></button></section>
+            </main>
+          </div>
+        </template>
       </template>
 
       <template v-else-if="currentPage === 'moments'">
@@ -547,6 +623,7 @@ onUnmounted(() => {
                 <label class="manage-field"><span>网名<small>{{ profile.nickname.length }}/30</small></span><input v-model="profile.nickname" maxlength="30" placeholder="角色对外显示的名字"></label>
                 <label class="manage-field"><span>社交 ID<small>4～20 位</small></span><input v-model="profile.socialId" maxlength="20" pattern="[A-Za-z0-9_-]+" placeholder="字母、数字、下划线或短横线"></label>
                 <label class="manage-field"><span>个性签名<small>{{ profile.signature.length }}/120</small></span><textarea v-model="profile.signature" maxlength="120" placeholder="写一句这个角色会放在主页的话"></textarea></label>
+                <fieldset class="manage-cover-field"><legend>独立主页封面</legend><button type="button" :class="{ selected: profileCoverUrl }" @click="showCoverUpload = true"><span :style="profileCoverUrl ? { backgroundImage: `url(${profileCoverUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}"></span><b>{{ profileCoverUrl ? '更换封面' : '设置封面' }}</b><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button><button type="button" :disabled="!profileCoverUrl" @click="saveProfileCover(null)"><span class="pure-white-cover"></span><b>恢复纯白</b><svg v-if="!profileCoverUrl" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></button></fieldset>
                 <button class="manage-save-button" type="button" :disabled="!profile.nickname.trim() || profile.socialId.length < 4" @click="saveProfile">保存主页资料</button>
               </template>
 
@@ -558,7 +635,7 @@ onUnmounted(() => {
 
               <template v-else>
                 <div v-if="!profile.changes.length" class="manage-history-empty"><svg viewBox="0 0 24 24"><path d="M12 8v5l3 2M4 12a8 8 0 1 0 2-5.3L4 9M4 4v5h5"/></svg><strong>还没有主页变更</strong><span>用户、AI 和角色的修改都会记录在这里</span></div>
-                <div v-else class="manage-history-list"><article v-for="change in profile.changes" :key="change.id" :class="change.status"><header><strong>{{ {nickname:'网名',socialId:'社交 ID',signature:'个性签名',momentEdit:'编辑朋友圈',momentDelete:'删除朋友圈',momentPublish:'发布朋友圈'}[change.field] || change.field }}</strong><span>{{ change.source === 'user' ? '用户修改' : change.source === 'ai-assist' ? 'AI 辅助' : '角色申请' }}</span></header><p><del>{{ change.before || '空' }}</del><svg viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></svg><b>{{ change.after }}</b></p><footer><time>{{ new Date(change.createdAt).toLocaleString('zh-CN') }}</time><div v-if="change.status === 'pending'"><button type="button" @click="reviewChange(change,false)">拒绝</button><button class="accept" type="button" @click="reviewChange(change,true)">同意</button></div><span v-else>{{ change.status === 'applied' ? '已生效' : '已拒绝' }}</span></footer></article></div>
+                <div v-else class="manage-history-list"><article v-for="change in profile.changes" :key="change.id" :class="change.status"><header><strong>{{ {nickname:'网名',socialId:'社交 ID',signature:'个性签名',cover:'主页封面',momentEdit:'编辑朋友圈',momentDelete:'删除朋友圈',momentPublish:'发布朋友圈'}[change.field] || change.field }}</strong><span>{{ change.source === 'user' ? '用户修改' : change.source === 'ai-assist' ? 'AI 辅助' : '角色申请' }}</span></header><p><del>{{ change.before || '空' }}</del><svg viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></svg><b>{{ change.after }}</b></p><footer><time>{{ new Date(change.createdAt).toLocaleString('zh-CN') }}</time><div v-if="change.status === 'pending'"><button type="button" @click="reviewChange(change,false)">拒绝</button><button class="accept" type="button" @click="reviewChange(change,true)">同意</button></div><span v-else>{{ change.status === 'applied' ? '已生效' : '已拒绝' }}</span></footer></article></div>
               </template>
             </div>
           </section>
@@ -615,6 +692,7 @@ onUnmounted(() => {
       :owner-avatar="props.chat.avatarUrl"
       :provider="props.chat.imageGenProvider || 'novelai'"
     />
+    <AvatarUploadModal v-model:visible="showCoverUpload" :current-avatar="profileCoverUrl" shape="wallpaper" title="设置主页封面" @saved="saveProfileCover" />
   </div>
 </template>
 

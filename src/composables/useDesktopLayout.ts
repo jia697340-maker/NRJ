@@ -44,6 +44,7 @@ const THIRD_PAGE_APP_IDS = new Set([
   'text_game'
 ])
 const FOURTH_PAGE_APP_IDS = new Set([
+  'appearance_wardrobe',
   'book_store',
   'game',
   'bubble',
@@ -131,6 +132,24 @@ const normalize = (raw: Partial<DesktopLayoutState>, appIds: string[]): DesktopL
     if (!used.has(id) && !hidden.has(id)) {
       const targetPage = FOURTH_PAGE_APP_IDS.has(id) ? 3 : (THIRD_PAGE_APP_IDS.has(id) ? 2 : 1)
       pages[targetPage].push({ type: 'app', id })
+    }
+  }
+
+  // 确保归属于第四页的应用（如外观衣柜）若此前保存在前几页则平滑移至第四页
+  for (const id of FOURTH_PAGE_APP_IDS) {
+    if (!validIds.has(id) || hidden.has(id)) continue
+    // 如果存在于前 3 页的普通列表或 dock，将其移到第 4 页
+    let foundAndRemoved = false
+    for (let p = 0; p < 3; p++) {
+      const idx = pages[p].findIndex(e => e.type === 'app' && e.id === id)
+      if (idx >= 0) {
+        pages[p].splice(idx, 1)
+        foundAndRemoved = true
+        break
+      }
+    }
+    if (foundAndRemoved && !pages[3].some(e => e.type === 'app' && e.id === id)) {
+      pages[3].push({ type: 'app', id })
     }
   }
 

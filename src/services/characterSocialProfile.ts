@@ -28,6 +28,7 @@ export type CharacterSocialProfile = {
   nickname: string
   socialId: string
   signature: string
+  coverImageKey: string
   awarenessEnabled: boolean
   managementMode: SocialManagementMode
   permissions: SocialProfilePermissions
@@ -49,6 +50,7 @@ export const defaultSocialProfile = (chat?: any): CharacterSocialProfile => ({
   nickname: String(chat?.realName || chat?.name || '').trim(),
   socialId: createSocialId(chat?.id),
   signature: '',
+  coverImageKey: `profile_cover_${String(chat?.characterEntityId || chat?.id || 'unknown')}`,
   awarenessEnabled: false,
   managementMode: 'readonly',
   permissions: {
@@ -80,6 +82,7 @@ export const normalizeSocialProfile = (chat: any): CharacterSocialProfile => {
     nickname: String(saved.nickname || defaults.nickname).trim(),
     socialId: String(saved.socialId || defaults.socialId).trim(),
     signature: String(saved.signature || ''),
+    coverImageKey: String(saved.coverImageKey || defaults.coverImageKey),
     managementMode: ['readonly', 'confirm', 'autonomous'].includes(saved.managementMode) ? saved.managementMode : defaults.managementMode,
     permissions: { ...defaults.permissions, ...(saved.permissions || {}) },
     generation: {
