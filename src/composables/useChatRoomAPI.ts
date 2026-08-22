@@ -23,6 +23,12 @@ import { getMemoryExportItems } from '../services/memoryEngine'
 import { useChatAuth } from './useChatAuth'
 import { createIncomingWalletPayment } from '../services/walletService'
 import { extractEmbeddedReasoning } from '../services/reasoning'
+import {
+  completeReplyRegeneration,
+  prepareReplyRegeneration,
+  restorePreviousReplyAfterFailure,
+  type ReplyRegenerationSession
+} from '../services/replyVariants'
 
 // 引入拆分的逻辑模块
 import { useChatRoomError } from './useChatRoomError'
@@ -58,6 +64,8 @@ type TriggerChatOptions = {
   turnId?: string
   currentUserThought?: string
   consumePendingThought?: boolean
+  onComplete?: (chat: any, turnId: string) => void
+  onError?: (chat: any, turnId: string) => void
 }
 
 export function useChatRoomAPI(
@@ -77,6 +85,7 @@ export function useChatRoomAPI(
   const isGenerating = ref(false)
   let abortController: AbortController | null = null
   const typingTimers: ReturnType<typeof setTimeout>[] = []
+  let activeRegenerationSession: ReplyRegenerationSession | null = null
   const { generateImage: generateNovelImage, abortGeneration: abortNovelGeneration } = useNovelAI()
   const { generateImage: generateGptImage, abortGeneration: abortGptGeneration } = useGptImage()
   const { generateImage: generateGeminiImage, abortGeneration: abortGeminiGeneration } = useGeminiImage()
@@ -141,7 +150,14 @@ export function useChatRoomAPI(
     isGenerating.value = false
     
     const targetChat = mockChats.value.find((c: any) => c.id === selectedChat.value?.id)
-    if (targetChat) targetChat.isTyping = false
+    if (targetChat) {
+      targetChat.isTyping = false
+      if (activeRegenerationSession) {
+        restorePreviousReplyAfterFailure(targetChat, activeRegenerationSession)
+        activeRegenerationSession = null
+        saveCustomContacts(targetChat)
+      }
+    }
   }
 
   const clearOfflineTimer = (chatId: string | number) => {
@@ -192,33 +208,27 @@ export function useChatRoomAPI(
     if (!msgs || msgs.length === 0) return
 
     const regenerateOfflineMode = getOfflineMeetMode?.() ?? false
-    let removed = false
-    const removedTurnIds = new Set<string>()
-    while (
-      msgs.length > 0 &&
-      msgs[msgs.length - 1].type === 'left' &&
-      (regenerateOfflineMode !== 'separate' || msgs[msgs.length - 1].isOfflineMeetMsg)
-    ) {
-      const removedMessage = msgs.pop()
-      if (removedMessage?.turnId) removedTurnIds.add(removedMessage.turnId)
-      removed = true
-    }
+    const session = prepareReplyRegeneration(selectedChat.value, 'single', regenerateOfflineMode)
 
-    if (removed) {
-      let regenerateTurnId = Array.from(removedTurnIds)[0] || ''
-      if (removedTurnIds.size > 0) {
-        selectedChat.value.innerThoughts = (selectedChat.value.innerThoughts || []).filter((item: any) => !removedTurnIds.has(item.turnId))
-      } else if (selectedChat.value.innerThoughts?.length) {
-        selectedChat.value.innerThoughts.shift()
-      }
-      if (!regenerateTurnId) regenerateTurnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-      const previousUserThought = (selectedChat.value.userInnerThoughts || []).find((item: any) => item.turnId === regenerateTurnId)?.content || ''
+    if (session) {
+      activeRegenerationSession = session
+      const previousUserThought = (selectedChat.value.userInnerThoughts || []).find((item: any) => item.turnId === session.turnId)?.content || ''
       saveCustomContacts()
       showExtensionPanel.value = false
       await triggerAPI(callMode, 'default', {
-        turnId: regenerateTurnId,
+        turnId: session.turnId,
         currentUserThought: previousUserThought,
-        consumePendingThought: false
+        consumePendingThought: false,
+        onComplete: chat => {
+          completeReplyRegeneration(chat, session)
+          activeRegenerationSession = null
+          saveCustomContacts(chat)
+        },
+        onError: chat => {
+          restorePreviousReplyAfterFailure(chat, session)
+          activeRegenerationSession = null
+          saveCustomContacts(chat)
+        }
       })
     } else {
       showToast('没有可重新生成的回复')
@@ -263,6 +273,7 @@ export function useChatRoomAPI(
       scheduleOfflineReturn(targetChat)
 
       saveCustomContacts()
+      triggerOptions.onError?.(targetChat, turnId)
       return
     }
 
@@ -519,7 +530,9 @@ export function useChatRoomAPI(
               return triggerAPI(callMode, 'moment-followup', {
                 turnId,
                 currentUserThought,
-                consumePendingThought: false
+                consumePendingThought: false,
+                onComplete: triggerOptions.onComplete,
+                onError: triggerOptions.onError
               })
             }
             
@@ -531,6 +544,7 @@ export function useChatRoomAPI(
                console.log(`[调试] 聊天结束，用户已离开 ${chatToUpdate.name} 房间，准备将最新状态写入硬盘`)
                saveCustomContacts(chatToUpdate)
             }
+            if (chatToUpdate) triggerOptions.onComplete?.(chatToUpdate, turnId)
             return
           }
           
@@ -1025,6 +1039,7 @@ export function useChatRoomAPI(
         targetChat.userInnerThoughts = (targetChat.userInnerThoughts || []).filter((item: any) => item.turnId !== turnId)
         saveCustomContacts(targetChat)
       }
+      if (targetChat) triggerOptions.onError?.(targetChat, turnId)
       if (err.name === 'AbortError') {
         console.log('API 被主动中止')
         isGenerating.value = false

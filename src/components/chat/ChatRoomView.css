@@ -1,6 +1,47 @@
 /* ========================================================
    微信原版复刻 (WeChat Original)
 ======================================================== */
+.reply-variant-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  width: fit-content;
+  margin: -3px 0 8px 48px;
+  padding: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.055);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.045);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.is-dark .reply-variant-row { background: rgba(36, 36, 36, 0.72); border-color: rgba(255,255,255,.08); }
+.reply-variant-action,
+.reply-variant-count {
+  appearance: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-secondary, #777);
+  height: 24px;
+  min-width: 25px;
+  padding: 0 6px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  line-height: 1;
+}
+.reply-variant-action { cursor: pointer; font-size: 20px; transition: background .16s ease, color .16s ease, opacity .16s ease; }
+.reply-variant-action:active:not(:disabled) { background: rgba(0,0,0,.06); transform: scale(.94); }
+.is-dark .reply-variant-action:active:not(:disabled) { background: rgba(255,255,255,.08); }
+.reply-variant-action:disabled { opacity: .28; cursor: default; }
+.reply-variant-count { min-width: 38px; padding: 0 3px; font-size: 11px; opacity: .72; }
+.reply-variant-action.regenerate { margin-left: 1px; }
+.reply-variant-action svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.reply-variant-preview-message { pointer-events: none; }
+
 .wc-bubble-real {
   width: 236px;
   border-radius: 6px;

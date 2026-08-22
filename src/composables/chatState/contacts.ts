@@ -8,11 +8,12 @@ import { normalizeSocialProfile } from '../../services/characterSocialProfile'
 import { ensureSocialCircle, normalizeSocialCircleSettings } from '../../services/socialGraph'
 import { getCharacterDirectoryEntry, registerAccountContactsInDirectory } from '../../services/characterDirectory'
 import { deleteIdentityProfile } from '../../services/identityProfile'
-import { deleteGroupChat, readGroupChats } from '../../services/groupChat'
+import { deleteGroupChat, readGroupChats, saveGroupChat } from '../../services/groupChat'
 import { normalizeMemoryMode } from '../../services/memoryEngine'
 import { normalizeChatModelRules, normalizeModelCommunicationMessages } from '../../services/modelCommunication'
 import localforage from 'localforage'
-import { deleteAllChatTimelineData, initializeChatTimeline } from '../../services/chatTimeline'
+import { deleteAllChatTimelineData, initializeChatTimeline, persistActiveTimeline } from '../../services/chatTimeline'
+import { recoverInterruptedReplyRegeneration } from '../../services/replyVariants'
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -250,10 +251,18 @@ export const loadCustomContacts = async () => {
       autonomyHistory,
       autonomyState,
       timelineState: c.timelineState || null,
+      replyVariantSets: Array.isArray(c.replyVariantSets) ? c.replyVariantSets : [],
+      pendingReplyVariantSetId: c.pendingReplyVariantSetId || '',
       activeTimelineId: c.timelineState?.activeTimelineId || c.activeTimelineId || 'main',
       isTyping: currentTypingState.get(c.id) || false
     }
     await initializeChatTimeline(customChat, currentChatUserId.value)
+    if (recoverInterruptedReplyRegeneration(customChat)) {
+      const savedIndex = savedContacts.findIndex((item: any) => String(item.id) === String(customChat.id))
+      if (savedIndex >= 0) savedContacts[savedIndex] = { ...savedContacts[savedIndex], messages: customChat.messages, innerThoughts: customChat.innerThoughts, replyVariantSets: customChat.replyVariantSets, pendingReplyVariantSetId: '' }
+      localStorage.setItem(contactsKey, JSON.stringify(savedContacts))
+      await persistActiveTimeline(customChat, currentChatUserId.value)
+    }
     customChats.push(customChat)
   }
 
@@ -307,6 +316,12 @@ export const loadCustomContacts = async () => {
     const groupAvatar = group.hasCustomAvatar ? await groupMainAvatarStore.getItem<string>(group.id) : ''
     const groupChat = { ...group, preview, time, avatarText: '群', avatarUrl: groupAvatar || group.avatarUrl || '', memberSnapshots, isTyping: currentTypingState.get(group.id) || false }
     await initializeChatTimeline(groupChat, currentChatUserId.value)
+    if (recoverInterruptedReplyRegeneration(groupChat)) {
+      const recoveredLast = groupChat.messages?.at(-1)
+      groupChat.preview = recoveredLast?.content || '群聊已创建'
+      saveGroupChat(currentChatUserId.value, groupChat)
+      await persistActiveTimeline(groupChat, currentChatUserId.value)
+    }
     return groupChat
   }))
 

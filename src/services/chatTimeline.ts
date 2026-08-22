@@ -110,7 +110,7 @@ const STATE_FIELDS = [
   'presenceSession', 'presenceHistory', 'presencePendingReply', 'autonomyLedger', 'autonomyDeliveries',
   'autonomyHistory', 'autonomyState', 'autonomyLastMeaningfulActionAt', 'modelCommunicationMessages',
   'contactState', 'socialProfile', 'socialCircle', 'socialCircleSettings', 'socialPrivacy',
-  'discoverable', 'allowFriendRequests', 'socialDiscoveryContext', 'userProfile', 'userProfileSource',
+  'discoverable', 'allowFriendRequests', 'socialDiscoveryContext', 'userProfile', 'userProfileSource', 'replyVariantSets', 'pendingReplyVariantSetId',
   'unread', 'preview', 'time', 'draft', 'replyDraft', 'webSearchEnabled'
   , 'memberMemories', 'memoryMemberNames', 'memberSettings', 'memberIds', 'memberNotes', 'memberNicknames',
   'membershipRequests', 'announcements', 'adminLogs', 'memberPoints', 'memberMutes', 'memberActivityDaily',

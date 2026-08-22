@@ -44,6 +44,9 @@ import {
 import { queueMessageForPresence } from '../../services/presenceLifecycle'
 import { getIdentityCalendarParts, isConversationTimePaused, resumeConversationTime } from '../../services/conversationTime'
 import { ensureChatTimelineState, persistActiveTimeline } from '../../services/chatTimeline'
+import { createTimeline } from '../../services/chatTimeline'
+import { adjacentReplyVariantId, getReplyVariant, restoreReplyVariant } from '../../services/replyVariants'
+import ChatReplyVariantForkModal from './modals/ChatReplyVariantForkModal.vue'
 
 useBubbleBeautify()
 
@@ -138,6 +141,8 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
       contacts[index].webSearchEnabled = targetChat.webSearchEnabled === true
       contacts[index].modelCommunicationRules = targetChat.modelCommunicationRules || []
       contacts[index].modelCommunicationMessages = targetChat.modelCommunicationMessages || []
+      contacts[index].replyVariantSets = targetChat.replyVariantSets || []
+      contacts[index].pendingReplyVariantSetId = targetChat.pendingReplyVariantSetId || ''
       contacts[index].timelineState = JSON.parse(JSON.stringify(ensureChatTimelineState(targetChat)))
       contacts[index].activeTimelineId = targetChat.timelineState.activeTimelineId
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
@@ -176,6 +181,7 @@ const emit = defineEmits<{
 }>()
 
 const { mockChats, selectedChat, effectiveMyProfile: myProfile, buildChatMessages, totalUnreadCount, showNotification, checkTransfersExpired } = useChatState()
+const { currentChatUserId } = useChatAuth()
 
 const showExtensionPanel = ref(false)
 const showEmojiPanel = ref(false)
@@ -784,6 +790,42 @@ const handleRegenerate = () => {
   originalHandleRegenerate(showExtensionPanel, showToast)
 }
 
+const pendingVariantSwitch = ref<{ setId: string; variantId: string; parentMessageId: string | number | null; previewMessages: any[] } | null>(null)
+const handleReplyVariantSwitch = async (payload: { setId: string; direction: -1 | 1 }) => {
+  if (!selectedChat.value || isGenerating.value) return
+  const variantId = adjacentReplyVariantId(selectedChat.value, payload.setId, payload.direction)
+  if (!variantId) return
+  const result = restoreReplyVariant(selectedChat.value, payload.setId, variantId)
+  if (result.needsTimeline) {
+    pendingVariantSwitch.value = { setId: payload.setId, variantId, parentMessageId: result.parentMessageId ?? null, previewMessages: getReplyVariant(selectedChat.value, payload.setId, variantId)?.messages || [] }
+    return
+  }
+  if (result.ok) {
+    saveCustomContacts(selectedChat.value)
+    await scrollToBottom()
+  }
+}
+
+const forkFromReplyVariant = async () => {
+  const pending = pendingVariantSwitch.value
+  const chat = selectedChat.value
+  if (!pending || !chat) return
+  pendingVariantSwitch.value = null
+  try {
+    await createTimeline(chat, currentChatUserId.value, {
+      name: `回复分支 ${new Date().toLocaleDateString('zh-CN')}`,
+      fromMessageId: pending.parentMessageId,
+      activate: true
+    })
+    restoreReplyVariant(chat, pending.setId, pending.variantId, true)
+    saveCustomContacts(chat)
+    showToast('已从所选回复创建时间线')
+    await scrollToBottom()
+  } catch (error: any) {
+    showToast(error?.message || '创建回复分支失败')
+  }
+}
+
 const handleResummarize = (msgId?: number) => {
   if (!msgId) return
   reSummarizeImage(msgId, showToast)
@@ -1176,6 +1218,7 @@ onUnmounted(() => {
       :currentMediaThumb="currentMediaThumb"
       :voicePlayingId="voicePlayingId"
       :isVoiceSynthesizing="isVoiceSynthesizing"
+      :is-generating="isGenerating"
       @click-overlay="showExtensionPanel = false; showEmojiPanel = false"
       @click-message="handleMessageClick"
       @toggle-selection="toggleMessageSelection"
@@ -1190,8 +1233,17 @@ onUnmounted(() => {
         @view-recalled-message="viewRecalledMessage"
         @cancel-image-generation="handleCancelImageGeneration"
         @open-gallery="handleOpenGallery"
-        @open-character-profile="emit('open-character-profile')"
+      @open-character-profile="emit('open-character-profile')"
+        @switch-reply-variant="handleReplyVariantSwitch"
+        @regenerate-reply="handleRegenerate"
       />
+
+    <ChatReplyVariantForkModal
+      :visible="Boolean(pendingVariantSwitch)"
+      :preview-messages="pendingVariantSwitch?.previewMessages || []"
+      @close="pendingVariantSwitch = null"
+      @fork="forkFromReplyVariant"
+    />
 
     <transition name="fade">
       <ChatCallRecordsView

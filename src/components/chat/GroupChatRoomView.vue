@@ -48,7 +48,17 @@ import GroupChatAnnouncementBanner from './group/GroupChatAnnouncementBanner.vue
 import GroupAnnouncementDetailModal from './group/GroupAnnouncementDetailModal.vue'
 import { awardGroupActivity, consumeAtAll, getAtAllUsage, groupManagementService, isGroupMemberMuted } from '../../services/groupManagementService'
 import { formatIdentityClockTime, getIdentityCalendarParts, isConversationTimePaused, normalizeConversationTimeState, resumeConversationTime } from '../../services/conversationTime'
-import { ensureChatTimelineState, persistActiveTimeline } from '../../services/chatTimeline'
+import { createTimeline, ensureChatTimelineState, persistActiveTimeline } from '../../services/chatTimeline'
+import {
+  adjacentReplyVariantId,
+  completeReplyRegeneration,
+  getReplyVariant,
+  prepareReplyRegeneration,
+  restorePreviousReplyAfterFailure,
+  restoreReplyVariant,
+  type ReplyRegenerationSession
+} from '../../services/replyVariants'
+import ChatReplyVariantForkModal from './modals/ChatReplyVariantForkModal.vue'
 
 const props = defineProps<{ group: any; isVisible?: boolean }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'open-settings'): void; (e: 'open-character-profile', memberId: string): void }>()
@@ -249,7 +259,7 @@ const reviewManagementProposal = (accepted: boolean) => {
   } catch (error: any) { showToast(error?.message || '处理管理建议失败') }
 }
 
-const runReply = async () => {
+const runReply = async (regenerationSession?: ReplyRegenerationSession) => {
   const targetGroup = props.group
   const autonomousRun = Boolean(targetGroup.pendingAutonomyDirective)
   const targetId = String(targetGroup.id)
@@ -260,6 +270,7 @@ const runReply = async () => {
   const requestController = new AbortController()
   activeGroupReplyIds.add(targetId); groupReplyControllers.set(targetId, requestController); targetGroup.isTyping = true; persist(targetGroup)
   const requestStartedAt = Date.now()
+  let replyCompleted = false
   try {
     const worldText = worldBooks.filter((book: any) => book.enabled && (targetGroup.boundWorldBooks?.includes(book.id) || (book.groupIds || []).some((groupId: string) => targetGroup.boundWorldBookGroups?.includes(groupId)))).flatMap((book: any) => (book.entries || []).filter((entry: any) => entry.enabled).map((entry: any) => `${entry.title}: ${entry.content}`)).join('\n')
     const result = await requestGroupReply(targetGroup, mockChats.value, groupUserProfile.value, requestController.signal, worldText)
@@ -314,7 +325,7 @@ const runReply = async () => {
         catch (error: any) { showToast(error?.message || 'AI 群管理操作未通过权限校验') }
       }
     }
-    const turnId = `group_turn_${Date.now()}`
+    const turnId = regenerationSession?.turnId || `group_turn_${Date.now()}`
     const localIds = new Map<string, number>(); result.messages.forEach((message: any, index: number) => { if (message.key) localIds.set(message.key, Date.now() + index) })
     const imageJobs: { item: any; member: any }[] = []
     result.messages.forEach((message: any, index: number) => {
@@ -386,8 +397,18 @@ const runReply = async () => {
     if (result.idle) showToast('群里暂时没有人接话')
     targetGroup.pendingUserThought = ''
     targetGroup.pendingAutonomyDirective = ''
-  } catch (error: any) { if (error?.name !== 'AbortError') showToast(error?.message || '群聊回复失败') }
-  finally { targetGroup.isTyping = false; activeGroupReplyIds.delete(targetId); groupReplyControllers.delete(targetId); persist(targetGroup); await scrollBottom() }
+    replyCompleted = regenerationSession ? completeReplyRegeneration(targetGroup, regenerationSession) : true
+  } catch (error: any) {
+    if (regenerationSession) restorePreviousReplyAfterFailure(targetGroup, regenerationSession)
+    if (error?.name !== 'AbortError') showToast(error?.message || '群聊回复失败')
+  } finally {
+    if (regenerationSession && !replyCompleted) restorePreviousReplyAfterFailure(targetGroup, regenerationSession)
+    targetGroup.isTyping = false
+    activeGroupReplyIds.delete(targetId)
+    groupReplyControllers.delete(targetId)
+    persist(targetGroup)
+    await scrollBottom()
+  }
 }
 
 const mentionsFromText = (text: string) => {
@@ -396,7 +417,48 @@ const mentionsFromText = (text: string) => {
   return mentions
 }
 const handleAddMessage = async (raw: string) => { if (isGroupMemberMuted(props.group, 'user')) return showToast('当前处于禁言状态，无法发送消息'); const content = raw.trim(); if (!content) return; if (/(^|\s)@全体成员(?=\s|$|[，。！？、,!?])/.test(content)) { try { consumeAtAll(props.group, 'user') } catch (error: any) { return showToast(error?.message || '@全体成员失败') } } const now = Date.now(); const turnId = `user_group_turn_${now}`; const quote = media.replyTargetMessage.value ? { ...media.replyTargetMessage.value } : undefined; props.group.messages.push({ id: now, timestamp: now, type: 'right', senderType: 'user', senderId: 'user', content, quote, mentions: mentionsFromText(content), replyToMessageId: quote?.id || '', turnId }); awardGroupActivity(props.group, 'user', turnId, now); media.replyTargetId.value = undefined; persist(); await scrollBottom() }
-const regenerate = async () => { if (isGenerating.value) return; if (![...props.group.messages].some((message: any) => message.type === 'right')) return showToast('还没有可重新生成的用户消息'); const removedIds: any[] = []; while (props.group.messages.length && props.group.messages.at(-1).type !== 'right') { const removed = props.group.messages.pop(); if (removed?.id != null) removedIds.push(removed.id) }; if (removedIds.length) { invalidateMemoriesForMessages(props.group, removedIds); await invalidateVectorMemoriesForMessages(props.group, removedIds) }; persist(); await runReply() }
+const regenerate = async () => {
+  if (isGenerating.value) return
+  if (![...props.group.messages].some((message: any) => message.type === 'right')) return showToast('还没有可重新生成的用户消息')
+  const session = prepareReplyRegeneration(props.group, 'group')
+  if (!session) return showToast('没有可重新生成的回复')
+  if (session.removedMessageIds.length) {
+    invalidateMemoriesForMessages(props.group, session.removedMessageIds)
+    await invalidateVectorMemoriesForMessages(props.group, session.removedMessageIds)
+  }
+  persist()
+  await runReply(session)
+}
+
+const pendingVariantSwitch = ref<{ setId: string; variantId: string; parentMessageId: string | number | null; previewMessages: any[] } | null>(null)
+const handleReplyVariantSwitch = async (payload: { setId: string; direction: -1 | 1 }) => {
+  if (isGenerating.value) return
+  const variantId = adjacentReplyVariantId(props.group, payload.setId, payload.direction)
+  if (!variantId) return
+  const result = restoreReplyVariant(props.group, payload.setId, variantId)
+  if (result.needsTimeline) {
+    pendingVariantSwitch.value = { setId: payload.setId, variantId, parentMessageId: result.parentMessageId ?? null, previewMessages: getReplyVariant(props.group, payload.setId, variantId)?.messages || [] }
+    return
+  }
+  if (result.ok) { persist(); await scrollBottom() }
+}
+
+const forkFromReplyVariant = async () => {
+  const pending = pendingVariantSwitch.value
+  if (!pending) return
+  pendingVariantSwitch.value = null
+  try {
+    await createTimeline(props.group, currentChatUserId.value, {
+      name: `回复分支 ${new Date().toLocaleDateString('zh-CN')}`,
+      fromMessageId: pending.parentMessageId,
+      activate: true
+    })
+    restoreReplyVariant(props.group, pending.setId, pending.variantId, true)
+    persist()
+    showToast('已从所选回复创建时间线')
+    await scrollBottom()
+  } catch (error: any) { showToast(error?.message || '创建回复分支失败') }
+}
 const stopReply = () => groupReplyControllers.get(String(props.group.id))?.abort()
 const sceneDisablesMedia = () => Boolean((props.group.activeCallType && props.group.disableMediaDuringCall) || (props.group.isMixedOfflineActive && props.group.disableMediaDuringOffline))
 const canUserSend = () => { if (isGroupMemberMuted(props.group, 'user')) { showToast('当前处于禁言状态，无法发送消息'); return false } return true }
@@ -598,7 +660,9 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @click="handleBannerClick"
     />
 
-    <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @open-character-profile="emit('open-character-profile', $event)" />
+    <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :is-generating="isGenerating" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @open-character-profile="emit('open-character-profile', $event)" @switch-reply-variant="handleReplyVariantSwitch" @regenerate-reply="regenerate" />
+
+    <ChatReplyVariantForkModal :visible="Boolean(pendingVariantSwitch)" :preview-messages="pendingVariantSwitch?.previewMessages || []" @close="pendingVariantSwitch = null" @fork="forkFromReplyVariant" />
 
     <ChatMessageActionModal :visible="multi.showActionModal.value" :message-id="multi.targetMessageId.value" :message-obj="multi.targetMessageId.value ? group.messages.find((message: any) => message.id === multi.targetMessageId.value) : null" @close="multi.showActionModal.value = false" @multi-select="multi.onModalMultiSelect" @recall-multi-select="multi.onModalRecallMultiSelect" @mark-message="multi.onModalMarkMultiSelect" @copy="multi.onModalCopy" @reply="media.replyTargetId.value = $event || multi.targetMessageId.value" @edit="onModalEdit" @create-timeline="ensureMemberTimelineBindings(); timelineForkKind = 'timeline'; timelineForkMessageId = $event || multi.targetMessageId.value || null; showTimelineManagerModal = true" @create-checkpoint="ensureMemberTimelineBindings(); timelineForkKind = 'checkpoint'; timelineForkMessageId = $event || multi.targetMessageId.value || null; showTimelineManagerModal = true" />
     <ChatTimelineManagerModal v-model:visible="showTimelineManagerModal" :selected-chat="group" :fork-message-id="timelineForkMessageId" :fork-kind="timelineForkKind" @save="persist()" @switched="scrollBottom" />
