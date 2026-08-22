@@ -5,6 +5,7 @@ import { runDueGroupAutonomyChecks } from './groupAutonomyRuntime'
 import { createAutonomyLedgerWindow, ensureAutonomyLedger, pendingAutonomyLedgerWindow } from './autonomyConfig'
 import { flushAutonomyDeliveries } from './autonomyDelivery'
 import { ensureAutonomyDefaults, persistAutonomyChat, runDueAutonomyChecks } from './characterAutonomy'
+import { isConversationTimePaused } from './conversationTime'
 
 let runtimeTimer: number | null = null
 let runtimeBusy = false
@@ -13,6 +14,7 @@ let pageHideHandler: (() => void) | null = null
 
 const { currentChatUserId } = useChatAuth()
 const activeChats = () => mockChats.value.filter(chat => chat?.id !== 1 && chat?.chatType !== 'group')
+const autonomousChats = () => activeChats().filter(chat => !isConversationTimePaused(chat))
 
 const persistRuntimeSeenAt = (seenAt = Date.now()) => {
   for (const chat of activeChats()) {
@@ -30,13 +32,18 @@ const processVisibleRuntime = async (resume = false) => {
     if (resume) {
       for (const chat of activeChats()) {
         ensureAutonomyDefaults(chat)
+        if (isConversationTimePaused(chat)) {
+          ensureAutonomyLedger(chat).lastRuntimeSeenAt = now
+          persistAutonomyChat(chat)
+          continue
+        }
         if (createAutonomyLedgerWindow(chat, now)) persistAutonomyChat(chat)
       }
     }
-    const hasPendingCatchup = activeChats().some(chat => Boolean(pendingAutonomyLedgerWindow(chat)))
+    const hasPendingCatchup = autonomousChats().some(chat => Boolean(pendingAutonomyLedgerWindow(chat)))
     await runDueAutonomyChecks(resume || hasPendingCatchup ? 'resume' : 'scheduled')
     await runDueGroupAutonomyChecks(mockChats.value, myProfile.value, currentChatUserId.value)
-    flushAutonomyDeliveries(activeChats(), resume).forEach(persistAutonomyChat)
+    flushAutonomyDeliveries(autonomousChats(), resume).forEach(persistAutonomyChat)
     persistRuntimeSeenAt(Date.now())
   } finally {
     runtimeBusy = false

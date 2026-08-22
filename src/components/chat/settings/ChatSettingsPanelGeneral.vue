@@ -5,6 +5,11 @@ import { chatSettings, offlinePresetSettings } from '../../../store'
 import ChatOfflinePresetModal from '../modals/ChatOfflinePresetModal.vue'
 import { getOfflineModelProfileLabel } from '../../../services/offlinePresets'
 import { sanitizeThoughtHistoryCount } from '../../../services/innerThoughtContext'
+import {
+  isConversationTimePaused,
+  pauseConversationTime,
+  resumeConversationTime
+} from '../../../services/conversationTime'
 
 const props = defineProps<{
   selectedChat: any
@@ -28,6 +33,13 @@ const emit = defineEmits<{
 
 const handleSave = () => {
   emit('save')
+}
+
+const conversationTimePaused = computed(() => isConversationTimePaused(props.selectedChat))
+const toggleConversationTimePause = () => {
+  if (conversationTimePaused.value) resumeConversationTime(props.selectedChat)
+  else pauseConversationTime(props.selectedChat)
+  handleSave()
 }
 
 const saveThoughtHistoryCount = (key: 'roleThoughtHistoryCount' | 'userThoughtHistoryCount') => {
@@ -566,7 +578,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('语音自动转文字', '时间感知', '发送角色时间戳')">
+    <div class="glass-panel" v-show="matchSearch('语音自动转文字', '时间感知', '发送角色时间戳', '暂停会话时间', '隐藏离线间隔')">
       <div class="glass-list-item" v-show="matchSearch('语音自动转文字')">
         <div class="item-label">语音自动转文字</div>
         <div class="item-value">
@@ -584,6 +596,16 @@ onBeforeUnmount(() => {
             <span class="slider"></span>
           </label>
         </div>
+      </div>
+      <div class="glass-list-item conversation-time-pause-row" v-show="matchSearch('暂停会话时间', '隐藏离线间隔')" @click="toggleConversationTimePause">
+        <div class="conversation-time-pause-copy">
+          <div class="item-label">暂停会话时间</div>
+          <div class="conversation-time-pause-desc">暂停期间不累计未回复时长，也不生成自主活动；下次发送时自动继续</div>
+        </div>
+        <label class="switch conversation-time-pause-switch" @click.stop>
+          <input type="checkbox" :checked="conversationTimePaused" @change="toggleConversationTimePause">
+          <span class="slider"></span>
+        </label>
       </div>
       <div class="glass-list-item" v-show="matchSearch('发送角色时间戳')" :class="{ 'disabled-block': !selectedChat.timePerception }">
         <div class="item-label">发送角色时间戳</div>
@@ -649,6 +671,8 @@ onBeforeUnmount(() => {
 .autonomy-entry{min-height:58px}.autonomy-entry-icon{width:32px;height:32px;border-radius:10px;background:var(--sys-bg-primary);display:grid;place-items:center;color:var(--text-secondary);flex:none;margin-right:11px}.autonomy-entry-icon svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round}.autonomy-entry-copy{min-width:0;flex:1}.autonomy-entry-copy>div:last-child{font-size:10.5px;color:var(--text-tertiary);margin-top:4px;white-space:normal;line-height:1.4}.autonomy-entry-state{font-size:11px;color:var(--text-tertiary);white-space:nowrap}.autonomy-entry-state.active{color:#438262}.autonomy-entry .arrow{font-family:inherit;font-size:20px;font-weight:400}
 
 .thought-history-child{padding-left:12px;color:var(--text-secondary);font-size:13px}.thought-count-value{gap:8px}.thought-count-input{width:42px;padding:5px 7px;border:1px solid color-mix(in srgb,var(--text-primary) 9%,transparent);border-radius:8px;outline:none;background:color-mix(in srgb,var(--sys-bg-primary) 72%,transparent);color:var(--text-secondary);font:inherit;font-size:14px;text-align:center;box-sizing:border-box;transition:border-color .2s ease,background .2s ease}.thought-count-input:focus{border-color:color-mix(in srgb,var(--text-primary) 24%,transparent);background:var(--sys-bg-primary)}
+
+.conversation-time-pause-copy{min-width:0;flex:1;padding-right:14px}.conversation-time-pause-desc{margin-top:4px;color:var(--text-tertiary);font-size:10.5px;line-height:1.45;white-space:normal}.conversation-time-pause-switch{flex:0 0 40px}
 
 .narration-setting-card{overflow:hidden;transition:border-color .24s ease,box-shadow .24s ease,background .24s ease}.narration-setting-card.is-enabled{border-color:color-mix(in srgb,var(--text-primary) 16%,transparent);box-shadow:0 6px 18px rgba(0,0,0,.035)}.narration-setting-card.is-disabled{opacity:.68}.narration-setting-head{display:flex;align-items:center;gap:12px;padding:16px}.narration-setting-icon{width:38px;height:38px;display:grid;place-items:center;flex:none;border-radius:12px;color:var(--text-secondary);background:var(--sys-bg-primary);border:1px solid color-mix(in srgb,var(--text-primary) 7%,transparent);transition:color .24s ease,transform .24s ease}.is-enabled .narration-setting-icon{color:var(--text-primary);transform:translateY(-1px)}.narration-setting-icon svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.narration-setting-copy{min-width:0;flex:1}.narration-title-row{display:flex;align-items:center;gap:7px}.narration-title-row h3{margin:0;color:var(--text-primary);font-size:15px;font-weight:600;letter-spacing:.01em}.narration-new-badge{padding:2px 6px;border-radius:999px;background:color-mix(in srgb,var(--text-primary) 7%,transparent);color:var(--text-secondary);font-size:9px;font-weight:600;line-height:1.4}.narration-setting-copy p{margin:5px 0 0;color:var(--text-tertiary);font-size:11px;line-height:1.55}.narration-setting-control{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none}.narration-save-state{min-height:14px;color:var(--text-tertiary);font-size:9px;display:flex;align-items:center;gap:4px}.is-enabled .narration-save-state{color:var(--text-secondary)}.narration-saving-dot{width:8px;height:8px;border:1.5px solid color-mix(in srgb,var(--text-primary) 20%,transparent);border-top-color:var(--text-primary);border-radius:50%;animation:narration-spin .7s linear infinite}.narration-switch:focus-within .slider{outline:2px solid color-mix(in srgb,var(--text-primary) 32%,transparent);outline-offset:3px}.narration-switch.disabled{cursor:not-allowed}.narration-switch.disabled .slider{cursor:not-allowed}.narration-preview{padding:0 16px 15px;animation:narration-expand .28s cubic-bezier(.2,.8,.2,1)}.narration-preview-label{padding-top:12px;border-top:1px solid color-mix(in srgb,var(--text-primary) 7%,transparent);color:var(--text-tertiary);font-size:9px;font-weight:600;letter-spacing:.08em}.narration-preview-chat{display:flex;flex-direction:column;gap:8px;padding:11px 10px;margin-top:8px;border-radius:11px;background:color-mix(in srgb,var(--sys-bg-primary) 72%,transparent);overflow:hidden}.preview-bubble{align-self:flex-start;max-width:74%;padding:7px 10px;border-radius:10px 10px 10px 3px;background:var(--sys-bg-secondary);color:var(--text-primary);font-size:10px;line-height:1.45;border:1px solid color-mix(in srgb,var(--text-primary) 5%,transparent)}.preview-bubble-self{align-self:flex-end;border-radius:10px 10px 3px 10px;background:color-mix(in srgb,var(--text-primary) 10%,var(--sys-bg-secondary));}.preview-narration{display:flex;align-items:center;justify-content:center;gap:8px;padding:1px 4px;color:var(--text-tertiary);font-size:9px;font-style:italic;line-height:1.5;text-align:center}.preview-narration-line{height:1px;max-width:30px;flex:1;background:color-mix(in srgb,var(--text-primary) 9%,transparent)}.narration-preview-foot,.narration-unavailable{margin:9px 2px 0;color:var(--text-tertiary);font-size:9.5px;line-height:1.45}.narration-preview-foot{display:flex;align-items:flex-start;gap:5px}.narration-preview-foot svg{width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.narration-unavailable{padding:0 16px 14px}.is-dark .narration-setting-card.is-enabled{box-shadow:0 6px 18px rgba(0,0,0,.14)}@keyframes narration-spin{to{transform:rotate(360deg)}}@keyframes narration-expand{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}@media (hover:hover){.narration-setting-card:not(.is-disabled):hover{background:color-mix(in srgb,var(--sys-bg-secondary) 70%,transparent)}.narration-switch:hover .slider{filter:brightness(.97)}}@media (max-width:420px){.narration-setting-head{align-items:flex-start;padding:15px 14px;gap:10px}.narration-setting-icon{width:34px;height:34px;border-radius:10px}.narration-setting-copy p{max-width:220px}.narration-setting-control{gap:7px}.narration-preview{padding-left:14px;padding-right:14px}.narration-preview-chat{padding:10px 8px}.preview-narration-line{max-width:18px}}@media (prefers-reduced-motion:reduce){.narration-setting-card,.narration-setting-icon,.narration-preview,.slider{transition:none}.narration-saving-dot{animation-duration:1.4s}.narration-preview{animation:none}}
 </style>

@@ -12,6 +12,12 @@ import type { GroupMembershipRequest } from '../types/groupManagement'
 import { selectRoleAvailableEmojis } from './chatEmojiScope'
 import { buildGroupManagementPrompt, ensureGroupManagementState, getSpeakableCharacterIds } from './groupManagementService'
 import { buildSingleToGroupBridgeContext, normalizeMemoryBridgeMemberSettings } from './memoryBridge'
+import {
+  formatIdentityDateTime,
+  getConversationAdjustedTimestamp,
+  getIdentityClockLabel,
+  normalizeConversationTimeState
+} from './conversationTime'
 
 export const activeGroupReplyIds = reactive(new Set<string>())
 export const groupReplyControllers = new Map<string, AbortController>()
@@ -57,6 +63,7 @@ export interface GroupChatRecord {
   timePerception: boolean
   sendCharacterTime: boolean
   memberTimezones: Record<string, string>
+  conversationTimeState?: import('./conversationTime').ConversationTimeState
   bilingualEnabled: boolean
   bilingualMode: 'auto' | 'follow_user' | 'forced'
   dialogueLanguage: string
@@ -194,6 +201,7 @@ export const normalizeGroupChat = (raw: any): GroupChatRecord => ensureGroupMana
   memoryValue: Math.max(1, Number(raw.memoryValue || 60)), timePerception: raw.timePerception !== false,
   sendCharacterTime: raw.sendCharacterTime !== false,
   memberTimezones: raw.memberTimezones && typeof raw.memberTimezones === 'object' ? raw.memberTimezones : {},
+  conversationTimeState: normalizeConversationTimeState(raw),
   autoSummaryEnabled: raw.autoSummaryEnabled === true,
   autoSummaryThreshold: Math.max(1, Number(raw.autoSummaryThreshold || 500)),
   autoSummaryTokenThreshold: Math.max(200, Number(raw.autoSummaryTokenThreshold || 6000)),
@@ -312,7 +320,7 @@ const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
 })
 
 export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: any[], userProfile: any, worldBookText = '') => {
-  const groupUserProfile = group.userProfile || userProfile || {}
+  const groupUserProfile = userProfile || group.userProfile || {}
   const allMembers = group.memberIds.map(id => allChats.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === id)).filter(Boolean)
   const speakableIds = new Set(getSpeakableCharacterIds(group))
   const replyCandidates = allMembers.filter(member => speakableIds.has(memberIdentity(member)))
@@ -358,7 +366,10 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
       offlineMeetLocationMode: group.offlineMeetLocationMode || 'vague',
       timePerception: group.timePerception,
       sendCharacterTime: group.sendCharacterTime,
-      timezone: group.memberTimezones[id] || member.timezone || group.userProfile?.timezone || userProfile?.timezone,
+      timezone: group.memberTimezones[id] || member.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      clockMode: group.memberTimezones[id] ? 'timezone' : (member.clockMode || (member.timezone ? 'timezone' : 'system')),
+      clockAnchorRealAt: Number(member.clockAnchorRealAt || Date.now()),
+      clockAnchorTimeAt: Number(member.clockAnchorTimeAt || Date.now()),
       bilingualEnabled: group.bilingualEnabled,
       bilingualMode: group.bilingualMode,
       dialogueLanguage: group.dialogueLanguage,
@@ -394,14 +405,13 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   let system = `你正在参与一个真实的多人群聊。每位成员都有独立、完整且持续一致的人格、经历、认知和表达方式。只能让成员依据自己亲历、看见、听见或被明确告知的信息行动；不得共享其他成员的私密认知，也不得让所有人表现成同一种声音。\n\n${memberContexts.join('\n\n')}\n\n${getActiveGroupPrompt()}\n\n【当前群聊】\n群名：${group.name}\n用户：${groupUserProfile?.name || '我'}（ID：user）${groupUserProfile?.persona ? `\n用户在本群的身份：${groupUserProfile.persona}` : ''}\n\n【可用成员清单】\n${roster}`
   system += `\n\n${buildGroupManagementPrompt(group)}`
   if (group.timePerception) {
-    const now = new Date()
-    const userTimezone = groupUserProfile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+    const now = Date.now()
     const memberTimes = members.map(member => {
       const id = memberIdentity(member)
-      const timezone = group.memberTimezones[id] || member.timezone || userTimezone
-      return `${group.memberNicknames[id] || member.name}：${timezone} ${now.toLocaleString('zh-CN', { timeZone: timezone, hour12: false })}`
+      const memberClock = group.memberTimezones[id] ? { ...member, timezone: group.memberTimezones[id], clockMode: 'timezone' } : member
+      return `${group.memberNicknames[id] || member.name}：${getIdentityClockLabel(memberClock)} ${formatIdentityDateTime(memberClock, now)}`
     }).join('\n')
-    system += `\n\n【群聊当前时间】\n用户：${userTimezone} ${now.toLocaleString('zh-CN', { timeZone: userTimezone, hour12: false })}\n${memberTimes}\n成员应感知消息之间的真实时间间隔，并按各自当地时间与作息自然反应，不要机械报时。`
+    system += `\n\n【群聊成员独立时间】\n用户：${getIdentityClockLabel(groupUserProfile)} ${formatIdentityDateTime(groupUserProfile, now)}\n${memberTimes}\n以上是每个人各自独立的当地时间。任何成员都不得把用户或其他成员的钟表时间当成自己的时间；日期、昼夜、作息和节日判断分别依据本人时间。消息等待时长只按 timeline_at 判断，不得直接用不同时区的表面钟点相减；消息 id 只是引用用的不透明标识，禁止将其解析为日期或间隔。不要机械报时。`
   }
   if (group.bubbleNarrationEnabled) system += `\n\n【群聊气泡叙事】\n线上对白继续使用 kind="text" 的 group_msg；动作、神态、心理或环境描写使用对应成员 sender 且 kind="narration" 的 group_msg。叙述必须保持发送成员身份明确，不得替用户决定行动或感受。`
   if (group.enableMsgCountLimit) system += `\n\n【群聊回复条数限制】\n本次回复总共输出 ${group.minMsgCount} 到 ${Math.max(group.minMsgCount, group.maxMsgCount)} 个 group_msg；这是全群总量，不是每位成员各自的数量。仍由现场语境决定谁发言，禁止为了凑数让所有成员轮流发言。`
@@ -434,10 +444,17 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   }
   const encodedHistory: any[] = []
   for (const message of history) {
-      const timestamp = Number(message.timestamp || message.id)
+      const timestamp = getConversationAdjustedTimestamp(group, Number(message.timestamp || message.id))
       const includeTime = group.timePerception && Number.isFinite(timestamp) && (message.type !== 'left' || group.sendCharacterTime)
+      const senderClock = message.type === 'right'
+        ? groupUserProfile
+        : (() => {
+          const member = members.find(item => memberIdentity(item) === String(message.senderId)) || {}
+          const timezone = group.memberTimezones[String(message.senderId)]
+          return timezone ? { ...member, timezone, clockMode: 'timezone' } : member
+        })()
       const timeAttr = includeTime
-        ? ` time="${new Date(timestamp).toISOString()}"`
+        ? ` time="${escapeXml(formatIdentityDateTime(senderClock, timestamp).replace(/\//g, '-'))}" timeline_at="${new Date(timestamp).toISOString()}"`
         : ''
       const encoded: any = message.type === 'right'
         ? { role: 'user', content: `<group_user_msg id="${message.id}"${timeAttr} kind="${message.messageType || 'text'}" reply_to="${message.replyToMessageId || ''}" mentions="${(message.mentions || []).map((item: any) => item.id).join(',')}">${escapeXml(describeMessage(message))}</group_user_msg>` }

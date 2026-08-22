@@ -1,6 +1,7 @@
 import localforage from 'localforage'
 import { sendChatMessage } from './api'
 import { buildChatMessages } from '../composables/chatState/messages'
+import { formatIdentityDateTime, isConversationTimePaused } from './conversationTime'
 import { isChatContextVisible, mockChats } from '../composables/chatState/state'
 import { useChatAuth } from '../composables/useChatAuth'
 import { globalPromptSettings } from '../store'
@@ -147,11 +148,7 @@ const isWithinActiveHours = (chat: any, date = new Date()) => {
   const end = Number(chat.autonomyActiveEnd ?? 24)
   let hour = date.getHours()
   try {
-    hour = Number(new Intl.DateTimeFormat('en-US', {
-      timeZone: chat.timezone || undefined,
-      hour: '2-digit',
-      hourCycle: 'h23'
-    }).format(date))
+    hour = Number(formatIdentityDateTime(chat, date.getTime(), undefined, { hour: '2-digit', hourCycle: 'h23' }))
   } catch (_) {}
   if (start === end) return true
   return start < end ? hour >= start && hour < end : hour >= start || hour < end
@@ -217,7 +214,7 @@ export const runAutonomousCheck = async (
 ): Promise<AutonomyCheckResult | false> => {
   ensureAutonomyDefaults(chat)
   const chatKey = String(chat.id)
-  if (!chat.autonomyEnabled || runningChats.has(chatKey) || chat.isTyping) return false
+  if (!chat.autonomyEnabled || isConversationTimePaused(chat) || runningChats.has(chatKey) || chat.isTyping) return false
   if (reason !== 'manual' && !isWithinActiveHours(chat) && !options.ledgerWindow) return false
 
   const now = Date.now()
@@ -246,8 +243,8 @@ export const runAutonomousCheck = async (
     messages.push({
       role: 'system',
       content: globalPromptSettings.language === 'en'
-        ? `[Character autonomous-activity decision]\nCurrent time: ${new Date(now).toLocaleString('zh-CN')}. About ${elapsedMinutes} minutes have passed since the last check. Trigger: ${reason}. ${catchup ? 'This is a complete local catch-up for the recorded closed-page window. Place plausible actions across the elapsed time without repetition.' : 'This is a normal check while the page is running.'}\nYou are not replying to the user. You are deciding whether the character genuinely wants to act now. Proactive messages allowed: ${chat.autonomyAllowMessages ? 'yes' : 'no'}; Moments allowed: ${chat.autonomyAllowMoments ? 'yes' : 'no'}; status changes allowed: ${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? 'yes' : 'no'}. ${policyText} Respect the persona, relationship, recent conversation, and any schedule or busyness the user disclosed. Outside mandatory policies, silence is normal. Never send mechanical greetings, time announcements, or explanations of these rules.\nReturn JSON only: {"summary":"one internal summary sentence","emotion":"current emotion","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"plain message or Moments post body without XML tags","status":"online|offline|busy|away","text":"status text","atOffsetMinutes":0,"important":false}]}. content must be plain text and never contain tags. actions may be empty unless a policy is due; at most ${maxActions}. nextCheckMinutes must be between ${minimum} and ${Math.max(720, minimum)}. During catch-up, atOffsetMinutes means how many minutes ago the action occurred and may not exceed ${elapsedMinutes}.`
-        : `【角色自主活动判断】\n现在是 ${new Date(now).toLocaleString('zh-CN')}。距离上次自主判断约 ${elapsedMinutes} 分钟。触发原因：${reason}。${catchup ? '这是记录到的页面关闭时间段的完整本地补演，请在经过时间内合理分布动作且避免重复。' : '这是页面运行期间的正常判断。'}\n你不是在回复用户，而是在决定自己此刻是否想行动。允许主动消息：${chat.autonomyAllowMessages ? '是' : '否'}；允许朋友圈：${chat.autonomyAllowMoments ? '是' : '否'}；允许状态变化：${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? '是' : '否'}。${policyText}必须尊重人设、关系、最近聊天内容和用户透露的忙碌/作息；除强制保障外，沉默是正常选择。不要机械问候、报时或解释规则。\n只返回 JSON：{"summary":"一句内部摘要","emotion":"当前情绪","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"不含标签的纯文本消息或朋友圈正文","status":"online|offline|busy|away","text":"状态文案","atOffsetMinutes":0,"important":false}]}。actions 除保障到期外可以为空；最多 ${maxActions} 个；nextCheckMinutes 为 ${minimum} 到 ${Math.max(720, minimum)}。补演时 atOffsetMinutes 表示动作发生在多少分钟前，不能超过 ${elapsedMinutes}。`
+        ? `[Character autonomous-activity decision]\nCurrent local time: ${formatIdentityDateTime(chat, now)}. About ${elapsedMinutes} minutes have passed since the last check. Trigger: ${reason}. ${catchup ? 'This is a complete local catch-up for the recorded closed-page window. Place plausible actions across the elapsed time without repetition.' : 'This is a normal check while the page is running.'}\nYou are not replying to the user. You are deciding whether the character genuinely wants to act now. Proactive messages allowed: ${chat.autonomyAllowMessages ? 'yes' : 'no'}; Moments allowed: ${chat.autonomyAllowMoments ? 'yes' : 'no'}; status changes allowed: ${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? 'yes' : 'no'}. ${policyText} Respect the persona, relationship, recent conversation, and any schedule or busyness the user disclosed. Outside mandatory policies, silence is normal. Never send mechanical greetings, time announcements, or explanations of these rules.\nReturn JSON only: {"summary":"one internal summary sentence","emotion":"current emotion","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"plain message or Moments post body without XML tags","status":"online|offline|busy|away","text":"status text","atOffsetMinutes":0,"important":false}]}. content must be plain text and never contain tags. actions may be empty unless a policy is due; at most ${maxActions}. nextCheckMinutes must be between ${minimum} and ${Math.max(720, minimum)}. During catch-up, atOffsetMinutes means how many minutes ago the action occurred and may not exceed ${elapsedMinutes}.`
+        : `【角色自主活动判断】\n你的当地时间现在是 ${formatIdentityDateTime(chat, now)}。距离上次自主判断约 ${elapsedMinutes} 分钟。触发原因：${reason}。${catchup ? '这是记录到的页面关闭时间段的完整本地补演，请在经过时间内合理分布动作且避免重复。' : '这是页面运行期间的正常判断。'}\n你不是在回复用户，而是在决定自己此刻是否想行动。允许主动消息：${chat.autonomyAllowMessages ? '是' : '否'}；允许朋友圈：${chat.autonomyAllowMoments ? '是' : '否'}；允许状态变化：${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? '是' : '否'}。${policyText}必须尊重人设、关系、最近聊天内容和用户透露的忙碌/作息；除强制保障外，沉默是正常选择。不要机械问候、报时或解释规则。\n只返回 JSON：{"summary":"一句内部摘要","emotion":"当前情绪","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"不含标签的纯文本消息或朋友圈正文","status":"online|offline|busy|away","text":"状态文案","atOffsetMinutes":0,"important":false}]}。actions 除保障到期外可以为空；最多 ${maxActions} 个；nextCheckMinutes 为 ${minimum} 到 ${Math.max(720, minimum)}。补演时 atOffsetMinutes 表示动作发生在多少分钟前，不能超过 ${elapsedMinutes}。`
     })
     const result: any = await sendChatMessage(messages)
     const rawDecision = typeof result === 'string' ? result : result.content
@@ -376,6 +373,7 @@ export const runDueAutonomyChecks = async (reason: 'scheduled' | 'resume' = 'sch
   for (const chat of mockChats.value.filter(item => item.id !== 1)) {
     ensureAutonomyDefaults(chat)
     if (!chat.autonomyEnabled) continue
+    if (isConversationTimePaused(chat)) continue
     const ledgerWindow = reason === 'resume' ? pendingAutonomyLedgerWindow(chat) : null
     const due = Boolean(ledgerWindow) || !chat.autonomyState.nextCheckAt || chat.autonomyState.nextCheckAt <= now
     if (due) {

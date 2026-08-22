@@ -19,10 +19,16 @@ export const loadMyProfile = async () => {
         const extra = JSON.parse(extraStr)
         myProfile.value.remark = extra.remark || ''
         myProfile.value.timezone = extra.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+        myProfile.value.clockMode = extra.clockMode === 'custom' || extra.clockMode === 'timezone' || extra.clockMode === 'system' ? extra.clockMode : (extra.timezone ? 'timezone' : 'system')
+        myProfile.value.clockAnchorRealAt = Number(extra.clockAnchorRealAt || Date.now())
+        myProfile.value.clockAnchorTimeAt = Number(extra.clockAnchorTimeAt || Date.now())
       } catch(e) {}
     } else {
       myProfile.value.remark = ''
       myProfile.value.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      myProfile.value.clockMode = 'system'
+      myProfile.value.clockAnchorRealAt = Date.now()
+      myProfile.value.clockAnchorTimeAt = Date.now()
     }
   }
 }
@@ -38,7 +44,10 @@ export const saveMyProfile = () => {
     const extraKey = `clingy_user_extra_${currentChatUserId.value}`
     localStorage.setItem(extraKey, JSON.stringify({
       remark: myProfile.value.remark,
-      timezone: myProfile.value.timezone
+      timezone: myProfile.value.timezone,
+      clockMode: myProfile.value.clockMode,
+      clockAnchorRealAt: myProfile.value.clockAnchorRealAt,
+      clockAnchorTimeAt: myProfile.value.clockAnchorTimeAt
     }))
   }
 }

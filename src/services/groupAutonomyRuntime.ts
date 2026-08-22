@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import localforage from 'localforage'
 import { activeGroupReplyIds, requestGroupReply, saveGroupChat, type GroupChatRecord } from './groupChat'
+import { formatIdentityClockTime, formatIdentityDateTime, isConversationTimePaused } from './conversationTime'
 import { findRoleEmojiByResponse } from './chatEmojiScope'
 
 const inHourRange = (hour: number, start: number, end: number) => start < end
@@ -8,6 +9,10 @@ const inHourRange = (hour: number, start: number, end: number) => start < end
   : hour >= start || hour < end
 
 const memberId = (member: any) => String(member.characterEntityId || member.id)
+const identityHour = (member: any, timestamp: number) => {
+  const value = formatIdentityDateTime(member, timestamp, undefined, { hour: '2-digit', hourCycle: 'h23' })
+  return Number(value.replace(/\D/g, '').slice(0, 2))
+}
 
 const loadEmojiItems = async () => {
   const items: any[] = []
@@ -53,11 +58,15 @@ const appendAutonomousReplies = async (group: GroupChatRecord, result: any, allC
     group.messages.push(item)
   })
   const last = group.messages.at(-1)
-  if (last) { group.preview = last.content || '群内有新动态'; group.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
+  if (last) { group.preview = last.content || '群内有新动态'; group.time = formatIdentityClockTime(group.userProfile || {}) }
 }
 
 const startIncomingCall = (group: GroupChatRecord, allChats: any[], now: number) => {
-  const candidates = group.memberIds.map(id => allChats.find(chat => chat.chatType !== 'group' && memberId(chat) === id)).filter(Boolean).map(member => ({ ...member, ...(group.memberSettings[memberId(member)] || {}) })).filter(member => member.allowIncomingGroupCall !== false && (member.enableVoiceCall || member.enableVideoCall))
+  const candidates = group.memberIds.map(id => allChats.find(chat => chat.chatType !== 'group' && memberId(chat) === id)).filter(Boolean).map(member => {
+    const id = memberId(member)
+    const timezone = group.memberTimezones?.[id]
+    return { ...member, ...(group.memberSettings[id] || {}), ...(timezone ? { timezone, clockMode: 'timezone' } : {}) }
+  }).filter(member => member.allowIncomingGroupCall !== false && (member.enableVoiceCall || member.enableVideoCall) && inHourRange(identityHour(member, now), Number(group.incomingCallStartHour), Number(group.incomingCallEndHour)))
   if (!candidates.length || group.activeCallType) return false
   const member = candidates[Math.floor(Math.random() * candidates.length)]
   const id = memberId(member)
@@ -69,27 +78,34 @@ const startIncomingCall = (group: GroupChatRecord, allChats: any[], now: number)
   group.incomingCallLastAt = now
   group.messages.push({ id: now, timestamp: now, type: 'left', senderType: 'character', senderId: id, senderNameSnapshot: group.memberNicknames[id] || member.name, senderAvatarSnapshot: member.avatarUrl || '', content: `${group.memberNicknames[id] || member.name}发起了群${kind === 'voice' ? '语音' : '视频'}通话`, messageType: 'call', isAutonomous: true, callData: { callType: kind, status: 'incoming', participantIds: candidates.map(memberId) } })
   group.preview = `${group.memberNicknames[id] || member.name}发起了群${kind === 'voice' ? '语音' : '视频'}通话`
-  group.time = new Date(now).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  group.time = formatIdentityClockTime(group.userProfile || {}, now)
   group.unread = Number(group.unread || 0) + 1
   return true
 }
 
 export const runDueGroupAutonomyChecks = async (allChats: any[], userProfile: any, accountId?: string | null) => {
   const now = Date.now()
-  const hour = new Date(now).getHours()
   const today = new Date(now).toLocaleDateString('zh-CN')
   const groups = allChats.filter(chat => chat.chatType === 'group') as GroupChatRecord[]
   for (const group of groups) {
-    if (!group.autonomyEnabled || activeGroupReplyIds.has(String(group.id))) continue
+    if (!group.autonomyEnabled || isConversationTimePaused(group) || activeGroupReplyIds.has(String(group.id))) continue
+    const activeMembers = group.memberIds
+      .map(id => allChats.find(chat => chat.chatType !== 'group' && memberId(chat) === id))
+      .filter(Boolean)
+      .map(member => {
+        const id = memberId(member)
+        const timezone = group.memberTimezones?.[id]
+        return timezone ? { ...member, timezone, clockMode: 'timezone' } : member
+      })
+    const hasMemberInActiveHours = activeMembers.some(member => inHourRange(identityHour(member, now), Number(group.autonomyActiveStart), Number(group.autonomyActiveEnd)))
     if (group.autonomyDailyDate !== today) { group.autonomyDailyDate = today; group.autonomyDailyCount = 0 }
     if (group.autonomyDailyCount >= group.autonomyMaxMessagesPerDay) continue
     if (now - Number(group.autonomyLastRunAt || 0) < Number(group.autonomyMinIntervalMinutes || 90) * 60000) continue
-    if (!inHourRange(hour, Number(group.autonomyActiveStart), Number(group.autonomyActiveEnd))) continue
+    if (!hasMemberInActiveHours) continue
     group.autonomyLastRunAt = now
     group.autonomyDailyCount += 1
     const callDue = group.incomingCallEnabled && group.autonomyAllowIncomingCalls
       && now - Number(group.incomingCallLastAt || 0) >= Number(group.incomingCallMinIntervalMinutes || 360) * 60000
-      && inHourRange(hour, Number(group.incomingCallStartHour), Number(group.incomingCallEndHour))
       && group.autonomyDailyCount % 3 === 0
     if (callDue && startIncomingCall(group, allChats, now)) {
       saveGroupChat(accountId, group)

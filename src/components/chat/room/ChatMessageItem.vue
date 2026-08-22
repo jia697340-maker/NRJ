@@ -10,6 +10,7 @@ import { shouldDisplayThinking } from '../../../services/reasoning'
 import GroupMemberBadge from '../group/GroupMemberBadge.vue'
 import { getGroupLevelInfo, getGroupMemberRole } from '../../../services/groupManagementService'
 import type { GroupBadgeType } from '../../../types/groupManagement'
+import { formatIdentityDateTime, getConversationAdjustedTimestamp } from '../../../services/conversationTime'
 
 const props = defineProps<{
   msg: any
@@ -80,17 +81,18 @@ const shouldShowName = (msg: any) => {
   return true
 }
 
-const formatMsgTime = (timestamp: number) => {
+const formatMsgTime = (timestamp: number, msg = props.msg) => {
   if (!timestamp) return ''
-  const date = new Date(timestamp)
-  if (isNaN(date.getTime())) return ''
-  const h = String(date.getHours()).padStart(2, '0')
-  const m = String(date.getMinutes()).padStart(2, '0')
-  const s = String(date.getSeconds()).padStart(2, '0')
+  const adjustedTimestamp = getConversationAdjustedTimestamp(props.selectedChat, timestamp)
+  const clockOwner = msg?.type === 'right' ? props.myProfile : messageSender.value
   if (chatSettings.timeDisplayStyle === 'hm' || (props.selectedChat?.chatType === 'group' && props.selectedChat?.showMessageTime && chatSettings.timeDisplayStyle === 'none')) {
-    return `${h}:${m}`
+    return formatIdentityDateTime(clockOwner, adjustedTimestamp, undefined, {
+      hour: '2-digit', minute: '2-digit', hour12: false
+    })
   } else if (chatSettings.timeDisplayStyle === 'hms') {
-    return `${h}:${m}:${s}`
+    return formatIdentityDateTime(clockOwner, adjustedTimestamp, undefined, {
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    })
   }
   return ''
 }

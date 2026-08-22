@@ -46,13 +46,14 @@ import { useGroupManagement } from '../../composables/useGroupManagement'
 import GroupChatAnnouncementBanner from './group/GroupChatAnnouncementBanner.vue'
 import GroupAnnouncementDetailModal from './group/GroupAnnouncementDetailModal.vue'
 import { awardGroupActivity, consumeAtAll, getAtAllUsage, groupManagementService, isGroupMemberMuted } from '../../services/groupManagementService'
+import { formatIdentityClockTime, getIdentityCalendarParts, isConversationTimePaused, normalizeConversationTimeState, resumeConversationTime } from '../../services/conversationTime'
 
 const props = defineProps<{ group: any; isVisible?: boolean }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'open-settings'): void; (e: 'open-character-profile', memberId: string): void }>()
 const { mockChats, effectiveMyProfile } = useChatState()
 const { currentChatUserId } = useChatAuth()
 const selectedGroup = computed(() => props.group)
-const groupUserProfile = computed(() => props.group.userProfile || effectiveMyProfile.value)
+const groupUserProfile = computed(() => ({ ...effectiveMyProfile.value, ...(props.group.userProfile || {}), timezone: effectiveMyProfile.value.timezone, clockMode: effectiveMyProfile.value.clockMode, clockAnchorRealAt: effectiveMyProfile.value.clockAnchorRealAt, clockAnchorTimeAt: effectiveMyProfile.value.clockAnchorTimeAt }))
 const messageListRef = ref<any>(null)
 const toastText = ref('')
 const wallpaper = ref<string | null>(null)
@@ -96,14 +97,9 @@ const handleBannerClick = () => {
 }
 
 const updateTimeStr = () => {
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  currentDateStr.value = `${y}.${m}.${d}`
-
-  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
-  currentDayStr.value = days[now.getDay()]
+  const parts = getIdentityCalendarParts(groupUserProfile.value)
+  currentDateStr.value = `${parts.year}.${parts.month}.${parts.day}`
+  currentDayStr.value = parts.weekday
 }
 let timeInterval: ReturnType<typeof setInterval> | null = null
 const { playVoice, isSynthesizing: isVoiceSynthesizing, currentPlayingId: voicePlayingId } = useVoicePlayer()
@@ -151,8 +147,10 @@ const showToast = (text: string) => { toastText.value = text; if (toastTimer) cl
 watch(() => groupMgmt.errorMessage.value, value => { if (value) showToast(value) })
 watch(() => groupMgmt.toastMessage.value, value => { if (value) showToast(value) })
 const openEmojiSettings = () => { props.group.openEmojiManagerRequested = true; emit('open-settings') }
-const updatePreviewAndTime = (content: string) => { props.group.preview = content || '暂无消息'; props.group.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
-const persist = (record = props.group) => { const last = record.messages?.at(-1); record.preview = last?.content || '群聊已创建'; record.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); saveGroupChat(currentChatUserId.value, record) }
+const updatePreviewAndTime = (content: string) => { props.group.preview = content || '暂无消息'; props.group.time = formatIdentityClockTime(groupUserProfile.value) }
+const persist = (record = props.group) => { const last = record.messages?.at(-1); const pauseState = normalizeConversationTimeState(record); const lastTimestamp = Number(last?.timestamp || last?.id || 0); if (pauseState.paused && last?.type === 'right' && lastTimestamp >= pauseState.pausedAt) resumeConversationTime(record, lastTimestamp); record.preview = last?.content || '群聊已创建'; record.time = formatIdentityClockTime(groupUserProfile.value); saveGroupChat(currentChatUserId.value, record) }
+const conversationTimePaused = computed(() => isConversationTimePaused(props.group))
+const resumePausedConversation = () => { resumeConversationTime(props.group); persist() }
 const handleSaveWebSearch = (enabled: boolean) => {
   props.group.webSearchEnabled = enabled
   showWebSearchModal.value = false
@@ -574,6 +572,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @open-offline-meet="toggleMixedOffline"
       @click-overlay="showExtensionPanel = false; showEmojiPanel = false"
     />
+    <div v-if="conversationTimePaused" class="conversation-time-pause-banner" @click="resumePausedConversation"><span class="pause-dot"></span><span>会话时间已暂停 · 点击继续</span></div>
 
     <!-- 顶部置顶/最新公告浮动胶囊栏 -->
     <GroupChatAnnouncementBanner
@@ -736,6 +735,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
 <style scoped>
 @import './ChatRoomView.css';
 .group-room{display:flex;flex-direction:column;min-height:0}
+.conversation-time-pause-banner{position:relative;z-index:14;display:flex;align-items:center;justify-content:center;gap:7px;padding:7px 12px;background:color-mix(in srgb,var(--theme-color,#1890ff) 9%,var(--sys-bg-secondary));border-bottom:1px solid var(--border-color);color:var(--text-secondary);font-size:12px;cursor:pointer;user-select:none}.pause-dot{width:7px;height:7px;border-radius:50%;background:var(--theme-color,#1890ff);box-shadow:0 0 0 3px color-mix(in srgb,var(--theme-color,#1890ff) 14%,transparent)}
 .group-muted-input-banner {
   display: flex;
   align-items: center;

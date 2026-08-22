@@ -9,6 +9,7 @@ import { resolvePromptVariables } from '../../services/promptVariables'
 import { buildSocialProfilePrompt } from '../../services/characterSocialProfile'
 import { buildSocialCirclePrompt } from '../../services/socialGraph'
 import { useChatAuth } from '../useChatAuth'
+import { describeClockSeparation } from '../../services/conversationTime'
 import {
   buildEnglishCallFormatRules,
   buildEnglishFormatRules,
@@ -64,12 +65,16 @@ export const buildSystemPrompt = (
   let formatRules = ''
 
   if (chat.timePerception) {
-    const now = new Date()
-    const userTime = now.toLocaleString('zh-CN', { timeZone: userProfile.timezone })
-    const charTime = now.toLocaleString('zh-CN', { timeZone: chat.timezone || userProfile.timezone })
+    const { characterTime: charTime, userTime, characterPlace, userPlace } = describeClockSeparation(
+      chat,
+      userProfile,
+      Date.now(),
+      chat.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      userProfile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+    )
     timeContext = usesEnglishPrompt
-      ? buildEnglishTimeContext(chat.timezone || userProfile.timezone, charTime, userProfile.timezone, userTime)
-      : `\n【当前时间】\n你：${chat.timezone || userProfile.timezone} ${charTime}\n对方：${userProfile.timezone} ${userTime}`
+      ? buildEnglishTimeContext(characterPlace, charTime, userPlace, userTime)
+      : `\n【双方独立当地时间】\n你：${characterPlace} ${charTime}\n对方：${userPlace} ${userTime}\n你的时间与对方的时间是两套互不继承的身份时钟。日期、昼夜、作息和节日判断必须分别依据各自当地时间；不得把对方的钟表时间当成你的时间，也不得直接用双方表面钟点计算等待时长。`
     
     const charTimeRule = chat.sendCharacterTime !== false
       ? '- 你的历史消息也会用 <msg time="YYYY-MM-DD HH:mm"> 包裹，供你参考自己过去回复的时间。\n'

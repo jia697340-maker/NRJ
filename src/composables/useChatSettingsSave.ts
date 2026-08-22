@@ -37,9 +37,13 @@ export function useChatSettingsSave() {
         contacts[idx].memoryValue = selectedChat.value.memoryValue || null
         contacts[idx].daysOffset = selectedChat.value.daysOffset || 0
         contacts[idx].timezone = selectedChat.value.timezone || myProfile.value.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+        contacts[idx].clockMode = selectedChat.value.clockMode || 'system'
+        contacts[idx].clockAnchorRealAt = Number(selectedChat.value.clockAnchorRealAt || Date.now())
+        contacts[idx].clockAnchorTimeAt = Number(selectedChat.value.clockAnchorTimeAt || Date.now())
+        contacts[idx].conversationTimeState = selectedChat.value.conversationTimeState || null
         contacts[idx].enableEmojiVision = selectedChat.value.enableEmojiVision ?? false
         contacts[idx].enableRoleEmojiVision = selectedChat.value.enableRoleEmojiVision ?? false
-        contacts[idx].timePerception = selectedChat.value.timePerception ?? false
+        contacts[idx].timePerception = selectedChat.value.timePerception ?? true
         contacts[idx].sendCharacterTime = selectedChat.value.sendCharacterTime ?? true
         contacts[idx].showCostTime = selectedChat.value.showCostTime ?? true
         contacts[idx].memoryBook = selectedChat.value.memoryBook || []

@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { buildMemoryPacket, normalizeMemoryMode } from './memoryEngine'
 import { estimateTextTokens } from '../utils/tokenEstimate'
+import { formatIdentityDateTime, getConversationAdjustedTimestamp } from './conversationTime'
 
 export interface MemoryBridgeDirectionConfig {
   shortTermEnabled: boolean
@@ -53,10 +54,10 @@ const describeMessage = (message: any) => {
   return String(message.content || '')
 }
 
-const timestampLabel = (message: any) => {
+const timestampLabel = (message: any, chat: any, clockOwner: any) => {
   const timestamp = Number(message?.timestamp || message?.id)
   if (!Number.isFinite(timestamp) || timestamp < 1000000000000) return ''
-  return new Date(timestamp).toLocaleString('zh-CN', { hour12: false })
+  return formatIdentityDateTime(clockOwner, getConversationAdjustedTimestamp(chat, timestamp))
 }
 
 const isBridgeMessage = (message: any) => (
@@ -78,7 +79,12 @@ const formatGroupRecentContext = (group: any, count: number) => recentMessages(g
     : message.type === 'system'
       ? '系统通知'
       : (group.memberNicknames?.[senderId] || group.memoryMemberNames?.[senderId] || message.senderNameSnapshot || '群成员')
-  const time = timestampLabel(message)
+  const clockOwner = message.type === 'right'
+    ? group.userProfile
+    : group.memberTimezones?.[senderId]
+      ? { clockMode: 'timezone', timezone: group.memberTimezones[senderId] }
+      : null
+  const time = clockOwner ? timestampLabel(message, group, clockOwner) : ''
   return `${time ? `[${time}] ` : ''}${escapeXml(senderName)}：${escapeXml(describeMessage(message)).slice(0, 1600)}`
 }).join('\n')
 
@@ -88,7 +94,7 @@ const formatSingleRecentContext = (chat: any, count: number) => recentMessages(c
     : message.type === 'system'
       ? '系统通知'
       : (chat.name || '角色')
-  const time = timestampLabel(message)
+  const time = timestampLabel(message, chat, message.type === 'right' ? chat.userProfile : chat)
   return `${time ? `[${time}] ` : ''}${escapeXml(senderName)}：${escapeXml(describeMessage(message)).slice(0, 1600)}`
 }).join('\n')
 

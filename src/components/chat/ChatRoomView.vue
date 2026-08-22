@@ -41,6 +41,7 @@ import {
   type OfflineCarryoverMode
 } from '../../services/offlineSessions'
 import { queueMessageForPresence } from '../../services/presenceLifecycle'
+import { getIdentityCalendarParts, isConversationTimePaused, resumeConversationTime } from '../../services/conversationTime'
 
 useBubbleBeautify()
 
@@ -343,6 +344,13 @@ const openModelCommunication = (messageIds: Array<number | string> = []) => {
   showModelCommunicationModal.value = true
 }
 
+const conversationTimePaused = computed(() => isConversationTimePaused(selectedChat.value))
+const resumePausedConversation = () => {
+  if (!selectedChat.value) return
+  resumeConversationTime(selectedChat.value)
+  saveCustomContacts()
+}
+
 const onModalModelCommunication = (msgId?: number) => openModelCommunication(msgId ? [msgId] : [])
 const openSelectedModelCommunication = () => {
   if (!selectedMessageIds.value.size) return
@@ -464,6 +472,7 @@ const handleEmojiClick = (url: string | undefined, name: string | undefined) => 
 
 const handleSendEmoji = async (item: any) => {
   if (!selectedChat.value) return
+  resumeConversationTime(selectedChat.value)
   
   if (!selectedChat.value.messages) {
     selectedChat.value.messages = []
@@ -564,6 +573,7 @@ const handleCancelImageGeneration = (msgId: number) => {
 
 const handleAddMessage = async (text: string) => {
   if (!text || !selectedChat.value) return
+  resumeConversationTime(selectedChat.value)
   
   if (!selectedChat.value.messages) {
     selectedChat.value.messages = []
@@ -761,14 +771,9 @@ const handleResummarize = (msgId?: number) => {
 }
 
 const updateTime = () => {
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  currentDateStr.value = `${y}.${m}.${d}`
-  
-  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
-  currentDayStr.value = days[now.getDay()]
+  const parts = getIdentityCalendarParts(myProfile.value)
+  currentDateStr.value = `${parts.year}.${parts.month}.${parts.day}`
+  currentDayStr.value = parts.weekday
 }
 
 const currentRoomWallpaper = ref<string | null>(null)
@@ -1203,6 +1208,9 @@ onUnmounted(() => {
       @resummarize="handleResummarize"
       @model-communication="onModalModelCommunication"
     />
+    <div v-if="conversationTimePaused" class="conversation-time-pause-banner" @click="resumePausedConversation">
+      <span class="pause-dot"></span><span>会话时间已暂停 · 点击继续</span>
+    </div>
 
     <ChatMessageEditModal
       :visible="showEditModal"
@@ -1481,4 +1489,5 @@ onUnmounted(() => {
 <style>
 @import '../app_ChatPreview.css';
 @import './ChatRoomView.css';
+.conversation-time-pause-banner{position:relative;z-index:14;display:flex;align-items:center;justify-content:center;gap:7px;padding:7px 12px;background:color-mix(in srgb,var(--theme-color,#1890ff) 9%,var(--sys-bg-secondary));border-bottom:1px solid var(--border-color);color:var(--text-secondary);font-size:12px;cursor:pointer;user-select:none}.pause-dot{width:7px;height:7px;border-radius:50%;background:var(--theme-color,#1890ff);box-shadow:0 0 0 3px color-mix(in srgb,var(--theme-color,#1890ff) 14%,transparent)}
 </style>

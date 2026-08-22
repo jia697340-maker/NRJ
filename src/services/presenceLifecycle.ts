@@ -1,3 +1,5 @@
+import { formatIdentityDateTime, getConversationAdjustedTimestamp, isConversationTimePaused } from './conversationTime'
+
 export type PresenceSource = 'chat' | 'autonomy' | 'recovery'
 
 export type PresenceSession = {
@@ -209,6 +211,7 @@ export const finishOfflinePresence = (chat: any, endedAt = Date.now()): Presence
 }
 
 export const reconcilePresence = (chat: any, now = Date.now()): PresenceResult => {
+  if (isConversationTimePaused(chat)) return { changed: false, becameOnline: false, queuedMessageCount: 0, session: getActiveSession(chat) }
   if (!chat?.enableImmersiveStatus) {
     return { changed: false, becameOnline: false, queuedMessageCount: 0, session: null }
   }
@@ -243,15 +246,9 @@ export const buildPresenceContext = (chat: any, english = false) => {
   const events = Array.isArray(chat?.presenceHistory) ? chat.presenceHistory.slice(-6) as PresenceEvent[] : []
   if (events.length === 0) return ''
   const lines = events.map(event => {
-    const time = new Date(event.createdAt).toLocaleString('zh-CN', {
-      timeZone: chat.timezone || undefined,
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    const time = formatIdentityDateTime(chat, getConversationAdjustedTimestamp(chat, event.createdAt), undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
     if (event.kind === 'offline') {
-      const plannedTime = new Date(event.plannedEndAt).toLocaleTimeString('zh-CN', { timeZone: chat.timezone || undefined, hour: '2-digit', minute: '2-digit' })
+      const plannedTime = formatIdentityDateTime(chat, getConversationAdjustedTimestamp(chat, event.plannedEndAt), undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
       return english ? `- ${time}: You went offline and planned to return at ${plannedTime}.` : `- ${time}：你下线，计划于 ${plannedTime} 上线。`
     }
     return english

@@ -8,6 +8,7 @@ import { getChatLanguageLabel } from '../../../constants/chatLanguages'
 import { readGroupChats } from '../../../services/groupChat'
 import { useChatAuth } from '../../../composables/useChatAuth'
 import { getImageProviderName } from '../../../services/imageProviderRegistry'
+import { getIdentityClockLabel } from '../../../services/conversationTime'
 
 const props = defineProps<{
   selectedChat: any
@@ -425,9 +426,9 @@ watch(() => props.selectedChat, calculateMomentTokens)
           <span class="arrow">></span>
         </div>
       </div>
-      <div class="glass-list-item" v-show="matchSearch('角色时区')" :class="{ 'disabled-block': !selectedChat.timePerception }" @click="emit('open-timezone-modal', 'character')">
-        <div class="item-label">角色时区</div>
-        <div class="item-value"><span class="item-value-text">{{ getTimezoneLabel(selectedChat.timezone) || '默认' }}</span><span class="arrow">></span></div>
+      <div class="glass-list-item" v-show="matchSearch('角色时间', '角色时区', '自定义时间')" :class="{ 'disabled-block': !selectedChat.timePerception }" @click="emit('open-timezone-modal', 'character')">
+        <div class="item-label">角色独立时间</div>
+        <div class="item-value"><span class="item-value-text">{{ getIdentityClockLabel(selectedChat) }}</span><span class="arrow">></span></div>
       </div>
       <div class="glass-list-item" v-show="matchSearch('允许角色看到表情包图像')">
         <div class="item-label">允许角色看到表情包图像</div>

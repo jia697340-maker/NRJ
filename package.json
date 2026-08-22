@@ -16,6 +16,7 @@
     "test:prompt": "tsx scripts/test-prompt-schemes.ts",
     "test:group": "tsx scripts/test-group-chat.ts",
     "test:reasoning": "tsx scripts/test-reasoning-adapters.ts",
+    "test:time": "tsx scripts/test-conversation-time.ts",
     "test:music-qr": "node scripts/test-music-qr.mjs",
     "typecheck": "vue-tsc -p tsconfig.app.json --noEmit --incremental false"
   },

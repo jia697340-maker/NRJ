@@ -2,6 +2,12 @@
 import { computed } from 'vue'
 import localforage from 'localforage'
 import { chatSettings } from '../store'
+import { myProfile } from './chatState/state'
+import {
+  formatIdentityClockTime,
+  getConversationAdjustedTimestamp,
+  getIdentityCalendarParts
+} from '../services/conversationTime'
 
 const isInternalSystemNarration = (msg: any) => {
   if (msg?.type !== 'system') return false
@@ -15,27 +21,25 @@ const isInternalSystemNarration = (msg: any) => {
 export function useChatRoomDisplay(selectedChat: any) {
   // 友好的时间格式化
   const formatTimeFriendly = (timestamp: number) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    
-    const isToday = date.toDateString() === now.toDateString()
-    
-    const yesterday = new Date(now)
-    yesterday.setDate(now.getDate() - 1)
-    const isYesterday = date.toDateString() === yesterday.toDateString()
-    
-    const isSameYear = date.getFullYear() === now.getFullYear()
-    
-    const timeStr = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    const date = getIdentityCalendarParts(myProfile.value, timestamp)
+    const now = getIdentityCalendarParts(myProfile.value)
+    const dateKey = `${date.year}-${date.month}-${date.day}`
+    const nowKey = `${now.year}-${now.month}-${now.day}`
+    const yesterdayKey = new Date(Date.UTC(Number(now.year), Number(now.month) - 1, Number(now.day) - 1))
+      .toISOString().slice(0, 10)
+    const isToday = dateKey === nowKey
+    const isYesterday = dateKey === yesterdayKey
+    const isSameYear = date.year === now.year
+    const timeStr = formatIdentityClockTime(myProfile.value, timestamp)
     
     if (isToday) {
       return timeStr
     } else if (isYesterday) {
       return `昨天 ${timeStr}`
     } else if (isSameYear) {
-      return `${date.getMonth() + 1}月${date.getDate()}日 ${timeStr}`
+      return `${Number(date.month)}月${Number(date.day)}日 ${timeStr}`
     } else {
-      return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${timeStr}`
+      return `${date.year}年${Number(date.month)}月${Number(date.day)}日 ${timeStr}`
     }
   }
 
@@ -70,7 +74,10 @@ export function useChatRoomDisplay(selectedChat: any) {
       if (!chatSettings.showSystemNarration && isInternalSystemNarration(msg)) continue
       
       // msg.id 必须是一个合法的时间戳，做兜底兼容
-      const msgTime = (msg.id > 1000000000000) ? msg.id : Date.now()
+      const rawMessageTime = Number(msg.timestamp || msg.id)
+      const msgTime = rawMessageTime > 1000000000000
+        ? getConversationAdjustedTimestamp(selectedChat.value, rawMessageTime)
+        : Date.now()
       
       // 如果与上一条消息相差超过 5 分钟 (300000 毫秒)
       if (msgTime - lastTime > 300000) {

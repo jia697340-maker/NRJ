@@ -19,6 +19,7 @@ import { readGroupChats } from '../../services/groupChat'
 import { buildGroupToSingleBridgeContext } from '../../services/memoryBridge'
 import { useChatAuth } from '../useChatAuth'
 import { buildChatModelRulesPrompt } from '../../services/modelCommunication'
+import { formatIdentityDateTime, getConversationAdjustedTimestamp } from '../../services/conversationTime'
 
 // 将 Blob 转为 Base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -382,34 +383,34 @@ export const buildChatMessages = async (
 
       if (chat.timePerception) {
         // 尝试根据 msg.id 获取时间，如果 id 不是有效的时间戳，使用当前时间作为兜底
-        const msgTime = new Date(msg.id > 1000000000000 ? msg.id : Date.now())
-        const timeStr = msgTime.toLocaleString('zh-CN', { 
-          timeZone: msg.type === 'left' ? (chat.timezone || userProfile.timezone) : userProfile.timezone,
-          year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
-        }).replace(/\//g, '-') // 格式化为 YYYY-MM-DD HH:mm
+        const rawTimestamp = Number(msg.timestamp || (msg.id > 1000000000000 ? msg.id : Date.now()))
+        const adjustedTimestamp = getConversationAdjustedTimestamp(chat, rawTimestamp)
+        const senderClock = msg.type === 'left' || msg.type === 'narration' ? chat : userProfile
+        const timeStr = formatIdentityDateTime(senderClock, adjustedTimestamp).replace(/\//g, '-')
+        const timeAttrs = `time="${timeStr}" timeline_at="${new Date(adjustedTimestamp).toISOString()}"`
         
         if (msg.type === 'narration') {
-          formattedContent = formattedContent.replace('<narration ', `<narration time="${timeStr}" `)
+          formattedContent = formattedContent.replace('<narration ', `<narration ${timeAttrs} `)
         } else if (isSystemNotice) {
-          formattedContent = `<system_notice time="${timeStr}">${formattedContent}</system_notice>`
+          formattedContent = `<system_notice ${timeAttrs}>${formattedContent}</system_notice>`
         } else if (isEmojiMessage) {
           formattedContent = msg.type === 'right'
-            ? `<user_emoji_msg time="${timeStr}" name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
-            : `<send_emoji time="${timeStr}">${emojiName}</send_emoji>`
+            ? `<user_emoji_msg ${timeAttrs} name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
+            : `<send_emoji ${timeAttrs}>${emojiName}</send_emoji>`
         } else if (isVoice) {
           formattedContent = msg.type === 'right'
-            ? `<user_voice_msg time="${timeStr}" seconds="${voiceSeconds}">${quotePrefix}${formattedContent}</user_voice_msg>`
-            : `<send_voice time="${timeStr}" seconds="${voiceSeconds}">${msg.voiceData.text}</send_voice>`
+            ? `<user_voice_msg ${timeAttrs} seconds="${voiceSeconds}">${quotePrefix}${formattedContent}</user_voice_msg>`
+            : `<send_voice ${timeAttrs} seconds="${voiceSeconds}">${msg.voiceData.text}</send_voice>`
         } else if (isImage) {
           formattedContent = msg.type === 'right'
-            ? `<user_image_msg time="${timeStr}">${quotePrefix}${formattedContent}</user_image_msg>`
-            : `<send_image time="${timeStr}">${imageDescription}</send_image>`
+            ? `<user_image_msg ${timeAttrs}>${quotePrefix}${formattedContent}</user_image_msg>`
+            : `<send_image ${timeAttrs}>${imageDescription}</send_image>`
         } else if (isTransferMessage) {
-          formattedContent = formattedContent.replace(/^<([a-z_]+)/, `<$1 time="${timeStr}"`)
+          formattedContent = formattedContent.replace(/^<([a-z_]+)/, `<$1 ${timeAttrs}`)
         } else if (msg.type === 'right') {
-          formattedContent = `<user_msg time="${timeStr}">${quotePrefix}${formattedContent}</user_msg>`
+          formattedContent = `<user_msg ${timeAttrs}>${quotePrefix}${formattedContent}</user_msg>`
         } else if (msg.type === 'left' && chat.sendCharacterTime !== false) {
-          formattedContent = `<msg time="${timeStr}">${quotePrefix}${formattedContent}</msg>`
+          formattedContent = `<msg ${timeAttrs}>${quotePrefix}${formattedContent}</msg>`
         } else {
           formattedContent = `<msg>${quotePrefix}${formattedContent}</msg>`
         }

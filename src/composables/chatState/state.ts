@@ -22,6 +22,9 @@ export const myProfile = ref({
   persona: '',
   avatarUrl: '',
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  clockMode: 'system' as 'system' | 'timezone' | 'custom',
+  clockAnchorRealAt: Date.now(),
+  clockAnchorTimeAt: Date.now(),
   statusText: ''
 })
 

@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import ChatCallRecordsView from '../ChatCallRecordsView.vue'
+import { getIdentityClockLabel } from '../../../services/conversationTime'
 
 const props = defineProps<{
   selectedChat: any
@@ -75,10 +76,10 @@ const showCallRecordsView = ref(false)
       </div>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('用户时区')">
-      <div class="glass-list-item" v-show="matchSearch('用户时区')" :class="{ 'disabled-block': !selectedChat.timePerception }" @click="emit('open-timezone-modal', 'user')">
-        <div class="item-label">用户时区</div>
-        <div class="item-value"><span class="item-value-text">{{ getTimezoneLabel(myProfile.timezone) || '默认' }}</span><span class="arrow">></span></div>
+    <div class="glass-panel" v-show="matchSearch('用户时间', '用户时区', '自定义时间')">
+      <div class="glass-list-item" v-show="matchSearch('用户时间', '用户时区', '自定义时间')" :class="{ 'disabled-block': !selectedChat.timePerception }" @click="emit('open-timezone-modal', 'user')">
+        <div class="item-label">我的独立时间</div>
+        <div class="item-value"><span class="item-value-text">{{ getIdentityClockLabel(myProfile) }}</span><span class="arrow">></span></div>
       </div>
     </div>
 

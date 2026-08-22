@@ -5,6 +5,7 @@ import localforage from 'localforage'
 import { chatSettings, worldBooks, worldBookGroups } from '../../store'
 import { deleteGroupChat, saveGroupChat, type GroupChatRecord } from '../../services/groupChat'
 import { useChatAuth } from '../../composables/useChatAuth'
+import { useChatState } from '../../composables/useChatState'
 import ChatSettingsSearchBar from './settings/ChatSettingsSearchBar.vue'
 import ChatSettingsTabs from './settings/ChatSettingsTabs.vue'
 import ChatSummaryView from './ChatSummaryView.vue'
@@ -23,6 +24,7 @@ import ChatBubbleBeautifyModal from './modals/ChatBubbleBeautifyModal.vue'
 import ChatAvatarDisplayModal from './modals/ChatAvatarDisplayModal.vue'
 import ChatNameDisplayModal from './modals/ChatNameDisplayModal.vue'
 import ChatTimeDisplayModal from './modals/ChatTimeDisplayModal.vue'
+import ChatIdentityTimeModal from './modals/ChatIdentityTimeModal.vue'
 import ChatSettingsPanelAppearance from './settings/ChatSettingsPanelAppearance.vue'
 import ChatCallRecordsView from './ChatCallRecordsView.vue'
 import ChatEmojiView from './ChatEmojiView.vue'
@@ -39,10 +41,19 @@ import GroupAnnouncementListModal from './group/GroupAnnouncementListModal.vue'
 import GroupAnnouncementDetailModal from './group/GroupAnnouncementDetailModal.vue'
 import GroupAnnouncementEditModal from './group/GroupAnnouncementEditModal.vue'
 import { normalizeMemoryBridgeMemberSettings } from '../../services/memoryBridge'
+import {
+  applyIdentityClock,
+  getIdentityClockLabel,
+  isConversationTimePaused,
+  pauseConversationTime,
+  resumeConversationTime,
+  type IdentityClockSnapshot
+} from '../../services/conversationTime'
 
 const props = defineProps<{ group: GroupChatRecord; chats: any[] }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'deleted'): void; (e: 'open-member-settings', memberId: string): void }>()
 const { currentChatUserId } = useChatAuth()
+const { myProfile, saveMyProfile } = useChatState()
 const searchQuery = ref('')
 const categories = ['群聊', '成员', '记忆', '通用', '能力', '美化', '衍生']
 const activeCategory = ref(localStorage.getItem('clingy_group_setting_tab') || '群聊')
@@ -60,6 +71,7 @@ const bilingualOptionKind = ref<'mode' | 'display'>('mode')
 const showBilingualLanguageModal = ref(false)
 const bilingualLanguageKind = ref<'output' | 'translation'>('output')
 const showTimezoneModal = ref(false)
+const showIdentityTimeModal = ref(false)
 const timezoneTarget = ref<'user' | 'member'>('user')
 const showMsgCountModal = ref(false)
 const showOfflinePresetModal = ref(false)
@@ -140,18 +152,48 @@ const selectBilingualLanguage = (payload: { value: string; customLanguage?: stri
   }
   save()
 }
-const openTimezone = (target: 'user' | 'member') => { timezoneTarget.value = target; showTimezoneModal.value = true }
+const activeClockOwner = computed(() => timezoneTarget.value === 'user' ? myProfile.value : editingMember.value)
+const openTimezone = (target: 'user' | 'member') => { timezoneTarget.value = target; showIdentityTimeModal.value = true }
+const chooseIdentityTimezone = () => { showIdentityTimeModal.value = false; showTimezoneModal.value = true }
+const persistMemberIdentityClock = (member: any) => {
+  const key = currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
+  try {
+    const contacts = JSON.parse(localStorage.getItem(key) || '[]')
+    const id = String(member.characterEntityId || member.id)
+    const index = contacts.findIndex((item: any) => String(item.characterEntityId || item.id) === id)
+    if (index >= 0) {
+      ;['timezone', 'clockMode', 'clockAnchorRealAt', 'clockAnchorTimeAt'].forEach(field => { contacts[index][field] = member[field] })
+      localStorage.setItem(key, JSON.stringify(contacts))
+    }
+  } catch { /* 保留当前内存状态，后续普通保存仍可继续。 */ }
+}
+const saveIdentityClock = (clock: IdentityClockSnapshot) => {
+  const owner = activeClockOwner.value
+  if (!owner) return
+  applyIdentityClock(owner, clock)
+  if (timezoneTarget.value === 'member') {
+    if (editingMemberId.value) delete props.group.memberTimezones?.[editingMemberId.value]
+    persistMemberIdentityClock(owner)
+  }
+  else saveMyProfile()
+  save()
+}
 const selectTimezone = (timezone: string) => {
-  if (timezoneTarget.value === 'user') {
-    props.group.userProfile ||= {}
-    props.group.userProfile.timezone = timezone
-  } else if (editingMemberId.value) {
-    props.group.memberTimezones ||= {}
-    props.group.memberTimezones[editingMemberId.value] = timezone
+  const owner = activeClockOwner.value
+  if (owner) {
+    owner.timezone = timezone
+    owner.clockMode = 'timezone'
+    if (timezoneTarget.value === 'member') {
+      if (editingMemberId.value) delete props.group.memberTimezones?.[editingMemberId.value]
+      persistMemberIdentityClock(owner)
+    }
+    else saveMyProfile()
   }
   save()
   showTimezoneModal.value = false
 }
+const conversationTimePaused = computed(() => isConversationTimePaused(props.group))
+const toggleConversationTimePause = () => { if (conversationTimePaused.value) resumeConversationTime(props.group); else pauseConversationTime(props.group); save() }
 const saveMsgCount = (min: number, max: number) => { props.group.minMsgCount = min; props.group.maxMsgCount = max; save(); showMsgCountModal.value = false }
 const groupOptionTitle = computed(() => groupOptionKind.value === 'offlineMode' ? '线下表现形式' : '地点处理')
 const groupOptionValue = computed(() => groupOptionKind.value === 'offlineMode' ? (props.group.offlineMeetMode || 'mixed') : (props.group.offlineMeetLocationMode || 'vague'))
@@ -612,12 +654,16 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
           <div v-for="option in [{ value: 'all', label: '全部消息' }, { value: 'mention', label: '仅提到我' }, { value: 'mute', label: '消息免打扰' }]" :key="option.value" class="glass-list-item" @click="chooseNotification(option.value as GroupChatRecord['notificationMode'])"><span class="item-label">{{ option.label }}</span><span class="group-radio" :class="{ active: group.notificationMode === option.value }"></span></div>
           <div class="group-current-value">当前：{{ notificationLabel }}</div>
         </div>
-        <div v-show="match('时间感知', '时区', '发送角色时间戳')" class="glass-panel">
+        <div v-show="match('时间感知', '时区', '发送角色时间戳', '暂停会话时间', '隐藏离线间隔')" class="glass-panel">
           <div class="glass-list-item"><span class="item-label">时间感知</span><label class="switch"><input v-model="group.timePerception" type="checkbox" @change="save"><span class="slider"></span></label></div>
           <template v-if="group.timePerception">
-            <div class="glass-list-item" @click="openTimezone('user')"><span class="item-label bilingual-child-label">└ 用户时区</span><div class="item-value"><span class="item-value-text">{{ getTimezoneLabel(group.userProfile?.timezone) || '跟随设备' }}</span><span class="arrow">›</span></div></div>
+            <div class="glass-list-item" @click="openTimezone('user')"><span class="item-label bilingual-child-label">└ 我的独立时间</span><div class="item-value"><span class="item-value-text">{{ getIdentityClockLabel(myProfile) }}</span><span class="arrow">›</span></div></div>
             <div class="glass-list-item"><span class="item-label bilingual-child-label">└ 发送成员历史时间戳</span><label class="switch"><input v-model="group.sendCharacterTime" type="checkbox" @change="save"><span class="slider"></span></label></div>
           </template>
+          <div class="glass-list-item conversation-time-pause-row" @click="toggleConversationTimePause">
+            <div class="conversation-time-pause-copy"><div class="item-label">暂停会话时间</div><div class="group-item-desc">不累计未回复时长，不补演自主活动；下次发送时自动继续</div></div>
+            <label class="switch conversation-time-pause-switch" @click.stop><input type="checkbox" :checked="conversationTimePaused" @change="toggleConversationTimePause"><span class="slider"></span></label>
+          </div>
         </div>
         <div v-show="match('双语', '语言控制模式', '输出语言', '翻译目标语言', '翻译显示方式')" class="glass-panel">
           <div class="glass-list-item"><span class="item-label">双语模式</span><label class="switch"><input v-model="group.bilingualEnabled" type="checkbox" @change="save"><span class="slider"></span></label></div>
@@ -705,7 +751,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
             <input ref="avatarInput" type="file" accept="image/*" class="group-hidden-file" @change="handleAvatarUpload">
           </div>
           <label class="group-field"><span>群内昵称</span><input v-model="group.memberNicknames[editingMemberId]" class="group-settings-input" :placeholder="editingMember.name"></label>
-          <div class="group-field group-field-action" @click="openTimezone('member')"><span>群内角色时区</span><div class="item-value"><span class="item-value-text">{{ getTimezoneLabel(group.memberTimezones?.[editingMemberId] || editingMember.timezone) || '跟随私聊' }}</span><span class="arrow">›</span></div></div>
+          <div class="group-field group-field-action" @click="openTimezone('member')"><span>角色独立时间</span><div class="item-value"><span class="item-value-text">{{ getIdentityClockLabel(editingMember) }}</span><span class="arrow">›</span></div></div>
           <label class="group-field"><span>群内独立人设</span><textarea v-model="group.memberNotes[editingMemberId]" class="group-settings-textarea" rows="7" placeholder="此人设完全替换该成员在私聊中的原人设，仅在本群生效。"></textarea></label>
           <div class="group-section-title">群内能力覆盖（详细参数沿用私聊）</div>
           <div class="glass-list-item"><span class="item-label">群内语音消息接入</span><label class="switch"><input v-model="group.memberSettings[editingMemberId].enableVoiceReply" type="checkbox"><span class="slider"></span></label></div>
@@ -812,6 +858,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
     <ChatBilingualOptionModal v-model:visible="showBilingualOptionModal" :title="bilingualOptionTitle" :current-value="bilingualOptionValue" :options="bilingualOptionChoices" @select="selectBilingualOption" />
     <ChatDialogueLanguageModal v-model:visible="showBilingualLanguageModal" :kind="bilingualLanguageKind" :current-language="bilingualLanguageKind === 'output' ? group.dialogueLanguage : group.translationLanguage" :custom-language="bilingualLanguageKind === 'output' ? group.customDialogueLanguage : group.customTranslationLanguage" @select="selectBilingualLanguage" />
     <ChatTimezoneModal v-model:visible="showTimezoneModal" @select="selectTimezone" />
+    <ChatIdentityTimeModal v-model:visible="showIdentityTimeModal" :title="timezoneTarget === 'user' ? '设置我的时间' : `设置${editingMember?.name || '角色'}的时间`" :owner="activeClockOwner" @save="saveIdentityClock" @select-timezone="chooseIdentityTimezone" />
     <ChatMsgCountModal v-model:visible="showMsgCountModal" :initial-min="group.minMsgCount || 1" :initial-max="group.maxMsgCount || 3" @save="saveMsgCount" />
     <ChatOfflinePresetModal :visible="showOfflinePresetModal" :selected-chat="group" @close="showOfflinePresetModal = false" @save="save" />
     <ChatBilingualOptionModal v-model:visible="showGroupOptionModal" :title="groupOptionTitle" :current-value="groupOptionValue" :options="groupOptionChoices" @select="selectGroupOption" />

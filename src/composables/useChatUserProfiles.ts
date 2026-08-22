@@ -9,6 +9,10 @@ export interface ChatUserProfileSnapshot {
   remark: string
   persona: string
   avatarUrl: string
+  timezone?: string
+  clockMode?: 'system' | 'timezone' | 'custom'
+  clockAnchorRealAt?: number
+  clockAnchorTimeAt?: number
 }
 
 export interface ChatUserProfileSource {
@@ -97,7 +101,10 @@ export const getEffectiveUserProfile = (chat: any, accountProfile: any) => {
   return {
     ...profile,
     // 时区属于当前用户账号，不跟随某个聊天的人设快照。
-    timezone: accountProfile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+    timezone: accountProfile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    clockMode: accountProfile?.clockMode || 'system',
+    clockAnchorRealAt: Number(accountProfile?.clockAnchorRealAt || Date.now()),
+    clockAnchorTimeAt: Number(accountProfile?.clockAnchorTimeAt || Date.now())
   }
 }
 

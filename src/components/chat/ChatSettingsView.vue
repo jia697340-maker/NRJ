@@ -20,6 +20,12 @@ import ChatBubbleBeautifyModal from './modals/ChatBubbleBeautifyModal.vue'
 import ChatAvatarDisplayModal from './modals/ChatAvatarDisplayModal.vue'
 import ChatNameDisplayModal from './modals/ChatNameDisplayModal.vue'
 import ChatTimeDisplayModal from './modals/ChatTimeDisplayModal.vue'
+import ChatIdentityTimeModal from './modals/ChatIdentityTimeModal.vue'
+import {
+  applyIdentityClock,
+  formatIdentityClockTime,
+  type IdentityClockSnapshot
+} from '../../services/conversationTime'
 import {
   applyUserProfileToChat,
   updateStoredPersona,
@@ -99,21 +105,39 @@ const { getTimezoneLabel } = useTimezone()
 
 // --- 时区相关逻辑 ---
 const showTimezoneModal = ref(false)
+const showIdentityTimeModal = ref(false)
 const currentSelectingTarget = ref<'user' | 'character'>('user')
 
 const openTimezoneModal = (target: 'user' | 'character') => {
   currentSelectingTarget.value = target
+  showIdentityTimeModal.value = true
+}
+
+const activeClockOwner = computed(() => currentSelectingTarget.value === 'user' ? myProfile.value : selectedChat.value)
+
+const saveIdentityClock = (clock: IdentityClockSnapshot) => {
+  if (!activeClockOwner.value) return
+  applyIdentityClock(activeClockOwner.value, clock)
+  if (currentSelectingTarget.value === 'user') saveMyProfile()
+  else saveCurrentChat()
+  updateCharacterTime()
+}
+
+const chooseClockTimezone = () => {
+  showIdentityTimeModal.value = false
   showTimezoneModal.value = true
 }
 
 const handleSelectTimezone = (tzId: string) => {
   if (currentSelectingTarget.value === 'user') {
     myProfile.value.timezone = tzId
+    myProfile.value.clockMode = 'timezone'
     saveMyProfile()
     updateCharacterTime()
   } else {
     if (selectedChat.value) {
       selectedChat.value.timezone = tzId
+      selectedChat.value.clockMode = 'timezone'
       saveCurrentChat()
     }
   }
@@ -127,27 +151,14 @@ let characterTimer: any = null
 
 const updateCharacterTime = () => {
   if (!selectedChat.value) return
-  const tz = selectedChat.value.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
   try {
-    const dtf = new Intl.DateTimeFormat('zh-CN', {
-      timeZone: tz,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    })
-    characterCurrentTime.value = dtf.format(new Date())
+    characterCurrentTime.value = formatIdentityClockTime(selectedChat.value)
   } catch (e) {
     characterCurrentTime.value = '--:--'
   }
 
-  const userTimezone = myProfile.value.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
   try {
-    userCurrentTime.value = new Intl.DateTimeFormat('zh-CN', {
-      timeZone: userTimezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    }).format(new Date())
+    userCurrentTime.value = formatIdentityClockTime(myProfile.value)
   } catch {
     userCurrentTime.value = '--:--'
   }
@@ -997,6 +1008,13 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         v-model:visible="showSeedreamImageDetailModal"
         :chat="selectedChat"
         @save="saveCurrentChat"
+      />
+      <ChatIdentityTimeModal
+        v-model:visible="showIdentityTimeModal"
+        :title="currentSelectingTarget === 'user' ? '设置我的时间' : `设置${selectedChat?.name || '角色'}的时间`"
+        :owner="activeClockOwner"
+        @save="saveIdentityClock"
+        @select-timezone="chooseClockTimezone"
       />
 
       <ChatCommunityImageDetailModal

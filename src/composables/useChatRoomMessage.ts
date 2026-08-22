@@ -11,6 +11,7 @@ import { applySocialProfilePatch, ensureSocialProfile, persistSocialProfile } fr
 import { getCharacterDirectoryEntry, isDirectoryOwner, saveCharacterDirectoryProfile } from '../services/characterDirectory'
 import { deleteCharacterMoment, listMomentsByAuthor, updateCharacterMoment } from '../services/momentRepository'
 import { createWalletPayment } from '../services/walletService'
+import { resumeConversationTime } from '../services/conversationTime'
 
 // 初始化 discover_moments
 const discoverStore = localforage.createInstance({
@@ -46,6 +47,7 @@ export function useChatRoomMessage(
 
   const handleSendImage = async (data: { file?: File, dataUrl?: string, text?: string }, showExtensionPanel: any) => {
     if (!selectedChat.value) return
+    resumeConversationTime(selectedChat.value)
     
     if (!selectedChat.value.messages) {
       selectedChat.value.messages = []
@@ -86,6 +88,7 @@ export function useChatRoomMessage(
   const showVoiceModal = ref(false)
   const handleSendVoice = async (data: { text: string, seconds: number }, showExtensionPanel: any) => {
     if (!selectedChat.value) return
+    resumeConversationTime(selectedChat.value)
     
     if (!selectedChat.value.messages) {
       selectedChat.value.messages = []
@@ -115,6 +118,7 @@ export function useChatRoomMessage(
   const handleSendTransfer = async (data: { type: 'red_packet' | 'transfer', amount: number, remark: string, expireHours: number }, showExtensionPanel: any) => {
     const text = data.type === 'red_packet' ? '[发来一个红包]' : '[发来一笔转账]'
     if (!selectedChat.value) return
+    resumeConversationTime(selectedChat.value)
     
     if (!selectedChat.value.messages) {
       selectedChat.value.messages = []
