@@ -301,7 +301,7 @@ Requirements:
         } else {
           // 即使暂无记忆，也必须实测向量节点后才能进入向量模式。
           await assertEmbeddingReady()
-          await clearChatVectors(chat.id)
+          await clearChatVectors(chat)
         }
       } else if (targetMode === 'long_text') {
         replaceLongTextMemories(chat, sourceItems)

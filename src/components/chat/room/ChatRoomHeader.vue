@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps<{
   selectedChat: any
@@ -16,7 +16,12 @@ const emit = defineEmits<{
   (e: 'open-call-records'): void
   (e: 'open-offline-meet'): void
   (e: 'click-overlay'): void
+  (e: 'open-timelines'): void
 }>()
+
+const activeTimelineName = computed(() => props.selectedChat?.timelineState?.timelines?.find(
+  (item: any) => item.id === props.selectedChat?.timelineState?.activeTimelineId
+)?.name || '主时间线')
 
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
@@ -72,6 +77,7 @@ const showStatusRow = () => {
             >
               {{ getStatusText() }}
             </div>
+            <div v-if="(selectedChat?.timelineState?.timelines?.length || 0) > 1" class="header-timeline-chip" @click.stop="emit('open-timelines')">{{ activeTimelineName }}⌄</div>
           </div>
         </div>
 
@@ -127,4 +133,5 @@ const showStatusRow = () => {
 .clickable-header-name:active {
   opacity: 0.7;
 }
+.header-timeline-chip{align-self:flex-start;margin-top:3px;padding:2px 7px;border-radius:8px;background:rgba(143,124,255,.1);color:#7561dc;font-size:9px;line-height:1.4;cursor:pointer;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>

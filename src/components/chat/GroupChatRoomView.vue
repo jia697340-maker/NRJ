@@ -27,6 +27,7 @@ import ChatRoomMessageList from './room/ChatRoomMessageList.vue'
 import ChatRoomInputArea from './room/ChatRoomInputArea.vue'
 import ChatMessageActionModal from './modals/ChatMessageActionModal.vue'
 import ChatMessageEditModal from './modals/ChatMessageEditModal.vue'
+import ChatTimelineManagerModal from './modals/ChatTimelineManagerModal.vue'
 import ChatTransferModal from './modals/ChatTransferModal.vue'
 import ChatVoiceModal from './modals/ChatVoiceModal.vue'
 import ChatImageModal from './modals/ChatImageModal.vue'
@@ -47,6 +48,7 @@ import GroupChatAnnouncementBanner from './group/GroupChatAnnouncementBanner.vue
 import GroupAnnouncementDetailModal from './group/GroupAnnouncementDetailModal.vue'
 import { awardGroupActivity, consumeAtAll, getAtAllUsage, groupManagementService, isGroupMemberMuted } from '../../services/groupManagementService'
 import { formatIdentityClockTime, getIdentityCalendarParts, isConversationTimePaused, normalizeConversationTimeState, resumeConversationTime } from '../../services/conversationTime'
+import { ensureChatTimelineState, persistActiveTimeline } from '../../services/chatTimeline'
 
 const props = defineProps<{ group: any; isVisible?: boolean }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'open-settings'): void; (e: 'open-character-profile', memberId: string): void }>()
@@ -63,6 +65,17 @@ const showUserThoughtModal = ref(false)
 const showWebSearchModal = ref(false)
 const showInnerThoughtModal = ref(false)
 const showMemoryModal = ref(false)
+const showTimelineManagerModal = ref(false)
+const timelineForkMessageId = ref<number | string | null>(null)
+const timelineForkKind = ref<'timeline' | 'checkpoint'>('timeline')
+const ensureMemberTimelineBindings = () => {
+  props.group.memberTimelineBindings ||= {}
+  for (const memberId of props.group.memberIds || []) {
+    if (props.group.memberTimelineBindings[memberId]) continue
+    const member = mockChats.value.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === String(memberId))
+    props.group.memberTimelineBindings[memberId] = member?.timelineState?.activeTimelineId || 'main'
+  }
+}
 const openMemoryModal = () => {
   const mode = normalizeMemoryMode(props.group.memoryMode)
   if (mode === 'long_text') showMemoryModal.value = true
@@ -148,7 +161,7 @@ watch(() => groupMgmt.errorMessage.value, value => { if (value) showToast(value)
 watch(() => groupMgmt.toastMessage.value, value => { if (value) showToast(value) })
 const openEmojiSettings = () => { props.group.openEmojiManagerRequested = true; emit('open-settings') }
 const updatePreviewAndTime = (content: string) => { props.group.preview = content || '暂无消息'; props.group.time = formatIdentityClockTime(groupUserProfile.value) }
-const persist = (record = props.group) => { const last = record.messages?.at(-1); const pauseState = normalizeConversationTimeState(record); const lastTimestamp = Number(last?.timestamp || last?.id || 0); if (pauseState.paused && last?.type === 'right' && lastTimestamp >= pauseState.pausedAt) resumeConversationTime(record, lastTimestamp); record.preview = last?.content || '群聊已创建'; record.time = formatIdentityClockTime(groupUserProfile.value); saveGroupChat(currentChatUserId.value, record) }
+const persist = (record = props.group) => { const last = record.messages?.at(-1); const pauseState = normalizeConversationTimeState(record); const lastTimestamp = Number(last?.timestamp || last?.id || 0); if (pauseState.paused && last?.type === 'right' && lastTimestamp >= pauseState.pausedAt) resumeConversationTime(record, lastTimestamp); record.preview = last?.content || '群聊已创建'; record.time = formatIdentityClockTime(groupUserProfile.value); ensureChatTimelineState(record); saveGroupChat(currentChatUserId.value, record); void persistActiveTimeline(record, currentChatUserId.value) }
 const conversationTimePaused = computed(() => isConversationTimePaused(props.group))
 const resumePausedConversation = () => { resumeConversationTime(props.group); persist() }
 const handleSaveWebSearch = (enabled: boolean) => {
@@ -240,6 +253,7 @@ const runReply = async () => {
   const targetGroup = props.group
   const autonomousRun = Boolean(targetGroup.pendingAutonomyDirective)
   const targetId = String(targetGroup.id)
+  const requestTimelineId = String(targetGroup.timelineState?.activeTimelineId || targetGroup.activeTimelineId || 'main')
   if (activeGroupReplyIds.has(targetId)) return
   const targetMemberName = (id: string) => targetGroup.memberNicknames?.[id] || mockChats.value.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === id)?.name || '已移除成员'
   const targetMemberAvatar = (id: string) => mockChats.value.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === id)?.avatarUrl || ''
@@ -249,6 +263,7 @@ const runReply = async () => {
   try {
     const worldText = worldBooks.filter((book: any) => book.enabled && (targetGroup.boundWorldBooks?.includes(book.id) || (book.groupIds || []).some((groupId: string) => targetGroup.boundWorldBookGroups?.includes(groupId)))).flatMap((book: any) => (book.entries || []).filter((entry: any) => entry.enabled).map((entry: any) => `${entry.title}: ${entry.content}`)).join('\n')
     const result = await requestGroupReply(targetGroup, mockChats.value, groupUserProfile.value, requestController.signal, worldText)
+    if (String(targetGroup.timelineState?.activeTimelineId || targetGroup.activeTimelineId || 'main') !== requestTimelineId) return
     const offlineActive = targetGroup.offlineMeetEnabled && (targetGroup.offlineMeetMode === 'separate' || targetGroup.isMixedOfflineActive)
     const disableMedia = (targetGroup.activeCallType && targetGroup.disableMediaDuringCall) || (offlineActive && targetGroup.disableMediaDuringOffline)
     const disableThought = (targetGroup.activeCallType && targetGroup.disableThoughtDuringCall) || (offlineActive && targetGroup.disableThoughtDuringOffline)
@@ -570,6 +585,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @show-inner-thought-modal="showInnerThoughtModal = true"
       @show-memory-modal="openMemoryModal"
       @open-offline-meet="toggleMixedOffline"
+      @open-timelines="ensureMemberTimelineBindings(); timelineForkMessageId = null; showTimelineManagerModal = true"
       @click-overlay="showExtensionPanel = false; showEmojiPanel = false"
     />
     <div v-if="conversationTimePaused" class="conversation-time-pause-banner" @click="resumePausedConversation"><span class="pause-dot"></span><span>会话时间已暂停 · 点击继续</span></div>
@@ -584,7 +600,8 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
 
     <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @open-character-profile="emit('open-character-profile', $event)" />
 
-    <ChatMessageActionModal :visible="multi.showActionModal.value" :message-id="multi.targetMessageId.value" :message-obj="multi.targetMessageId.value ? group.messages.find((message: any) => message.id === multi.targetMessageId.value) : null" @close="multi.showActionModal.value = false" @multi-select="multi.onModalMultiSelect" @recall-multi-select="multi.onModalRecallMultiSelect" @mark-message="multi.onModalMarkMultiSelect" @copy="multi.onModalCopy" @reply="media.replyTargetId.value = $event || multi.targetMessageId.value" @edit="onModalEdit" />
+    <ChatMessageActionModal :visible="multi.showActionModal.value" :message-id="multi.targetMessageId.value" :message-obj="multi.targetMessageId.value ? group.messages.find((message: any) => message.id === multi.targetMessageId.value) : null" @close="multi.showActionModal.value = false" @multi-select="multi.onModalMultiSelect" @recall-multi-select="multi.onModalRecallMultiSelect" @mark-message="multi.onModalMarkMultiSelect" @copy="multi.onModalCopy" @reply="media.replyTargetId.value = $event || multi.targetMessageId.value" @edit="onModalEdit" @create-timeline="ensureMemberTimelineBindings(); timelineForkKind = 'timeline'; timelineForkMessageId = $event || multi.targetMessageId.value || null; showTimelineManagerModal = true" @create-checkpoint="ensureMemberTimelineBindings(); timelineForkKind = 'checkpoint'; timelineForkMessageId = $event || multi.targetMessageId.value || null; showTimelineManagerModal = true" />
+    <ChatTimelineManagerModal v-model:visible="showTimelineManagerModal" :selected-chat="group" :fork-message-id="timelineForkMessageId" :fork-kind="timelineForkKind" @save="persist()" @switched="scrollBottom" />
     <ChatMessageEditModal :visible="showEditModal" :message-id="editTargetId" :initial-content="editInitialContent" :initial-type="editInitialType" :has-media="editHasMedia" @close="showEditModal = false" @save="handleEditSave" />
 
     <!-- 被禁言状态提示栏 -->

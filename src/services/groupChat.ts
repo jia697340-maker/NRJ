@@ -12,6 +12,8 @@ import type { GroupMembershipRequest } from '../types/groupManagement'
 import { selectRoleAvailableEmojis } from './chatEmojiScope'
 import { buildGroupManagementPrompt, ensureGroupManagementState, getSpeakableCharacterIds } from './groupManagementService'
 import { buildSingleToGroupBridgeContext, normalizeMemoryBridgeMemberSettings } from './memoryBridge'
+import { loadTimelineChatView } from './chatTimeline'
+import { useChatAuth } from '../composables/useChatAuth'
 import {
   formatIdentityDateTime,
   getConversationAdjustedTimestamp,
@@ -33,6 +35,9 @@ export interface GroupChatRecord {
   memberHasCustomAvatar?: Record<string, boolean>
   memberSettings: Record<string, Record<string, any>>
   messages: any[]
+  timelineState?: any
+  activeTimelineId?: string
+  memberTimelineBindings?: Record<string, string>
   webSearchEnabled?: boolean
   memoryBook: any[]
   memberMemories: Record<string, any[]>
@@ -389,7 +394,10 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
     const basePrompt = buildSystemPrompt(isolatedMember, roleEmojiNames || '无', false, offlineMode as any, undefined, 'group')
     const bilingualPrompt = buildBilingualPrompt(isolatedMember)
     const thoughtContext = buildInnerThoughtContext(isolatedMember, group.pendingUserThought || '', turnId)
-    const singleMemoryBridge = await buildSingleToGroupBridgeContext(group, member, id, memoryQuery)
+    const boundTimelineId = String(group.memberTimelineBindings?.[id] || member.timelineState?.activeTimelineId || 'main')
+    const { currentChatUserId } = useChatAuth()
+    const boundMember = await loadTimelineChatView(member, currentChatUserId.value, boundTimelineId)
+    const singleMemoryBridge = await buildSingleToGroupBridgeContext(group, boundMember, id, memoryQuery)
     const subjectiveMemory = normalizeMemoryMode(group.memoryMode) === 'long_text'
       ? await buildMemoryPacket({
         id: `${group.id}:member:${id}`,

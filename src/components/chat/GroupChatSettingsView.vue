@@ -29,6 +29,7 @@ import ChatSettingsPanelAppearance from './settings/ChatSettingsPanelAppearance.
 import ChatCallRecordsView from './ChatCallRecordsView.vue'
 import ChatEmojiView from './ChatEmojiView.vue'
 import ChatIdentityProfileModal from './modals/ChatIdentityProfileModal.vue'
+import ChatTimelineManagerModal from './modals/ChatTimelineManagerModal.vue'
 import GroupChatCapabilityPanel from './GroupChatCapabilityPanel.vue'
 import { getChatLanguageLabel } from '../../constants/chatLanguages'
 import { useTimezone } from '../../composables/useTimezone'
@@ -49,6 +50,7 @@ import {
   resumeConversationTime,
   type IdentityClockSnapshot
 } from '../../services/conversationTime'
+import { deleteAllChatTimelineData, ensureChatTimelineState, persistActiveTimeline } from '../../services/chatTimeline'
 
 const props = defineProps<{ group: GroupChatRecord; chats: any[] }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'deleted'): void; (e: 'open-member-settings', memberId: string): void }>()
@@ -85,6 +87,24 @@ const showTimeDisplayModal = ref(false)
 const showCallRecordsView = ref(false)
 const showEmojiView = ref(false)
 const showIdentityProfileModal = ref(false)
+const showTimelineManagerModal = ref(false)
+const bindingMemberId = ref('')
+const ensureMemberTimelineBindings = () => {
+  props.group.memberTimelineBindings ||= {}
+  for (const memberId of props.group.memberIds || []) {
+    if (props.group.memberTimelineBindings[memberId]) continue
+    const member = props.chats.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === String(memberId))
+    props.group.memberTimelineBindings[memberId] = member?.timelineState?.activeTimelineId || 'main'
+  }
+}
+const openTimelineManager = () => { ensureMemberTimelineBindings(); showTimelineManagerModal.value = true }
+const bindingMember = computed(() => props.chats.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === String(bindingMemberId.value)))
+const bindingTimelineName = (memberId: string) => {
+  const member = props.chats.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === String(memberId))
+  const timelineId = props.group.memberTimelineBindings?.[memberId] || member?.timelineState?.activeTimelineId || 'main'
+  return member?.timelineState?.timelines?.find((item: any) => item.id === timelineId)?.name || '主时间线'
+}
+const bindMemberTimeline = (timelineId: string) => { props.group.memberTimelineBindings ||= {}; props.group.memberTimelineBindings[bindingMemberId.value] = timelineId; bindingMemberId.value = ''; save() }
 const deleteGroupEmojiData = ref(true)
 const groupOptionKind = ref<'offlineMode' | 'offlineLocation'>('offlineMode')
 const showUserEditor = ref(false)
@@ -111,7 +131,11 @@ const identityUserOwnerId = computed(() => props.group.userProfileSource?.person
   : (currentChatUserId.value || 'default-user'))
 const groupIdentityProvider = computed(() => members.value.find(member => member.enableNAIImageGen)?.imageGenProvider || 'gpt')
 
-const save = () => saveGroupChat(currentChatUserId.value, props.group)
+const save = () => {
+  ensureChatTimelineState(props.group)
+  saveGroupChat(currentChatUserId.value, props.group)
+  void persistActiveTimeline(props.group, currentChatUserId.value)
+}
 const { getTimezoneLabel } = useTimezone()
 const { emojis: emojiItems, groups: emojiGroups, deleteEmoji, deleteGroups: deleteEmojiGroups, loadEmojis } = useChatEmoji()
 const bilingualModeLabel = computed(() => ({ auto: '智能判断', forced: '强制指定', follow_user: '跟随用户' } as Record<string, string>)[props.group.bilingualMode || 'auto'])
@@ -490,7 +514,7 @@ const toggleBookGroup = (id: string) => {
 }
 const chooseNotification = (value: GroupChatRecord['notificationMode']) => { props.group.notificationMode = value; save() }
 const clearHistory = () => { props.group.messages = []; props.group.memoryBook = []; props.group.memberMemories = {}; props.group.memoryState = null; props.group.lastSummaryMsgId = 0; ensureMemoryState(props.group); void clearChatVectors(props.group.id); save(); showClearConfirm.value = false }
-const removeGroup = async () => { if (!groupMgmt.currentUserPermissions.value.isOwner) return; if (deleteGroupEmojiData.value) { await Promise.all(emojiItems.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => deleteEmoji(item.id))); await deleteEmojiGroups(emojiGroups.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => item.id)) } void clearChatVectors(props.group.id); deleteGroupChat(currentChatUserId.value, props.group.id); showDeleteConfirm.value = false; emit('deleted') }
+const removeGroup = async () => { if (!groupMgmt.currentUserPermissions.value.isOwner) return; if (deleteGroupEmojiData.value) { await Promise.all(emojiItems.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => deleteEmoji(item.id))); await deleteEmojiGroups(emojiGroups.value.filter(item => item.category === 'group' && String(item.groupId || '') === String(props.group.id)).map(item => item.id)) } await deleteAllChatTimelineData(props.group.id, currentChatUserId.value, (props.group.timelineState?.timelines || []).map((item: any) => item.id)); void clearChatVectors(props.group.id); deleteGroupChat(currentChatUserId.value, props.group.id); showDeleteConfirm.value = false; emit('deleted') }
 const chooseWallpaper = () => wallpaperInput.value?.click()
 const uploadWallpaper = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
@@ -649,6 +673,10 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
       </section>
 
       <section v-show="searchQuery || activeCategory === '通用'" class="role-edit-section">
+        <div v-show="match('时间线与存档', '分支', '存档', '重开')" class="glass-panel">
+          <div class="glass-list-item timeline-setting-row" @click="openTimelineManager"><div class="timeline-setting-copy"><div class="item-label">时间线与存档</div><div class="group-item-desc timeline-setting-desc">当前：{{ group.timelineState?.timelines?.find((item: any) => item.id === group.timelineState?.activeTimelineId)?.name || '主时间线' }}</div></div><span class="arrow timeline-setting-arrow">›</span></div>
+          <div v-for="memberId in group.memberIds" :key="`timeline-binding-${memberId}`" class="glass-list-item" @click="ensureMemberTimelineBindings(); bindingMemberId = memberId"><span class="item-label bilingual-child-label">└ {{ group.memberNicknames?.[memberId] || chats.find(item => String(item.characterEntityId || item.id) === String(memberId))?.name || '群成员' }}的路线</span><div class="item-value"><span class="item-value-text">{{ bindingTimelineName(memberId) }}</span><span class="arrow">›</span></div></div>
+        </div>
         <div v-show="match('通知', '时间感知', '双语')" class="glass-panel">
           <div class="group-section-title">消息通知</div>
           <div v-for="option in [{ value: 'all', label: '全部消息' }, { value: 'mention', label: '仅提到我' }, { value: 'mute', label: '消息免打扰' }]" :key="option.value" class="glass-list-item" @click="chooseNotification(option.value as GroupChatRecord['notificationMode'])"><span class="item-label">{{ option.label }}</span><span class="group-radio" :class="{ active: group.notificationMode === option.value }"></span></div>
@@ -732,6 +760,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
     </main>
 
     <div v-if="showWorldBookModal" class="wb-modal-overlay" @click.self="showWorldBookModal = false"><div class="custom-confirm-modal group-sheet"><div class="confirm-title">群聊世界书</div><div class="group-sheet-list"><div class="group-section-title">世界书分组</div><div v-for="bookGroup in worldBookGroups" :key="bookGroup.id" class="glass-list-item" @click="toggleBookGroup(bookGroup.id)"><span class="item-label">{{ bookGroup.name }}</span><span class="group-check" :class="{ active: group.boundWorldBookGroups.includes(bookGroup.id) }">✓</span></div><div v-if="!worldBookGroups.length" class="group-empty-row">暂无世界书分组</div><div class="group-section-title">单本世界书</div><div v-if="bookItems.length"><div v-for="book in bookItems" :key="book.id" class="glass-list-item" @click="toggleBook(book.id)"><span class="item-label">{{ book.title }}</span><span class="group-check" :class="{ active: group.boundWorldBooks.includes(book.id) }">✓</span></div></div><div v-else class="group-empty-row">暂无世界书</div></div><div class="confirm-actions"><div class="confirm-btn" @click="showWorldBookModal = false">完成</div></div></div></div>
+    <div v-if="bindingMemberId" class="wb-modal-overlay" @click.self="bindingMemberId = ''"><div class="custom-confirm-modal group-sheet"><div class="confirm-title">绑定成员时间线</div><div class="group-sheet-list"><div v-for="line in bindingMember?.timelineState?.timelines || []" :key="line.id" class="glass-list-item" @click="bindMemberTimeline(line.id)"><div><div class="item-label">{{ line.name }}</div><div class="group-item-desc">{{ line.relationshipLabel }} · {{ line.messageCount }} 条消息</div></div><span class="group-radio" :class="{ active: group.memberTimelineBindings?.[bindingMemberId] === line.id }"></span></div><div v-if="!(bindingMember?.timelineState?.timelines?.length)" class="group-empty-row">该成员暂无可绑定时间线</div></div><div class="confirm-actions"><div class="confirm-btn cancel" @click="bindingMemberId = ''">取消</div></div></div></div>
 
     <div v-if="showAddMembers" class="wb-modal-overlay" @click.self="showAddMembers = false"><div class="custom-confirm-modal group-sheet"><div class="confirm-title">邀请原群成员</div><div class="group-sheet-list"><div class="group-empty-row">仅可邀请主动退群或曾被移出的成员</div><div v-for="member in candidates" :key="memberId(member)" class="glass-list-item" @click="addMember(member)"><div class="group-member-line"><span class="group-member-avatar" :style="avatarStyle(member)">{{ member.avatarUrl ? '' : member.avatarText }}</span><span>{{ member.name }}</span></div><span class="group-add-mark">＋</span></div><div v-if="!candidates.length" class="group-empty-row">暂无可邀请的原群成员</div></div><div class="confirm-actions"><div class="confirm-btn" @click="showAddMembers = false">完成</div></div></div></div>
 
@@ -898,6 +927,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
       @adjust-points="({ memberId, points }) => groupMgmt.adjustMemberPoints(memberId, points)"
       @reset-points="(memberId) => groupMgmt.resetMemberPoints(memberId)"
     />
+    <ChatTimelineManagerModal v-model:visible="showTimelineManagerModal" :selected-chat="group" @save="save" />
 
     <GroupAdminManagementModal
       :visible="showAdminManagementModal"

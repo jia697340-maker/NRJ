@@ -16,6 +16,7 @@ import {
 } from './autonomyConfig'
 import { flushAutonomyDeliveries, queueAutonomyDelivery } from './autonomyDelivery'
 import { deliverCharacterMessage, ensureRelationship } from '../composables/useChatRelationship'
+import { ensureChatTimelineState, persistActiveTimeline } from './chatTimeline'
 
 export type AutonomyEventType = 'message' | 'moment' | 'status' | 'idle' | 'error'
 export type AutonomyEvent = {
@@ -119,10 +120,14 @@ export const persistAutonomyChat = (chat: any) => {
     'autonomyGuaranteeContact', 'autonomyMaxSilenceMinutes', 'autonomyEmotionMustDeliver', 'autonomyLastMeaningfulActionAt',
     'autonomyLedger', 'autonomyDeliveries',
     'autonomyHistory', 'autonomyState', 'messages', 'unread', 'preview', 'time', 'statusText', 'offlineUntil',
-    'statusSource', 'statusSetAt', 'enableImmersiveStatus', 'presenceSession', 'presenceHistory', 'presencePendingReply'
+    'statusSource', 'statusSetAt', 'enableImmersiveStatus', 'presenceSession', 'presenceHistory', 'presencePendingReply',
+    'timelineState', 'activeTimelineId'
   ]
   fields.forEach(field => { saved[index][field] = chat[field] })
   localStorage.setItem(key, JSON.stringify(saved))
+  const { currentChatUserId } = useChatAuth()
+  ensureChatTimelineState(chat)
+  void persistActiveTimeline(chat, currentChatUserId.value)
 }
 
 const addEvent = (chat: any, event: Omit<AutonomyEvent, 'id'>) => {

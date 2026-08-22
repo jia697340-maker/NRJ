@@ -18,6 +18,7 @@ import ChatUserThoughtModal from './modals/ChatUserThoughtModal.vue'
 import ChatWebSearchModal from './modals/ChatWebSearchModal.vue'
 import ChatImageGalleryModal from './modals/ChatImageGalleryModal.vue'
 import ChatOfflineSessionEndModal from './modals/ChatOfflineSessionEndModal.vue'
+import ChatTimelineManagerModal from './modals/ChatTimelineManagerModal.vue'
 import ChatVoiceCallView from './ChatVoiceCallView.vue'
 import ChatVideoCallView from './ChatVideoCallView.vue'
 import ChatCallRecordsView from './ChatCallRecordsView.vue'
@@ -42,6 +43,7 @@ import {
 } from '../../services/offlineSessions'
 import { queueMessageForPresence } from '../../services/presenceLifecycle'
 import { getIdentityCalendarParts, isConversationTimePaused, resumeConversationTime } from '../../services/conversationTime'
+import { ensureChatTimelineState, persistActiveTimeline } from '../../services/chatTimeline'
 
 useBubbleBeautify()
 
@@ -136,7 +138,10 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
       contacts[index].webSearchEnabled = targetChat.webSearchEnabled === true
       contacts[index].modelCommunicationRules = targetChat.modelCommunicationRules || []
       contacts[index].modelCommunicationMessages = targetChat.modelCommunicationMessages || []
+      contacts[index].timelineState = JSON.parse(JSON.stringify(ensureChatTimelineState(targetChat)))
+      contacts[index].activeTimelineId = targetChat.timelineState.activeTimelineId
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
+      void persistActiveTimeline(targetChat, currentChatUserId.value)
     }
   }
 }
@@ -176,6 +181,9 @@ const showExtensionPanel = ref(false)
 const showEmojiPanel = ref(false)
 const showOfflineSessionEndModal = ref(false)
 const showWebSearchModal = ref(false)
+const showTimelineManagerModal = ref(false)
+const timelineForkMessageId = ref<number | string | null>(null)
+const timelineForkKind = ref<'timeline' | 'checkpoint'>('timeline')
 const isEndingOfflineSession = ref(false)
 const offlineSessionEndError = ref('')
 const isMixedOfflineSessionActive = computed(() => checkMixedOfflineActive(selectedChat.value))
@@ -342,6 +350,17 @@ const openModelCommunication = (messageIds: Array<number | string> = []) => {
   showExtensionPanel.value = false
   showEmojiPanel.value = false
   showModelCommunicationModal.value = true
+}
+
+const openTimelineFromMessage = (msgId?: number) => {
+  timelineForkKind.value = 'timeline'
+  timelineForkMessageId.value = msgId || targetMessageId.value || null
+  showTimelineManagerModal.value = true
+}
+const openCheckpointFromMessage = (msgId?: number) => {
+  timelineForkKind.value = 'checkpoint'
+  timelineForkMessageId.value = msgId || targetMessageId.value || null
+  showTimelineManagerModal.value = true
 }
 
 const conversationTimePaused = computed(() => isConversationTimePaused(selectedChat.value))
@@ -1140,6 +1159,7 @@ onUnmounted(() => {
       @show-memory-modal="openMemoryModal"
       @open-call-records="handleOpenCallRecords"
       @open-offline-meet="emit('open-offline-meet')"
+      @open-timelines="timelineForkMessageId = null; showTimelineManagerModal = true"
       @click-overlay="showExtensionPanel = false; showEmojiPanel = false"
     />
 
@@ -1207,6 +1227,16 @@ onUnmounted(() => {
       @edit="onModalEdit"
       @resummarize="handleResummarize"
       @model-communication="onModalModelCommunication"
+      @create-timeline="openTimelineFromMessage"
+      @create-checkpoint="openCheckpointFromMessage"
+    />
+    <ChatTimelineManagerModal
+      v-model:visible="showTimelineManagerModal"
+      :selected-chat="selectedChat"
+      :fork-message-id="timelineForkMessageId"
+      :fork-kind="timelineForkKind"
+      @save="saveCustomContacts()"
+      @switched="scrollToBottom"
     />
     <div v-if="conversationTimePaused" class="conversation-time-pause-banner" @click="resumePausedConversation">
       <span class="pause-dot"></span><span>会话时间已暂停 · 点击继续</span>

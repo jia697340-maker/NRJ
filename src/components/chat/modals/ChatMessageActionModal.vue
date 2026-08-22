@@ -18,6 +18,8 @@ const emit = defineEmits<{
   (e: 'edit', messageId?: number): void
   (e: 'resummarize', messageId?: number): void
   (e: 'model-communication', messageId?: number): void
+  (e: 'create-timeline', messageId?: number): void
+  (e: 'create-checkpoint', messageId?: number): void
 }>()
 
 const showResummarizeInfo = ref(false)
@@ -48,6 +50,10 @@ const handleAction = (action: string) => {
     emit('mark-message', props.messageId)
   } else if (action === 'model-communication') {
     emit('model-communication', props.messageId)
+  } else if (action === 'create-timeline') {
+    emit('create-timeline', props.messageId)
+  } else if (action === 'create-checkpoint') {
+    emit('create-checkpoint', props.messageId)
   } else if (action === 'forward') {
     // TODO: 实现具体的占位功能
     console.log(`[调试] 触发了功能: ${action}`)
@@ -190,6 +196,22 @@ const cancelResummarize = () => {
                 </svg>
               </div>
               <span class="action-label">与模型沟通</span>
+            </div>
+
+            <div class="action-item highlight" @click="handleAction('create-timeline')">
+              <div class="action-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="square" stroke-linejoin="miter">
+                  <circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="8" r="2"></circle><circle cx="18" cy="18" r="2"></circle><path d="M6 7v7a4 4 0 0 0 4 4h6M8 7c2 0 3 1 4 2s2 1 4 1"></path>
+                </svg>
+              </div>
+              <span class="action-label">开启时间线</span>
+            </div>
+
+            <div class="action-item" @click="handleAction('create-checkpoint')">
+              <div class="action-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M5 3h14v18l-7-4-7 4V3z"></path><path d="M9 8h6M12 5v6"></path></svg>
+              </div>
+              <span class="action-label">创建存档</span>
             </div>
 
             <div v-if="messageObj && ((messageObj.imageData && messageObj.imageData.imageId && !messageObj.imageData.summary) || (messageObj.isEmoji && !messageObj.emojiSummary))" class="action-item highlight" @click="handleAction('resummarize')">

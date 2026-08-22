@@ -12,6 +12,7 @@ import { deleteGroupChat, readGroupChats } from '../../services/groupChat'
 import { normalizeMemoryMode } from '../../services/memoryEngine'
 import { normalizeChatModelRules, normalizeModelCommunicationMessages } from '../../services/modelCommunication'
 import localforage from 'localforage'
+import { deleteAllChatTimelineData, initializeChatTimeline } from '../../services/chatTimeline'
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -88,7 +89,7 @@ export const loadCustomContacts = async () => {
       delete autonomyState.status
     }
 
-    customChats.push({
+    const customChat = {
       id: c.id,
       characterEntityId: c.characterEntityId || String(c.id),
       contactState: c.contactState || 'friend',
@@ -248,8 +249,12 @@ export const loadCustomContacts = async () => {
       autonomyDeliveries: Array.isArray(c.autonomyDeliveries) ? c.autonomyDeliveries : [],
       autonomyHistory,
       autonomyState,
+      timelineState: c.timelineState || null,
+      activeTimelineId: c.timelineState?.activeTimelineId || c.activeTimelineId || 'main',
       isTyping: currentTypingState.get(c.id) || false
-    })
+    }
+    await initializeChatTimeline(customChat, currentChatUserId.value)
+    customChats.push(customChat)
   }
 
   if (didMigrateUserProfiles) {
@@ -300,7 +305,9 @@ export const loadCustomContacts = async () => {
       ? date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
       : `${date.getMonth() + 1}/${date.getDate()}`
     const groupAvatar = group.hasCustomAvatar ? await groupMainAvatarStore.getItem<string>(group.id) : ''
-    return { ...group, preview, time, avatarText: '群', avatarUrl: groupAvatar || group.avatarUrl || '', memberSnapshots, isTyping: currentTypingState.get(group.id) || false }
+    const groupChat = { ...group, preview, time, avatarText: '群', avatarUrl: groupAvatar || group.avatarUrl || '', memberSnapshots, isTyping: currentTypingState.get(group.id) || false }
+    await initializeChatTimeline(groupChat, currentChatUserId.value)
+    return groupChat
   }))
 
   const baseMock = [
@@ -330,6 +337,7 @@ export const deleteChats = async (ids: (string | number)[]) => {
     const toDeleteContacts = contacts.filter((c: any) => contactIdsToDelete.includes(c.id))
     
     for (const c of toDeleteContacts) {
+      await deleteAllChatTimelineData(c.id, currentChatUserId.value, (c.timelineState?.timelines || []).map((item: any) => item.id))
       await deleteIdentityProfile('character', String(c.characterEntityId || c.id))
       if (c.avatarKey && !getCharacterDirectoryEntry(String(c.characterEntityId || c.id))) {
         await avatarStore.removeItem(c.avatarKey)

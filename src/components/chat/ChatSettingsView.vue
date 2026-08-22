@@ -63,6 +63,7 @@ import ChatImageProviderModal from './modals/ChatImageProviderModal.vue'
 import ChatIdentityProfileModal from './modals/ChatIdentityProfileModal.vue'
 import ChatGroupMemoryBridgeModal from './modals/ChatGroupMemoryBridgeModal.vue'
 import ChatSocialCircleModal from './modals/ChatSocialCircleModal.vue'
+import ChatTimelineManagerModal from './modals/ChatTimelineManagerModal.vue'
 
 const searchQuery = ref('')
 const matchSearch = (...keywords: (string | undefined | null)[]) => {
@@ -223,6 +224,7 @@ const showImageProviderModal = ref(false)
 const showIdentityProfileModal = ref(false)
 const showGroupMemoryBridgeModal = ref(false)
 const showSocialCircleModal = ref(false)
+const showTimelineManagerModal = ref(false)
 const identityProfileTarget = ref<'character' | 'user'>('character')
 const openIdentityProfile = (target: 'character' | 'user') => {
   identityProfileTarget.value = target
@@ -875,6 +877,7 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @open-offline-meet="emit('open-offline-meet')"
         @open-relationship="emit('open-relationship')"
         @open-autonomy="emit('open-autonomy')"
+        @open-timeline-manager="showTimelineManagerModal = true"
       />
 
       <ChatSettingsPanelUser
@@ -1052,6 +1055,11 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
       <ChatGroupMemoryBridgeModal
         v-model:visible="showGroupMemoryBridgeModal"
         :character="selectedChat"
+      />
+      <ChatTimelineManagerModal
+        v-model:visible="showTimelineManagerModal"
+        :selected-chat="selectedChat"
+        @save="saveCurrentChat"
       />
 
       <!-- 社交人脉管理弹窗 -->

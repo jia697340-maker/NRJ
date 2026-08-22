@@ -3,6 +3,7 @@ import { useChatState } from './useChatState'
 import { useChatAuth } from './useChatAuth'
 import { isDirectoryOwner, saveCharacterDirectoryProfile } from '../services/characterDirectory'
 import { ensureSocialCircle, normalizeSocialCircleSettings } from '../services/socialGraph'
+import { ensureChatTimelineState, persistActiveTimeline } from '../services/chatTimeline'
 
 export function useChatSettingsSave() {
   const { selectedChat, myProfile, mockChats } = useChatState()
@@ -201,11 +202,14 @@ export function useChatSettingsSave() {
         contacts[idx].autonomyDeliveries = selectedChat.value.autonomyDeliveries || []
         contacts[idx].autonomyHistory = selectedChat.value.autonomyHistory || []
         contacts[idx].autonomyState = selectedChat.value.autonomyState || null
+        contacts[idx].timelineState = JSON.parse(JSON.stringify(ensureChatTimelineState(selectedChat.value)))
+        contacts[idx].activeTimelineId = selectedChat.value.timelineState.activeTimelineId
         
         selectedChat.value.name = selectedChat.value.remark || selectedChat.value.realName
         selectedChat.value.avatarText = selectedChat.value.avatarUrl ? '' : ((selectedChat.value.realName || selectedChat.value.name).charAt(0) || '伴')
         
         localStorage.setItem(contactsKey, JSON.stringify(contacts))
+        await persistActiveTimeline(selectedChat.value, currentChatUserId.value)
         
         const listIdx = mockChats.value.findIndex(c => c.id === selectedChat.value.id)
         if(listIdx !== -1) {

@@ -120,6 +120,7 @@ export interface MemoryExtractionResult {
 interface VectorRecord {
   id: string
   chatId: string
+  timelineId?: string
   sourceType: 'memory'
   sourceId: string
   text: string
@@ -133,6 +134,9 @@ interface VectorRecord {
 }
 
 const vectorStore = localforage.createInstance({ name: 'nrt-app', storeName: 'memoryVectors' })
+
+const timelineIdOf = (chat: any) => String(chat?.timelineState?.activeTimelineId || chat?.activeTimelineId || 'main')
+const vectorScopeOf = (chat: any) => `${String(chat?.id)}::${timelineIdOf(chat)}`
 
 const defaultState = (): StructuredMemoryState => ({
   version: 2,
@@ -524,10 +528,12 @@ export const assertEmbeddingReady = async () => {
   return probe.length
 }
 
-export const readChatVectorMemories = async (chatId: string | number) => {
+export const readChatVectorMemories = async (chatOrId: any) => {
   const records: VectorRecord[] = []
+  const chatId = typeof chatOrId === 'object' ? vectorScopeOf(chatOrId) : String(chatOrId)
+  const legacyChatId = typeof chatOrId === 'object' && timelineIdOf(chatOrId) === 'main' ? String(chatOrId.id) : ''
   await vectorStore.iterate<VectorRecord, void>((record) => {
-    if (record.chatId === String(chatId) && record.sourceType === 'memory') records.push(record)
+    if ((record.chatId === chatId || (legacyChatId && record.chatId === legacyChatId)) && record.sourceType === 'memory') records.push(record)
   })
   return records.sort((left, right) => left.createdAt - right.createdAt)
 }
@@ -551,8 +557,9 @@ export const writeVectorMemoryTexts = async (
       if (!Array.isArray(vector) || vector.length === 0) throw new Error('向量节点返回了无效条目')
       const sourceId = String(item.id || safeId('vector', item.text))
       staged.push({
-        id: `${chat.id}:memory:${sourceId}`,
-        chatId: String(chat.id),
+        id: `${vectorScopeOf(chat)}:memory:${sourceId}`,
+        chatId: vectorScopeOf(chat),
+        timelineId: timelineIdOf(chat),
         sourceType: 'memory',
         sourceId,
         text: item.text,
@@ -566,7 +573,7 @@ export const writeVectorMemoryTexts = async (
       })
     })
   }
-  if (options.replace) await clearChatVectors(chat.id)
+  if (options.replace) await clearChatVectors(chat)
   await Promise.all(staged.map(record => vectorStore.setItem(record.id, record)))
   return { indexed: staged.length, skipped: false }
 }
@@ -585,7 +592,7 @@ export const applyVectorExtraction = async (chat: any, result: MemoryExtractionR
 
 export const indexChatMemories = async (chat: any) => {
   if (normalizeMemoryMode(chat?.memoryMode) !== 'vector') return { indexed: 0, skipped: true }
-  const records = await readChatVectorMemories(chat.id)
+  const records = await readChatVectorMemories(chat)
   if (!records.length) return { indexed: 0, skipped: false }
   return writeVectorMemoryTexts(chat, records.map(record => ({
     id: record.sourceId,
@@ -641,7 +648,7 @@ export const getMemoryExportItems = async (chat: any, mode: MemoryMode = normali
       }))
   }
   if (mode === 'vector') {
-    return (await readChatVectorMemories(chat.id)).map(record => ({
+    return (await readChatVectorMemories(chat)).map(record => ({
       id: record.sourceId,
       text: record.text,
       evidenceMessageIds: record.evidenceMessageIds,
@@ -716,7 +723,7 @@ export const buildMemoryPacket = async (
   if (!query.trim()) return ''
   const [queryVector] = await createEmbeddings([query])
   if (!Array.isArray(queryVector)) throw new Error('向量节点没有返回查询向量')
-  const records = (await readChatVectorMemories(chat.id))
+  const records = (await readChatVectorMemories(chat))
     .filter(record => record.model === embeddingApiSettings.model && record.vector.length === queryVector.length)
     .map(record => ({ ...record, score: cosine(queryVector, record.vector) }))
     .sort((left, right) => right.score - left.score)
@@ -773,20 +780,73 @@ export const invalidateVectorMemoriesForMessages = async (chat: any, messageIds:
   const ids = new Set(messageIds.flatMap(id => [id, String(id), Number(id)]))
   const keys: string[] = []
   await vectorStore.iterate<VectorRecord, void>((record, key) => {
-    if (record.chatId !== String(chat.id)) return
+    if (record.chatId !== vectorScopeOf(chat) && !(timelineIdOf(chat) === 'main' && record.chatId === String(chat.id))) return
     if (record.evidenceMessageIds?.some(id => ids.has(id) || ids.has(String(id)) || ids.has(Number(id)))) keys.push(key)
   })
   await Promise.all(keys.map(key => vectorStore.removeItem(key)))
   return keys.length
 }
 
-export const clearChatVectors = async (chatId: string | number) => {
+export const clearChatVectors = async (chatOrId: any) => {
   const keys: string[] = []
+  const chatId = typeof chatOrId === 'object' ? vectorScopeOf(chatOrId) : String(chatOrId)
+  const legacyChatId = typeof chatOrId === 'object' && timelineIdOf(chatOrId) === 'main' ? String(chatOrId.id) : ''
   await vectorStore.iterate<VectorRecord, void>((record, key) => {
-    if (record.chatId === String(chatId)) keys.push(key)
+    if (record.chatId === chatId || (legacyChatId && record.chatId === legacyChatId)) keys.push(key)
   })
   await Promise.all(keys.map(key => vectorStore.removeItem(key)))
   return keys.length
+}
+
+export const cloneTimelineVectors = async (
+  chatId: string | number,
+  sourceTimelineId: string,
+  targetTimelineId: string,
+  allowedMessageIds?: Set<string>
+) => {
+  const sourceScope = `${String(chatId)}::${sourceTimelineId}`
+  const targetScope = `${String(chatId)}::${targetTimelineId}`
+  const records: VectorRecord[] = []
+  await vectorStore.iterate<VectorRecord, void>((record) => {
+    if ((record.chatId !== sourceScope && !(sourceTimelineId === 'main' && record.chatId === String(chatId))) || record.sourceType !== 'memory') return
+    if (allowedMessageIds && record.evidenceMessageIds?.some(id => !allowedMessageIds.has(String(id)))) return
+    records.push(record)
+  })
+  await clearChatVectors({ id: chatId, timelineState: { activeTimelineId: targetTimelineId } })
+  await Promise.all(records.map(record => {
+    const cloned = {
+      ...record,
+      id: `${targetScope}:memory:${record.sourceId}`,
+      chatId: targetScope,
+      timelineId: targetTimelineId,
+      updatedAt: Date.now()
+    }
+    return vectorStore.setItem(cloned.id, cloned)
+  }))
+  return records.length
+}
+
+export const removeTimelineVectors = async (chatId: string | number, timelineId: string) => (
+  clearChatVectors({ id: chatId, timelineState: { activeTimelineId: timelineId } })
+)
+
+export const exportTimelineVectors = async (chatId: string | number, timelineId: string) => {
+  const scope = `${String(chatId)}::${timelineId}`
+  const records: VectorRecord[] = []
+  await vectorStore.iterate<VectorRecord, void>(record => {
+    if (record.chatId === scope || (timelineId === 'main' && record.chatId === String(chatId))) records.push(record)
+  })
+  return records
+}
+
+export const importTimelineVectors = async (chatId: string | number, timelineId: string, records: any[]) => {
+  const scope = `${String(chatId)}::${timelineId}`
+  await removeTimelineVectors(chatId, timelineId)
+  await Promise.all((records || []).map((record: VectorRecord) => {
+    const sourceId = String(record.sourceId || record.id || Math.random())
+    const next = { ...record, id: `${scope}:memory:${sourceId}`, chatId: scope, timelineId, sourceId, updatedAt: Date.now() }
+    return vectorStore.setItem(next.id, next)
+  }))
 }
 
 export const estimateMessageTokens = (messages: any[]) => Math.ceil(formatMessagesForMemory(messages).length / 2)

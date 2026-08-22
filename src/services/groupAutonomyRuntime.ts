@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import localforage from 'localforage'
 import { activeGroupReplyIds, requestGroupReply, saveGroupChat, type GroupChatRecord } from './groupChat'
+import { persistActiveTimeline } from './chatTimeline'
 import { formatIdentityClockTime, formatIdentityDateTime, isConversationTimePaused } from './conversationTime'
 import { findRoleEmojiByResponse } from './chatEmojiScope'
 
@@ -108,10 +109,10 @@ export const runDueGroupAutonomyChecks = async (allChats: any[], userProfile: an
       && now - Number(group.incomingCallLastAt || 0) >= Number(group.incomingCallMinIntervalMinutes || 360) * 60000
       && group.autonomyDailyCount % 3 === 0
     if (callDue && startIncomingCall(group, allChats, now)) {
-      saveGroupChat(accountId, group)
+      saveGroupChat(accountId, group); void persistActiveTimeline(group, accountId)
       continue
     }
-    if (!group.autonomyAllowMessages || group.activeCallType) { saveGroupChat(accountId, group); continue }
+    if (!group.autonomyAllowMessages || group.activeCallType) { saveGroupChat(accountId, group); void persistActiveTimeline(group, accountId); continue }
     ;(group as any).pendingAutonomyDirective = `结合群聊最近上下文、各成员当前状态与时间，让真正有动机的零到数名成员自然发起一次群内活动。只允许 text、narration 或 emoji，不得伪造用户新消息。${group.autonomyAllowStatusEvents ? '可以用 narration 自然表达上线、离开、正在做某事等群内状态事件。' : '不要生成群内状态事件。'}`
     try {
       activeGroupReplyIds.add(String(group.id))
@@ -122,7 +123,7 @@ export const runDueGroupAutonomyChecks = async (allChats: any[], userProfile: an
     finally {
       activeGroupReplyIds.delete(String(group.id))
       ;(group as any).pendingAutonomyDirective = ''
-      saveGroupChat(accountId, group)
+      saveGroupChat(accountId, group); void persistActiveTimeline(group, accountId)
     }
   }
 }

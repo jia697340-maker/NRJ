@@ -62,6 +62,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'system-messages', group: '聊天内容', name: '系统消息与通知', description: '系统消息、置顶和已读状态', localKeys: ['clingy_system_messages', 'clingy_system_notice_pinned', 'clingy_system_notice_read'] },
   { id: 'chat-emojis', group: '聊天内容', name: '聊天表情与分组', description: '表情包、表情分组', localKeys: ['emojiGroups'], stores: [{ dbName: 'nrt-app', storeName: 'chatEmojis' }] },
   { id: 'chat-images', group: '聊天内容', name: '聊天图片', description: '聊天内发送与保存的图片', stores: [{ dbName: 'nrt-app', storeName: 'chatImages' }] },
+  { id: 'chat-timelines', group: '聊天内容', name: '时间线与存档', description: '平行时间线、存档点、最近删除及跨应用剧情快照', stores: [{ dbName: 'nrt-app', storeName: 'chatTimelines' }, { dbName: 'nrt-app', storeName: 'memoryVectors' }] },
   { id: 'chat-voices', group: '聊天内容', name: '聊天语音与元数据', description: '语音消息及其播放信息', stores: [{ dbName: 'nrt-app', storeName: 'chatVoices' }, { dbName: 'nrt-app', storeName: 'chatVoiceMeta' }] },
   { id: 'chat-wallpapers', group: '聊天内容', name: '聊天壁纸', description: '会话专属背景', stores: [{ dbName: 'nrt-app', storeName: 'chatWallpapers' }] },
   { id: 'worldbooks', group: '世界书与记忆', name: '世界书正文与分组', description: '世界书内容和结构', localKeys: ['worldbooks'] },

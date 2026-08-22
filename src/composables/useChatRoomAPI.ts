@@ -239,6 +239,8 @@ export function useChatRoomAPI(
     
     const currentChatId = selectedChat.value.id
     const targetChat = mockChats.value.find((c: any) => c.id === currentChatId)
+    const requestTimelineId = String(targetChat?.timelineState?.activeTimelineId || targetChat?.activeTimelineId || 'main')
+    const requestTimelineIsActive = () => String(targetChat?.timelineState?.activeTimelineId || targetChat?.activeTimelineId || 'main') === requestTimelineId
     const turnId = triggerOptions.turnId || `turn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     const shouldConsumePendingThought = triggerOptions.consumePendingThought ?? apiPurpose === 'default'
     const currentUserThought = String(
@@ -366,6 +368,7 @@ export function useChatRoomAPI(
           { ...webSearchOptions, enabled: false }
         )
       }
+      if (!requestTimelineIsActive()) throw new DOMException('时间线已经切换', 'AbortError')
       const costSeconds = ((Date.now() - startTime) / 1000).toFixed(1)
       
       let replyText = ''
@@ -493,6 +496,11 @@ export function useChatRoomAPI(
         // 模拟真人连发：通过递归/异步延迟逐条处理动作队列
         const processNextAction = async (index: number) => {
           const chatToUpdate = mockChats.value.find((c: any) => c.id === currentChatId)
+          if (!requestTimelineIsActive()) {
+            if (chatToUpdate) chatToUpdate.isTyping = false
+            isGenerating.value = false
+            return
+          }
           if (index >= extractedActions.length) {
             if (chatToUpdate) chatToUpdate.isTyping = false
             isGenerating.value = false
