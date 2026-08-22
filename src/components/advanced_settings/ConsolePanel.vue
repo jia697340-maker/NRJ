@@ -291,9 +291,7 @@ const exportLogs = () => {
 
 .empty-text {
   color: #6B7280;
-  font-family: Georgia, serif;
-  font-size: 14px;
-  font-style: italic;
+  font-size: 13px;
   letter-spacing: 1px;
 }
 </style>

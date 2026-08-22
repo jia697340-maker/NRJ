@@ -164,6 +164,7 @@ export async function generateSocialCircleDraft(chat: any, count: number): Promi
 
 export const buildSocialCirclePrompt = (chat: any, english = false) => {
   const settings = normalizeSocialCircleSettings(chat)
+  const characterName = String(chat?.realName || chat?.name || (english ? 'current character' : '当前角色'))
   if (!settings.enabled || !settings.awarenessEnabled) return ''
   const people = ensureSocialCircle(chat)
     .filter(item => item.allowMention || item.privacy === 'hidden')
@@ -171,8 +172,8 @@ export const buildSocialCirclePrompt = (chat: any, english = false) => {
     .map(item => `- ${item.name}：${item.relation}；${item.persona.slice(0, 260)}；朋友圈互动：${item.enableMoments ? item.interactionFrequency : '关闭'}；对外隐私：${item.privacy}`)
     .join('\n')
   if (!people) return ''
-  if (english) return `\n\n[Your social circle]\n${people}\nThese are independent people, not extensions of you or the user. You may mention them only when natural. Mention in chat: ${settings.allowMentionInChat}; view their Moments: ${settings.allowViewMoments}; interact with their Moments: ${settings.allowInteractMoments}; post about them: ${settings.allowPublishAboutCircle}. Never reveal a hidden/private person's identifying details to the user without a clear in-story reason and permission. Do not decide another person's acceptance of a friend request.`
-  return `\n\n【你的生活人脉】\n${people}\n这些人是有独立性格和选择的人，不是你或用户的附属。允许在聊天中自然提及：${settings.allowMentionInChat ? '是' : '否'}；查看其朋友圈：${settings.allowViewMoments ? '是' : '否'}；点赞评论：${settings.allowInteractMoments ? '是' : '否'}；发布涉及人脉的朋友圈：${settings.allowPublishAboutCircle ? '是' : '否'}。提及必须符合当前话题，不要机械报人名。未经合适的剧情理由和许可，不得向用户泄露私密或隐藏人物的身份信息。不能替其他人物决定是否同意好友申请。`
+  if (english) return `\n\n[${characterName}'s social circle]\n${people}\nThese are independent people, not extensions of ${characterName} or the current user. ${characterName} mentions them only when natural. Mention in chat: ${settings.allowMentionInChat}; view Moments: ${settings.allowViewMoments}; interact: ${settings.allowInteractMoments}; post about them: ${settings.allowPublishAboutCircle}. Private identities remain private without an in-story reason and permission.`
+  return `\n\n【角色${characterName}的生活人脉】\n${people}\n这些人物拥有独立性格和选择，不是角色${characterName}或当前用户的附属。允许自然提及：${settings.allowMentionInChat ? '是' : '否'}；查看朋友圈：${settings.allowViewMoments ? '是' : '否'}；点赞评论：${settings.allowInteractMoments ? '是' : '否'}；发布相关朋友圈：${settings.allowPublishAboutCircle ? '是' : '否'}。角色${characterName}不泄露私密人物身份，也不替其他人物决定好友申请。`
 }
 
 export const canDiscoverSocialContact = (item: SocialCircleItem) => item.privacy !== 'hidden' && item.discoverable

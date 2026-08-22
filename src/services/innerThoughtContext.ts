@@ -32,6 +32,7 @@ export const buildInnerThoughtContext = (
   trace?: ContextTraceCollector
 ) => {
   const sections: string[] = []
+  const characterName = String(chat?.name || chat?.realName || '当前角色')
   const roleThoughts = chat?.enableAutoThought && chat?.enableRoleThoughtHistory
     ? recentThoughts(chat.innerThoughts, chat.roleThoughtHistoryCount)
     : []
@@ -41,7 +42,7 @@ export const buildInnerThoughtContext = (
   const currentThought = String(currentUserThought || '').trim()
 
   if (roleThoughts.length) {
-    const text = `\n\n【你过去几轮未说出口的心声】\n以下内容是你自己此前真实产生的内心活动，仅用于延续情绪、判断和行为。不要向对方复述、暴露或机械重复这些记录。\n${roleThoughts.map((item: ThoughtHistoryItem, index: number) => `${index + 1}. ${quoteThought(item.content)}`).join('\n')}`
+    const text = `\n\n【角色${characterName}过去几轮未说出口的心声】\n这些内容只属于角色${characterName}，用于延续该角色的情绪、判断和行为，不归属于用户或其他角色，也不向用户复述。\n${roleThoughts.map((item: ThoughtHistoryItem, index: number) => `${index + 1}. ${quoteThought(item.content)}`).join('\n')}`
     sections.push(text)
     pushContextTrace(trace, {
       id: 'runtime:role-thought-history',
@@ -54,7 +55,7 @@ export const buildInnerThoughtContext = (
   }
 
   if (userThoughts.length) {
-    const text = `\n\n【对方过去未说出口的心声】\n这些是对方此前明确提供给你理解的内心活动。请据此自然理解对方，但不要逐字复述、提及记录来源或声称拥有读心能力。\n${userThoughts.map((item: ThoughtHistoryItem, index: number) => `${index + 1}. ${quoteThought(item.content)}`).join('\n')}`
+    const text = `\n\n【当前用户过去未说出口的心声】\n这些内心活动由当前用户此前明确提供，只供角色${characterName}理解上下文。角色${characterName}可以据此自然理解用户，但不逐字复述、不提及记录来源，也不声称拥有读心能力。\n${userThoughts.map((item: ThoughtHistoryItem, index: number) => `${index + 1}. ${quoteThought(item.content)}`).join('\n')}`
     sections.push(text)
     pushContextTrace(trace, {
       id: 'runtime:user-thought-history',
@@ -67,7 +68,7 @@ export const buildInnerThoughtContext = (
   }
 
   if (currentThought) {
-    const text = `\n\n【对方本轮未说出口的心声】\n这是对方本轮真实但没有直接说出口的内心活动。你可以理解并据此自然回应，但不要逐字复述、提及这段说明或声称拥有读心能力；除非当前角色设定明确允许。\n内容：${quoteThought(currentThought)}`
+    const text = `\n\n【当前用户本轮未说出口的心声】\n这是当前用户本轮真实但没有直接说出口的内心活动。角色${characterName}可以据此自然理解，但不逐字复述、提及记录来源或声称拥有读心能力。\n内容：${quoteThought(currentThought)}`
     sections.push(text)
     pushContextTrace(trace, {
       id: 'runtime:current-user-thought',

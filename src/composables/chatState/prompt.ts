@@ -74,44 +74,44 @@ export const buildSystemPrompt = (
     )
     timeContext = usesEnglishPrompt
       ? buildEnglishTimeContext(characterPlace, charTime, userPlace, userTime)
-      : `\n【双方独立当地时间】\n你：${characterPlace} ${charTime}\n对方：${userPlace} ${userTime}\n你的时间与对方的时间是两套互不继承的身份时钟。日期、昼夜、作息和节日判断必须分别依据各自当地时间；不得把对方的钟表时间当成你的时间，也不得直接用双方表面钟点计算等待时长。`
+      : `\n【双方独立当地时间】\n角色${charName}：${characterPlace} ${charTime}\n用户${userName}：${userPlace} ${userTime}\n双方使用互不继承的身份时钟。角色${charName}依据自身当地时间判断日期、昼夜、作息和节日，不把用户${userName}的钟表时间当成自身时间。`
     
     const charTimeRule = chat.sendCharacterTime !== false
-      ? '- 你的历史消息也会用 <msg time="YYYY-MM-DD HH:mm"> 包裹，供你参考自己过去回复的时间。\n'
+      ? `- 角色${charName}的历史消息也会用 <msg time="YYYY-MM-DD HH:mm"> 包裹，便于判断该角色过去回复的时间。\n`
       : ''
 
     formatRules = `【对话格式与回复习惯】
 - 对方的每条消息会用 <user_msg time="YYYY-MM-DD HH:mm"> 包裹，其中包含了发送的精确当地时间。
-- 对方也有可能会发语音给你，用 <user_voice_msg seconds="时长秒数">[对方发来一段语音，转文字内容：xxxx]</user_voice_msg> 包裹。如果是语音，你可以表现出你是在“听”而不是在“看”文字。
-- 对方可能会发图片给你，用 <user_image_msg>[对方发来一张图片，描述：xxxx]</user_image_msg> 包裹。你应该能“看”到图片里的内容。
-${charTimeRule}- 请敏锐地感知时间信息。留意连续多条消息之间的时间间隔，以及你和对方发言的时间差（例如对方几个小时没理你，或者你隔了很久才回对方），并作出符合真实时间流逝的自然反应。
+- 用户${userName}的语音会用 <user_voice_msg seconds="时长秒数">[用户${userName}发来一段语音，转文字内容：xxxx]</user_voice_msg> 包裹；角色${charName}把它理解为听到的内容。
+- 用户${userName}的图片会用 <user_image_msg>[用户${userName}发来一张图片，描述：xxxx]</user_image_msg> 包裹；角色${charName}可以看见对应画面。
+${charTimeRule}- 角色${charName}留意连续消息的间隔，以及角色${charName}与用户${userName}各自发言的时间差，并按照真实时间流逝自然反应。
 ${usesNaturalPromptV2
 ? '- 根据内容自然决定发送一条或多条消息。每个气泡承载一个自然完整的表达，不为模拟真人而机械拆句。'
-: '- 你发消息像真人一样，想到什么说什么，经常分成多条发。一条消息通常就一个表达。'}
-- 对方可能会发表情包给你，用 <user_emoji_msg name="表情包名称">[对方发来一个名为“表情包名称”的表情包]</user_emoji_msg> 包裹。如果视觉模型开启，你还能直接看到该表情包的图像画面。
-- 你的每条回复必须用 <msg> 标签包裹（你此刻的回复无需自己加时间，系统会自动处理）。转账、红包、语音等特殊动作标签（如果可用的话）独立存在，不要包裹在 <msg> 内。
-- 如果你想主动给对方发图片（包括照片、视频或GIF等任何视觉画面），请使用 <send_image>这里写出具体的画面描述</send_image> 标签。这也是独立存在的动作标签。
+: `- 角色${charName}按自然聊天节奏组织消息，可以连续发送多个气泡，每个气泡通常承载一个表达。`}
+- 用户${userName}的表情包会用 <user_emoji_msg name="表情包名称">[用户${userName}发来一个名为“表情包名称”的表情包]</user_emoji_msg> 包裹；视觉模型开启时，角色${charName}也能看见对应画面。
+- 角色${charName}的每条普通回复使用 <msg> 标签；当前回复的时间由系统处理。转账、红包、语音等特殊动作标签独立存在。
+- 角色${charName}主动向用户${userName}发送图片、视频或 GIF 等视觉画面时，使用独立的 <send_image>具体画面描述</send_image> 标签。
 示例格式：
 <msg>我刚忙完</msg>
 <send_image>我正坐在靠窗的沙发上，窗外是晚霞，桌上放着一杯热气腾腾的咖啡。</send_image>
 <msg>你看这晚霞好漂亮</msg>
-- 记住，没有被相应标签包裹的内容不会被展示给对方。`
+- 没有被相应标签包裹的内容不会展示给用户${userName}。`
   } else {
     formatRules = `【对话格式与回复习惯】
 - 对方的每条消息会用 <user_msg> 包裹。对方可能会连续发送多段话（多个 <user_msg>），请结合它们的内容来理解。
-- 对方也有可能会发语音给你，用 <user_voice_msg seconds="时长秒数">[对方发来一段语音，转文字内容：xxxx]</user_voice_msg> 包裹。如果是语音，你可以表现出你是在“听”而不是在“看”文字。
-- 对方可能会发图片给你，用 <user_image_msg>[对方发来一张图片，描述：xxxx]</user_image_msg> 包裹。你应该能“看”到图片里的内容。
+- 用户${userName}的语音会用 <user_voice_msg seconds="时长秒数">[用户${userName}发来一段语音，转文字内容：xxxx]</user_voice_msg> 包裹；角色${charName}把它理解为听到的内容。
+- 用户${userName}的图片会用 <user_image_msg>[用户${userName}发来一张图片，描述：xxxx]</user_image_msg> 包裹；角色${charName}可以看见对应画面。
 ${usesNaturalPromptV2
 ? '- 根据内容自然决定发送一条或多条消息。每个气泡承载一个自然完整的表达，不为模拟真人而机械拆句。'
-: '- 你发消息像真人一样，想到什么说什么，经常分成多条发。一条消息通常就一个表达。'}
-- 对方可能会发表情包给你，用 <user_emoji_msg name="表情包名称">[对方发来一个名为“表情包名称”的表情包]</user_emoji_msg> 包裹。如果视觉模型开启，你还能直接看到该表情包的图像画面。
-- 你的每条回复必须用 <msg> 标签包裹。转账、红包、语音等特殊动作标签（如果可用的话）独立存在，不要包裹在 <msg> 内。
-- 如果你想主动给对方发图片（包括照片、视频或GIF等任何视觉画面），请使用 <send_image>这里写出具体的画面描述</send_image> 标签。这也是独立存在的动作标签。
+: `- 角色${charName}按自然聊天节奏组织消息，可以连续发送多个气泡，每个气泡通常承载一个表达。`}
+- 用户${userName}的表情包会用 <user_emoji_msg name="表情包名称">[用户${userName}发来一个名为“表情包名称”的表情包]</user_emoji_msg> 包裹；视觉模型开启时，角色${charName}也能看见对应画面。
+- 角色${charName}的每条普通回复使用 <msg> 标签。转账、红包、语音等特殊动作标签独立存在。
+- 角色${charName}主动向用户${userName}发送图片、视频或 GIF 等视觉画面时，使用独立的 <send_image>具体画面描述</send_image> 标签。
 示例格式：
 <msg>我刚忙完</msg>
 <send_image>我正坐在靠窗的沙发上，窗外是晚霞，桌上放着一杯热气腾腾的咖啡。</send_image>
 <msg>你看这晚霞好漂亮</msg>
-- 记住，没有被相应标签包裹的内容不会被展示给对方。`
+- 没有被相应标签包裹的内容不会展示给用户${userName}。`
   }
 
   if (usesEnglishPrompt) {
@@ -123,7 +123,7 @@ ${usesNaturalPromptV2
   }
 
   if (runtimeMode === 'group') {
-    formatRules = `【群聊成员输入理解】\n你会收到带发送者身份、消息类型、引用和时间的群聊历史。结合这些信息自然反应；最终输出外层必须严格遵循群聊协调器给出的 group_msg / group_inner_thought 协议，不得使用单聊标签。`
+    formatRules = `【群聊成员${charName}的输入理解】\n以下群聊历史会明确标注发送者身份、消息类型、引用和时间。角色${charName}只依据自身可知信息形成反应；属于角色${charName}的内容使用 group_msg / group_inner_thought 格式，并填写该角色对应的 sender，不使用单聊标签。`
   }
 
 
@@ -146,7 +146,7 @@ ${usesNaturalPromptV2
   if (chat.enableMsgCountLimit && !offlineMeetMode) {
     formatRules += usesEnglishPrompt
       ? `\n${buildEnglishMessageCountRule(chat.minMsgCount || 1, chat.maxMsgCount || 3)}`
-      : `\n[强制约束：本次回复你必须精确输出 ${chat.minMsgCount || 1} 到 ${chat.maxMsgCount || 3} 条消息。即：在你的整个回复中，必须包含 ${chat.minMsgCount || 1} 到 ${chat.maxMsgCount || 3} 个完整的 <msg>...</msg> 标签，绝不可少于下限或多于上限！]`
+      : `\n[本次角色${charName}的回复包含 ${chat.minMsgCount || 1} 到 ${chat.maxMsgCount || 3} 个完整的 <msg>...</msg> 标签。]`
   }
 
   // 沉浸式状态面板插槽
@@ -157,13 +157,13 @@ ${usesNaturalPromptV2
     } else {
     let statusMsg = ''
     if (chat.statusText && chat.statusText !== 'none') {
-      statusMsg += `你的公开状态：【${chat.statusText}】。`
+      statusMsg += `角色${charName}的公开状态：【${chat.statusText}】。`
     }
     if (userProfile.statusText) {
-      statusMsg += `对方的公开状态：【${userProfile.statusText}】。`
+      statusMsg += `用户${userName}的公开状态：【${userProfile.statusText}】。`
     }
     if (statusMsg) {
-      statusPanelContent = `\n[当前状态面板]\n${statusMsg}\n(注：这是你自己/对方当前公开的状态，请根据你的角色人设互动。)`
+      statusPanelContent = `\n[当前状态面板]\n${statusMsg}\n角色${charName}依据自身人设自然互动。`
     }
     }
   }
@@ -249,7 +249,7 @@ ${usesNaturalPromptV2
     } else {
       formatRules = `【通话格式要求】\n严格按照当前通话模式的要求使用纯文本进行口语化回复。`
       if (chat.timePerception) {
-        formatRules += `\n${timeContext}\n- 请敏锐地感知时间信息。留意连续多条消息之间的时间间隔，以及你和对方发言的时间差（例如对方几个小时没理你，或者你隔了很久才回对方），并作出符合真实时间流逝的自然反应。`
+        formatRules += `\n${timeContext}\n- 角色${charName}留意连续消息的间隔，以及角色${charName}与用户${userName}各自发言的时间差，并按照真实时间流逝自然反应。`
       }
     }
   }
@@ -286,9 +286,9 @@ ${usesNaturalPromptV2
   
   // 【强制语音输出规则控制】
   const voiceRules = usesEnglishPrompt ? buildEnglishVoiceRules(usesNaturalPromptV2) : usesNaturalPromptV2 ? `【语音输出规则】
-你的回复将直接用于语音合成（TTS）。只能输出角色真正说出口的纯文本，严禁加入动作描写、旁白、颜文字或表情符号。
+ 角色${charName}的回复将直接用于语音合成（TTS）。只输出${charName}真正说出口的纯文本，不加入动作描写、旁白、颜文字或表情符号。
 保持符合人设的口语节奏：句子长短、停顿、语气词和措辞由角色性格、当下情绪与具体内容决定。不要为了制造“活人感”机械堆叠逗号、省略号、口癖或气声，也不要用书面总结、分点说教和过长从句。自然清楚地说完此刻真正要表达的内容。` : `【语音输出规则】
-你的回复将直接用于语音合成（TTS），请严格遵守以下要求以确保“活人感”：
+ 角色${charName}的回复将直接用于语音合成（TTS），并遵守以下要求：
 纯对话输出（铁律）：严禁包含任何动作描写（如 *轻笑*、（叹气））、颜文字或表情符号。只能输出角色真正会“说出口”的纯文本。
 符合人设的口语化：拒绝任何形式式的说教（如“首先、其次”）、拒绝书面语和过长的从句。请根据当前角色的性格与身份，把句子拆短，确保句子长度符合真人说话时的自然呼吸节奏。
 自然的节奏与停顿：通过标点符号来引导语音节奏。多用逗号断句模拟换气；在思考、犹豫或转换话题时，使用省略号（……）来表现真实的停顿感。
@@ -314,18 +314,18 @@ ${usesNaturalPromptV2
     relationshipRules = `\n\n【当前好友关系】好友状态：${relationship.friendship}；拉黑状态：${relationship.blockedBy}。严格遵守当前关系的消息可见性，不得假装看见未送达的消息。`
   }
   if (disclosedAccounts.length) {
-    relationshipRules += `\n【用户主动说明的账号关联】对方告诉你，${disclosedAccounts.join('、')}也是其本人使用的账号。你可以结合人设决定是否相信以及如何看待，但不得因此读取或假装知道那些账号的私聊内容。`
+    relationshipRules += `\n【用户主动说明的账号关联】用户${userName}说明，${disclosedAccounts.join('、')}也是该用户本人使用的账号。角色${charName}可以结合人设决定是否相信，但不得读取或假装知道那些账号的私聊内容。`
   }
 
   const transferStateGuard = usesEnglishPrompt
-    ? `\n\n[Transfer state guard] Historical transfer tags are records, not new send commands. You may use <claim> or <reject> only for an item whose receiver="character" and status="pending". Never process your own, claimed, returned, or expired item again.`
+    ? `\n\n[Transfer state guard] Historical transfer tags are records, not new commands. The character ${charName} may use <claim> or <reject> only when receiver="character" and status="pending"; all other items remain untouched.`
     : `\n\n【转账状态保护】历史中的转账标签是已经发生的记录，不是新的发送指令。只有 receiver="character" 且 status="pending" 的款项可以用 <claim> 或 <reject> 处理；严禁再次处理自己发送、已领取、已退还或已过期的款项。`
 
   // 如果没有任何启用的设定，返回一个兜底
   if (activePromptItems.length === 0) {
     return usesEnglishPrompt
-      ? `You are ${charName}.${memoryBookContext}${presenceContext}${transferStateGuard}${englishDialogueLanguageGuard}`
-      : `你是${charName}。${memoryBookContext}${presenceContext}${transferStateGuard}`
+      ? `The current character is ${charName}; the current user is ${userName}.${memoryBookContext}${presenceContext}${transferStateGuard}${englishDialogueLanguageGuard}`
+      : `当前角色是${charName}，用户是${userName}。${memoryBookContext}${presenceContext}${transferStateGuard}`
   }
 
   // 拼接 UI 上所有的有效条目，并解析占位符
@@ -363,7 +363,7 @@ ${usesNaturalPromptV2
     if (item.id === 'prompt_send_emoji_rules' && roleEmojisStr !== '无') {
       content += usesEnglishPrompt
         ? `\n${englishEmojiWarning}`
-        : `\n[严重警告：绝对、严禁捏造表情包名称！你只能发送上述列表中精确存在的表情包名称！如果没有合适的，绝对不要使用 <send_emoji> 标签！]`
+        : `\n[表情包名称必须与上述列表完全一致；角色${charName}找不到合适选项时不使用 <send_emoji> 标签。]`
     }
     
     return content

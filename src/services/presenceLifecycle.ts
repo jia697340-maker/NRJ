@@ -245,17 +245,18 @@ export const reconcilePresence = (chat: any, now = Date.now()): PresenceResult =
 export const buildPresenceContext = (chat: any, english = false) => {
   const events = Array.isArray(chat?.presenceHistory) ? chat.presenceHistory.slice(-6) as PresenceEvent[] : []
   if (events.length === 0) return ''
+  const characterName = String(chat?.realName || chat?.name || (english ? 'current character' : '当前角色'))
   const lines = events.map(event => {
     const time = formatIdentityDateTime(chat, getConversationAdjustedTimestamp(chat, event.createdAt), undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
     if (event.kind === 'offline') {
       const plannedTime = formatIdentityDateTime(chat, getConversationAdjustedTimestamp(chat, event.plannedEndAt), undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
-      return english ? `- ${time}: You went offline and planned to return at ${plannedTime}.` : `- ${time}：你下线，计划于 ${plannedTime} 上线。`
+      return english ? `- ${time}: ${characterName} went offline and planned to return at ${plannedTime}.` : `- ${time}：角色${characterName}下线，计划于 ${plannedTime} 上线。`
     }
     return english
-      ? `- ${time}: You came back online${event.queuedMessageCount > 0 ? `; the other person sent ${event.queuedMessageCount} message(s) while you were offline` : ''}.`
-      : `- ${time}：你已上线${event.queuedMessageCount > 0 ? `，离线期间对方发来了 ${event.queuedMessageCount} 条消息` : ''}。`
+      ? `- ${time}: ${characterName} came back online${event.queuedMessageCount > 0 ? `; the current user sent ${event.queuedMessageCount} message(s) while ${characterName} was offline` : ''}.`
+      : `- ${time}：角色${characterName}已上线${event.queuedMessageCount > 0 ? `；离线期间当前用户发来了 ${event.queuedMessageCount} 条消息` : ''}。`
   })
   return english
     ? `\n\n[Online and offline history]\nThese are status facts already executed by the system. Keep continuity and do not deny or invent a different presence history:\n${lines.join('\n')}`
-    : `\n\n【上线与下线记录】\n以下是系统已经实际执行的状态事实，你应保持连续记忆，不要否认或虚构不同的上下线经历：\n${lines.join('\n')}`
+    : `\n\n【角色${characterName}的上线与下线记录】\n以下是系统已经实际执行的状态事实，角色${characterName}保持连续记忆：\n${lines.join('\n')}`
 }

@@ -129,11 +129,23 @@ export const applySocialProfilePatch = (
 export const buildSocialProfilePrompt = (chat: any, english = false) => {
   const profile = normalizeSocialProfile(chat)
   if (!profile.awarenessEnabled) return ''
+  const characterName = String(chat?.realName || chat?.name || (english ? 'current character' : '当前角色'))
   const permissions = Object.entries(profile.permissions).filter(([, enabled]) => enabled).map(([key]) => key).join(', ') || 'none'
+  const modeRule = english
+    ? profile.managementMode === 'readonly'
+      ? 'This profile is read-only, so no profile-management action tags are permitted.'
+      : profile.managementMode === 'confirm'
+        ? `Any change proposed by ${characterName} becomes a request for the user's review.`
+        : `Permitted changes proposed by ${characterName} may take effect directly.`
+    : profile.managementMode === 'readonly'
+      ? '当前主页为只读状态，不使用任何主页修改标签。'
+      : profile.managementMode === 'confirm'
+        ? `角色${characterName}提出的修改会交由用户确认。`
+        : `角色${characterName}可以直接执行允许范围内的修改。`
   if (english) {
-    return `\n\n[Your social profile]\nNickname: ${profile.nickname || chat?.realName || chat?.name}; social ID: ${profile.socialId}; signature: ${profile.signature || '(none)'}. You may remember and naturally refer to this profile. Management mode: ${profile.managementMode}; permitted fields/actions: ${permissions}. In readonly mode, never output profile-management tags. In confirm mode, changes become requests for user review. In autonomous mode, permitted changes may apply directly. To change one field, output <update_social_profile field="nickname|socialId|signature">new value</update_social_profile>. To edit your post, output <edit_own_moment id="moment id">new content</edit_own_moment>; to delete it, output <delete_own_moment id="moment id" />. These tags are actions outside chat messages. Do not change profile details mechanically or too often.`
+    return `\n\n[${characterName}'s social profile]\nNickname: ${profile.nickname || chat?.realName || chat?.name}; social ID: ${profile.socialId}; signature: ${profile.signature || '(none)'}. Management mode: ${profile.managementMode}; permitted fields/actions: ${permissions}. ${characterName} may naturally remember this profile. ${modeRule} To change one field: <update_social_profile field="nickname|socialId|signature">new value</update_social_profile>. To edit or delete a post owned by ${characterName}: <edit_own_moment id="moment id">new content</edit_own_moment> or <delete_own_moment id="moment id" />. These actions remain outside chat messages and are not used mechanically or too often.`
   }
-  return `\n\n【你的社交主页】\n网名：${profile.nickname || chat?.realName || chat?.name}；ID：${profile.socialId}；个性签名：${profile.signature || '暂无'}。你知道并可以自然记住这些资料。管理模式：${profile.managementMode === 'readonly' ? '只读' : profile.managementMode === 'confirm' ? '修改需用户确认' : '自主管理'}；允许的字段与动作：${permissions}。只读模式下不得输出主页修改标签；需确认模式下修改会进入待确认；自主管理模式下允许的修改可以直接生效。修改单个资料字段时输出 <update_social_profile field="nickname|socialId|signature">新内容</update_social_profile>。编辑自己的朋友圈输出 <edit_own_moment id="动态ID">新内容</edit_own_moment>；删除输出 <delete_own_moment id="动态ID" />。这些标签是聊天消息之外的操作，不要放进 <msg>。不要机械或频繁修改主页。`
+  return `\n\n【角色${characterName}的社交主页】\n网名：${profile.nickname || chat?.realName || chat?.name}；ID：${profile.socialId}；个性签名：${profile.signature || '暂无'}。管理模式：${profile.managementMode === 'readonly' ? '只读' : profile.managementMode === 'confirm' ? '修改需用户确认' : '自主管理'}；允许的字段与动作：${permissions}。角色${characterName}可以自然记住这些资料。${modeRule} 修改字段使用 <update_social_profile field="nickname|socialId|signature">新内容</update_social_profile>；编辑或删除角色${characterName}自己的朋友圈使用 <edit_own_moment id="动态ID">新内容</edit_own_moment> 或 <delete_own_moment id="动态ID" />。这些操作位于聊天消息之外，不机械或频繁使用。`
 }
 
 export const persistSocialProfile = (chat: any) => {

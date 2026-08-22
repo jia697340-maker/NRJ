@@ -19,6 +19,15 @@ const variables = await import('../src/services/promptVariables.ts')
 assert.equal(promptStore.globalPromptSettings.schemes.filter(item => item.source === 'builtin').length, 3)
 assert.equal(promptStore.getActivePromptScheme()?.id, 'builtin_v1')
 
+for (const scheme of promptStore.globalPromptSettings.schemes.filter(item => item.source === 'builtin')) {
+  const chinese = scheme.variants.zh.items.map(item => item.content).join('\n')
+  const english = scheme.variants.en.items.map(item => item.content).join('\n')
+  assert.doesNotMatch(chinese, /(^|\n)你(?:是|有|可以|应该|必须|会|不需要|拥有|的)/, `${scheme.id} 中文角色规则不得用未限定的第二人称作为主体`)
+  assert.doesNotMatch(english, /(^|\n)(?:You|Your)\b/, `${scheme.id} English character rules must not use an unscoped second-person subject`)
+  assert.match(chinese, /\{\{char_name\}\}/)
+  assert.match(chinese, /\{\{user_name\}\}/)
+}
+
 const builtinBefore = JSON.stringify(promptStore.getPromptScheme('builtin_v2'))
 const copy = promptStore.createPromptSchemeCopy('builtin_v2', '测试副本')
 copy.variants.zh.items[0].content = '测试内容 {{char_name}}'

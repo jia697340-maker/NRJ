@@ -90,14 +90,13 @@ export function useVideoCall() {
         .replace(/\{\{short_term_memory\}\}/g, shortTermMemory)
     } else {
       systemPrompt = `[系统指令]
-你现在需要扮演【${charName}】，正在处理一个是否接听视频通话的决策。
-这仅仅是一个简单的分类判定任务，请不要输出多余的解释、对话或表情符号。
+判断角色${charName}是否会接听用户${userName}此刻发起的视频通话。只进行这次选择，不续写对话，也不输出解释或表情符号。
 
-【你的名字】：${charName}
-【你的设定】：${charPersona}
+【角色】：${charName}
+【角色设定】：${charPersona}
 
-【对方的名字】：${userName}
-【对方的设定】：${userPersona}
+【用户】：${userName}
+【用户资料】：${userPersona}
 
 【长期记忆】：
 ${longTermMemory}
@@ -240,7 +239,8 @@ ${userName} 正在向 ${charName} 发起实时通话请求。
           .replace(/\{\{optional_previous_summary\}\}/g, previousSummaryText)
           .replace(/\{\{new_messages\}\}/g, messagesPayload)
       } else {
-        prompt = `请你作为一个总结助手，对以下这部分通话记录进行简明扼要的提要总结。
+        prompt = `【视频通话阶段提要】
+将以下通话记录整理成简明提要：
 要求：
 1. 提炼出关键讨论点和当前进展。
 2. 必须以第三人称客观视角书写。
@@ -304,8 +304,8 @@ ${userName} 正在向 ${charName} 发起实时通话请求。
         .replace(/\{\{optional_previous_summary\}\}/g, previousSummaryText)
         .replace(/\{\{remaining_messages\}\}/g, remainingText)
     } else {
-      prompt = `你是一个专业的对话总结助手。刚刚完成了一段通话，请根据提供的【前半段通话提要】(如果有) 以及【通话结尾的对话明细】，为本次完整的通话生成一份第三人称的档案总结。
-这份总结将被存入长期记忆库中。
+      prompt = `【完整视频通话档案】
+根据【前半段通话提要】（如有）与【通话结尾的对话明细】，生成本次完整通话的第三人称档案总结。该总结将存入长期记忆。
 
 要求：
 1. 以第三人称客观视角书写（例如：${charName}和${userName}通过通话讨论了...）。

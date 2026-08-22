@@ -530,10 +530,9 @@ input:checked + .slider:before {
 }
 
 .cot-tag {
-  font-family: Georgia, serif;
-  font-style: italic;
   font-size: 11px;
   color: #6B7280;
+  font-style: normal;
 }
 
 .cot-item-actions {

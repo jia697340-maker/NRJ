@@ -76,6 +76,8 @@ export const buildChatMessages = async (
 ) => {
   const messages: any[] = []
   const userProfile = getEffectiveUserProfile(chat, myProfile.value)
+  const characterName = String(chat?.realName || chat?.name || '当前角色')
+  const userName = String(userProfile?.name || '当前用户')
   const usesEnglishPrompt = globalPromptSettings.language === 'en'
   
   // --- 处理可用表情包 (主动发表情包功能) ---
@@ -146,7 +148,7 @@ export const buildChatMessages = async (
     } else {
       callModePrompt = usesEnglishPrompt
         ? `\n\n[Current mode: voice call] Use natural spoken language. Do not use kaomoji, sticker tags, parenthetical actions, images, voice-message tags, stickers, or transfers.`
-        : `\n\n【当前模式：语音通话】你们正在进行实时语音通话。请使用口语化表达，不要使用颜文字、表情包标签或动作描写括号。不要发送图片、语音条、表情包或转账。`
+        : `\n\n【当前模式：语音通话】角色${characterName}与用户${userName}正在实时通话。角色${characterName}使用自然口语，不使用颜文字、表情包标签或动作描写括号。`
     }
   } else if (callMode === 'video') {
     const videoItem = taskPromptSettings.items.find((i: any) => i.id === 'task_video_call_status')
@@ -155,7 +157,7 @@ export const buildChatMessages = async (
     } else {
       callModePrompt = usesEnglishPrompt
         ? `\n\n[Current mode: video call] Use natural spoken language and describe visible expressions, gaze, and camera-frame actions naturally. Do not use kaomoji, sticker tags, parenthetical actions, images, voice-message tags, stickers, or transfers.`
-        : `\n\n【当前模式：视频通话】你们正在进行实时视频通话。请使用口语化表达，可以自然描述表情、视线和镜头内的动作，但不要使用颜文字、表情包标签或动作描写括号。不要发送图片、语音条、表情包或转账。`
+        : `\n\n【当前模式：视频通话】角色${characterName}与用户${userName}正在实时视频通话。角色${characterName}使用自然口语，可以描述镜头内可见的表情、视线和动作。`
     }
   }
 
@@ -164,14 +166,14 @@ export const buildChatMessages = async (
   const momentBehaviorPrompt = chat.enableCharMoments !== false
     ? momentBehavior.mode === 'custom'
       ? usesEnglishPrompt
-        ? `\n\n[Manual Moments rules] Active hours: ${momentBehavior.activeStart}:00–${momentBehavior.activeEnd}:00; expression preference: ${momentBehavior.style || 'follow your own persona'}; default audience: ${momentBehavior.audience}. You still decide from the present context whether to post, browse only, like, or comment. The system enforces the user's cooldown and probability settings.`
-        : `\n\n【朋友圈手动规则】活跃时段：${momentBehavior.activeStart}:00-${momentBehavior.activeEnd}:00；表达偏好：${momentBehavior.style || '遵循你自己的人设'}；默认受众：${momentBehavior.audience}。你仍可根据当下情境决定是否发帖、只看、点赞或评论；系统会执行用户设置的冷却与概率限制。`
+        ? `\n\n[Manual Moments rules for ${characterName}] Active hours: ${momentBehavior.activeStart}:00–${momentBehavior.activeEnd}:00; expression preference: ${momentBehavior.style || `${characterName}'s persona`}; default audience: ${momentBehavior.audience}. ${characterName} decides from context whether to post, browse, like, or comment; the system applies the user's cooldown settings.`
+        : `\n\n【角色${characterName}的朋友圈习惯】活跃时段：${momentBehavior.activeStart}:00-${momentBehavior.activeEnd}:00；表达偏好：${momentBehavior.style || `遵循${characterName}的人设`}；默认受众：${momentBehavior.audience}。角色${characterName}根据当下情境决定发帖、浏览、点赞或评论；系统负责执行用户设置的冷却与概率限制。`
       : usesEnglishPrompt
-        ? `\n\n[Autonomy on Moments] Treat Moments as part of your real life. Whether and when to browse, post, attach an image, like, comment, or reply depends naturally on your persona, current experiences, emotions, relationship, and the specific content. Never act merely to demonstrate the feature or spam mechanically. The system does not choose for you through fixed probability, frequency, or writing style.`
-        : `\n\n【朋友圈自主权】把朋友圈当作你真实生活的一部分。你拥有完整自主权：是否查看、发帖、配图、点赞、评论、回复以及何时做，都由你依据自己的人设、当下经历、情绪、关系和具体内容自然决定。不要为了展示功能而行动，也不要机械刷屏；系统不会用概率、固定频率或预设文风替你做决定。`
+        ? `\n\n[${characterName}'s autonomy on Moments] Moments are part of ${characterName}'s life. Browsing, posting, images, likes, comments, and replies arise naturally from the character's persona, experiences, emotions, relationship, and current content—not from a need to demonstrate the feature.`
+        : `\n\n【角色${characterName}的朋友圈自主权】朋友圈是角色${characterName}生活的一部分。查看、发帖、配图、点赞、评论和回复均从该角色的人设、经历、情绪、关系与具体内容自然产生，不为展示功能而机械行动。`
     : usesEnglishPrompt
       ? '\n\n[Moments usage] Moments are disabled. Do not output any Moments-related tags.'
-      : '\n\n【你的朋友圈习惯】当前不使用朋友圈，不要输出任何朋友圈标签。'
+      : `\n\n【角色${characterName}的朋友圈习惯】角色${characterName}当前不使用朋友圈，不输出朋友圈标签。`
   const memoryQueryMessages = offlineMeetMode === 'separate'
     ? (chat.messages || []).filter((item: any) => item.isOfflineMeetMsg)
     : offlineMeetMode === false

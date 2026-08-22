@@ -11,7 +11,7 @@ export const defaultTaskPromptItems: PromptItem[] = [
   {
     id: 'task_video_call_decision_system',
     name: '视频/语音通话 - 接听决策 (系统)',
-    content: `[系统指令]\n你现在需要扮演【{{char_name}}】，正在处理一个是否接听视频/语音通话的决策。\n这仅仅是一个简单的分类判定任务，请不要输出多余的解释、对话或表情符号。\n\n【你的名字】：{{char_name}}\n【你的设定】：{{char_persona}}\n\n【对方的名字】：{{user_name}}\n【对方的设定】：{{user_persona}}\n\n【长期记忆】：\n{{long_term_memory}}\n\n【短期聊天记录】：\n{{short_term_memory}}`,
+    content: `[任务]\n判断角色{{char_name}}是否会接听用户{{user_name}}此刻发起的视频或语音通话。只进行这次选择，不续写对话，也不输出解释或表情符号。\n\n【角色{{char_name}}的设定】\n{{char_persona}}\n\n【用户{{user_name}}的资料】\n{{user_persona}}\n\n【长期记忆】\n{{long_term_memory}}\n\n【近期聊天】\n{{short_term_memory}}`,
     enabled: true
   },
   {
@@ -23,19 +23,19 @@ export const defaultTaskPromptItems: PromptItem[] = [
   {
     id: 'task_video_call_temp_summary',
     name: '视频/语音通话 - 阶段性临时总结',
-    content: `请你作为一个总结助手，对以下这部分通话记录进行简明扼要的提要总结。\n要求：\n1. 提炼出关键讨论点和当前进展。\n2. 必须以第三人称客观视角书写。\n3. 字数控制在50-150字以内。\n\n{{optional_previous_summary}}\n【新的聊天记录】：\n{{new_messages}}`,
+    content: `【通话阶段提要】\n将以下通话记录整理成简明提要：\n1. 提炼关键讨论点和当前进展。\n2. 以第三人称客观书写。\n3. 字数控制在50-150字以内。\n\n{{optional_previous_summary}}\n【新的聊天记录】：\n{{new_messages}}`,
     enabled: true
   },
   {
     id: 'task_video_call_final_summary',
     name: '视频/语音通话 - 最终档案总结',
-    content: `你是一个专业的对话总结助手。刚刚完成了一段通话，请根据提供的【前半段通话提要】(如果有) 以及【通话结尾的对话明细】，为本次完整的通话生成一份第三人称的档案总结。\n这份总结将被存入长期记忆库中。\n\n要求：\n1. 以第三人称客观视角书写（例如：{{char_name}}和{{user_name}}通过通话讨论了...）。\n2. 提炼出本次通话的核心事件、作出的决定以及双方的情绪状态。\n3. 语言精炼，作为档案记录，字数控制在100-300字以内。\n\n{{optional_previous_summary}}\n{{remaining_messages}}`,
+    content: `【完整通话档案】\n根据【前半段通话提要】（如有）与【通话结尾的对话明细】，生成本次完整通话的第三人称档案总结。该总结将存入长期记忆。\n\n要求：\n1. 以第三人称客观书写（例如：{{char_name}}和{{user_name}}通过通话讨论了……）。\n2. 提炼核心事件、双方作出的决定与情绪状态。\n3. 语言精炼，字数控制在100-300字以内。\n\n{{optional_previous_summary}}\n{{remaining_messages}}`,
     enabled: true
   },
   {
     id: 'task_voice_call_status',
     name: '语音通话 - 状态强制设定',
-    content: `\n\n【当前模式：语音通话】你们正在进行实时语音通话。请使用口语化表达，不要使用网络聊天时的颜文字、表情包标签或动作描写括号。`,
+    content: `\n\n【当前模式：语音通话】角色{{char_name}}与用户{{user_name}}正在实时通话。角色{{char_name}}使用自然口语，不使用网络聊天中的颜文字、表情包标签或动作描写括号。`,
     enabled: true
   },
   {
@@ -63,6 +63,26 @@ const hydrate = (language: PromptLanguage, stored?: PromptItem[]) => {
   for (const item of result) {
     if (typeof item.content === 'string') {
       item.content = item.content.replace(/不要发送图片、语音条、表情包或转账。/g, '').trim()
+      if (item.id === 'task_video_call_decision_system') {
+        item.content = item.content
+          .replace('当前任务执行器负责判断角色{{char_name}}是否接听用户{{user_name}}发起的视频或语音通话。任务执行器不是角色{{char_name}}、用户{{user_name}}或场景旁白，只执行分类判定。', '判断角色{{char_name}}是否会接听用户{{user_name}}此刻发起的视频或语音通话。只进行这次选择，不续写对话。')
+          .replace('你现在需要扮演【{{char_name}}】，正在处理一个是否接听视频/语音通话的决策。', '判断角色{{char_name}}是否会接听用户{{user_name}}此刻发起的视频或语音通话。只进行这次选择，不续写对话。')
+          .replace('【你的名字】：{{char_name}}', '【角色】：{{char_name}}')
+          .replace('【你的设定】：{{char_persona}}', '【角色设定】：{{char_persona}}')
+          .replace('【对方的名字】：{{user_name}}', '【用户】：{{user_name}}')
+          .replace('【对方的设定】：{{user_persona}}', '【用户资料】：{{user_persona}}')
+          .replace('The task executor decides whether the character {{char_name}} answers an incoming real-time video or voice call from the user {{user_name}}. The task executor is not {{char_name}}, {{user_name}}, or the scene narrator and performs only this classification task.', 'Decide whether the character {{char_name}} would answer the video or voice call that the user {{user_name}} is placing now. Make only this choice and do not continue the dialogue.')
+          .replace('You are portraying {{char_name}} and must decide whether to answer an incoming real-time video or voice call.', 'Decide whether the character {{char_name}} would answer the video or voice call that the user {{user_name}} is placing now. Make only this choice and do not continue the dialogue.')
+          .replace('[Your name]', '[Character]')
+          .replace('[Your persona]', '[Character persona]')
+          .replace("[Other person's name]", '[User]')
+          .replace("[Other person's profile]", '[User profile]')
+      }
+      if (item.id === 'task_voice_call_status') {
+        item.content = item.content
+          .replace('【当前模式：语音通话】你们正在进行实时语音通话。请使用口语化表达，不要使用网络聊天时的颜文字、表情包标签或动作描写括号。', '【当前模式：语音通话】角色{{char_name}}与用户{{user_name}}正在实时通话。角色{{char_name}}使用自然口语，不使用网络聊天中的颜文字、表情包标签或动作描写括号。')
+          .replace('You are in a real-time voice call. Use natural spoken language. Do not use kaomoji, sticker tags, or parenthetical action descriptions associated with text chat.', 'The character {{char_name}} and the user {{user_name}} are in a real-time voice call. {{char_name}} uses natural spoken language without kaomoji, sticker tags, or parenthetical action descriptions from text chat.')
+      }
       if (item.id === 'task_video_call_status') {
         item.content = item.content
           .replace('<narration>你的动作、表情或周围环境描写</narration> 标签，以第三人称或第一人称旁白形式客观输出。', '<narration>动作、表情或周围环境描写</narration> 标签，并以第三人称客观输出。涉及人物时必须使用 {{char_name}}、{{user_name}} 等明确姓名，不得使用“我”“你”等第一、第二人称代词。')

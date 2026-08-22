@@ -410,7 +410,7 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   }))
   const roster = members.map(member => `${group.memberNicknames[memberIdentity(member)] || member.name}（ID：${memberIdentity(member)}）`).join('\n')
   const sharedMemory = await buildMemoryPacket(group, memoryQuery, group.memoryTokenBudget)
-  let system = `你正在参与一个真实的多人群聊。每位成员都有独立、完整且持续一致的人格、经历、认知和表达方式。只能让成员依据自己亲历、看见、听见或被明确告知的信息行动；不得共享其他成员的私密认知，也不得让所有人表现成同一种声音。\n\n${memberContexts.join('\n\n')}\n\n${getActiveGroupPrompt()}\n\n【当前群聊】\n群名：${group.name}\n用户：${groupUserProfile?.name || '我'}（ID：user）${groupUserProfile?.persona ? `\n用户在本群的身份：${groupUserProfile.persona}` : ''}\n\n【可用成员清单】\n${roster}`
+  let system = `【群聊场景】\n以下内容共同构成一个正在持续发生的真实多人群聊。只呈现群内实际发生的消息与动作，不额外解释生成过程。每位成员都有独立、完整且持续一致的人格、经历、认知和表达方式；每名成员只依据本人亲历、看见、听见或被明确告知的信息行动，不共享其他成员的私密认知，也不使用同一种声音。\n\n【成员边界】\n每个 <member_context> 只属于其 id 对应的成员，其中的人设、行为规则、记忆、状态和心声均不得移给其他成员或用户。\n\n${memberContexts.join('\n\n')}\n\n${getActiveGroupPrompt()}\n\n【当前群聊】\n群名：${group.name}\n用户：${groupUserProfile?.name || '我'}（ID：user）${groupUserProfile?.persona ? `\n用户在本群的身份：${groupUserProfile.persona}` : ''}\n\n【可用成员清单】\n${roster}`
   system += `\n\n${buildGroupManagementPrompt(group)}`
   if (group.timePerception) {
     const now = Date.now()

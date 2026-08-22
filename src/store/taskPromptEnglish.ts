@@ -4,7 +4,7 @@ import type { PromptItem } from './prompt'
 const translations: Record<string, { name: string; content: string }> = {
   task_video_call_decision_system: {
     name: 'Video/voice call · Answer decision (system)',
-    content: `[System instruction]\nYou are portraying {{char_name}} and must decide whether to answer an incoming real-time video or voice call.\nThis is a simple classification task. Do not output explanations, dialogue, or emoji.\n\n[Your name]\n{{char_name}}\n[Your persona]\n{{char_persona}}\n\n[Other person's name]\n{{user_name}}\n[Other person's profile]\n{{user_persona}}\n\n[Long-term memory]\n{{long_term_memory}}\n\n[Recent chat history]\n{{short_term_memory}}`
+    content: `[Task]\nDecide whether the character {{char_name}} would answer the video or voice call that the user {{user_name}} is placing now. Make only this choice; do not continue the dialogue or output an explanation or emoji.\n\n[{{char_name}}'s persona]\n{{char_persona}}\n\n[Information about {{user_name}}]\n{{user_persona}}\n\n[Long-term memory]\n{{long_term_memory}}\n\n[Recent chat history]\n{{short_term_memory}}`
   },
   task_video_call_decision_user: {
     name: 'Video/voice call · Answer decision (user)',
@@ -16,11 +16,11 @@ const translations: Record<string, { name: string; content: string }> = {
   },
   task_video_call_final_summary: {
     name: 'Video/voice call · Final archival summary',
-    content: `You are a professional conversation archivist. A call has just ended. Using the earlier call summary, when present, and the detailed transcript from the end of the call, produce a third-person archival summary of the complete call. This summary will be stored in long-term memory.\n\nRequirements:\n1. Write objectively in the third person, for example: “{{char_name}} and {{user_name}} discussed ... during the call.”\n2. Preserve the core events, decisions, and both parties' emotional states.\n3. Be concise. When the conversation is in Chinese, keep the summary within 100–300 Chinese characters.\n4. Write the summary in Simplified Chinese unless the source conversation clearly uses another language.\n\n{{optional_previous_summary}}\n{{remaining_messages}}`
+    content: `[Complete call archive]\nUsing the earlier call summary, when present, and the detailed transcript from the end of the call, produce a third-person archival summary of the complete call for long-term memory.\n\nRequirements:\n1. Write objectively in the third person, for example: “{{char_name}} and {{user_name}} discussed ... during the call.”\n2. Preserve the core events, decisions, and both parties' emotional states.\n3. Be concise. When the conversation is in Chinese, keep the summary within 100–300 Chinese characters.\n4. Write the summary in Simplified Chinese unless the source conversation clearly uses another language.\n\n{{optional_previous_summary}}\n{{remaining_messages}}`
   },
   task_voice_call_status: {
     name: 'Voice call · Mode constraint',
-    content: `\n\n[Current mode: voice call]\nYou are in a real-time voice call. Use natural spoken language. Do not use kaomoji, sticker tags, or parenthetical action descriptions associated with text chat.`
+    content: `\n\n[Current mode: voice call]\nThe character {{char_name}} and the user {{user_name}} are in a real-time voice call. {{char_name}} uses natural spoken language without kaomoji, sticker tags, or parenthetical action descriptions from text chat.`
   },
   task_video_call_status: {
     name: 'Video call · Mode constraint',
