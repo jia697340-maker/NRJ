@@ -16,6 +16,7 @@ import ChatFriendRequestsView from './chat/ChatFriendRequestsView.vue'
 import GroupChatRequestsView from './chat/GroupChatRequestsView.vue'
 import ChatRelationshipView from './chat/ChatRelationshipView.vue'
 import CharacterProfileView from './chat/profile/CharacterProfileView.vue'
+import UserProfileView from './chat/profile/UserProfileView.vue'
 import CharacterAutonomyView from './chat/CharacterAutonomyView.vue'
 import ChatAuthView from './chat/ChatAuthView.vue'
 import { useChatState } from '../composables/useChatState'
@@ -59,7 +60,7 @@ const {
   loadMyProfile
 } = useChatState()
 
-type ViewType = 'list' | 'chat' | 'groupCreate' | 'groupSettings' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'groupRequests' | 'relationship' | 'autonomy' | 'characterProfile' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
+type ViewType = 'list' | 'chat' | 'groupCreate' | 'groupSettings' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'groupRequests' | 'relationship' | 'autonomy' | 'characterProfile' | 'userProfile' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
 type VoiceCallState = {
   active: boolean
   minimized: boolean
@@ -78,6 +79,7 @@ const tabs = ['消息', '联系人', '发现', '我的']
 const previousView = ref<ViewType>('list')
 const relationshipBackView = ref<ViewType>('chatSettings')
 const characterProfileBackView = ref<ViewType>('chat')
+const userProfileBackView = ref<ViewType>('profile')
 const characterProfileStack = ref<any[]>([])
 const hasOpenedChat = ref(false)
 const chatRoomRef = ref<any>(null)
@@ -332,6 +334,18 @@ const openChat = (chat: any) => {
   hasOpenedChat.value = true
   selectedChat.value = chat
   currentView.value = 'chat'
+}
+
+const openUserProfile = (backView: ViewType = currentView.value) => {
+  userProfileBackView.value = backView
+  currentView.value = 'userProfile'
+}
+
+const openCharacterFromUserProfile = (chat: any) => {
+  if (!chat) return
+  selectedChat.value = chat
+  characterProfileBackView.value = 'userProfile'
+  currentView.value = 'characterProfile'
 }
 
 const openSocialContact = async (item: SocialCircleItem) => {
@@ -601,7 +615,7 @@ onUnmounted(() => {
 
     <template v-else>
       <!-- 底部 TabBar -->
-    <footer v-show="!['chat', 'groupCreate', 'groupSettings', 'personaLibrary', 'createUserPersona', 'chatSettings', 'offlineMeet', 'friendRequests', 'relationship', 'autonomy', 'characterProfile'].includes(currentView)" class="floating-tabbar glass">
+    <footer v-show="!['chat', 'groupCreate', 'groupSettings', 'personaLibrary', 'createUserPersona', 'chatSettings', 'offlineMeet', 'friendRequests', 'relationship', 'autonomy', 'characterProfile', 'userProfile'].includes(currentView)" class="floating-tabbar glass">
       <div 
         v-for="tab in tabs" 
         :key="tab"
@@ -662,7 +676,15 @@ onUnmounted(() => {
       @back="closeCharacterProfile"
       @open-chat="currentView = 'chat'"
       @open-social-contact="openSocialContact"
+      @open-user-profile="openUserProfile('characterProfile')"
       @save="saveCurrentChat"
+    />
+
+    <UserProfileView
+      v-if="currentView === 'userProfile'"
+      @back="currentView = userProfileBackView"
+      @open-discover="currentView = 'discover'; activeTab = '发现'"
+      @open-character="openCharacterFromUserProfile"
     />
 
     <!-- 3. 设置视图 -->
@@ -678,6 +700,7 @@ onUnmounted(() => {
       @open-relationship="openRelationship(selectedChat, 'chatSettings')"
       @open-autonomy="currentView = 'autonomy'"
       @open-character-profile="openCharacterProfile('chatSettings')"
+      @open-user-profile="openUserProfile('chatSettings')"
     />
 
     <GroupChatSettingsView
@@ -726,6 +749,7 @@ onUnmounted(() => {
       v-if="['profile', 'createUserPersona', 'personaLibrary', 'chatAppearance', 'notificationSettings'].includes(currentView)" 
       :current-view="currentView as 'profile' | 'createUserPersona' | 'personaLibrary' | 'chatAppearance' | 'notificationSettings'" 
       @update:current-view="handleProfileViewUpdate"
+      @open-user-profile="openUserProfile('profile')"
     />
 
     <!-- 全局语音通话悬浮窗：切到 App 其他界面时保持通话不中断 -->

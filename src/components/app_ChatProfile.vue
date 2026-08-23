@@ -18,6 +18,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:currentView', view: 'profile' | 'createUserPersona' | 'personaLibrary' | 'chatAppearance' | 'notificationSettings' | 'list' | 'discover' | 'contacts' | 'chat'): void
+  (e: 'open-user-profile'): void
 }>()
 
 const { currentChatUserId, logout } = useChatAuth()
@@ -669,6 +670,7 @@ const handleUnbindPersonaFromAccount = (personaId: string | number) => {
       @openPersonaLibrary="openPersonaLibrary"
       @openChatAppearance="openChatAppearance"
       @openNotificationSettings="openNotificationSettings"
+      @openUserProfile="emit('open-user-profile')"
       @handleLogout="handleLogout"
     />
 

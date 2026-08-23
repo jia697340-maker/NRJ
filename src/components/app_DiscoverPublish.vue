@@ -18,7 +18,7 @@ const images = ref<{ id: string, dataUrl: string }[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 
 // 谁可以看选项
-const visibilityOptions = ['公开', '私密', '部分可见', '不给谁看']
+const visibilityOptions = ['公开', '好友可见', '私密', '部分可见', '不给谁看']
 const currentVisibility = ref('公开')
 const showVisibilityMenu = ref(false)
 
@@ -31,6 +31,16 @@ const showLocationModal = ref(false)
 const showMentionModal = ref(false)
 const mentionedIds = ref<Array<string | number>>([])
 const mentionableChats = computed(() => mockChats.value.filter((chat: any) => chat.id !== 1 && !chat.isCreate))
+const selectedCharacterIds = ref<Array<string | number>>([])
+const toggleCharacterVisibility = (id: string | number) => {
+  selectedCharacterIds.value = selectedCharacterIds.value.includes(id)
+    ? selectedCharacterIds.value.filter(item => item !== id)
+    : [...selectedCharacterIds.value, id]
+}
+const toggleAllCharacters = () => {
+  selectedCharacterIds.value = selectedCharacterIds.value.length === mentionableChats.value.length
+    ? [] : mentionableChats.value.map((chat: any) => chat.id)
+}
 
 const handleBack = () => {
   emit('close')
@@ -48,6 +58,7 @@ const handlePublish = () => {
     })),
     visibility: currentVisibility.value,
     groupIds: ['部分可见', '不给谁看'].includes(currentVisibility.value) ? selectedGroupIds.value : [],
+    characterIds: ['部分可见', '不给谁看'].includes(currentVisibility.value) ? selectedCharacterIds.value : [],
     location: location.value.trim(),
     mentions: mentionableChats.value.filter((chat: any) => mentionedIds.value.includes(chat.id)).map((chat: any) => ({ id: chat.id, name: chat.name }))
   })
@@ -226,7 +237,7 @@ const removeImage = (index: number) => {
             <div class="option-value">
               {{ currentVisibility }}
               <span v-if="['部分可见', '不给谁看'].includes(currentVisibility) && selectedGroupIds.length > 0" style="font-size:12px; margin-left:4px; color:#576b95">
-                (已选{{selectedGroupIds.length}}个分组)
+                ({{ selectedGroupIds.length }} 个分组 · {{ selectedCharacterIds.length }} 位角色)
               </span>
             </div>
           </div>
@@ -308,6 +319,12 @@ const removeImage = (index: number) => {
                   <label class="checkbox-label">
                     <input type="checkbox" :value="g.id" v-model="selectedGroupIds" style="width:18px;height:18px;" />
                   </label>
+                </div>
+                <div class="character-visibility-head"><span>指定角色</span><button type="button" @click="toggleAllCharacters">{{ selectedCharacterIds.length === mentionableChats.length ? '取消全选' : '全选' }}</button></div>
+                <div class="character-visibility-grid">
+                  <button v-for="chat in mentionableChats" :key="chat.id" type="button" :class="{ active: selectedCharacterIds.includes(chat.id) }" @click="toggleCharacterVisibility(chat.id)">
+                    <span>{{ chat.name }}</span><svg v-if="selectedCharacterIds.includes(chat.id)" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+                  </button>
                 </div>
                 <div style="text-align:right; margin-top:8px;">
                   <button @click="showVisibilityMenu = false" style="background:#07c160; color:#fff; border:none; border-radius:4px; padding:6px 12px; font-size:14px;">确定</button>
@@ -563,6 +580,7 @@ const removeImage = (index: number) => {
 }
 .mention-item { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:.5px solid #ebebeb; color:#333; font-size:16px; }
 .mention-item input { width:18px; height:18px; accent-color:#07c160; }
+.character-visibility-head{display:flex;align-items:center;justify-content:space-between;padding-top:9px;border-top:1px solid #f2f2f2;color:#777;font-size:12px}.character-visibility-head button{padding:5px 9px;border:1px solid #e5e5e5;border-radius:8px;background:#fff;color:#576b95;font-size:11px}.character-visibility-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.character-visibility-grid button{display:flex;min-width:0;align-items:center;justify-content:space-between;padding:9px;border:1px solid #ededed;border-radius:9px;background:#fafafa;color:#555;font-size:12px}.character-visibility-grid button.active{border-color:#86b69a;background:#f0faf3;color:#258347}.character-visibility-grid button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.character-visibility-grid svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.4}
 
 @keyframes slideUp {
   from { transform: translateY(100%); }

@@ -19,6 +19,7 @@ const emit = defineEmits<{
   (e: 'openChatAppearance'): void
   (e: 'openNotificationSettings'): void
   (e: 'handleLogout'): void
+  (e: 'openUserProfile'): void
 }>()
 </script>
 
@@ -54,10 +55,11 @@ const emit = defineEmits<{
               <div 
                 class="profile-avatar-large"
                 :style="activePersona.avatar ? { backgroundImage: `url(${activePersona.avatar})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' } : {}"
+                @click="emit('openUserProfile')"
               >
               </div>
             </div>
-            <div class="profile-name-custom">{{ activePersona.name || activePersona.networkName || '未命名' }}</div>
+            <div class="profile-name-custom" @click="emit('openUserProfile')">{{ activePersona.name || activePersona.networkName || '未命名' }}</div>
             <div class="profile-signature" @click="emit('openCustomTextEdit')" style="cursor: pointer;">
               <div class="sig-icon">#</div>
               <div class="sig-text">{{ activePersona.customText || '点击设置自定义文案...' }}</div>
@@ -88,6 +90,10 @@ const emit = defineEmits<{
         <div class="setting-group">
           <div class="setting-group-title">账号与人设</div>
           <div class="setting-card">
+            <div class="setting-item" @click="emit('openUserProfile')">
+              <span class="setting-text">我的主页</span>
+              <svg class="arrow-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
             <div class="setting-item" @click="emit('openCreateOptions')">
               <span class="setting-text">新建人设</span>
               <svg class="arrow-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>

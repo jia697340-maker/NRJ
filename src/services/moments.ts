@@ -1,4 +1,4 @@
-export type MomentViewer = { id?: string | number; name?: string; groupIds?: string[]; groups?: string[] }
+export type MomentViewer = { id?: string | number; name?: string; groupIds?: string[]; groups?: string[]; isFriend?: boolean }
 
 export type MomentBehavior = {
   mode: 'autonomous' | 'custom'
@@ -73,11 +73,15 @@ export const canViewMoment = (moment: any, viewer: MomentViewer): boolean => {
   if (moment.author && viewer.name && moment.author === viewer.name) return true
   const visibility = moment.visibility || '公开'
   if (visibility === '公开') return true
+  if (visibility === '好友可见') return Boolean(viewer.isFriend)
   if (visibility === '私密') return false
   const audienceGroups = Array.isArray(moment.visibilityGroups) ? moment.visibilityGroups : []
+  const audienceCharacters = Array.isArray(moment.visibilityCharacterIds) ? moment.visibilityCharacterIds.map(String) : []
+  const viewerId = viewer.id === undefined ? '' : String(viewer.id)
   const viewerGroups = [...(Array.isArray(viewer.groupIds) ? viewer.groupIds : []), ...(Array.isArray(viewer.groups) ? viewer.groups : [])]
   const isInAudience = audienceGroups.some((id: string) => viewerGroups.includes(id))
-  if (visibility === '部分可见') return isInAudience
-  if (visibility === '不给谁看') return !isInAudience
+  const isSelectedCharacter = Boolean(viewerId && audienceCharacters.includes(viewerId))
+  if (visibility === '部分可见') return isInAudience || isSelectedCharacter
+  if (visibility === '不给谁看') return !isInAudience && !isSelectedCharacter
   return false
 }

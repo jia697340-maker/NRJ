@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { sendChatMessage, isMomentApiReady, type ChatApiPurpose } from '../services/api'
 import { chatSettings, webSearchSettings, worldBooks } from '../store'
-import { characterBlocksUser, deleteFriendByCharacter, setRelationshipPlan } from './useChatRelationship'
+import { appendRelationshipEvent, characterBlocksUser, createFriendRequest, deleteFriendByCharacter, ensureRelationship, setRelationshipPlan } from './useChatRelationship'
 import localforage from 'localforage'
 import { selectRoleAvailableEmojis } from '../services/chatEmojiScope'
 import { useNovelAI } from './useNovelAI'
@@ -21,6 +21,8 @@ import { useVoicePlayer } from './useVoicePlayer'
 import { createChatMessageId, createTransferData, resolveTransfer } from '../services/transferLifecycle'
 import { getMemoryExportItems } from '../services/memoryEngine'
 import { useChatAuth } from './useChatAuth'
+import { canCharacterRequestUser, getCharacterOverride, loadUserSocialProfile, saveUserSocialProfile } from '../services/userSocialProfile'
+import { triggerFriendRequestNotification } from './useFriendRequestPrompt'
 import { createIncomingWalletPayment } from '../services/walletService'
 import { extractEmbeddedReasoning } from '../services/reasoning'
 import {
@@ -447,7 +449,7 @@ export function useChatRoomAPI(
       }
 
       // 修改解析逻辑：按原文顺序提取标签
-      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|voice_call_user|video_call_user|offline|status|narration|block_user|delete_friend|relationship_plan)(\s+[^>]*)?>([\s\S]*?)<\/\1>/g
+      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|voice_call_user|video_call_user|offline|status|narration|block_user|delete_friend|relationship_plan|send_friend_request|propose_user_relation)(\s+[^>]*)?>([\s\S]*?)<\/\1>/g
       const extractedActions: { type: string, content: string, amount?: number, quote?: { sender: string, content: string }, contentLanguage?: string, translation?: string, translationLanguage?: string, narrationKind?: 'action' | 'scene' | 'thought' }[] = []
       let match
       
@@ -561,6 +563,41 @@ export function useChatRoomAPI(
                 if (!hasExplicitPlan) setRelationshipPlan(chatToUpdate, { action: 'reconsider', summary: '对方暂时不愿透露后续打算', reviewAt: Date.now() + 60 * 60000, visibility: 'hidden' })
               }
               else deleteFriendByCharacter(chatToUpdate, action.content)
+            }
+            processNextAction(index + 1)
+            return
+          }
+
+          if (action.type === 'send_friend_request') {
+            if (chatToUpdate) {
+              const account = useChatAuth().currentAccount.value
+              const relationship = ensureRelationship(chatToUpdate)
+              const viewer = { characterId: String(chatToUpdate.characterEntityId || chatToUpdate.id), isFriend: relationship.friendship === 'friends', blocked: relationship.blockedBy !== 'none', hasChat: true }
+              const allowed = Boolean(account && relationship.friendship !== 'friends' && canCharacterRequestUser(loadUserSocialProfile(account), viewer))
+              const hasPending = relationship.requests.some(request => request.direction === 'character_to_user' && ['scheduled', 'pending', 'viewed'].includes(request.status))
+              if (allowed && !hasPending) {
+                const request = createFriendRequest(chatToUpdate, 'character_to_user', action.content || '想加你为好友')
+                triggerFriendRequestNotification(chatToUpdate, request)
+              }
+            }
+            processNextAction(index + 1)
+            return
+          }
+
+          if (action.type === 'propose_user_relation') {
+            if (chatToUpdate && action.content.trim()) {
+              const account = useChatAuth().currentAccount.value
+              if (account) {
+                const userProfile = loadUserSocialProfile(account)
+                const override = getCharacterOverride(userProfile, String(chatToUpdate.characterEntityId || chatToUpdate.id))
+                  || { characterId: String(chatToUpdate.characterEntityId || chatToUpdate.id), updatedAt: Date.now() }
+                override.publicRelationLabel = action.content.trim().slice(0, 20)
+                override.relationLabelApproved = false
+                override.updatedAt = Date.now()
+                userProfile.overrides[override.characterId] = override
+                saveUserSocialProfile(userProfile)
+                appendRelationshipEvent(chatToUpdate, 'relation_label_proposed', '对方提出公开关系标签', override.publicRelationLabel, false)
+              }
             }
             processNextAction(index + 1)
             return

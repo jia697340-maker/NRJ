@@ -15,10 +15,12 @@ import {
   type AutonomyLedgerWindow
 } from './autonomyConfig'
 import { flushAutonomyDeliveries, queueAutonomyDelivery } from './autonomyDelivery'
-import { deliverCharacterMessage, ensureRelationship } from '../composables/useChatRelationship'
+import { createFriendRequest, deliverCharacterMessage, ensureRelationship } from '../composables/useChatRelationship'
+import { triggerFriendRequestNotification } from '../composables/useFriendRequestPrompt'
+import { canCharacterRequestUser, loadUserSocialProfile } from './userSocialProfile'
 import { ensureChatTimelineState, persistActiveTimeline } from './chatTimeline'
 
-export type AutonomyEventType = 'message' | 'moment' | 'status' | 'idle' | 'error'
+export type AutonomyEventType = 'message' | 'moment' | 'status' | 'friend_request' | 'idle' | 'error'
 export type AutonomyEvent = {
   id: string
   type: AutonomyEventType
@@ -31,7 +33,7 @@ export type AutonomyEvent = {
 }
 
 type AutonomyAction = {
-  type: 'message' | 'moment' | 'status'
+  type: 'message' | 'moment' | 'status' | 'friend_request'
   content?: string
   status?: 'online' | 'offline' | 'busy' | 'away'
   text?: string
@@ -209,6 +211,15 @@ const actionPermission = (chat: any, action: AutonomyAction) => {
   if (action.type === 'moment' && !chat.autonomyAllowMoments) return '“朋友圈活动”未开启'
   if (action.type === 'status' && !chat.enableImmersiveStatus) return '聊天设置中的“沉浸式状态与时间流逝”未开启'
   if (action.type === 'status' && !chat.autonomyAllowStatus) return '“上线与状态变化”未开启'
+  if (action.type === 'friend_request') {
+    const account = useChatAuth().currentAccount.value
+    const relationship = ensureRelationship(chat)
+    if (!account) return '当前没有登录账号'
+    if (relationship.friendship === 'friends') return '当前已经是好友'
+    const profile = loadUserSocialProfile(account)
+    if (!canCharacterRequestUser(profile, { characterId: String(chat.characterEntityId || chat.id), isFriend: false, blocked: relationship.blockedBy !== 'none', hasChat: true })) return '用户未允许该角色发送好友申请'
+    if (relationship.requests.some(request => request.direction === 'character_to_user' && ['scheduled', 'pending', 'viewed'].includes(request.status))) return '已有待处理的好友申请'
+  }
   return ''
 }
 
@@ -243,14 +254,16 @@ export const runAutonomousCheck = async (
 
   try {
     const messages = await buildChatMessages(chat)
+    const account = useChatAuth().currentAccount.value
+    const friendRequestAllowed = Boolean(account && !actionPermission(chat, { type: 'friend_request' }))
     const policyText = globalPromptSettings.language === 'en'
       ? `Minimum-contact guarantee: ${chat.autonomyGuaranteeContact ? `enabled; after ${normalizeAutonomySilenceMinutes(chat.autonomyMaxSilenceMinutes)} minutes of silence` : 'disabled'}. Current silence: about ${silenceMinutes} minutes. ${contactRequired ? 'The guarantee is due now: return at least one permitted action, preferably a sincere message.' : ''} Important-emotion delivery: ${chat.autonomyEmotionMustDeliver ? 'enabled; if there is a strong emotion the user should know, set emotionNeedsDelivery=true and include a direct message expressing it naturally' : 'disabled'}.`
       : `最低联系保障：${chat.autonomyGuaranteeContact ? `已开启，最长沉默 ${normalizeAutonomySilenceMinutes(chat.autonomyMaxSilenceMinutes)} 分钟` : '未开启'}；目前已沉默约 ${silenceMinutes} 分钟。${contactRequired ? '保障现已到期：必须至少给出一个获准动作，优先是一条真诚的直接消息。' : ''}重要情绪必达：${chat.autonomyEmotionMustDeliver ? '已开启；如果存在用户应该知道的强烈情绪，请令 emotionNeedsDelivery=true，并用一条自然的直接消息表达' : '未开启'}。`
     messages.push({
       role: 'system',
       content: globalPromptSettings.language === 'en'
-        ? `[${characterName}'s autonomous activity]\nCurrent local time: ${formatIdentityDateTime(chat, now)}. About ${elapsedMinutes} minutes have passed since the last check. Trigger: ${reason}. ${catchup ? 'This is a complete local catch-up for the recorded closed-page window. Place plausible actions across the elapsed time without repetition.' : 'This is a normal check while the page is running.'}\nDecide whether ${characterName} genuinely wants to do anything now. Every returned action belongs to ${characterName}; this check does not imply that the user sent a new message. Proactive messages allowed: ${chat.autonomyAllowMessages ? 'yes' : 'no'}; Moments allowed: ${chat.autonomyAllowMoments ? 'yes' : 'no'}; status changes allowed: ${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? 'yes' : 'no'}. ${policyText} Follow ${characterName}'s persona, relationship, recent conversation, and any schedule or busyness disclosed by the user. Outside mandatory policies, silence is normal. Avoid mechanical greetings, time announcements, and explanations of these rules.\nReturn JSON only: {"summary":"one internal summary sentence","emotion":"current emotion","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"plain message or Moments post body without XML tags","status":"online|offline|busy|away","text":"status text","atOffsetMinutes":0,"important":false}]}. content must be plain text and never contain tags. actions may be empty unless a policy is due; at most ${maxActions}. nextCheckMinutes must be between ${minimum} and ${Math.max(720, minimum)}. During catch-up, atOffsetMinutes means how many minutes ago the action occurred and may not exceed ${elapsedMinutes}.`
-        : `【角色${characterName}的自主活动】\n当前当地时间：${formatIdentityDateTime(chat, now)}。距离上次判断约 ${elapsedMinutes} 分钟。触发原因：${reason}。${catchup ? '这是记录到的页面关闭时间段的完整本地补演，应在经过时间内合理分布动作且避免重复。' : '这是页面运行期间的正常判断。'}\n判断角色${characterName}此刻是否真心想做些什么。所有返回动作都属于角色${characterName}；本次检查不代表用户刚刚发来了新消息。允许主动消息：${chat.autonomyAllowMessages ? '是' : '否'}；允许朋友圈：${chat.autonomyAllowMoments ? '是' : '否'}；允许状态变化：${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? '是' : '否'}。${policyText}遵循角色${characterName}的人设、关系、最近聊天内容和用户透露的忙碌或作息；除强制保障外，沉默是正常选择。避免机械问候、报时或解释规则。\n只返回 JSON：{"summary":"一句内部摘要","emotion":"当前情绪","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status","content":"不含标签的纯文本消息或朋友圈正文","status":"online|offline|busy|away","text":"状态文案","atOffsetMinutes":0,"important":false}]}。actions 除保障到期外可以为空；最多 ${maxActions} 个；nextCheckMinutes 为 ${minimum} 到 ${Math.max(720, minimum)}。补演时 atOffsetMinutes 表示动作发生在多少分钟前，不能超过 ${elapsedMinutes}。`
+        ? `[${characterName}'s autonomous activity]\nCurrent local time: ${formatIdentityDateTime(chat, now)}. About ${elapsedMinutes} minutes have passed since the last check. Trigger: ${reason}. ${catchup ? 'This is a complete local catch-up for the recorded closed-page window. Place plausible actions across the elapsed time without repetition.' : 'This is a normal check while the page is running.'}\nDecide whether ${characterName} genuinely wants to do anything now. Every returned action belongs to ${characterName}; this check does not imply that the user sent a new message. Proactive messages allowed: ${chat.autonomyAllowMessages ? 'yes' : 'no'}; Moments allowed: ${chat.autonomyAllowMoments ? 'yes' : 'no'}; status changes allowed: ${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? 'yes' : 'no'}; friend request allowed: ${friendRequestAllowed ? 'yes' : 'no'}. ${policyText} Follow ${characterName}'s persona, relationship, recent conversation, and any schedule or busyness disclosed by the user. Outside mandatory policies, silence is normal. Avoid mechanical greetings, time announcements, and explanations of these rules.\nReturn JSON only: {"summary":"one internal summary sentence","emotion":"current emotion","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status|friend_request","content":"plain message, Moments post, or friend-request text without XML tags","status":"online|offline|busy|away","text":"status text","atOffsetMinutes":0,"important":false}]}. content must be plain text and never contain tags. actions may be empty unless a policy is due; at most ${maxActions}. nextCheckMinutes must be between ${minimum} and ${Math.max(720, minimum)}. During catch-up, atOffsetMinutes means how many minutes ago the action occurred and may not exceed ${elapsedMinutes}.`
+        : `【角色${characterName}的自主活动】\n当前当地时间：${formatIdentityDateTime(chat, now)}。距离上次判断约 ${elapsedMinutes} 分钟。触发原因：${reason}。${catchup ? '这是记录到的页面关闭时间段的完整本地补演，应在经过时间内合理分布动作且避免重复。' : '这是页面运行期间的正常判断。'}\n判断角色${characterName}此刻是否真心想做些什么。所有返回动作都属于角色${characterName}；本次检查不代表用户刚刚发来了新消息。允许主动消息：${chat.autonomyAllowMessages ? '是' : '否'}；允许朋友圈：${chat.autonomyAllowMoments ? '是' : '否'}；允许状态变化：${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? '是' : '否'}；允许好友申请：${friendRequestAllowed ? '是' : '否'}。${policyText}遵循角色${characterName}的人设、关系、最近聊天内容和用户透露的忙碌或作息；除强制保障外，沉默是正常选择。避免机械问候、报时或解释规则。\n只返回 JSON：{"summary":"一句内部摘要","emotion":"当前情绪","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status|friend_request","content":"不含标签的纯文本消息、朋友圈正文或好友申请文案","status":"online|offline|busy|away","text":"状态文案","atOffsetMinutes":0,"important":false}]}。actions 除保障到期外可以为空；最多 ${maxActions} 个；nextCheckMinutes 为 ${minimum} 到 ${Math.max(720, minimum)}。补演时 atOffsetMinutes 表示动作发生在多少分钟前，不能超过 ${elapsedMinutes}。`
     })
     const result: any = await sendChatMessage(messages)
     const rawDecision = typeof result === 'string' ? result : result.content
@@ -329,6 +342,12 @@ export const runAutonomousCheck = async (
         flushAutonomyDeliveries([chat])
         chat.autonomyLastMeaningfulActionAt = now
         executed += contents.length
+      } else if (action.type === 'friend_request' && action.content?.trim()) {
+        const request = createFriendRequest(chat, 'character_to_user', action.content.trim())
+        triggerFriendRequestNotification(chat, request)
+        addEvent(chat, { type: 'friend_request', createdAt, title: '主动发送好友申请', detail: action.content.trim(), catchup, trigger: reason })
+        chat.autonomyLastMeaningfulActionAt = now
+        executed++
       } else if (action.type === 'moment' && action.content?.trim()) {
         await addMoment(chat, action.content.trim(), createdAt)
         addEvent(chat, { type: 'moment', createdAt, title: '发布了朋友圈', detail: action.content.trim(), catchup, trigger: reason })

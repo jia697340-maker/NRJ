@@ -11,6 +11,7 @@ import DiscoverBatchDeleteModal from './discover/modals/DiscoverBatchDeleteModal
 import { useChatDiscover } from '../composables/useChatDiscover'
 import { sendChatMessage } from '../services/api'
 import { processMomentTags } from '../composables/useChatRoomMessage'
+import { ensureRelationship } from '../composables/useChatRelationship'
 import { addMomentNotification, canViewMoment } from '../services/moments'
 import { getMomentBehavior } from '../services/moments'
 import { globalPromptSettings } from '../store'
@@ -64,7 +65,7 @@ const pendingDeleteMoment = ref<any | null>(null)
 const manualMoment = ref<any | null>(null)
 const manualViewLoading = ref(false)
 
-const manualEligibleCharacters = computed(() => availableCharacters.value.filter((chat: any) => !manualMoment.value || canViewMoment(manualMoment.value, { id: chat.id, name: chat.name, groups: chat.groups, groupIds: chat.groupIds })))
+const manualEligibleCharacters = computed(() => availableCharacters.value.filter((chat: any) => !manualMoment.value || canViewMoment(manualMoment.value, { id: chat.id, name: chat.name, groups: chat.groups, groupIds: chat.groupIds, isFriend: ensureRelationship(chat).friendship === 'friends' })))
 
 const isSelectionMode = ref(false)
 const selectedIds = ref<string[]>([])
@@ -230,13 +231,14 @@ const requestCharacterView = async (chat: any) => {
 const markNotificationsRead = async () => { mockMoments.value.forEach(m => (m.notifications || []).forEach((n: any) => n.read = true)); await saveMoments() }
 const openNotificationMoment = async (notice: any) => { const moment = mockMoments.value.find(m => m.id === notice.momentId); if (!moment) return; const original = (moment.notifications || []).find((n: any) => n.id === notice.id); if (original) original.read = true; await saveMoments(); showNotifications.value = false; detailMoment.value = moment }
 
-const handlePublish = async (data: { text: string, images: {url: string, isBase64: boolean}[], visibility: string, groupIds?: string[], location?: string, mentions?: { id: string | number, name: string }[] }) => {
+const handlePublish = async (data: { text: string, images: {url: string, isBase64: boolean}[], visibility: string, groupIds?: string[], characterIds?: Array<string | number>, location?: string, mentions?: { id: string | number, name: string }[] }) => {
   const currentName = activePersona.value?.name || '我'
   const currentAvatar = activePersona.value?.avatar || ''
   const newMoment = {
     id: Date.now().toString(), author: currentName, avatar: currentAvatar, content: data.text,
     images: data.images.map(img => img.url), time: Date.now(), visibility: data.visibility,
     visibilityGroups: data.groupIds || [], location: data.location || '', mentions: data.mentions || [],
+    visibilityCharacterIds: data.characterIds || [],
     isOwn: true, likes: [], comments: []
   }
   const firstUnpinned = mockMoments.value.findIndex(m => !m.pinned)

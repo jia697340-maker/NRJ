@@ -77,6 +77,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'gemini-image-history', group: '图片与媒体', name: 'Gemini 图片生成历史', description: 'Gemini Image 独立生成历史', stores: [{ dbName: 'app_gemini_image_history', storeName: 'history_items' }] },
   { id: 'flux-image-history', group: '图片与媒体', name: 'FLUX 图片生成历史', description: 'FLUX.2 独立生成历史', stores: [{ dbName: 'app_flux_image_history', storeName: 'history_items' }] },
   { id: 'discover-moments', group: '发现与社交', name: '动态广场内容', description: '发布的动态及关联媒体', stores: [{ dbName: 'nrt-app', storeName: 'discover_moments' }] },
+  { id: 'user-social-profiles', group: '发现与社交', name: '用户主页', description: '账号主页资料、隐私、状态与角色例外', localKeyPrefixes: ['clingy_user_social_profile_'], stores: [{ dbName: 'nrt-app', storeName: 'user_profile_covers' }] },
   { id: 'ui-preferences', group: '界面偏好', name: '界面位置与显示偏好', description: '页签、发现页控制等界面状态', localKeys: ['clingy_chat_setting_tab', 'clingy_discover_show_controls', 'clingy_last_timezone_tab'] }
 ]
 

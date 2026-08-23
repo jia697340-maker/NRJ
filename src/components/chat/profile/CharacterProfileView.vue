@@ -16,9 +16,10 @@ import { getAppearanceStyleId } from '../../../store'
 import MagazineProfileStyle from './MagazineProfileStyle.vue'
 import LetterProfileStyle from './LetterProfileStyle.vue'
 import AvatarUploadModal from '../../AvatarUploadModal.vue'
+import { canViewUserProfileSection, getNetworkPresentation, loadUserSocialProfile } from '../../../services/userSocialProfile'
 
 const props = defineProps<{ chat: any }>()
-const emit = defineEmits<{ (event: 'back'): void; (event: 'open-chat'): void; (event: 'save'): void | Promise<void>; (event: 'open-social-contact', item: SocialCircleItem): void }>()
+const emit = defineEmits<{ (event: 'back'): void; (event: 'open-chat'): void; (event: 'save'): void | Promise<void>; (event: 'open-social-contact', item: SocialCircleItem): void; (event: 'open-user-profile'): void }>()
 
 const profile = ref<CharacterSocialProfile>(ensureSocialProfile(props.chat))
 const currentPage = ref<'profile' | 'moments' | 'network'>('profile')
@@ -70,6 +71,43 @@ const canViewMoments = computed(() => !discoveryContext.value || canViewSocialCo
 const canRequestFriend = computed(() => props.chat.allowFriendRequests !== false && discoveryContext.value?.allowFriendRequests !== false)
 const canManageProfile = computed(() => isDirectoryOwner(String(props.chat.characterEntityId || props.chat.id)))
 const { chatAccounts, currentAccount, currentChatUserId } = useChatAuth()
+const userNetworkEntry = computed(() => {
+  if (!currentAccount.value) return null
+  const userProfile = loadUserSocialProfile(currentAccount.value)
+  const characterId = String(props.chat.characterEntityId || props.chat.id)
+  const relationship = ensureRelationship(props.chat)
+  const viewer = {
+    characterId,
+    isFriend: relationship.friendship === 'friends',
+    blocked: relationship.blockedBy !== 'none',
+    hasChat: true
+  }
+  const requestedPresentation = getNetworkPresentation(userProfile, viewer)
+  const presentation = requestedPresentation !== 'hidden' && requestedPresentation !== 'anonymous' && !canViewUserProfileSection(userProfile, 'identity', viewer)
+    ? 'anonymous'
+    : requestedPresentation
+  if (presentation === 'hidden') return null
+  const override = userProfile.overrides[characterId]
+  const anonymous = presentation === 'anonymous'
+  return {
+    id: `account_${currentAccount.value.id}`,
+    entityId: `account:${currentAccount.value.id}`,
+    name: anonymous ? '私密用户' : userProfile.displayName,
+    nickname: anonymous ? '私密用户' : userProfile.displayName,
+    socialId: anonymous ? '' : userProfile.socialId,
+    signature: presentation === 'full' ? userProfile.signature : '',
+    relation: override?.relationLabelApproved && override.publicRelationLabel ? override.publicRelationLabel : (relationship.friendship === 'friends' ? '好友' : '认识的人'),
+    category: 'other', persona: '', avatarUrl: anonymous ? '' : currentAccount.value.avatarUrl,
+    privacy: anonymous ? 'private' : userProfile.profileAudience === 'friends' ? 'limited' : userProfile.profileAudience,
+    discoverable: !anonymous, allowFriendRequests: userProfile.allowFriendRequests,
+    reciprocalVisible: true, enableMoments: presentation === 'full', allowMention: userProfile.allowProfileAwareness,
+    interactionFrequency: 'medium', origin: 'directory', createdAt: userProfile.updatedAt, updatedAt: userProfile.updatedAt,
+    isCurrentUser: true
+  } as SocialCircleItem & { isCurrentUser: true }
+})
+const visibleNetwork = computed(() => userNetworkEntry.value ? [userNetworkEntry.value, ...socialCircle.value] : socialCircle.value)
+const openNetworkItem = (item: SocialCircleItem & { isCurrentUser?: boolean }) => item.isCurrentUser
+  ? emit('open-user-profile') : emit('open-social-contact', item)
 const appearanceStyleId = computed(() => getAppearanceStyleId('characterProfile', currentChatUserId.value))
 const coverStore = localforage.createInstance({ name: 'nrt-app', storeName: 'character_profile_covers' })
 const profileCoverUrl = ref('')
@@ -473,14 +511,14 @@ onUnmounted(() => {
           </section>
           <section v-else class="moments-stream locked-stream"><div class="stream-header"><h2>随笔手记</h2></div><div class="empty-stream"><div class="empty-hint">对方仅向好友公开朋友圈</div></div></section>
 
-          <section v-if="socialCircleSettings.enabled && socialCircle.length" class="editorial-links social-network-preview">
-            <header><strong>人脉圈</strong><span>{{ socialCircle.length }} 位可见人物</span></header>
-            <button v-for="item in socialCircle.slice(0, 4)" :key="item.entityId" type="button" @click="emit('open-social-contact', item)">
+          <section v-if="socialCircleSettings.enabled && visibleNetwork.length" class="editorial-links social-network-preview">
+            <header><strong>人脉圈</strong><span>{{ visibleNetwork.length }} 位可见人物</span></header>
+            <button v-for="item in visibleNetwork.slice(0, 4)" :key="item.entityId" type="button" @click="openNetworkItem(item)">
               <span class="network-avatar" :style="item.avatarUrl ? { backgroundImage: `url(${item.avatarUrl})` } : {}">{{ item.avatarUrl ? '' : item.name.charAt(0) }}</span>
               <span><b>{{ item.privacy === 'private' ? '私密用户' : item.nickname || item.name }}</b><small>{{ item.relation }} · {{ item.category === 'family' ? '亲人' : item.category === 'friend' ? '朋友' : item.category === 'work' ? '工作学业' : '其他' }}</small></span>
               <em>查看</em>
             </button>
-            <button v-if="socialCircle.length > 4" class="network-all" type="button" @click="currentPage = 'network'">查看全部 {{ socialCircle.length }} 位人脉</button>
+            <button v-if="visibleNetwork.length > 4" class="network-all" type="button" @click="currentPage = 'network'">查看全部 {{ visibleNetwork.length }} 位人脉</button>
           </section>
           <section v-if="canManageProfile" class="editorial-note character-awareness-note">
             <svg viewBox="0 0 24 24"><path d="M4 21v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -531,7 +569,7 @@ onUnmounted(() => {
               </section>
               <section v-if="canManageProfile" class="editorial-note character-awareness-note" :class="{ enabled: profile.awarenessEnabled }"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-9h.01"/></svg><div><strong>{{ profile.awarenessEnabled ? '角色已感知自己的主页' : '主页目前仅对你可见' }}</strong><span>{{ profile.awarenessEnabled ? `管理模式：${profile.managementMode === 'readonly' ? '只读' : profile.managementMode === 'confirm' ? '修改需确认' : '自主管理'}` : '开启后角色才能感知' }}</span></div><button type="button" @click="openManage('permissions')">设置</button></section>
               <section v-else-if="!canViewMoments" class="moments-stream locked-stream"><div class="stream-header"><h2>随笔手记</h2></div><div class="empty-stream"><div class="empty-hint">对方仅向好友公开朋友圈</div></div></section>
-              <section v-if="socialCircleSettings.enabled && socialCircle.length" class="editorial-links social-network-preview"><header><strong>人脉圈</strong><span>{{ socialCircle.length }} 位可见人物</span></header><button v-for="item in socialCircle.slice(0,4)" :key="item.entityId" type="button" @click="emit('open-social-contact',item)"><span class="network-avatar" :style="item.avatarUrl ? {backgroundImage:`url(${item.avatarUrl})`}:{}">{{ item.avatarUrl?'':item.name.charAt(0) }}</span><span><b>{{ item.privacy==='private'?'私密用户':item.nickname||item.name }}</b><small>{{ item.relation }} · {{ item.category==='family'?'亲人':item.category==='friend'?'朋友':item.category==='work'?'工作学业':'其他' }}</small></span><em>查看</em></button><button v-if="socialCircle.length>4" class="network-all" type="button" @click="currentPage='network'">查看全部 {{ socialCircle.length }} 位人脉</button></section>
+              <section v-if="socialCircleSettings.enabled && visibleNetwork.length" class="editorial-links social-network-preview"><header><strong>人脉圈</strong><span>{{ visibleNetwork.length }} 位可见人物</span></header><button v-for="item in visibleNetwork.slice(0,4)" :key="item.entityId" type="button" @click="openNetworkItem(item)"><span class="network-avatar" :style="item.avatarUrl ? {backgroundImage:`url(${item.avatarUrl})`}:{}">{{ item.avatarUrl?'':item.name.charAt(0) }}</span><span><b>{{ item.privacy==='private'?'私密用户':item.nickname||item.name }}</b><small>{{ item.relation }} · {{ item.category==='family'?'亲人':item.category==='friend'?'朋友':item.category==='work'?'工作学业':'其他' }}</small></span><em>查看</em></button><button v-if="visibleNetwork.length>4" class="network-all" type="button" @click="currentPage='network'">查看全部 {{ visibleNetwork.length }} 位人脉</button></section>
               <section v-if="canManageProfile" class="editorial-note character-awareness-note"><svg viewBox="0 0 24 24"><path d="M4 21v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2"/><circle cx="12" cy="7" r="4"/></svg><div><strong>角色固定形象</strong><span>管理形象版本、参考素材与一致性约束</span></div><button type="button" @click="showIdentityProfile=true">设置</button></section>
               <section v-if="linkedAccounts.length" class="editorial-links character-account-links"><header><strong>关联账号</strong><span>默认保密，只在你选择后告诉这个角色</span></header><button v-for="account in linkedAccounts" :key="account!.id" type="button" :class="{disclosed:relationship.disclosedLinkedAccountIds.includes(account!.id)}" @click="toggleLinkedAccountDisclosure(account!.id)"><span><b>{{ account!.name }}</b><small>ID：{{ account!.accountId }}</small></span><em>{{ relationship.disclosedLinkedAccountIds.includes(account!.id)?'角色已知':'告诉角色' }}</em></button></section>
             </main>
@@ -581,9 +619,9 @@ onUnmounted(() => {
       <template v-else>
         <div class="full-stream social-network-page">
           <div class="editorial-moment-toolbar"><div><strong>公开人脉</strong><span>隐私人物只展示对方允许公开的资料</span></div></div>
-          <div v-if="!socialCircle.length" class="character-state-card empty"><strong>没有可见人脉</strong><p>此角色尚未公开任何生活关系。</p></div>
+          <div v-if="!visibleNetwork.length" class="character-state-card empty"><strong>没有可见人脉</strong><p>此角色尚未公开任何生活关系。</p></div>
           <div v-else class="network-page-list">
-            <button v-for="item in socialCircle" :key="item.entityId" type="button" @click="emit('open-social-contact', item)">
+            <button v-for="item in visibleNetwork" :key="item.entityId" type="button" @click="openNetworkItem(item)">
               <span class="network-avatar large" :style="item.avatarUrl ? { backgroundImage: `url(${item.avatarUrl})` } : {}">{{ item.avatarUrl ? '' : item.name.charAt(0) }}</span>
               <span class="network-copy"><b>{{ item.privacy === 'private' ? '私密用户' : item.nickname || item.name }}</b><small>{{ item.relation }}</small><em>{{ item.privacy === 'public' ? (item.signature || '公开主页') : item.privacy === 'limited' ? '部分资料仅好友可见' : '对方隐藏了主页资料' }}</em></span>
               <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>

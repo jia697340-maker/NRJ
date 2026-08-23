@@ -4,6 +4,7 @@ import { useChatAuth } from './useChatAuth'
 import { mockChats } from './chatState/state'
 import { ensureMemoryState } from '../services/memoryEngine'
 import { triggerFriendRequestNotification } from './useFriendRequestPrompt'
+import { canCharacterRequestUser, loadUserSocialProfile } from '../services/userSocialProfile'
 
 export type FriendshipStatus = 'friends' | 'strangers' | 'deleted_by_user' | 'deleted_by_character'
 export type BlockedBy = 'none' | 'user' | 'character'
@@ -268,10 +269,17 @@ export const processDueRelationshipTimers = () => {
   mockChats.value.forEach(chat => {
     if (chat.id === 1 || !chat.relationship) return
     const relationship = ensureRelationship(chat)
+    const account = useChatAuth().currentAccount.value
+    const mayRequestUser = Boolean(account && canCharacterRequestUser(loadUserSocialProfile(account), {
+      characterId: String(chat.characterEntityId || chat.id),
+      isFriend: relationship.friendship === 'friends',
+      blocked: relationship.blockedBy !== 'none',
+      hasChat: true
+    }))
     let changed = false
     relationship.requests.forEach(request => {
       if (request.status === 'scheduled' && request.scheduledAt && request.scheduledAt <= now) {
-        request.status = relationship.friendship === 'friends' ? 'superseded' : 'pending'
+        request.status = relationship.friendship === 'friends' || (request.direction === 'character_to_user' && !mayRequestUser) ? 'superseded' : 'pending'
         if (request.status === 'pending') {
           request.sentAt = now
           triggerFriendRequestNotification(chat, request)
@@ -286,7 +294,7 @@ export const processDueRelationshipTimers = () => {
       if (plan.action === 'unblock_user' && relationship.blockedBy === 'character') characterUnblocksUser(chat)
       else if (plan.action === 'block_user') characterBlocksUser(chat)
       else if (plan.action === 'delete_friend') deleteFriendByCharacter(chat)
-      else if (plan.action === 'send_request' && relationship.friendship !== 'friends') {
+      else if (plan.action === 'send_request' && relationship.friendship !== 'friends' && mayRequestUser) {
         const req = createFriendRequest(chat, 'character_to_user', plan.requestMessage || '想重新加你为好友')
         triggerFriendRequestNotification(chat, req)
       }

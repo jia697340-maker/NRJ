@@ -9,6 +9,8 @@ import { resolvePromptVariables } from '../../services/promptVariables'
 import { buildSocialProfilePrompt } from '../../services/characterSocialProfile'
 import { buildSocialCirclePrompt } from '../../services/socialGraph'
 import { useChatAuth } from '../useChatAuth'
+import { buildUserProfilePrompt, canCharacterRequestUser, canViewUserProfileSection, loadUserSocialProfile } from '../../services/userSocialProfile'
+import { ensureRelationship } from '../useChatRelationship'
 import { describeClockSeparation } from '../../services/conversationTime'
 import {
   buildEnglishCallFormatRules,
@@ -37,6 +39,19 @@ export const buildSystemPrompt = (
   const userName = userProfile.name || '我'
   const usesNaturalPromptV2 = globalPromptSettings.activePresetId === 'v2'
   const usesEnglishPrompt = globalPromptSettings.language === 'en'
+  const account = useChatAuth().currentAccount.value
+  const accountSocialProfile = account ? loadUserSocialProfile(account) : null
+  const relationship = ensureRelationship(chat)
+  const profileViewer = {
+    characterId: String(chat.characterEntityId || chat.id),
+    isFriend: relationship.friendship === 'friends',
+    blocked: relationship.blockedBy !== 'none',
+    hasChat: true
+  }
+  const userSocialContext = accountSocialProfile ? buildUserProfilePrompt(accountSocialProfile, profileViewer) : ''
+  const canSendUserRequest = accountSocialProfile ? canCharacterRequestUser(accountSocialProfile, profileViewer) : false
+  const visibleUserStatus = accountSocialProfile?.showStatus && canViewUserProfileSection(accountSocialProfile, 'status', profileViewer)
+    ? accountSocialProfile.statusText : ''
   
   // 构建世界书内容
   let worldBookContent = ''
@@ -153,14 +168,14 @@ ${usesNaturalPromptV2
   let statusPanelContent = ''
   if (chat.enableImmersiveStatus) {
     if (usesEnglishPrompt) {
-      statusPanelContent = buildEnglishStatusPanel(chat.statusText, userProfile.statusText)
+      statusPanelContent = buildEnglishStatusPanel(chat.statusText, visibleUserStatus)
     } else {
     let statusMsg = ''
     if (chat.statusText && chat.statusText !== 'none') {
       statusMsg += `角色${charName}的公开状态：【${chat.statusText}】。`
     }
-    if (userProfile.statusText) {
-      statusMsg += `用户${userName}的公开状态：【${userProfile.statusText}】。`
+    if (visibleUserStatus) {
+      statusMsg += `用户${userName}的公开状态：【${visibleUserStatus}】。`
     }
     if (statusMsg) {
       statusPanelContent = `\n[当前状态面板]\n${statusMsg}\n角色${charName}依据自身人设自然互动。`
@@ -300,7 +315,6 @@ ${usesNaturalPromptV2
      finalVoiceRules = `\n\n${voiceRules}`
   }
 
-  const relationship = chat.relationship
   const disclosedAccounts = (relationship?.disclosedLinkedAccountIds || []).map((id: string) => {
     const account = useChatAuth().chatAccounts.value.find(item => item.id === id)
     return account ? `${account.name}（ID：${account.accountId}）` : id
@@ -435,5 +449,10 @@ ${usesNaturalPromptV2
   pushContextTrace(trace, { id: 'runtime:language', category: 'system', group: '输出格式与协议', label: '对白语言保护规则', text: usesEnglishPrompt ? englishDialogueLanguageGuard : '', reason: '当前使用英文底层提示词' })
   pushContextTrace(trace, { id: 'runtime:transfer-state', category: 'system', group: '红包与转账', label: '转账状态保护', text: transferStateGuard, reason: '确保历史转账不会被当作新动作或重复处理' })
 
-  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + relationshipRules + offlinePrompt + transferStateGuard + buildSocialProfilePrompt(chat, usesEnglishPrompt) + buildSocialCirclePrompt(chat, usesEnglishPrompt) + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
+  const friendRequestRule = canSendUserRequest && relationship.friendship !== 'friends' && !callMode && !offlineMeetMode
+    ? usesEnglishPrompt
+      ? `\n\n[Friend request permission]\nIf ${charName} genuinely decides to add the user as a friend now, output <send_friend_request>the sincere request message</send_friend_request> once. Do not use it mechanically or when a request is already pending.`
+      : `\n\n【好友申请权限】\n如果角色${charName}此刻确实自主决定添加用户为好友，可以输出一次 <send_friend_request>真诚的申请文案</send_friend_request>。不要机械使用，也不要在已有待处理申请时重复申请。`
+    : ''
+  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + relationshipRules + offlinePrompt + transferStateGuard + buildSocialProfilePrompt(chat, usesEnglishPrompt) + buildSocialCirclePrompt(chat, usesEnglishPrompt) + userSocialContext + friendRequestRule + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
 }

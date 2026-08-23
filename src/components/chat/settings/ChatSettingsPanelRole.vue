@@ -7,6 +7,7 @@ import { canViewMoment } from '../../../services/moments'
 import { getChatLanguageLabel } from '../../../constants/chatLanguages'
 import { readGroupChats } from '../../../services/groupChat'
 import { useChatAuth } from '../../../composables/useChatAuth'
+import { ensureRelationship } from '../../../composables/useChatRelationship'
 import { getImageProviderName } from '../../../services/imageProviderRegistry'
 import { getIdentityClockLabel } from '../../../services/conversationTime'
 
@@ -121,7 +122,7 @@ const calculateMomentTokens = async () => {
     
     const moments = await discoverStore.getItem<any[]>(storageKey) || []
     const visibleMoments = moments
-      .filter(m => canViewMoment(m, { id: props.selectedChat.id, name: props.selectedChat.name || '对方', groups: props.selectedChat.groups, groupIds: props.selectedChat.groupIds }))
+      .filter(m => canViewMoment(m, { id: props.selectedChat.id, name: props.selectedChat.name || '对方', groups: props.selectedChat.groups, groupIds: props.selectedChat.groupIds, isFriend: ensureRelationship(props.selectedChat).friendship === 'friends' }))
       .filter(m => String(m.authorId ?? '') !== String(props.selectedChat.id) && m.author !== (props.selectedChat.name || '对方'))
       .sort((a, b) => Number((b.mentions || []).some((person: any) => String(person.id) === String(props.selectedChat.id))) - Number((a.mentions || []).some((person: any) => String(person.id) === String(props.selectedChat.id))) || Number(b.time) - Number(a.time))
       .slice(0, chatSettings.momentReadCount ?? 5)
@@ -158,7 +159,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
 
 <template>
   <div class="role-edit-section">
-    <div class="user-avatar-action-box" style="margin-bottom: 24px;" v-show="matchSearch('当前时间', '角色主页', '待开发', '更换头像', '伴')">
+    <div class="user-avatar-action-box" style="margin-bottom: 24px;" v-show="matchSearch('当前时间', '待开发', '更换头像', '伴')">
       <div class="action-column">
         <div class="action-btn" @click="emit('open-timezone-modal', 'character')">
           <span style="font-size: 11px; opacity: 0.8; margin-bottom: 2px;">当前时间</span>
@@ -178,12 +179,16 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </div>
       
       <div class="action-column">
-        <button type="button" class="action-btn" @click="emit('open-character-profile')">角色主页</button>
+        <div class="action-btn placeholder">待开发</div>
         <div class="action-btn placeholder">待开发</div>
       </div>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('真名', '备注', '角色设定', '社交人脉', '朋友圈人物', '生活圈')">
+    <div class="glass-panel" v-show="matchSearch('角色主页', '真名', '备注', '角色设定', '社交人脉', '朋友圈人物', '生活圈')">
+      <div class="glass-list-item" v-show="matchSearch('角色主页')" @click="emit('open-character-profile')">
+        <div class="item-label">角色主页</div>
+        <div class="item-value"><span class="item-value-text">查看角色详细资料与设定</span><span class="arrow">></span></div>
+      </div>
       <div class="glass-list-item" v-show="matchSearch('真名')" @click="emit('open-text-modal', '编辑真名', selectedChat.realName, '', '请输入真名', 'realName')">
         <div class="item-label">真名</div>
         <div class="item-value"><span class="item-value-text">{{ selectedChat.realName || '未设置' }}</span><span class="arrow">></span></div>

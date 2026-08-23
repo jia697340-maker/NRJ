@@ -1,0 +1,215 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import type { ForumPost, ForumComment, ForumUser, ForumMediaItem, ForumQuoteContent } from '../../../types/forum'
+import ForumHeader from '../components/ForumHeader.vue'
+import ForumFeedItem from '../components/ForumFeedItem.vue'
+import ForumCommentItem from '../components/ForumCommentItem.vue'
+import ForumEmptyState from '../components/ForumEmptyState.vue'
+
+const props = defineProps<{
+  post: ForumPost
+  comments: ForumComment[]
+}>()
+
+const emit = defineEmits<{
+  (e: 'back'): void
+  (e: 'click-user', user: ForumUser): void
+  (e: 'click-topic', topic: string): void
+  (e: 'preview-image', index: number, media: ForumMediaItem[]): void
+  (e: 'click-quote', quote: ForumQuoteContent): void
+  (e: 'like', post: ForumPost): void
+  (e: 'bookmark', post: ForumPost): void
+  (e: 'share', post: ForumPost): void
+  (e: 'send-comment', content: string, replyTo?: { id: string; name: string }): void
+}>()
+
+const replyInput = ref('')
+const replyingTarget = ref<{ id: string; name: string } | null>(null)
+
+const handleReply = (comment: ForumComment) => {
+  replyingTarget.value = {
+    id: comment.author.id,
+    name: comment.author.name
+  }
+}
+
+const cancelReplyTarget = () => {
+  replyingTarget.value = null
+}
+
+const submitComment = () => {
+  const text = replyInput.value.trim()
+  if (!text) return
+  emit('send-comment', text, replyingTarget.value || undefined)
+  replyInput.value = ''
+  replyingTarget.value = null
+}
+</script>
+
+<template>
+  <div class="forum-post-detail-view">
+    <ForumHeader title="动态正文" show-back @back="emit('back')" />
+
+    <!-- 滚动容器：主贴内容 + 评论区 -->
+    <div class="detail-scroll-wrap">
+      <!-- 帖子主体 -->
+      <ForumFeedItem
+        :post="post"
+        :is-detail="true"
+        @click-user="u => emit('click-user', u)"
+        @click-topic="t => emit('click-topic', t)"
+        @preview-image="(i, m) => emit('preview-image', i, m)"
+        @click-quote="q => emit('click-quote', q)"
+        @like="p => emit('like', p)"
+        @bookmark="p => emit('bookmark', p)"
+        @share="p => emit('share', p)"
+      />
+
+      <!-- 分隔区域 -->
+      <div class="comments-section-header">
+        <span class="section-title">全部评论 ({{ comments.length }})</span>
+      </div>
+
+      <!-- 评论列表 -->
+      <div v-if="comments && comments.length > 0" class="comments-list">
+        <ForumCommentItem
+          v-for="c in comments"
+          :key="c.id"
+          :comment="c"
+          @click-user="u => emit('click-user', u)"
+          @reply="handleReply"
+          @like="() => { c.isLiked = !c.isLiked; c.likeCount += c.isLiked ? 1 : -1 }"
+        />
+      </div>
+      <ForumEmptyState
+        v-else
+        title="暂无评论"
+        description="快来发表第一条评论吧"
+      />
+    </div>
+
+    <!-- 底部固钉评论输入框 -->
+    <div class="detail-comment-bar">
+      <div v-if="replyingTarget" class="reply-indicator">
+        <span>回复 @{{ replyingTarget.name }}</span>
+        <button class="cancel-reply-btn" type="button" @click="cancelReplyTarget">×</button>
+      </div>
+      <div class="input-row">
+        <input
+          v-model="replyInput"
+          type="text"
+          :placeholder="replyingTarget ? `回复 @${replyingTarget.name}...` : '说点什么吧...'"
+          class="comment-input"
+          @keyup.enter="submitComment"
+        />
+        <button
+          class="send-btn"
+          :disabled="!replyInput.trim()"
+          type="button"
+          @click="submitComment"
+        >
+          发送
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.forum-post-detail-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--sys-bg-primary, #f5f5f7);
+}
+
+.detail-scroll-wrap {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.comments-section-header {
+  padding: 12px 16px 8px;
+  background: var(--sys-bg-primary, #f5f5f7);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, #666666);
+}
+
+.comments-list {
+  background: var(--sys-bg-secondary, #ffffff);
+}
+
+.detail-comment-bar {
+  background: var(--sys-bg-secondary, #ffffff);
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  padding: 10px 14px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+}
+
+.reply-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--accent-color, #2b7de9);
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  background: rgba(43, 125, 233, 0.08);
+  border-radius: 6px;
+}
+
+.cancel-reply-btn {
+  background: transparent;
+  border: 0;
+  font-size: 15px;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.comment-input {
+  flex: 1;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 14px;
+  background: var(--sys-bg-tertiary, #f0f2f5);
+  color: var(--text-primary, #222222);
+  outline: none;
+}
+
+.comment-input:focus {
+  border-color: var(--accent-color, #2b7de9);
+  background: var(--sys-bg-secondary, #ffffff);
+}
+
+.send-btn {
+  background: var(--text-primary, #111111);
+  color: var(--sys-bg-secondary, #ffffff);
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.12s ease;
+}
+
+.send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.send-btn:not(:disabled):active {
+  transform: scale(0.94);
+}
+</style>

@@ -23,6 +23,7 @@ const emit = defineEmits<{
   (e: 'delete-call-records', ids: (string | number)[]): void
   (e: 'resummarize-call-record', id: string | number): void
   (e: 'show-identity-profile-modal', target: 'user'): void
+  (e: 'open-user-profile'): void
 }>()
 
 const showCallRecordsView = ref(false)
@@ -61,7 +62,11 @@ const showCallRecordsView = ref(false)
       <small>更换这里只会调整当前关系里的展示身份，不会清除聊天与记忆；若要完全重新认识，请创建“全新人设身份”账号。</small>
     </div>
 
-    <div class="glass-panel" v-show="matchSearch('真名', '备注', '用户人设')">
+    <div class="glass-panel" v-show="matchSearch('用户主页', '真名', '备注', '用户人设')">
+      <div class="glass-list-item" v-show="matchSearch('用户主页')" @click="emit('open-user-profile')">
+        <div class="item-label">用户主页</div>
+        <div class="item-value"><span class="item-value-text">查看与编辑个人主页资料</span><span class="arrow">></span></div>
+      </div>
       <div class="glass-list-item" v-show="matchSearch('真名')" @click="emit('open-text-modal', '编辑真名', myProfile.name, '', '请输入真名', 'myRealName')">
         <div class="item-label">真名</div>
         <div class="item-value"><span class="item-value-text">{{ myProfile.name || '未设置' }}</span><span class="arrow">></span></div>

@@ -93,6 +93,7 @@ const emit = defineEmits<{
   (e: 'open-relationship'): void
   (e: 'open-autonomy'): void
   (e: 'open-character-profile'): void
+  (e: 'open-user-profile'): void
 }>()
 
 const { selectedChat, myProfile, effectiveMyProfile, mockChats, loadMyProfile, saveMyProfile } = useChatState()
@@ -897,6 +898,7 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         @delete-call-records="handleDeleteCallRecords"
         @resummarize-call-record="handleResummarizeCallRecord"
         @show-identity-profile-modal="openIdentityProfile"
+        @open-user-profile="emit('open-user-profile')"
       />
 
       <!-- 时区选择弹窗 -->

@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref, computed } from 'vue'
+import { removeUserSocialProfile } from '../services/userSocialProfile'
 
 const AUTH_STORAGE_KEY = 'clingy_chat_auth_state'
 const ACCOUNTS_STORAGE_KEY = 'clingy_chat_accounts'
@@ -65,6 +66,7 @@ export function useChatAuth() {
   }
 
   const deleteAccount = (id: string) => {
+    void removeUserSocialProfile(id)
     chatAccounts.value = chatAccounts.value.filter(a => a.id !== id)
     chatAccounts.value.forEach(account => {
       account.linkedAccountIds = (account.linkedAccountIds || []).filter(linkedId => linkedId !== id)

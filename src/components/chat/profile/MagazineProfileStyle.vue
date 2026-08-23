@@ -30,7 +30,7 @@ const formatDate = (timestamp: number) => new Date(timestamp).toLocaleDateString
       <div class="profile-magazine__avatar-wrap"><img v-if="chat.avatarUrl" class="profile-magazine__avatar" :src="chat.avatarUrl" alt="角色头像" /><span v-else>{{ displayName.charAt(0) }}</span></div>
     </header>
     <main class="profile-magazine__body">
-      <section class="profile-magazine__identity"><p>PROFILE</p><h1>{{ displayName }}</h1><button v-if="chat.socialProfile?.socialId" type="button" @click="emit('copy-id')">@{{ chat.socialProfile.socialId }}</button><blockquote>{{ displaySignature }}</blockquote></section>
+      <section class="profile-magazine__identity"><p>PROFILE</p><h1>{{ displayName }}</h1><button v-if="chat.socialProfile?.socialId" type="button" @click="emit('copy-id')">@{{ chat.socialProfile.socialId }}</button><blockquote v-if="displaySignature">{{ displaySignature }}</blockquote></section>
       <section v-if="canViewMoments" class="profile-magazine__moments">
         <header><div><strong>近况</strong><span>/ {{ String(moments.length).padStart(2, '0') }}</span></div><button type="button" @click="emit('open-moments')">查看全部</button></header>
         <div v-if="loading" class="profile-magazine__loading"><i></i><i></i><i></i></div>

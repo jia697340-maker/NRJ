@@ -16,6 +16,7 @@ import AppImageAccess from './components/app_ImageAccess.vue'
 import AppWidgetBeautify from './components/app_WidgetBeautify.vue'
 import AppCharacterWorkshop from './components/app_CharacterWorkshop.vue'
 import AppMusic from './components/app_Music.vue'
+import AppForum from './components/app_Forum.vue'
 import LockScreen from './components/LockScreen.vue'
 import AppWatermarkOverlay from './components/AppWatermarkOverlay.vue'
 import { globalSettings, appStats } from './store'
@@ -506,6 +507,13 @@ watch(activeApp, appId => {
       <AppMusic
         v-if="activeApp === 'music'"
         data-font-app="music"
+        @close="activeApp = null"
+      />
+    </Transition>
+    <Transition name="app-fade">
+      <AppForum
+        v-if="activeApp === 'forum'"
+        data-font-app="forum"
         @close="activeApp = null"
       />
     </Transition>

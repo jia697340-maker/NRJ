@@ -5,6 +5,8 @@ import localforage from 'localforage'
 import { chatSettings, visionApiSettings } from '../store'
 import { sendChatMessage } from '../services/api'
 import { useChatAuth } from './useChatAuth'
+import { canViewUserProfileSection, getCharacterOverride, loadUserSocialProfile } from '../services/userSocialProfile'
+import { ensureRelationship } from './useChatRelationship'
 import { generateMomentImage } from './useMomentImageGen'
 import { canViewMoment, canPerformMomentAction, recordMomentAction, addMomentNotification, getMomentBehavior } from '../services/moments'
 import { applySocialProfilePatch, ensureSocialProfile, persistSocialProfile } from '../services/characterSocialProfile'
@@ -202,6 +204,16 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
   let shouldTriggerAI = false
   let aiContext = ''
   let handledMomentAction = false
+  const account = useChatAuth().currentAccount.value
+  const userSocialProfile = account ? loadUserSocialProfile(account) : null
+  const chatRelationship = ensureRelationship(selectedChat)
+  const profileViewer = {
+    characterId: String(selectedChat.characterEntityId || selectedChat.id),
+    isFriend: chatRelationship.friendship === 'friends',
+    blocked: chatRelationship.blockedBy !== 'none',
+    hasChat: true
+  }
+  const characterOverride = userSocialProfile ? getCharacterOverride(userSocialProfile, profileViewer.characterId) : null
 
   const socialProfile = ensureSocialProfile(selectedChat)
   const updateProfileRegex = /<update_social_profile\s+field="(nickname|socialId|signature)">([\s\S]*?)<\/update_social_profile>/g
@@ -280,7 +292,8 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
       const moments = await discoverStore.getItem<any[]>(getMomentStorageKey()) || []
       // 简单筛选出设定数量的用户公开或当前角色可见的朋友圈
       const visibleMoments = moments
-        .filter(m => canViewMoment(m, { id: selectedChat.id, name: selectedChat.name || '对方', groups: selectedChat.groups, groupIds: selectedChat.groupIds }))
+        .filter(m => canViewMoment(m, { id: selectedChat.id, name: selectedChat.name || '对方', groups: selectedChat.groups, groupIds: selectedChat.groupIds, isFriend: profileViewer.isFriend }))
+        .filter(m => !m.isOwn || Boolean(userSocialProfile && canViewUserProfileSection(userSocialProfile, 'moments', profileViewer)))
         .filter(m => socialProfile.awarenessEnabled || (String(m.authorId ?? '') !== String(selectedChat.id) && m.author !== (selectedChat.name || '对方')))
         .sort((a, b) => Number((b.mentions || []).some((person: any) => String(person.id) === String(selectedChat.id))) - Number((a.mentions || []).some((person: any) => String(person.id) === String(selectedChat.id))) || Number(b.time) - Number(a.time))
         .slice(0, chatSettings.momentReadCount ?? 5)
@@ -288,10 +301,13 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
       if (visibleMoments.length > 0) {
         const charName = selectedChat.name || '角色'
         const behavior = getMomentBehavior(selectedChat)
+        const userInteractionHint = userSocialProfile
+          ? `用户主页权限：点赞${userSocialProfile.allowMomentLikes && characterOverride?.allowMomentLikes !== false ? '允许' : '禁止'}，评论${userSocialProfile.allowMomentComments && characterOverride?.allowMomentComments !== false ? '允许' : '禁止'}，在聊天中提到动态${userSocialProfile.allowMomentMentions && characterOverride?.allowMomentMentions !== false ? '允许' : '禁止'}。`
+          : ''
         const behaviorHint = behavior.mode === 'custom'
           ? `请让${charName}遵循用户设置的表达偏好“${behavior.style || `符合${charName}自己的人设`}”。`
           : `请只依据${charName}自己的人设、当下情绪、与作者的关系和动态内容自然反应；${charName}可以只看，也可以点赞、评论、回复或在聊天中提起，不必为了互动而互动。`
-        aiContext = `【系统旁白：${charName}打开了朋友圈。${behaviorHint}${charName}看到了以下最新动态：\n`
+        aiContext = `【系统旁白：${charName}打开了朋友圈。${behaviorHint}${userInteractionHint}${charName}看到了以下最新动态：\n`
         
         // 如果开启了视觉 API 和图片省 Token 机制，进行静默识图
         const shouldSummarizeImages = visionApiSettings.enabled && chatSettings.enableVisionTokenSaver
@@ -455,11 +471,16 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         target.likes ||= []
         target.comments ||= []
         const forced = Boolean(selectedChat.__forceMomentAction)
-        if (action === 'like' && (forced || canPerformMomentAction(selectedChat, 'like')) && !target.likes.includes(selectedChat.name || '对方')) {
+        const targetsUser = Boolean(target.isOwn)
+        const mayViewUserMoment = !targetsUser || Boolean(userSocialProfile && canViewUserProfileSection(userSocialProfile, 'moments', profileViewer))
+        const mayLikeUserMoment = !targetsUser || Boolean(userSocialProfile?.allowMomentLikes && characterOverride?.allowMomentLikes !== false)
+        const mayCommentUserMoment = !targetsUser || Boolean(userSocialProfile?.allowMomentComments && characterOverride?.allowMomentComments !== false)
+        if (!mayViewUserMoment) continue
+        if (action === 'like' && mayLikeUserMoment && (forced || canPerformMomentAction(selectedChat, 'like')) && !target.likes.includes(selectedChat.name || '对方')) {
           target.likes.push(selectedChat.name || '对方')
           recordMomentAction(selectedChat, 'like')
           if (target.isOwn) addMomentNotification(target, { id: selectedChat.id, name: selectedChat.name || '对方' }, 'like')
-        } else if (action === 'comment' && commentContent && !target.comments.some((c: any) => c.authorId === selectedChat.id && c.content === commentContent) && (forced || canPerformMomentAction(selectedChat, 'comment'))) {
+        } else if (action === 'comment' && mayCommentUserMoment && commentContent && !target.comments.some((c: any) => c.authorId === selectedChat.id && c.content === commentContent) && (forced || canPerformMomentAction(selectedChat, 'comment'))) {
           target.comments.push({
             id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             author: selectedChat.name || '对方',
@@ -470,7 +491,7 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
           })
           recordMomentAction(selectedChat, 'comment')
           if (target.isOwn) addMomentNotification(target, { id: selectedChat.id, name: selectedChat.name || '对方' }, 'comment', commentContent)
-        } else if (action === 'like_comment' && commentId && (forced || canPerformMomentAction(selectedChat, 'like'))) {
+        } else if (action === 'like_comment' && mayLikeUserMoment && commentId && (forced || canPerformMomentAction(selectedChat, 'like'))) {
           const comment = target.comments.find((c: any) => c.id === commentId)
           if (comment) {
             comment.likes ||= []
@@ -478,7 +499,7 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
             recordMomentAction(selectedChat, 'like')
             if (target.isOwn) addMomentNotification(target, { id: selectedChat.id, name: selectedChat.name || '对方' }, 'like_comment', comment.content)
           }
-        } else if (action === 'reply_comment' && commentId && commentContent && (forced || canPerformMomentAction(selectedChat, 'comment'))) {
+        } else if (action === 'reply_comment' && mayCommentUserMoment && commentId && commentContent && (forced || canPerformMomentAction(selectedChat, 'comment'))) {
           const parent = target.comments.find((c: any) => c.id === commentId)
           const alreadyReplied = target.comments.some((c: any) => c.authorId === selectedChat.id && c.replyTo === commentId && c.content === commentContent)
           if (!parent || alreadyReplied) continue
