@@ -15,6 +15,7 @@ import AppVoiceAccess from './components/app_VoiceAccess.vue'
 import AppImageAccess from './components/app_ImageAccess.vue'
 import AppWidgetBeautify from './components/app_WidgetBeautify.vue'
 import AppCharacterWorkshop from './components/app_CharacterWorkshop.vue'
+import AppPersonaWorkshop from './components/app_PersonaWorkshop.vue'
 import AppMusic from './components/app_Music.vue'
 import AppForum from './components/app_Forum.vue'
 import LockScreen from './components/LockScreen.vue'
@@ -501,6 +502,14 @@ watch(activeApp, appId => {
         @close="activeApp = null"
         @open-api="openCharacterWorkshopApi"
         @open-chat="openGeneratedCharacterChat"
+      />
+    </Transition>
+    <Transition name="app-fade">
+      <AppPersonaWorkshop
+        v-if="activeApp === 'persona_workshop'"
+        data-font-app="persona_workshop"
+        @close="activeApp = null"
+        @open-api="openCharacterWorkshopApi"
       />
     </Transition>
     <Transition name="app-fade">
