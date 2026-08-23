@@ -35,9 +35,9 @@ const handleSave = () => {
       
     <div class="glass-panel" v-show="matchSearch('气泡美化', '思维链美化')">
       <div class="glass-list-item" v-show="matchSearch('气泡美化')" @click="emit('show-bubble-beautify-modal')">
-        <div class="item-label">气泡美化</div>
+        <div class="item-label">气泡样式</div>
         <div class="item-value">
-          <span class="item-value-text">设置颜色与背景图</span>
+          <span class="item-value-text">选择并应用预设</span>
           <span class="arrow">></span>
         </div>
       </div>

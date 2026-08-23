@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watchEffect } from 'vue'
 import ChatImageBubble from '../bubbles/ChatImageBubble.vue'
 import ChatVoiceBubble from '../bubbles/ChatVoiceBubble.vue'
 import ChatTransferBubble from '../bubbles/ChatTransferBubble.vue'
@@ -11,6 +11,13 @@ import GroupMemberBadge from '../group/GroupMemberBadge.vue'
 import { getGroupLevelInfo, getGroupMemberRole } from '../../../services/groupManagementService'
 import type { GroupBadgeType } from '../../../types/groupManagement'
 import { formatIdentityDateTime, getConversationAdjustedTimestamp } from '../../../services/conversationTime'
+import {
+  bubbleAssetUrls,
+  getBubbleOrnamentStyle,
+  getEffectiveBubblePreset,
+  hydrateBubblePresetAssets,
+  type BubbleOrnament
+} from '../../../services/bubbleWorkshop'
 
 const props = defineProps<{
   msg: any
@@ -58,6 +65,13 @@ const canToggleTranslation = computed(() => hasTranslation.value && translationD
 const toggleTranslation = () => {
   translationExpanded.value = !translationExpanded.value
 }
+
+const effectiveBubblePreset = computed(() => getEffectiveBubblePreset(props.selectedChat?.id))
+const bubbleOrnaments = (target: 'self' | 'other') => effectiveBubblePreset.value[target].ornaments
+const ornamentStyle = (item: BubbleOrnament) => getBubbleOrnamentStyle(item)
+watchEffect(() => {
+  void hydrateBubblePresetAssets(effectiveBubblePreset.value).catch(() => undefined)
+})
 
 const shouldShowAvatar = (msg: any) => {
   if (msg.type !== 'left' && msg.type !== 'right') return false
@@ -318,13 +332,15 @@ const groupBadge = (memberId: string) => {
               <img :src="msg.emojiUrl" class="emoji-message-img" loading="lazy" />
             </div>
             <!-- 降级：图片已丢失 -->
-            <div v-else class="bubble bubble-left" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+            <div v-else class="bubble bubble-left" data-chat-bubble="other" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+              <img v-for="item in bubbleOrnaments('other')" :key="item.id" class="bubble-ornament" :src="bubbleAssetUrls[item.assetId]" :alt="item.name" :style="ornamentStyle(item)">
               <div style="font-style: italic; color: var(--text-tertiary);">[表情包：{{ msg.content === '[表情]' ? '未知' : msg.content }}]</div>
             </div>
           </template>
 
           <div style="display: flex; align-items: flex-end;">
-            <div v-if="!msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-left" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+            <div v-if="!msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-left" data-chat-bubble="other" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+              <img v-for="item in bubbleOrnaments('other')" :key="item.id" class="bubble-ornament" :src="bubbleAssetUrls[item.assetId]" :alt="item.name" :style="ornamentStyle(item)">
               <!-- 同气泡模式下的思考过程 -->
               <div v-if="showThinkingContent && chatSettings.cotInSameBubble" class="thinking-block">
                 <details>
@@ -332,7 +348,7 @@ const groupBadge = (memberId: string) => {
                   <div class="thinking-content">{{ msg.thinking }}</div>
                 </details>
               </div>
-              <div v-if="msg.quote" class="msg-quote-block">
+              <div v-if="msg.quote" class="msg-quote-block" data-bubble-part="quote">
                 <div class="msg-quote-sender">{{ msg.quote.sender }}</div>
                 <div class="msg-quote-content">{{ msg.quote.content }}</div>
               </div>
@@ -346,7 +362,7 @@ const groupBadge = (memberId: string) => {
                 @keydown.enter.stop="toggleTranslation"
                 @keydown.space.prevent.stop="toggleTranslation"
               >{{ translationExpanded ? '收起翻译' : '翻译' }}</div>
-              <div v-if="showTranslation" class="message-translation">{{ msg.translation }}</div>
+              <div v-if="showTranslation" class="message-translation" data-bubble-part="translation">{{ msg.translation }}</div>
             </div>
           <div v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'bubble_outer'" class="msg-time-inline-outer left">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
@@ -403,7 +419,8 @@ const groupBadge = (memberId: string) => {
               <img :src="msg.emojiUrl" class="emoji-message-img" loading="lazy" />
             </div>
             <!-- 降级：图片已丢失 -->
-            <div v-else class="bubble bubble-right" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+            <div v-else class="bubble bubble-right" data-chat-bubble="self" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+              <img v-for="item in bubbleOrnaments('self')" :key="item.id" class="bubble-ornament" :src="bubbleAssetUrls[item.assetId]" :alt="item.name" :style="ornamentStyle(item)">
               <div style="font-style: italic; color: var(--text-tertiary);">[表情包：{{ msg.content === '[表情]' ? '未知' : msg.content }}]</div>
             </div>
           </template>
@@ -459,8 +476,9 @@ const groupBadge = (memberId: string) => {
           <div v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'bubble_outer'" class="msg-time-inline-outer right">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
             </div>
-            <div v-if="!msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-right" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
-              <div v-if="msg.quote" class="msg-quote-block">
+            <div v-if="!msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-right" data-chat-bubble="self" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+              <img v-for="item in bubbleOrnaments('self')" :key="item.id" class="bubble-ornament" :src="bubbleAssetUrls[item.assetId]" :alt="item.name" :style="ornamentStyle(item)">
+              <div v-if="msg.quote" class="msg-quote-block" data-bubble-part="quote">
                 <div class="msg-quote-sender">{{ msg.quote.sender }}</div>
                 <div class="msg-quote-content">{{ msg.quote.content }}</div>
               </div>
@@ -494,6 +512,8 @@ const groupBadge = (memberId: string) => {
 
 <style>
 @import '../ChatRoomView.css';
+
+.bubble-ornament{position:absolute;display:block;max-width:none;object-fit:contain;user-select:none;-webkit-user-drag:none}
 
 .translation-toggle {
   width: fit-content;

@@ -1187,7 +1187,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="view-container full-height chat-view-bg" :style="currentRoomWallpaper ? { backgroundImage: `url(${currentRoomWallpaper})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' } : {}">
+  <div class="view-container full-height chat-view-bg chat-bubble-theme" :style="currentRoomWallpaper ? { backgroundImage: `url(${currentRoomWallpaper})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' } : {}">
     <div v-if="currentRoomWallpaper" class="chat-wallpaper-overlay"></div>
     
     <ChatRoomHeader
