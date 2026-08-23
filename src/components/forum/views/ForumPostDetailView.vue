@@ -10,6 +10,8 @@ import ForumEmptyState from '../components/ForumEmptyState.vue'
 const props = defineProps<{
   post: ForumPost
   comments: ForumComment[]
+  busy?: boolean
+  error?: string
 }>()
 
 const emit = defineEmits<{
@@ -22,6 +24,7 @@ const emit = defineEmits<{
   (e: 'bookmark', post: ForumPost): void
   (e: 'share', post: ForumPost): void
   (e: 'send-comment', content: string, replyTo?: { id: string; name: string }): void
+  (e: 'generate-comments'): void
 }>()
 
 const replyInput = ref('')
@@ -49,7 +52,7 @@ const submitComment = () => {
 
 <template>
   <div class="forum-post-detail-view">
-    <ForumHeader title="动态正文" show-back @back="emit('back')" />
+    <ForumHeader title="动态正文" show-back @back="emit('back')"><template #right><button class="generate-reply-btn" :disabled="busy" @click="emit('generate-comments')">{{busy?'生成中':'生成回复'}}</button></template></ForumHeader>
 
     <!-- 滚动容器：主贴内容 + 评论区 -->
     <div class="detail-scroll-wrap">
@@ -70,6 +73,7 @@ const submitComment = () => {
       <div class="comments-section-header">
         <span class="section-title">全部评论 ({{ comments.length }})</span>
       </div>
+      <p v-if="error" class="detail-generation-error">{{error}}</p>
 
       <!-- 评论列表 -->
       <div v-if="comments && comments.length > 0" class="comments-list">
@@ -212,4 +216,5 @@ const submitComment = () => {
 .send-btn:not(:disabled):active {
   transform: scale(0.94);
 }
+.generate-reply-btn{height:27px;border:0;border-radius:999px;background:var(--sys-bg-tertiary,#eef0f2);color:var(--text-secondary,#666);padding:0 9px;font-size:10.5px}.generate-reply-btn:disabled{opacity:.4}.detail-generation-error{margin:0;padding:7px 16px;background:color-mix(in srgb,#d44c4c 7%,var(--sys-bg-secondary,#fff));color:#c24a4a;font-size:10.5px;line-height:1.4}
 </style>

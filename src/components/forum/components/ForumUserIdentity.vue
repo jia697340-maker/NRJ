@@ -1,8 +1,9 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { ForumUser } from '../../../types/forum'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     user: ForumUser
     time?: number | string
@@ -15,6 +16,25 @@ withDefaults(
     showHandle: true
   }
 )
+
+const displayTime = computed(() => formatForumTime(props.time))
+
+const formatForumTime = (value: number | string) => {
+  if (value === '' || value === null || value === undefined) return ''
+  if (typeof value === 'string' && !/^\d{10,}$/.test(value)) return value
+  const timestamp = Number(value)
+  if (!Number.isFinite(timestamp)) return String(value)
+  const delta = Math.max(0, Date.now() - timestamp)
+  if (delta < 60_000) return '刚刚'
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`
+  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`
+  if (delta < 7 * 86_400_000) return `${Math.floor(delta / 86_400_000)} 天前`
+  const date = new Date(timestamp)
+  const now = new Date()
+  return date.getFullYear() === now.getFullYear()
+    ? `${date.getMonth() + 1}月${date.getDate()}日`
+    : `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
+}
 
 const emit = defineEmits<{
   (e: 'click-user', user: ForumUser): void
@@ -32,9 +52,9 @@ const emit = defineEmits<{
       </span>
       <span v-if="showHandle && user.handle" class="user-handle">@{{ user.handle }}</span>
     </div>
-    <div v-if="time || ipLocation || user.ipLocation" class="user-sub-line">
-      <span v-if="time" class="time-text">{{ time }}</span>
-      <span v-if="time && (ipLocation || user.ipLocation)" class="dot-divider">·</span>
+    <div v-if="displayTime || ipLocation || user.ipLocation" class="user-sub-line">
+      <span v-if="displayTime" class="time-text">{{ displayTime }}</span>
+      <span v-if="displayTime && (ipLocation || user.ipLocation)" class="dot-divider">·</span>
       <span v-if="ipLocation || user.ipLocation" class="ip-text">IP 属地{{ ipLocation || user.ipLocation }}</span>
     </div>
   </div>

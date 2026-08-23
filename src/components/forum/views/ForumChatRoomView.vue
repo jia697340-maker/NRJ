@@ -8,12 +8,15 @@ import ForumAvatar from '../components/ForumAvatar.vue'
 const props = defineProps<{
   targetUser: ForumUser
   messages: ForumDirectMessage[]
+  busy?: boolean
+  error?: string
 }>()
 
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'click-user', user: ForumUser): void
   (e: 'send', content: string): void
+  (e: 'generate-reply'): void
 }>()
 
 const inputContent = ref('')
@@ -43,14 +46,7 @@ const handleSend = () => {
   <div class="forum-chatroom-view">
     <ForumHeader :title="targetUser.name" show-back @back="emit('back')">
       <template #right>
-        <ForumAvatar
-          :src="targetUser.avatar"
-          :name="targetUser.name"
-          :verified="targetUser.verified"
-          size="sm"
-          clickable
-          @click="emit('click-user', targetUser)"
-        />
+        <button class="generate-chat-btn" :disabled="busy" @click="emit('generate-reply')">{{busy?'生成中':'生成回复'}}</button>
       </template>
     </ForumHeader>
 
@@ -87,6 +83,7 @@ const handleSend = () => {
 
     <!-- 底部输入栏 -->
     <div class="chat-input-bar">
+      <span v-if="error" class="chat-error">{{error}}</span>
       <input
         v-model="inputContent"
         type="text"
@@ -243,4 +240,5 @@ const handleSend = () => {
 .send-btn:not(:disabled):active {
   transform: scale(0.94);
 }
+.generate-chat-btn{height:27px;border:0;border-radius:999px;background:var(--sys-bg-tertiary,#eef0f2);color:var(--text-secondary,#666);padding:0 9px;font-size:10.5px}.generate-chat-btn:disabled{opacity:.4}.chat-error{position:absolute;left:12px;right:12px;bottom:100%;overflow:hidden;background:color-mix(in srgb,#d44c4c 8%,var(--sys-bg-secondary,#fff));color:#c24a4a;padding:5px 8px;font-size:10px;white-space:nowrap;text-overflow:ellipsis}.chat-input-bar{position:relative}
 </style>

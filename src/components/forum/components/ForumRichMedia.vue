@@ -1,0 +1,15 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import type { ForumMediaItem } from '../../../types/forum'
+const props=defineProps<{media:ForumMediaItem}>()
+const playing=ref(false);const audio=ref<HTMLAudioElement|null>(null)
+const audioUrl=computed(()=>props.media.type==='short-video'?props.media.audioUrl||'':props.media.url)
+const toggle=async()=>{if(!audioUrl.value)return;if(!audio.value)audio.value=new Audio(audioUrl.value);if(playing.value){audio.value.pause();playing.value=false}else{await audio.value.play();playing.value=true;audio.value.onended=()=>playing.value=false}}
+</script>
+<template>
+  <div v-if="media.type==='short-video'" class="light-video" :class="{playing}" @click.stop="toggle"><img :src="media.posterUrl||media.url" :class="`motion-${media.animation||'zoom'}`"/><div class="video-shade"></div><button class="play-btn" type="button">{{playing?'Ⅱ':'▶'}}</button><p v-if="media.subtitle">{{media.subtitle}}</p><span>轻短视频</span></div>
+  <button v-else-if="media.type==='voice'" class="voice-card" type="button" @click.stop="toggle"><i>{{playing?'Ⅱ':'▶'}}</i><span><b>{{playing?'正在播放':'播放语音'}}</b><small>{{media.transcript||media.subtitle||'语音内容'}}</small></span><em v-if="media.duration">{{Math.ceil(media.duration)}}s</em></button>
+</template>
+<style scoped>
+.light-video{position:relative;aspect-ratio:9/12;max-height:360px;margin-top:10px;overflow:hidden;border-radius:12px;background:#111;color:#fff}.light-video img{width:100%;height:100%;object-fit:cover}.light-video.playing .motion-zoom{animation:forum-zoom 9s ease-in-out infinite alternate}.light-video.playing .motion-pan{animation:forum-pan 9s ease-in-out infinite alternate}.video-shade{position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(0,0,0,.65))}.play-btn{position:absolute;left:50%;top:50%;width:42px;height:42px;transform:translate(-50%,-50%);border:0;border-radius:50%;background:rgba(0,0,0,.48);color:#fff;font-size:15px}.light-video p{position:absolute;left:12px;right:12px;bottom:12px;margin:0;text-align:center;font-size:12.5px;line-height:1.45;text-shadow:0 1px 3px #000}.light-video>span{position:absolute;top:8px;right:8px;border-radius:999px;background:rgba(0,0,0,.42);padding:3px 7px;font-size:9.5px}.voice-card{display:flex;width:100%;min-width:0;align-items:center;gap:9px;margin-top:9px;padding:9px 11px;border:0;border-radius:11px;background:var(--sys-bg-primary,#f2f3f5);color:var(--text-primary,#333);text-align:left}.voice-card>i{display:flex;flex:0 0 28px;height:28px;align-items:center;justify-content:center;border-radius:50%;background:var(--accent-color,#576b95);color:#fff;font-size:10px;font-style:normal}.voice-card>span{display:flex;min-width:0;flex:1;flex-direction:column;gap:2px}.voice-card b{font-size:12px}.voice-card small{overflow:hidden;color:var(--text-secondary,#777);font-size:10.5px;white-space:nowrap;text-overflow:ellipsis}.voice-card em{font-size:10px;color:var(--text-tertiary,#999);font-style:normal}@keyframes forum-zoom{from{transform:scale(1)}to{transform:scale(1.12)}}@keyframes forum-pan{from{transform:scale(1.1) translateX(-3%)}to{transform:scale(1.1) translateX(3%)}}
+</style>

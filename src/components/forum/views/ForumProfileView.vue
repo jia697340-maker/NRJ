@@ -25,6 +25,7 @@ const emit = defineEmits<{
   (e: 'back'): void
   (e: 'toggle-follow', userId: string): void
   (e: 'send-dm', user: ForumUser): void
+  (e: 'manage-user', user: ForumUser): void
   (e: 'edit-profile'): void
   (e: 'click-post', post: ForumPost): void
   (e: 'click-topic', topic: string): void
@@ -84,6 +85,7 @@ const displayPosts = computed(() => {
             </div>
 
             <div class="profile-actions-group">
+              <button v-if="!isSelf" class="dm-action-btn more-action-btn" type="button" aria-label="关系与可见性" @click="emit('manage-user', user)">•••</button>
               <button
                 v-if="!isSelf"
                 class="dm-action-btn"

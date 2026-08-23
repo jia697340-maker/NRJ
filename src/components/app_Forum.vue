@@ -1,280 +1,85 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { globalSettings } from '../store/global'
 import { useForum } from '../composables/useForum'
-import type { ForumPost, ForumUser, ForumMediaItem, ForumQuoteContent } from '../types/forum'
-
-// 基础导航组件
+import type { ForumBridgeMode, ForumCircle, ForumMediaItem, ForumMemoryType, ForumPost, ForumUser } from '../types/forum'
 import ForumBottomNav from './forum/components/ForumBottomNav.vue'
-
-// 8 大骨架页面
+import ForumLoadingSkeleton from './forum/components/ForumLoadingSkeleton.vue'
 import ForumFeedView from './forum/views/ForumFeedView.vue'
-import ForumDiscoverView from './forum/views/ForumDiscoverView.vue'
 import ForumPostDetailView from './forum/views/ForumPostDetailView.vue'
 import ForumProfileView from './forum/views/ForumProfileView.vue'
 import ForumMessagesView from './forum/views/ForumMessagesView.vue'
 import ForumChatRoomView from './forum/views/ForumChatRoomView.vue'
-import ForumPublishView from './forum/views/ForumPublishView.vue'
 import ForumSearchView from './forum/views/ForumSearchView.vue'
+import ForumOnboardingView from './forum/views/ForumOnboardingView.vue'
+import ForumCirclesView from './forum/views/ForumCirclesView.vue'
+import ForumCircleView from './forum/views/ForumCircleView.vue'
+import ForumComposerView from './forum/views/ForumComposerView.vue'
+import ForumSettingsView from './forum/views/ForumSettingsView.vue'
 
-const emit = defineEmits<{
-  (e: 'close'): void
-}>()
-
-const {
-  activeTab,
-  currentRoute,
-  routeStack,
-  pushRoute,
-  popRoute,
-  resetToTab,
-  currentForumUser,
-  mockForumUsers,
-  mockForumTopics,
-  mockForumPosts,
-  mockForumComments,
-  mockForumConversations,
-  mockForumDirectMessages,
-  toggleLikePost,
-  toggleBookmarkPost,
-  toggleFollowUser,
-  publishNewPost,
-  addComment,
-  sendDirectMessage
-} = useForum()
-
-// 推荐作者列表
-const recommendedUsers = computed(() => Object.values(mockForumUsers))
-
-// 当前活跃详情帖子（若在详情页）
-const activeDetailPost = computed(() => {
-  if (currentRoute.value.name === 'post_detail') {
-    return mockForumPosts.value.find(p => p.id === (currentRoute.value as any).postId) || mockForumPosts.value[0]
-  }
-  return mockForumPosts.value[0]
+const emit=defineEmits<{(e:'close'):void}>()
+const forum=useForum()
+const composerRef=ref<InstanceType<typeof ForumComposerView>|null>(null)
+const mediaBusy=ref(false)
+const mediaError=ref('')
+const managedUser=ref<ForumUser|null>(null)
+const activeDetailPost=computed(()=>{const route=forum.currentRoute.value;return route.name==='post_detail'?forum.posts.value.find(item=>item.id===route.postId)||null:null})
+const activeProfileUser=computed(()=>{
+  const route=forum.currentRoute.value
+  if(route.name==='user_profile')return forum.forumUsers.value.find(item=>item.id===route.userId)||null
+  return forum.currentForumUser.value
 })
-
-// 当前活跃详情评论
-const activeDetailComments = computed(() => {
-  if (activeDetailPost.value) {
-    return mockForumComments.value[activeDetailPost.value.id] || []
-  }
-  return []
+const activeChatUser=computed(()=>{
+  const route=forum.currentRoute.value
+  if(route.name!=='chat_room')return null
+  return forum.forumUsers.value.find(item=>item.id===route.userId)||forum.conversations.value.find(item=>item.user.id===route.userId)?.user||null
 })
-
-// 当前活跃他人主页用户
-const activeProfileUser = computed(() => {
-  if (currentRoute.value.name === 'user_profile') {
-    const uid = (currentRoute.value as any).userId
-    return mockForumUsers[uid] || (currentForumUser.value.id === uid ? currentForumUser.value : mockForumUsers.user_lin)
-  }
-  return currentForumUser.value
+const activeConversation=computed(()=>{
+  const route=forum.currentRoute.value
+  if(route.name!=='chat_room')return null
+  return forum.conversations.value.find(item=>item.user.id===route.userId)||(activeChatUser.value?forum.conversations.value.find(item=>item.kind!=='group'&&item.participantAccountIds.includes(activeChatUser.value!.id)):null)
 })
-
-// 当前私聊对象与消息
-const activeChatUser = computed(() => {
-  if (currentRoute.value.name === 'chat_room') {
-    const uid = (currentRoute.value as any).userId
-    return mockForumUsers[uid] || mockForumUsers.user_lin
-  }
-  return mockForumUsers.user_lin
-})
-
-const activeChatMessages = computed(() => {
-  if (activeChatUser.value) {
-    return mockForumDirectMessages.value[activeChatUser.value.id] || []
-  }
-  return []
-})
-
-// 点击帖子 -> 进入详情页
-const handleOpenPost = (post: ForumPost) => {
-  pushRoute({ name: 'post_detail', postId: post.id })
-}
-
-// 点击用户 -> 进入个人主页
-const handleOpenUser = (user: ForumUser) => {
-  pushRoute({ name: 'user_profile', userId: user.id })
-}
-
-// 点击话题 -> 进入搜索页
-const handleOpenTopic = (topicTag: string) => {
-  pushRoute({ name: 'search' })
-}
-
-// 点击私信 -> 进入私聊页
-const handleOpenChat = (user: ForumUser) => {
-  pushRoute({ name: 'chat_room', userId: user.id })
-}
-
-// 点击发布
-const handleOpenPublish = () => {
-  pushRoute({ name: 'publish' })
-}
-
-// 点击搜索
-const handleOpenSearch = () => {
-  pushRoute({ name: 'search' })
-}
+const activeChatMessages=computed(()=>activeConversation.value?forum.conversationMessages(activeConversation.value.id).map(message=>({...message,isSelf:message.senderId===forum.currentAccount.value?.id})):[])
+const isJoined=(circle:ForumCircle)=>forum.snapshot.value.memberships.some(item=>item.circleId===circle.id&&item.accountId===forum.currentAccount.value?.id&&!['pending','banned'].includes(item.role))
+const openPost=(post:ForumPost)=>{forum.markPostOpened(post.id);forum.pushRoute({name:'post_detail',postId:post.id})}
+const openUser=(user:ForumUser)=>{if(!user.id.startsWith('anon_')&&!user.id.startsWith('group:'))forum.pushRoute({name:'user_profile',userId:user.id})}
+const openChat=(user:ForumUser)=>forum.pushRoute({name:'chat_room',userId:user.id})
+const openConversation=(conversation:any)=>forum.pushRoute({name:'chat_room',userId:conversation.user.id})
+const openCircle=(circle:ForumCircle)=>forum.pushRoute({name:'circle',circleId:circle.id})
+const handleBack=()=>{if(forum.routeStack.value.length>1)forum.popRoute();else emit('close')}
+const uploadMedia=async(file:File,type:ForumMediaItem['type'])=>{const item=await forum.importMediaFile(file,type);item.url=URL.createObjectURL(file);composerRef.value?.addMedia(item)}
+const runMediaTask=async(task:()=>Promise<ForumMediaItem>)=>{if(mediaBusy.value)return;mediaBusy.value=true;mediaError.value='';try{composerRef.value?.addMedia(await task())}catch(cause){mediaError.value=cause instanceof Error?cause.message:String(cause)}finally{mediaBusy.value=false}}
+const changeBridge=(subjectId:string,direction:'forumToChat'|'chatToForum',mode:ForumBridgeMode)=>{const existing=forum.snapshot.value.bridgePolicies.find(item=>item.subjectId===subjectId);const memoryTypes=existing?.[direction].memoryTypes||[];const defaults:ForumMemoryType[]=direction==='forumToChat'?['post','comment','dm','important-event']:['chat-daily','important-event','relationship'];forum.updateBridgePolicy(subjectId,{[direction]:{mode,memoryTypes:mode==='selected'&&!memoryTypes.length?defaults:memoryTypes}})}
+const changeBridgeTypes=(subjectId:string,direction:'forumToChat'|'chatToForum',memoryTypes:ForumMemoryType[])=>{const existing=forum.snapshot.value.bridgePolicies.find(item=>item.subjectId===subjectId);forum.updateBridgePolicy(subjectId,{[direction]:{mode:existing?.[direction].mode||'selected',memoryTypes}})}
 </script>
 
 <template>
-  <div
-    class="forum-app-container"
-    :class="{ 'is-dark': globalSettings.darkMode, 'is-light': !globalSettings.darkMode }"
-  >
-    <!-- 主界面视口 -->
-    <div class="forum-main-viewport">
-      <!-- 1. 帖子详情页 -->
-      <ForumPostDetailView
-        v-if="currentRoute.name === 'post_detail'"
-        :post="activeDetailPost"
-        :comments="activeDetailComments"
-        @back="popRoute"
-        @click-user="handleOpenUser"
-        @click-topic="handleOpenTopic"
-        @like="toggleLikePost(activeDetailPost.id)"
-        @bookmark="toggleBookmarkPost(activeDetailPost.id)"
-        @send-comment="(content, replyTo) => addComment(activeDetailPost.id, content, replyTo)"
-      />
-
-      <!-- 2. 他人/个人主页栈视图 -->
-      <ForumProfileView
-        v-else-if="currentRoute.name === 'user_profile'"
-        :user="activeProfileUser"
-        :posts="mockForumPosts"
-        :is-self="activeProfileUser.id === currentForumUser.id"
-        :show-back="true"
-        @back="popRoute"
-        @toggle-follow="uid => toggleFollowUser(uid)"
-        @send-dm="u => handleOpenChat(u)"
-        @click-post="handleOpenPost"
-        @click-topic="handleOpenTopic"
-        @like="p => toggleLikePost(p.id)"
-        @bookmark="p => toggleBookmarkPost(p.id)"
-      />
-
-      <!-- 3. 私聊会话详情页 -->
-      <ForumChatRoomView
-        v-else-if="currentRoute.name === 'chat_room'"
-        :target-user="activeChatUser"
-        :messages="activeChatMessages"
-        @back="popRoute"
-        @click-user="handleOpenUser"
-        @send="content => sendDirectMessage(activeChatUser.id, content)"
-      />
-
-      <!-- 4. 发动态页面 -->
-      <ForumPublishView
-        v-else-if="currentRoute.name === 'publish'"
-        :current-user="currentForumUser"
-        @back="popRoute"
-        @publish="data => publishNewPost(data)"
-      />
-
-      <!-- 5. 搜索页面 -->
-      <ForumSearchView
-        v-else-if="currentRoute.name === 'search'"
-        :posts="mockForumPosts"
-        :topics="mockForumTopics"
-        :users="recommendedUsers"
-        @back="popRoute"
-        @click-post="handleOpenPost"
-        @click-user="handleOpenUser"
-        @click-topic="handleOpenTopic"
-        @toggle-follow="uid => toggleFollowUser(uid)"
-        @like="p => toggleLikePost(p.id)"
-        @bookmark="p => toggleBookmarkPost(p.id)"
-      />
-
-      <!-- 6. 底部 4 大 Tab 路由切换 -->
-      <template v-else>
-        <!-- 首页动态 -->
-        <ForumFeedView
-          v-if="activeTab === 'feed'"
-          :posts="mockForumPosts"
-          @back="emit('close')"
-          @click-post="handleOpenPost"
-          @click-user="handleOpenUser"
-          @click-topic="handleOpenTopic"
-          @like="p => toggleLikePost(p.id)"
-          @bookmark="p => toggleBookmarkPost(p.id)"
-          @comment="p => handleOpenPost(p)"
-          @open-search="handleOpenSearch"
-        />
-
-        <!-- 发现页 -->
-        <ForumDiscoverView
-          v-else-if="activeTab === 'discover'"
-          :topics="mockForumTopics"
-          :recommended-users="recommendedUsers"
-          @back="emit('close')"
-          @click-topic="handleOpenTopic"
-          @click-user="handleOpenUser"
-          @toggle-follow="uid => toggleFollowUser(uid)"
-          @open-search="handleOpenSearch"
-        />
-
-        <!-- 私信消息列表 -->
-        <ForumMessagesView
-          v-else-if="activeTab === 'messages'"
-          :conversations="mockForumConversations"
-          @back="emit('close')"
-          @click-chat="handleOpenChat"
-          @click-user="handleOpenUser"
-        />
-
-        <!-- 我的个人主页 -->
-        <ForumProfileView
-          v-else-if="activeTab === 'profile'"
-          :user="currentForumUser"
-          :posts="mockForumPosts"
-          :is-self="true"
-          :show-back="true"
-          @back="emit('close')"
-          @click-post="handleOpenPost"
-          @click-topic="handleOpenTopic"
-          @like="p => toggleLikePost(p.id)"
-          @bookmark="p => toggleBookmarkPost(p.id)"
-        />
-      </template>
-    </div>
-
-    <!-- 底部微质感导航栏（仅在顶层 Tab 时显示） -->
-    <ForumBottomNav
-      v-if="currentRoute.name === 'tab'"
-      :active-tab="activeTab"
-      :unread-messages-count="1"
-      @select-tab="t => resetToTab(t)"
-      @click-publish="handleOpenPublish"
-    />
+  <div class="forum-app-container" :class="{'is-dark':globalSettings.darkMode,'is-light':!globalSettings.darkMode}">
+    <div v-if="!forum.ready.value" class="forum-loading"><ForumLoadingSkeleton/></div>
+    <ForumOnboardingView v-else-if="!forum.snapshot.value.settings.initialized" @complete="forum.completeOnboarding"/>
+    <template v-else-if="forum.currentForumUser.value">
+      <main class="forum-main-viewport">
+        <ForumPostDetailView v-if="forum.currentRoute.value.name==='post_detail'&&activeDetailPost" :post="activeDetailPost" :comments="forum.commentsByPost.value[activeDetailPost.id]||[]" :busy="forum.busy.value" :error="forum.error.value" @back="forum.popRoute" @click-user="openUser" @like="p=>forum.toggleLikePost(p.id)" @bookmark="p=>forum.toggleBookmarkPost(p.id)" @send-comment="(text,reply)=>forum.addComment(activeDetailPost!.id,text,reply)" @generate-comments="forum.generatePostComments(activeDetailPost.id)"/>
+        <ForumProfileView v-else-if="forum.currentRoute.value.name==='user_profile'&&activeProfileUser" :user="activeProfileUser" :posts="forum.posts.value" :is-self="activeProfileUser.id===forum.currentForumUser.value.id" show-back @back="forum.popRoute" @toggle-follow="forum.toggleFollowUser" @send-dm="openChat" @manage-user="user=>managedUser=user" @edit-profile="forum.pushRoute({name:'settings'})" @click-post="openPost" @like="p=>forum.toggleLikePost(p.id)" @bookmark="p=>forum.toggleBookmarkPost(p.id)"/>
+        <ForumChatRoomView v-else-if="forum.currentRoute.value.name==='chat_room'&&activeChatUser" :target-user="activeChatUser" :messages="activeChatMessages" :busy="forum.busy.value" :error="forum.error.value" @back="forum.popRoute" @click-user="openUser" @send="text=>activeConversation?.kind==='group'?forum.sendGroupMessage(activeConversation.groupId!,text):forum.sendDirectMessage(activeChatUser!.id,text)" @generate-reply="activeConversation&&forum.generateConversationReply(activeConversation.id)"/>
+        <ForumSearchView v-else-if="forum.currentRoute.value.name==='search'" :posts="forum.posts.value" :topics="forum.snapshot.value.topics" :users="forum.forumUsers.value" @back="forum.popRoute" @click-post="openPost" @click-user="openUser" @toggle-follow="forum.toggleFollowUser" @like="p=>forum.toggleLikePost(p.id)" @bookmark="p=>forum.toggleBookmarkPost(p.id)"/>
+        <ForumComposerView v-else-if="forum.currentRoute.value.name==='publish'" ref="composerRef" :current-user="forum.currentForumUser.value" :circles="forum.circles.value.filter(isJoined)" :initial-circle-id="forum.currentRoute.value.circleId" :media-busy="mediaBusy" :media-error="mediaError" @back="forum.popRoute" @media="uploadMedia" @generate-image="prompt=>runMediaTask(()=>forum.generateImageMedia(prompt))" @generate-voice="text=>runMediaTask(()=>forum.generateVoiceMedia(text))" @build-video="value=>runMediaTask(()=>forum.buildLightVideo(value.image,value.voice,value.subtitle))" @publish="forum.publishNewPost"/>
+        <ForumCircleView v-else-if="forum.currentRoute.value.name==='circle'&&forum.currentCircle.value" :circle="forum.currentCircle.value" :posts="forum.circlePosts.value" :joined="isJoined(forum.currentCircle.value)" :busy="forum.busy.value" :error="forum.error.value" @back="forum.popRoute" @join="forum.joinCircle(forum.currentCircle.value!.id)" @publish="forum.pushRoute({name:'publish',circleId:forum.currentCircle.value!.id})" @generate="forum.generateNewContent(forum.currentCircle.value!.id)" @settings="forum.pushRoute({name:'settings',section:'circles'})" @click-post="openPost" @click-user="openUser" @like="p=>forum.toggleLikePost(p.id)" @bookmark="p=>forum.toggleBookmarkPost(p.id)"/>
+        <ForumSettingsView v-else-if="forum.currentRoute.value.name==='settings'" :snapshot="forum.snapshot.value" :active-account-id="forum.currentAccount.value!.id" :participant-candidates="forum.listParticipantCandidates" @back="forum.popRoute" @switch-account="forum.switchAccount" @update-profile="forum.updateForumProfile" @add-account="forum.addForumAccount" @participation="forum.setCharacterParticipation" @participant-policy="forum.updateParticipantPolicy" @bridge="changeBridge" @bridge-types="changeBridgeTypes" @bind-world="forum.bindCircleWorldBooks"/>
+        <template v-else>
+          <ForumFeedView v-if="forum.activeTab.value==='feed'" :posts="forum.posts.value" :mode="forum.feedMode.value" :busy="forum.busy.value" :error="forum.error.value" @back="emit('close')" @open-search="forum.pushRoute({name:'search'})" @generate="forum.generateNewContent()" @change-mode="mode=>forum.feedMode.value=mode" @shown="forum.recordFeedShown" @delete-posts="forum.deletePosts" @click-post="openPost" @click-user="openUser" @like="p=>forum.toggleLikePost(p.id)" @bookmark="p=>forum.toggleBookmarkPost(p.id)"/>
+          <ForumCirclesView v-else-if="forum.activeTab.value==='circles'" :circles="forum.circles.value" :active-account-id="forum.snapshot.value.settings.activeAccountId" :memberships="forum.snapshot.value.memberships" @back="emit('close')" @open="openCircle" @join="forum.joinCircle" @create="value=>openCircle(forum.createCircle(value))"/>
+          <ForumMessagesView v-else-if="forum.activeTab.value==='messages'" :conversations="forum.conversations.value" :notifications="forum.notifications.value" :users="forum.forumUsers.value.filter(user=>user.id!==forum.currentAccount.value?.id)" @back="emit('close')" @click-conversation="openConversation" @click-user="openUser" @create-group="forum.createForumGroup"/>
+          <ForumProfileView v-else :user="forum.currentForumUser.value" :posts="forum.posts.value" is-self @edit-profile="forum.pushRoute({name:'settings'})" @click-post="openPost" @like="p=>forum.toggleLikePost(p.id)" @bookmark="p=>forum.toggleBookmarkPost(p.id)"/>
+        </template>
+      </main>
+      <ForumBottomNav v-if="forum.currentRoute.value.name==='tab'" :active-tab="forum.activeTab.value" :unread-messages-count="forum.conversations.value.reduce((n,c)=>n+c.unreadCount,0)" @select-tab="forum.resetToTab" @click-publish="forum.pushRoute({name:'publish'})"/>
+      <div v-if="managedUser" class="relation-overlay" @click.self="managedUser=null"><section><header><b>{{managedUser.name}}</b><button @click="managedUser=null">×</button></header><button @click="forum.addMute({targetAccountId:managedUser!.id});managedUser=null"><span>不看 TA</span><small>只过滤你看到的内容，对方不知道</small></button><button @click="forum.addMute({targetAccountId:managedUser!.id,expiresAt:Date.now()+7*86400000});managedUser=null"><span>静音 7 天</span><small>保持关注关系，暂时隐藏内容</small></button><button @click="forum.addVisibilityRule({targetAccountId:managedUser!.id,scopes:['all']});managedUser=null"><span>不让 TA 看</span><small>限制对方查看你的论坛内容</small></button><button class="danger" @click="forum.addBlock(managedUser!.id);managedUser=null"><span>拉黑</span><small>阻断搜索、关注、私信和互动</small></button></section></div>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.forum-app-container {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: var(--sys-bg-primary, #f5f5f7);
-  color: var(--text-primary, #333333);
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
-.forum-main-viewport {
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  position: relative;
-  overflow: hidden;
-}
+.forum-app-container{position:absolute;inset:0;z-index:1000;display:flex;flex-direction:column;overflow:hidden;background:var(--sys-bg-primary,#f5f5f7);color:var(--text-primary,#333);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;user-select:none;-webkit-tap-highlight-color:transparent}.forum-main-viewport{position:relative;min-width:0;min-height:0;flex:1;width:100%;overflow:hidden}.forum-loading{height:100%;padding-top:52px;box-sizing:border-box}.relation-overlay{position:absolute;inset:0;z-index:500;display:flex;align-items:flex-end;background:rgba(0,0,0,.32)}.relation-overlay section{box-sizing:border-box;width:100%;max-height:min(75vh,520px);overflow:auto;border-radius:16px 16px 0 0;background:var(--sys-bg-secondary,#fff);padding:5px 16px calc(10px + env(safe-area-inset-bottom,0px))}.relation-overlay header{display:flex;align-items:center;justify-content:space-between;height:42px;border-bottom:1px solid var(--border-color,rgba(0,0,0,.06))}.relation-overlay header b{min-width:0;overflow:hidden;font-size:14px;white-space:nowrap;text-overflow:ellipsis}.relation-overlay header button{width:30px;height:30px;border:0;border-radius:50%;background:transparent;color:var(--text-secondary,#777);font-size:20px}.relation-overlay section>button{display:flex;width:100%;align-items:flex-start;flex-direction:column;gap:3px;min-height:52px;justify-content:center;border:0;border-bottom:1px solid var(--border-color,rgba(0,0,0,.05));background:transparent;color:var(--text-primary,#222);text-align:left}.relation-overlay section>button span{font-size:13.5px}.relation-overlay section>button small{font-size:10.5px;color:var(--text-tertiary,#999)}.relation-overlay section>button.danger span{color:#d44c4c}@media(max-width:340px){.forum-main-viewport{max-width:100vw}.relation-overlay section{padding-left:12px;padding-right:12px}}
 </style>

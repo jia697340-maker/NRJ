@@ -9,7 +9,8 @@ import { commitDiagnosticTrace, createDiagnosticDraft, type DiagnosticContextMet
 import { isRawApiConsoleLoggingEnabled, logApiFallback, logApiRequest, logApiResponse } from './apiDebug'
 import { buildWebSearchContext, inferWebSearchQuery, mergeWebSearchTrace, runSelfHostedWebSearch, supportsManagedWebSearch, type WebSearchRequestOptions, type WebSearchTrace } from './webSearch'
 
-export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global' | 'prompt-generation'
+export type ForumApiPurpose = 'forum-account' | 'forum-circle' | 'forum-population' | 'forum-post' | 'forum-comment' | 'forum-dm' | 'forum-group' | 'forum-media' | 'forum-memory'
+export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global' | 'prompt-generation' | ForumApiPurpose
 
 export const decorateChatPayload = (
   messages: { role: string; content: string | any[] }[],
@@ -18,7 +19,7 @@ export const decorateChatPayload = (
   options: { profile?: Exclude<ModelAdapterProfile, 'auto'>; model?: string; applyCot?: boolean } = {}
 ) => {
   const payloadMessages = JSON.parse(JSON.stringify(messages))
-  if (isSummary || purpose.startsWith('character-') || purpose === 'prompt-generation' || options.applyCot === false || !cotSettings.enabled) return payloadMessages
+  if (isSummary || purpose.startsWith('character-') || purpose.startsWith('forum-') || purpose === 'prompt-generation' || options.applyCot === false || !cotSettings.enabled) return payloadMessages
   const profile = options.profile
   const nativeMode = profile === 'openai-responses' || profile === 'deepseek-reasoner' || profile === 'glm' ||
     (profile === 'gemini' && cotSettings.geminiNativeEnabled) ||

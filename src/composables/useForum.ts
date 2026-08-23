@@ -1,396 +1,478 @@
-/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { ref, computed } from 'vue'
-import type { ForumPost, ForumUser, ForumTopic, ForumComment, ForumConversation, ForumDirectMessage } from '../types/forum'
+import { computed, ref, watch } from 'vue'
+import { listCharacterDirectory, refreshCharacterDirectoryFromAllAccounts } from '../services/characterDirectory'
+import { requestForumJson } from '../services/forumAI'
+import { createLightShortVideo, generateForumImage, generateForumVoice } from '../services/forumMediaGeneration'
+import { canAccountAppear, visiblePostsFor } from '../services/forumPolicy'
+import { emptyForumSnapshot, loadForumSnapshot, resolveForumMediaUrl, saveForumSnapshot, storeForumMedia } from '../services/forumRepository'
+import { markPostOpened, rankForumFeed, recordFeedExposure, type ForumFeedKind } from '../services/forumFeedRanking'
+import { advanceForumWorld, queuePostReactions } from '../services/forumLifeRuntime'
+import { ensureResidentProfile, replenishAmbientPopulation, syncForumCharacters } from '../services/forumPopulation'
+import type {
+  ForumAccount, ForumAccountKind, ForumBlockRule, ForumBridgePolicy, ForumCircle, ForumComment, ForumConversation, ForumDirectMessage, ForumLottery, ForumLotteryResult,
+  ForumMediaItem, ForumMuteRule, ForumParticipantPolicy, ForumPoll, ForumPost, ForumPostType, ForumSnapshot, ForumSubject, ForumUser, ForumVisibilityRule, ForumWorldBinding
+} from '../types/forum'
 
-// 当前用户默认资料
-export const currentForumUser = ref<ForumUser>({
-  id: 'user_self',
-  name: '未命名漫游者',
-  handle: 'wanderer_01',
-  avatar: '',
-  bio: '在数字旷野里，记录片刻的生活与随想。',
-  banner: '',
-  verified: false,
-  followersCount: 128,
-  followingCount: 64,
-  postsCount: 12,
-  likesCount: 389,
-  location: '云端节点',
-  joinedDate: '2026年3月'
+export type ForumTab = 'feed' | 'circles' | 'messages' | 'profile'
+export type ForumRoute =
+  | { name: 'tab' }
+  | { name: 'post_detail'; postId: string }
+  | { name: 'user_profile'; userId: string }
+  | { name: 'chat_room'; userId: string }
+  | { name: 'circle'; circleId: string }
+  | { name: 'settings'; section?: string }
+  | { name: 'search' }
+  | { name: 'publish'; circleId?: string }
+
+const snapshot = ref<ForumSnapshot>(emptyForumSnapshot())
+const ready = ref(false)
+const busy = ref(false)
+const error = ref('')
+const activeTab = ref<ForumTab>('feed')
+const feedMode = ref<ForumFeedKind>('recommend')
+const routeStack = ref<ForumRoute[]>([{ name: 'tab' }])
+let loading: Promise<void> | null = null
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+let worldTimer: ReturnType<typeof setInterval> | null = null
+
+const id = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+const nowLabel = () => '刚刚'
+const defaultPolicy = (subjectId: string, enabled = false): ForumParticipantPolicy => ({
+  id: id('participant'), subjectId, enabled, allowedCircleIds: [], blockedCircleIds: [], allowedAccountIds: [], allowedGroupIds: [], scope: ['global'], allowPublicDiscovery: true, allowNpcKnowledge: true, allowMention: true, allowSearch: true, allowRecommendation: true, allowDm: true, allowGroup: true,
+  autonomy: { level: 'off', actions: {} }, updatedAt: Date.now()
 })
+const defaultBridge = (subjectId: string): ForumBridgePolicy => ({ id: id('bridge'), subjectId, forumToChat: { mode: 'off', memoryTypes: [] }, chatToForum: { mode: 'off', memoryTypes: [] }, updatedAt: Date.now() })
 
-// 初始模拟用户池（真实社交感，无任何 AI 标识）
-export const mockForumUsers: Record<string, ForumUser> = {
-  user_lin: {
-    id: 'user_lin',
-    name: '林深见鹿',
-    handle: 'deer_in_woods',
-    avatar: '',
-    bio: '胶片摄影爱好者 / 城市散步指南 / 偶尔写写随笔',
-    banner: '',
-    verified: true,
-    isFollowing: true,
-    followersCount: 3420,
-    followingCount: 215,
-    postsCount: 88,
-    likesCount: 14200,
-    location: '上海',
-    joinedDate: '2025年11月',
-    ipLocation: '上海'
-  },
-  user_momo: {
-    id: 'user_momo',
-    name: '莫莫不说话',
-    handle: 'silent_momo',
-    avatar: '',
-    bio: '白天是普通的建筑设计师，晚上是猫咪全职铲屎官 🐈',
-    banner: '',
-    verified: false,
-    isFollowing: false,
-    followersCount: 890,
-    followingCount: 340,
-    postsCount: 45,
-    likesCount: 2310,
-    location: '杭州',
-    joinedDate: '2026年1月',
-    ipLocation: '浙江'
-  },
-  user_night: {
-    id: 'user_night',
-    name: '夜航巡游员',
-    handle: 'night_voyager',
-    avatar: '',
-    bio: '收集深夜电台、黑胶唱片与城市边缘的灯火。',
-    banner: '',
-    verified: true,
-    isFollowing: true,
-    followersCount: 8920,
-    followingCount: 120,
-    postsCount: 156,
-    likesCount: 45200,
-    location: '成都',
-    joinedDate: '2025年8月',
-    ipLocation: '四川'
-  },
-  user_coffee: {
-    id: 'user_coffee',
-    name: '浅烘日记',
-    handle: 'coffee_beans',
-    avatar: '',
-    bio: '记录每一杯手冲的风味轮，探寻城市街角的独立咖啡馆 ☕',
-    banner: '',
-    verified: false,
-    isFollowing: false,
-    followersCount: 1420,
-    followingCount: 98,
-    postsCount: 62,
-    likesCount: 5670,
-    location: '广州',
-    joinedDate: '2026年2月',
-    ipLocation: '广东'
+const ensureLoaded = () => {
+  if (loading) return loading
+  loading = loadForumSnapshot().then(async value => {
+    await Promise.all(value.posts.flatMap(post => (post.media || []).map(async media => {
+      if (media.storageKey) media.url = await resolveForumMediaUrl(media)
+      if (media.audioStorageKey) media.audioUrl = await resolveForumMediaUrl({ url: `localforage:nrt-forum/forumMedia/${media.audioStorageKey}`, storageKey: media.audioStorageKey })
+    })))
+    syncForumCharacters(value)
+    value.accounts.forEach(account => {
+      const subject = value.subjects.find(item => item.id === account.subjectId)
+      if (subject && subject.kind !== 'user') ensureResidentProfile(value, account, subject.kind === 'character' ? 'character' : 'ambient')
+    })
+    snapshot.value = value
+    ready.value = true
+    if (value.settings.initialized && value.settings.activeAccountId) {
+      void (async () => {
+        try {
+          await replenishAmbientPopulation(value, value.settings.activeAccountId)
+          await advanceForumWorld(value, value.settings.activeAccountId)
+          await saveForumSnapshot(value)
+        } catch { /* forum still opens when the configured model is temporarily unavailable */ }
+      })()
+      if (!worldTimer) worldTimer = setInterval(() => {
+        const viewerId = snapshot.value.settings.activeAccountId
+        if (viewerId) void advanceForumWorld(snapshot.value, viewerId)
+      }, 10 * 60000)
+    }
+  })
+  return loading
+}
+
+watch(snapshot, () => {
+  if (!ready.value) return
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => { void saveForumSnapshot(snapshot.value) }, 120)
+}, { deep: true })
+
+const accountToUser = (account: ForumAccount): ForumUser => {
+  const relationships = snapshot.value.relationships
+  return {
+    ...account,
+    followersCount: relationships.filter(item => item.type === 'follow' && item.toAccountId === account.id).length,
+    followingCount: relationships.filter(item => item.type === 'follow' && item.fromAccountId === account.id).length,
+    postsCount: snapshot.value.posts.filter(item => item.authorAccountId === account.id).length,
+    likesCount: snapshot.value.posts.filter(item => item.authorAccountId === account.id).reduce((sum, item) => sum + item.likeCount, 0),
+    joinedDate: new Date(account.joinedAt).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' }),
+    isFollowing: snapshot.value.relationships.some(item => item.type === 'follow' && item.fromAccountId === snapshot.value.settings.activeAccountId && item.toAccountId === account.id)
   }
 }
 
-// 话题热榜数据
-export const mockForumTopics = ref<ForumTopic[]>([
-  { id: 'topic_1', name: '今日份的咖啡时刻', tag: '今日份的咖啡时刻', hotScore: '24.8万', postsCount: 1420, description: '分享你手边的一杯温度与香气。' },
-  { id: 'topic_2', name: '城市散步与胶片日记', tag: '城市散步与胶片日记', hotScore: '18.2万', postsCount: 980, description: '用镜头定格街头转角的光影。' },
-  { id: 'topic_3', name: '深夜循环歌单', tag: '深夜循环歌单', hotScore: '15.6万', postsCount: 3200, description: '哪一首歌陪你走过长夜？' },
-  { id: 'topic_4', name: '猫猫迷惑行为大赏', tag: '猫猫迷惑行为大赏', hotScore: '12.4万', postsCount: 4520, description: '记录毛孩子那些令人费解的可爱瞬间。' },
-  { id: 'topic_5', name: '书房一角与阅读随想', tag: '书房一角与阅读随想', hotScore: '9.8万', postsCount: 610, description: '安静翻开一本书的治愈时光。' }
-])
-
-// 初始信息流帖子种子数据（覆盖纯文字、单图、多图、长文、引用等多种形态）
-export const mockForumPosts = ref<ForumPost[]>([
-  {
-    id: 'post_1',
-    author: mockForumUsers.user_lin,
-    type: 'multi-image',
-    content: '雨后的梧桐树叶落了一地，空气里有泥土和湿润的木质香气。带了胶片机出门，洗出来的色调让人想起很多年前的秋天。',
-    topics: ['城市散步与胶片日记', '今日份的咖啡时刻'],
-    media: [
-      { id: 'm1', url: '/dove.jpg', aspectRatio: 1 },
-      { id: 'm2', url: '/pwa-icon.jpg', aspectRatio: 1 },
-      { id: 'm3', url: '/dove.jpg', aspectRatio: 1 }
-    ],
-    likeCount: 184,
-    commentCount: 29,
-    shareCount: 14,
-    viewCount: 2340,
-    isLiked: false,
-    isBookmarked: false,
-    createdAt: '10分钟前'
-  },
-  {
-    id: 'post_2',
-    author: mockForumUsers.user_momo,
-    type: 'text',
-    content: '有时候觉得，在阳台看日落的那二十分钟，是整座城市最温柔的时刻。车流慢下来，云层从粉橘色渐变到灰蓝，整个人好像也被重新充满电了。',
-    topics: [],
-    likeCount: 312,
-    commentCount: 45,
-    shareCount: 22,
-    viewCount: 4120,
-    isLiked: true,
-    isBookmarked: false,
-    createdAt: '42分钟前'
-  },
-  {
-    id: 'post_3',
-    author: mockForumUsers.user_night,
-    type: 'quote',
-    content: '非常赞同这段对空间感的描摹。真正的安静不是没有声音，而是所有的声音都在它们合适的位置上。',
-    quote: {
-      id: 'quote_src_1',
-      author: mockForumUsers.user_lin,
-      content: '雨后的梧桐树叶落了一地，空气里有泥土和湿润的木质香气。带了胶片机出门，洗出来的色调让人想起很多年前的秋天。',
-      createdAt: '1小时前'
-    },
-    topics: ['书房一角与阅读随想'],
-    likeCount: 96,
-    commentCount: 12,
-    shareCount: 8,
-    viewCount: 1560,
-    isLiked: false,
-    isBookmarked: true,
-    createdAt: '2小时前'
-  },
-  {
-    id: 'post_4',
-    author: mockForumUsers.user_coffee,
-    type: 'single-image',
-    content: '今天尝试了一款埃塞俄比亚的花魁，浅度烘焙。研磨的一瞬间花果香扑鼻，入口有明显的柑橘与茉莉清甜，尾段泛着蜂蜜般的余韵。好豆子果然能点亮一整天的心情。',
-    topics: ['今日份的咖啡时刻'],
-    media: [
-      { id: 'm4', url: '/dove.jpg', aspectRatio: 1.33 }
-    ],
-    likeCount: 524,
-    commentCount: 68,
-    shareCount: 35,
-    viewCount: 7800,
-    isLiked: false,
-    isBookmarked: false,
-    createdAt: '3小时前'
+const hydratePost = (post: ForumPost): ForumPost => {
+  const account = snapshot.value.accounts.find(item => item.id === post.authorAccountId)
+  const actor = account ? accountToUser(account) : post.author
+  const viewerId = snapshot.value.settings.activeAccountId
+  return {
+    ...post,
+    author: post.anonymousIdentityId ? { ...actor, id: `anon_${post.anonymousIdentityId}`, name: anonymousLabel(post.anonymousIdentityId), handle: 'anonymous', avatar: '', searchable: false } : actor,
+    isLiked: snapshot.value.events.some(event => event.type === 'post-like' && event.actorAccountId === viewerId && event.entityId === post.id),
+    isBookmarked: snapshot.value.events.some(event => event.type === 'post-bookmark' && event.actorAccountId === viewerId && event.entityId === post.id)
   }
-])
+}
 
-// 模拟评论字典
-export const mockForumComments = ref<Record<string, ForumComment[]>>({
-  post_1: [
-    {
-      id: 'c_1',
-      postId: 'post_1',
-      author: mockForumUsers.user_momo,
-      content: '最后一张的构图好棒！光影抓得恰到好处 👍',
-      likeCount: 12,
-      isLiked: false,
-      createdAt: '8分钟前',
-      replies: [
-        {
-          id: 'c_1_1',
-          postId: 'post_1',
-          author: mockForumUsers.user_lin,
-          content: '谢谢莫莫！当时刚好有一束斜阳穿过树梢，运气很好。',
-          likeCount: 4,
-          isLiked: false,
-          createdAt: '5分钟前',
-          replyToUser: { id: 'user_momo', name: '莫莫不说话' }
-        }
-      ]
-    },
-    {
-      id: 'c_2',
-      postId: 'post_1',
-      author: mockForumUsers.user_night,
-      content: '胶片的颗粒感果然有着数码无法替代的呼吸感。',
-      likeCount: 7,
-      isLiked: true,
-      createdAt: '6分钟前'
-    }
-  ]
-})
+const anonymousLabel = (identityId: string) => {
+  const identity = snapshot.value.anonymousIdentities.find(item => item.id === identityId)
+  return identity ? `匿名用户 ${identity.anonymousCode}` : '匿名用户'
+}
 
-// 模拟私信列表
-export const mockForumConversations = ref<ForumConversation[]>([
-  {
-    id: 'conv_1',
-    user: mockForumUsers.user_lin,
-    lastMessage: '下次去那家复古胶片馆可以一起呀！',
-    lastMessageTime: '14:20',
-    unreadCount: 1
-  },
-  {
-    id: 'conv_2',
-    user: mockForumUsers.user_coffee,
-    lastMessage: '那款豆子的烘焙曲线我发你一份参考。',
-    lastMessageTime: '昨天',
-    unreadCount: 0
-  }
-])
-
-// 模拟私信对话记录
-export const mockForumDirectMessages = ref<Record<string, ForumDirectMessage[]>>({
-  user_lin: [
-    { id: 'dm_1', senderId: 'user_lin', receiverId: 'user_self', content: '哈喽！看到你刚刚给我的照片点赞啦～', createdAt: '14:15' },
-    { id: 'dm_2', senderId: 'user_self', receiverId: 'user_lin', content: '拍得很棒！色调很有胶片质感。', createdAt: '14:18', isSelf: true },
-    { id: 'dm_3', senderId: 'user_lin', receiverId: 'user_self', content: '下次去那家复古胶片馆可以一起呀！', createdAt: '14:20' }
-  ]
-})
+const rememberForAccount = (accountId: string, type: 'comment' | 'like' | 'follow' | 'relationship' | 'important-event', summary: string, sourceEventId: string, importance = 4, circleId?: string) => {
+  const account = snapshot.value.accounts.find(item => item.id === accountId)
+  const subject = account ? snapshot.value.subjects.find(item => item.id === account.subjectId) : undefined
+  if (!account || subject?.kind !== 'character') return
+  snapshot.value.memories.push({ id: id('memory'), subjectId: subject.id, accountId, circleId, type, summary: summary.slice(0, 500), visibility: 'restricted', sourceEventIds: [sourceEventId], importance, createdAt: Date.now() })
+}
 
 export function useForum() {
-  // 当前全局路由栈（支持单 App 内部无刷新导航）
-  // tab: 'feed' | 'discover' | 'messages' | 'profile'
-  const activeTab = ref<'feed' | 'discover' | 'messages' | 'profile'>('feed')
-  
-  // 页面堆栈机制（支持进入 帖子详情、查看他人主页、私聊页面、搜索页、发布页等）
-  type ForumRoute = 
-    | { name: 'tab' }
-    | { name: 'post_detail'; postId: string }
-    | { name: 'user_profile'; userId: string }
-    | { name: 'chat_room'; userId: string }
-    | { name: 'search' }
-    | { name: 'publish' }
-
-  const routeStack = ref<ForumRoute[]>([{ name: 'tab' }])
+  void ensureLoaded()
   const currentRoute = computed(() => routeStack.value[routeStack.value.length - 1])
+  const currentAccount = computed(() => snapshot.value.accounts.find(account => account.id === snapshot.value.settings.activeAccountId) || null)
+  const currentForumUser = computed(() => currentAccount.value ? accountToUser(currentAccount.value) : null)
+  const forumUsers = computed(() => snapshot.value.accounts.filter(account => canAccountAppear(snapshot.value, account)).map(accountToUser))
+  const circles = computed(() => snapshot.value.circles)
+  const currentCircle = computed(() => { const route = currentRoute.value; return route.name === 'circle' ? circles.value.find(circle => circle.id === route.circleId) || null : null })
+  const posts = computed(() => {
+    if (!currentAccount.value) return []
+    return rankForumFeed(snapshot.value, currentAccount.value.id, feedMode.value).map(hydratePost)
+  })
+  const circlePosts = computed(() => currentCircle.value && currentAccount.value ? visiblePostsFor(snapshot.value, currentAccount.value.id, currentCircle.value.id).map(hydratePost) : [])
+  const commentsByPost = computed(() => snapshot.value.comments.reduce<Record<string, ForumComment[]>>((all, comment) => {
+    const account = snapshot.value.accounts.find(item => item.id === comment.authorAccountId)
+    if (!account || !canAccountAppear(snapshot.value, account)) return all
+    const hydrated = { ...comment, author: accountToUser(account) }
+    ;(all[comment.postId] ||= []).push(hydrated)
+    return all
+  }, {}))
+  const conversations = computed(() => snapshot.value.conversations.filter(item => item.participantAccountIds.includes(snapshot.value.settings.activeAccountId)).map(item => ({ ...item, user: accountToUser(snapshot.value.accounts.find(account => account.id === item.user.id) || item.user) })))
+  const notifications = computed(() => snapshot.value.notifications.filter(item => item.accountId === snapshot.value.settings.activeAccountId).sort((a, b) => b.createdAt - a.createdAt))
 
-  const pushRoute = (route: ForumRoute) => {
-    routeStack.value.push(route)
+  const pushRoute = (route: ForumRoute) => routeStack.value.push(route)
+  const popRoute = () => { if (routeStack.value.length > 1) routeStack.value.pop() }
+  const resetToTab = (tab: ForumTab) => { activeTab.value = tab; routeStack.value = [{ name: 'tab' }] }
+
+  const completeOnboarding = (input: { name: string; handle: string; bio?: string; avatar?: string; defaultSquare: boolean; generateStrangers: boolean }) => {
+    const createdAt = Date.now()
+    const subjectId = id('subject_user')
+    const accountId = id('forum_account')
+    const personaId = id('forum_persona')
+    snapshot.value.subjects.push({ id: subjectId, kind: 'user', displayName: input.name.trim(), persona: input.bio || '', createdAt, updatedAt: createdAt })
+    snapshot.value.accounts.push({ id: accountId, subjectId, kind: 'main', name: input.name.trim(), handle: normalizeHandle(input.handle), avatar: input.avatar || '', bio: input.bio || '', privacy: 'public', searchable: true, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: true, showCircles: true, joinedAt: createdAt, personaId, circleIds: [] })
+    snapshot.value.personas.push({ id: personaId, accountId, identity: input.bio || '', interests: [], boundaries: [], socialInitiative: 50, activeHours: [], habits: {}, lockedFields: [] })
+    snapshot.value.settings = { ...snapshot.value.settings, initialized: true, activeAccountId: accountId, defaultSquareEnabled: input.defaultSquare, generateStrangers: input.generateStrangers, manualGenerationOnly: false, autonomousCommunity: true, updatedAt: createdAt }
+    if (input.defaultSquare) createDefaultSquare(accountId)
+    setTimeout(() => { void generateNewContent() }, 0)
   }
 
-  const popRoute = () => {
-    if (routeStack.value.length > 1) {
-      routeStack.value.pop()
+  const updateForumProfile = (input: Pick<ForumAccount, 'name' | 'handle' | 'avatar'> & Partial<Pick<ForumAccount, 'bio' | 'location'>>) => {
+    const account = currentAccount.value
+    if (!account) return false
+    const name = input.name.trim()
+    const handle = normalizeHandle(input.handle)
+    if (!name || snapshot.value.accounts.some(item => item.id !== account.id && item.handle.toLowerCase() === handle.toLowerCase())) return false
+    account.name = name
+    account.handle = handle
+    account.avatar = input.avatar || ''
+    account.bio = input.bio?.trim() || ''
+    account.location = input.location?.trim() || ''
+    if (account.kind === 'main') {
+      const subject = snapshot.value.subjects.find(item => item.id === account.subjectId && item.kind === 'user')
+      if (subject) {
+        subject.displayName = name
+        subject.persona = account.bio
+        subject.updatedAt = Date.now()
+      }
     }
+    return true
   }
 
-  const resetToTab = (tabName: 'feed' | 'discover' | 'messages' | 'profile') => {
-    activeTab.value = tabName
-    routeStack.value = [{ name: 'tab' }]
+  const createDefaultSquare = (accountId: string) => {
+    const circleId = id('circle')
+    snapshot.value.circles.push({ id: circleId, name: '公共广场', avatar: '广', description: '开放的公共交流空间', contentScope: '不限定单一主题，允许普通日常、临时感受、分享和公开讨论；避免把它写成公告栏或人设展示区。', rules: ['尊重彼此，内容由发布者负责'], tags: ['日常'], creatorAccountId: accountId, administratorAccountIds: [accountId], memberCount: 1, activityScore: 0, searchable: true, isPublic: true, joinMode: 'public', contentPermissions: ['text', 'single-image', 'multi-image', 'long-article', 'quote', 'repost', 'poll', 'qa', 'voice', 'short-video', 'link', 'location', 'anonymous', 'lottery', 'event'], anonymousMode: 'per-post', adminCanResolveAnonymous: false, allowPoll: true, allowLottery: true, mediaPermissions: ['image', 'voice', 'short-video', 'music'], participantSubjectIds: [], aiPopulation: 0, aiActivity: 'normal', createdAt: Date.now() })
+    snapshot.value.memberships.push({ id: id('member'), circleId, accountId, role: 'owner', joinedAt: Date.now() })
+    const account = snapshot.value.accounts.find(item => item.id === accountId)
+    if (account) account.circleIds.push(circleId)
   }
 
-  // 帖子交互点赞
-  const toggleLikePost = (postId: string) => {
-    const post = mockForumPosts.value.find(p => p.id === postId)
-    if (post) {
-      post.isLiked = !post.isLiked
-      post.likeCount += post.isLiked ? 1 : -1
+  const addForumAccount = (input: { subjectId?: string; name: string; handle: string; kind: ForumAccountKind; privacy?: ForumAccount['privacy']; bio?: string }) => {
+    let subjectId = input.subjectId
+    if (!subjectId) {
+      subjectId = currentAccount.value?.subjectId || id('subject_user')
+      if (!snapshot.value.subjects.some(subject => subject.id === subjectId)) snapshot.value.subjects.push({ id: subjectId, kind: 'user', displayName: input.name, persona: input.bio || '', createdAt: Date.now(), updatedAt: Date.now() })
     }
+    const account: ForumAccount = { id: id('forum_account'), subjectId, kind: input.kind, name: input.name.trim(), handle: uniqueHandle(input.handle), avatar: '', bio: input.bio || '', privacy: input.privacy || 'normal', searchable: input.privacy !== 'hidden', acceptsFollow: true, followRequiresApproval: input.privacy === 'private', acceptsDm: input.privacy === 'private' ? 'following' : 'all', showInRecommendations: input.privacy !== 'hidden', showOnline: true, showCircles: true, joinedAt: Date.now(), circleIds: [] }
+    snapshot.value.accounts.push(account)
+    const link = snapshot.value.accountLinks.find(item => item.subjectId === subjectId)
+    if (link) link.accountIds.push(account.id)
+    else snapshot.value.accountLinks.push({ id: id('account_link'), subjectId, accountIds: snapshot.value.accounts.filter(item => item.subjectId === subjectId).map(item => item.id), share: { persona: true, appearance: true, worldbook: true, memory: false, interests: false, 'circle-relations': false, 'dm-memory': false, location: false, 'ip-location': false } })
+    return account
   }
 
-  // 帖子收藏
-  const toggleBookmarkPost = (postId: string) => {
-    const post = mockForumPosts.value.find(p => p.id === postId)
-    if (post) {
-      post.isBookmarked = !post.isBookmarked
-    }
+  const switchAccount = (accountId: string) => {
+    if (!snapshot.value.accounts.some(account => account.id === accountId && !account.isArchived)) return
+    snapshot.value.settings.activeAccountId = accountId
+    resetToTab('feed')
   }
 
-  // 关注/取消关注用户
-  const toggleFollowUser = (userId: string) => {
-    const user = mockForumUsers[userId] || (currentForumUser.value.id === userId ? currentForumUser.value : null)
-    if (user) {
-      user.isFollowing = !user.isFollowing
-      user.followersCount += user.isFollowing ? 1 : -1
-    }
+  const listParticipantCandidates = () => {
+    refreshCharacterDirectoryFromAllAccounts()
+    const existingBySource = new Map(snapshot.value.subjects.filter(subject => subject.kind === 'character').map(subject => [subject.sourceId, subject]))
+    return listCharacterDirectory().map(entry => ({ ...entry, subject: existingBySource.get(entry.entityId), enabled: existingBySource.get(entry.entityId) ? snapshot.value.participantPolicies.find(policy => policy.subjectId === existingBySource.get(entry.entityId)?.id)?.enabled === true : false }))
   }
 
-  // 发布新帖子
-  const publishNewPost = (postData: Partial<ForumPost>) => {
-    const newPost: ForumPost = {
-      id: `post_${Date.now()}`,
-      author: currentForumUser.value,
-      type: postData.type || 'text',
-      content: postData.content || '',
-      topics: postData.topics || [],
-      media: postData.media || [],
-      likeCount: 0,
-      commentCount: 0,
-      shareCount: 0,
-      viewCount: 1,
-      isLiked: false,
-      isBookmarked: false,
-      createdAt: '刚刚',
-      ...postData
+  const setCharacterParticipation = (entry: ReturnType<typeof listCharacterDirectory>[number], enabled: boolean) => {
+    let subject = snapshot.value.subjects.find(item => item.kind === 'character' && item.sourceId === entry.entityId)
+    if (!subject) {
+      subject = { id: id('subject_character'), kind: 'character', sourceId: entry.entityId, sourceAccountId: entry.ownerAccountId, displayName: entry.name, persona: entry.persona, avatarKey: entry.avatarKey, createdAt: Date.now(), updatedAt: Date.now() }
+      snapshot.value.subjects.push(subject)
     }
-    mockForumPosts.value.unshift(newPost)
-    currentForumUser.value.postsCount += 1
+    let policy = snapshot.value.participantPolicies.find(item => item.subjectId === subject?.id)
+    if (!policy) { policy = defaultPolicy(subject.id, enabled); snapshot.value.participantPolicies.push(policy) }
+    policy.enabled = enabled
+    policy.updatedAt = Date.now()
+    if (!snapshot.value.bridgePolicies.some(item => item.subjectId === subject?.id)) snapshot.value.bridgePolicies.push(defaultBridge(subject.id))
+    if (enabled && !snapshot.value.accounts.some(item => item.subjectId === subject?.id)) addForumAccount({ subjectId: subject.id, name: entry.socialProfile?.nickname || entry.name, handle: entry.socialProfile?.socialId || entry.name, kind: 'main', bio: entry.socialProfile?.signature || '' })
+  }
+
+  const updateParticipantPolicy = (subjectId: string, patch: Partial<ForumParticipantPolicy>) => {
+    let policy = snapshot.value.participantPolicies.find(item => item.subjectId === subjectId)
+    if (!policy) { policy = defaultPolicy(subjectId); snapshot.value.participantPolicies.push(policy) }
+    Object.assign(policy, patch, { updatedAt: Date.now() })
+  }
+
+  const updateBridgePolicy = (subjectId: string, patch: Partial<ForumBridgePolicy>) => {
+    let policy = snapshot.value.bridgePolicies.find(item => item.subjectId === subjectId)
+    if (!policy) { policy = defaultBridge(subjectId); snapshot.value.bridgePolicies.push(policy) }
+    Object.assign(policy, patch, { updatedAt: Date.now() })
+  }
+
+  const createCircle = (input: Pick<ForumCircle, 'name' | 'description' | 'contentScope'> & Partial<ForumCircle>) => {
+    if (!currentAccount.value) throw new Error('请先创建论坛账号')
+    const circle: ForumCircle = { id: id('circle'), name: input.name.trim(), avatar: input.avatar || input.name.trim().slice(0, 1), description: input.description.trim(), contentScope: input.contentScope.trim(), announcement: input.announcement || '', rules: input.rules || [], tags: input.tags || [], creatorAccountId: currentAccount.value.id, administratorAccountIds: [currentAccount.value.id], memberCount: 1, activityScore: 0, searchable: input.searchable ?? true, isPublic: input.isPublic ?? true, joinMode: input.joinMode || 'public', contentPermissions: input.contentPermissions || ['text', 'single-image', 'multi-image', 'long-article', 'quote', 'repost', 'poll', 'qa', 'voice', 'short-video', 'link', 'location', 'anonymous', 'lottery', 'event'], anonymousMode: input.anonymousMode || 'per-post', adminCanResolveAnonymous: input.adminCanResolveAnonymous ?? false, allowPoll: input.allowPoll ?? true, allowLottery: input.allowLottery ?? true, mediaPermissions: input.mediaPermissions || ['image', 'voice', 'short-video'], participantSubjectIds: input.participantSubjectIds || [], aiPopulation: input.aiPopulation || 0, aiActivity: input.aiActivity || 'normal', createdAt: Date.now() }
+    snapshot.value.circles.push(circle)
+    snapshot.value.memberships.push({ id: id('member'), circleId: circle.id, accountId: currentAccount.value.id, role: 'owner', joinedAt: Date.now() })
+    currentAccount.value.circleIds.push(circle.id)
+    return circle
+  }
+
+  const joinCircle = (circleId: string) => {
+    if (!currentAccount.value || snapshot.value.memberships.some(item => item.circleId === circleId && item.accountId === currentAccount.value?.id)) return
+    const circle = snapshot.value.circles.find(item => item.id === circleId)
+    if (!circle) return
+    const role = ['application', 'invite', 'password', 'specified-account', 'specified-character'].includes(circle.joinMode) ? 'pending' : 'member'
+    snapshot.value.memberships.push({ id: id('member'), circleId, accountId: currentAccount.value.id, role, joinedAt: Date.now() })
+    if (role === 'member') { circle.memberCount += 1; currentAccount.value.circleIds.push(circleId) }
+  }
+
+  const bindCircleWorldBooks = (circleId: string, bookIds: string[], groupIds: string[] = [], entryIds: string[] = []) => {
+    const circle = snapshot.value.circles.find(item => item.id === circleId)
+    if (!circle) return
+    let binding = snapshot.value.worldBindings.find(item => item.circleId === circleId)
+    if (!binding) { binding = { id: id('world_binding'), circleId, bookIds: [], groupIds: [], entryIds: [], weights: {}, priorities: [], followUpdates: false, lastSnapshots: {} }; snapshot.value.worldBindings.push(binding); circle.worldBindingId = binding.id }
+    Object.assign(binding, { bookIds, groupIds, entryIds })
+  }
+
+  const publishNewPost = (postData: Partial<ForumPost> & { pollOptions?: string[]; lottery?: Partial<ForumLottery> }) => {
+    if (!currentForumUser.value) return
+    const circle = postData.circleId ? snapshot.value.circles.find(item => item.id === postData.circleId) : undefined
+    let anonymousIdentityId: string | undefined
+    if ((postData.type === 'anonymous' || postData.anonymousIdentityId) && circle && circle.anonymousMode !== 'disabled') {
+      const identity = { id: id('anonymous'), circleId: circle.id, ownerAccountId: currentForumUser.value.id, anonymousCode: String(Math.floor(100 + Math.random() * 900)), rotationMode: circle.anonymousMode as 'per-post' | 'circle-fixed' | 'daily', adminCanResolve: circle.adminCanResolveAnonymous }
+      snapshot.value.anonymousIdentities.push(identity); anonymousIdentityId = identity.id
+    }
+    const post: ForumPost = { id: id('post'), author: currentForumUser.value, authorAccountId: currentForumUser.value.id, circleId: postData.circleId, type: postData.type || 'text', content: postData.content || '', title: postData.title, topics: postData.topics || [], media: postData.media || [], visibility: postData.visibility || (postData.circleId ? 'circle' : 'public'), anonymousIdentityId, likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 1, effectiveViewCount: 1, createdAt: Date.now(), source: 'user' }
+    if (post.type === 'poll' && postData.pollOptions?.length) { const poll: ForumPoll = { id: id('poll'), postId: post.id, multiple: false, anonymous: true, changeable: false, resultsVisible: 'immediate', options: postData.pollOptions.filter(Boolean).map(label => ({ id: id('option'), label, votes: 0, voterAccountIds: [] })) }; snapshot.value.polls.push(poll); post.pollId = poll.id }
+    if (post.type === 'lottery' && postData.lottery?.prize) { const lottery: ForumLottery = { id: id('lottery'), postId: post.id, prize: postData.lottery.prize, winnerCount: postData.lottery.winnerCount || 1, drawAt: postData.lottery.drawAt || Date.now(), conditions: postData.lottery.conditions || ['none'], anonymous: postData.lottery.anonymous ?? false }; snapshot.value.lotteries.push(lottery); post.lotteryId = lottery.id }
+    snapshot.value.posts.unshift(post)
+    snapshot.value.events.push({ id: id('event'), type: 'post-created', actorAccountId: post.authorAccountId, targetAccountIds: [], circleId: post.circleId, entityId: post.id, payload: {}, createdAt: Date.now() })
+    queuePostReactions(snapshot.value, post)
     popRoute()
   }
 
-  // 发送评论
   const addComment = (postId: string, content: string, replyTo?: { id: string; name: string }) => {
-    if (!mockForumComments.value[postId]) {
-      mockForumComments.value[postId] = []
+    if (!currentForumUser.value || !content.trim()) return
+    snapshot.value.comments.unshift({ id: id('comment'), postId, author: currentForumUser.value, authorAccountId: currentForumUser.value.id, content: content.trim(), likeCount: 0, createdAt: Date.now(), replyToUser: replyTo })
+    const post = snapshot.value.posts.find(item => item.id === postId)
+    if (post) {
+      post.commentCount += 1
+      const eventId = id('event')
+      snapshot.value.events.push({ id: eventId, type: 'user-comment', actorAccountId: currentForumUser.value.id, targetAccountIds: [post.authorAccountId], circleId: post.circleId, entityId: post.id, payload: { content: content.trim() }, createdAt: Date.now() })
+      rememberForAccount(post.authorAccountId, 'comment', `${currentForumUser.value.name}评论了自己的帖子：${content.trim()}`, eventId, 5, post.circleId)
     }
-    const newComment: ForumComment = {
-      id: `c_${Date.now()}`,
-      postId,
-      author: currentForumUser.value,
-      content,
-      likeCount: 0,
-      isLiked: false,
-      createdAt: '刚刚',
-      replyToUser: replyTo
-    }
-    mockForumComments.value[postId].unshift(newComment)
-    const post = mockForumPosts.value.find(p => p.id === postId)
-    if (post) post.commentCount += 1
   }
 
-  // 发送私信
-  const sendDirectMessage = (targetUserId: string, content: string) => {
-    if (!mockForumDirectMessages.value[targetUserId]) {
-      mockForumDirectMessages.value[targetUserId] = []
+  const toggleLikePost = (postId: string) => toggleEvent('post-like', postId, count => {
+    const post = snapshot.value.posts.find(item => item.id === postId); if (!post) return
+    post.likeCount = Math.max(0, post.likeCount + count)
+    if (count > 0 && currentAccount.value) {
+      const eventId = id('event')
+      snapshot.value.events.push({ id: eventId, type: 'user-like', actorAccountId: currentAccount.value.id, targetAccountIds: [post.authorAccountId], circleId: post.circleId, entityId: post.id, payload: {}, createdAt: Date.now() })
+      rememberForAccount(post.authorAccountId, 'like', `${currentAccount.value.name}赞了自己的帖子`, eventId, 2, post.circleId)
     }
-    const msg: ForumDirectMessage = {
-      id: `dm_${Date.now()}`,
-      senderId: currentForumUser.value.id,
-      receiverId: targetUserId,
-      content,
-      createdAt: '刚刚',
-      isSelf: true
-    }
-    mockForumDirectMessages.value[targetUserId].push(msg)
+  })
+  const toggleBookmarkPost = (postId: string) => toggleEvent('post-bookmark', postId)
+  const deletePosts = (postIds: string[]) => {
+    const selectedPostIds = new Set(postIds.filter(Boolean))
+    if (!selectedPostIds.size) return 0
 
-    // 更新或创建对话列表项
-    const conv = mockForumConversations.value.find(c => c.user.id === targetUserId)
-    if (conv) {
-      conv.lastMessage = content
-      conv.lastMessageTime = '刚刚'
-    } else {
-      const targetUser = mockForumUsers[targetUserId]
-      if (targetUser) {
-        mockForumConversations.value.unshift({
-          id: `conv_${Date.now()}`,
-          user: targetUser,
-          lastMessage: content,
-          lastMessageTime: '刚刚',
-          unreadCount: 0
-        })
-      }
+    const selectedLotteryIds = new Set(snapshot.value.lotteries.filter(item => selectedPostIds.has(item.postId)).map(item => item.id))
+    snapshot.value.posts = snapshot.value.posts.filter(item => !selectedPostIds.has(item.id))
+    snapshot.value.comments = snapshot.value.comments.filter(item => !selectedPostIds.has(item.postId))
+    snapshot.value.polls = snapshot.value.polls.filter(item => !selectedPostIds.has(item.postId))
+    snapshot.value.lotteries = snapshot.value.lotteries.filter(item => !selectedPostIds.has(item.postId))
+    snapshot.value.lotteryEntries = snapshot.value.lotteryEntries.filter(item => !selectedLotteryIds.has(item.lotteryId))
+    snapshot.value.lotteryResults = snapshot.value.lotteryResults.filter(item => !selectedLotteryIds.has(item.lotteryId))
+    snapshot.value.events = snapshot.value.events.filter(item => !item.entityId || !selectedPostIds.has(item.entityId))
+    snapshot.value.notifications = snapshot.value.notifications.filter(item => !item.entityId || !selectedPostIds.has(item.entityId))
+    snapshot.value.visibilityRules.forEach(rule => {
+      if (rule.postIds) rule.postIds = rule.postIds.filter(postId => !selectedPostIds.has(postId))
+    })
+    return selectedPostIds.size
+  }
+  const toggleEvent = (type: string, entityId: string, update?: (delta: number) => void) => {
+    if (!currentAccount.value) return
+    const index = snapshot.value.events.findIndex(event => event.type === type && event.actorAccountId === currentAccount.value?.id && event.entityId === entityId)
+    if (index >= 0) { snapshot.value.events.splice(index, 1); update?.(-1) }
+    else { snapshot.value.events.push({ id: id('event'), type, actorAccountId: currentAccount.value.id, targetAccountIds: [], entityId, payload: {}, createdAt: Date.now() }); update?.(1) }
+  }
+
+  const toggleFollowUser = (targetId: string) => {
+    if (!currentAccount.value || targetId === currentAccount.value.id) return
+    const index = snapshot.value.relationships.findIndex(item => item.type === 'follow' && item.fromAccountId === currentAccount.value?.id && item.toAccountId === targetId)
+    if (index >= 0) snapshot.value.relationships.splice(index, 1)
+    else {
+      snapshot.value.relationships.push({ id: id('relationship'), fromAccountId: currentAccount.value.id, toAccountId: targetId, type: 'follow', createdAt: Date.now() })
+      const eventId = id('event')
+      snapshot.value.events.push({ id: eventId, type: 'user-follow', actorAccountId: currentAccount.value.id, targetAccountIds: [targetId], payload: {}, createdAt: Date.now() })
+      rememberForAccount(targetId, 'follow', `${currentAccount.value.name}开始关注自己`, eventId, 5)
     }
+  }
+
+  const sendDirectMessage = (targetId: string, content: string, media?: ForumMediaItem) => {
+    if (!currentAccount.value || (!content.trim() && !media)) return
+    let conversation = snapshot.value.conversations.find(item => item.kind !== 'group' && item.participantAccountIds.includes(currentAccount.value!.id) && item.participantAccountIds.includes(targetId))
+    const target = snapshot.value.accounts.find(item => item.id === targetId)
+    if (!target) return
+    if (!conversation) { conversation = { id: id('conversation'), kind: 'direct', user: accountToUser(target), participantAccountIds: [currentAccount.value.id, targetId], lastMessage: '', lastMessageTime: '', unreadCount: 0, requestState: target.acceptsDm === 'all' ? 'accepted' : 'pending' }; snapshot.value.conversations.unshift(conversation) }
+    const message: ForumDirectMessage = { id: id('dm'), conversationId: conversation.id, senderId: currentAccount.value.id, receiverId: targetId, content: content.trim(), type: media?.type === 'voice' ? 'voice' : media ? 'image' : 'text', mediaId: media?.id, mediaUrl: media?.url, createdAt: Date.now(), isSelf: true }
+    snapshot.value.messages.push(message); conversation.lastMessage = content.trim() || (media?.type === 'voice' ? '[语音]' : '[图片]'); conversation.lastMessageTime = nowLabel()
+  }
+
+  const createForumGroup = (name: string, memberAccountIds: string[], temporary = false) => {
+    if (!currentAccount.value || !name.trim()) return null
+    const groupId = id('forum_group')
+    const members = [...new Set([currentAccount.value.id, ...memberAccountIds])].filter(accountId => snapshot.value.accounts.some(account => account.id === accountId))
+    const group = { id: groupId, name: name.trim(), avatar: name.trim().slice(0, 1), ownerAccountId: currentAccount.value.id, administratorAccountIds: [currentAccount.value.id], temporary, createdAt: Date.now() }
+    snapshot.value.groups.push(group)
+    members.forEach(accountId => snapshot.value.groupMembers.push({ id: id('group_member'), groupId, accountId, role: accountId === currentAccount.value?.id ? 'owner' : 'member', joinedAt: Date.now() }))
+    const user = { ...accountToUser(currentAccount.value), id: `group:${groupId}`, name: group.name, handle: 'forum-group', avatar: '', bio: `${members.length} 位成员` }
+    snapshot.value.conversations.unshift({ id: id('conversation'), kind: 'group', user, participantAccountIds: members, groupId, lastMessage: '群聊已创建', lastMessageTime: nowLabel(), unreadCount: 0, requestState: 'accepted' })
+    return group
+  }
+
+  const sendGroupMessage = (groupId: string, content: string, media?: ForumMediaItem) => {
+    if (!currentAccount.value || (!content.trim() && !media)) return
+    const conversation = snapshot.value.conversations.find(item => item.groupId === groupId)
+    if (!conversation || !conversation.participantAccountIds.includes(currentAccount.value.id)) return
+    snapshot.value.messages.push({ id: id('group_message'), conversationId: conversation.id, senderId: currentAccount.value.id, content: content.trim(), type: media?.type === 'voice' ? 'voice' : media ? 'image' : 'text', mediaId: media?.id, mediaUrl: media?.url, createdAt: Date.now(), isSelf: true })
+    conversation.lastMessage = content.trim() || (media?.type === 'voice' ? '[语音]' : '[图片]')
+    conversation.lastMessageTime = nowLabel()
+  }
+
+  const conversationMessages = (conversationId: string) => snapshot.value.messages.filter(message => message.conversationId === conversationId)
+  const addBlock = (targetAccountId: string, effects: ForumBlockRule['effects'] = ['posts', 'search', 'follow', 'dm', 'comment', 'mention', 'group-invite', 'recommendation', 'profile']) => { if (currentAccount.value) snapshot.value.blocks.push({ id: id('block'), ownerAccountId: currentAccount.value.id, targetAccountId, effects, createdAt: Date.now() }) }
+  const addMute = (rule: Omit<ForumMuteRule, 'id' | 'ownerAccountId'>) => { if (currentAccount.value) snapshot.value.mutes.push({ id: id('mute'), ownerAccountId: currentAccount.value.id, ...rule }) }
+  const addVisibilityRule = (rule: Omit<ForumVisibilityRule, 'id' | 'ownerAccountId'>) => { if (currentAccount.value) snapshot.value.visibilityRules.push({ id: id('visibility'), ownerAccountId: currentAccount.value.id, ...rule }) }
+
+  const votePoll = (pollId: string, optionId: string) => {
+    if (!currentAccount.value) return
+    const poll = snapshot.value.polls.find(item => item.id === pollId); if (!poll) return
+    const previous = poll.options.find(option => option.voterAccountIds.includes(currentAccount.value!.id))
+    if (previous && (!poll.changeable || previous.id === optionId)) return
+    if (previous) { previous.voterAccountIds = previous.voterAccountIds.filter(value => value !== currentAccount.value!.id); previous.votes -= 1 }
+    const option = poll.options.find(item => item.id === optionId); if (option) { option.voterAccountIds.push(currentAccount.value.id); option.votes += 1 }
+  }
+
+  const enterLottery = (lotteryId: string) => { if (currentAccount.value && !snapshot.value.lotteryEntries.some(item => item.lotteryId === lotteryId && item.accountId === currentAccount.value?.id)) snapshot.value.lotteryEntries.push({ id: id('lottery_entry'), lotteryId, accountId: currentAccount.value.id, enteredAt: Date.now() }) }
+  const drawLottery = (lotteryId: string) => {
+    const lottery = snapshot.value.lotteries.find(item => item.id === lotteryId); if (!lottery || lottery.drawnAt) return null
+    const entrants = snapshot.value.lotteryEntries.filter(item => item.lotteryId === lotteryId).map(item => item.accountId)
+    const randomSeed = crypto.getRandomValues(new Uint32Array(1))[0].toString(36)
+    const winners = entrants.map(value => ({ value, score: hash(`${randomSeed}:${value}`) })).sort((a, b) => a.score - b.score).slice(0, lottery.winnerCount).map(item => item.value)
+    const result: ForumLotteryResult = { id: id('lottery_result'), lotteryId, winnerAccountIds: winners, drawnAt: Date.now(), randomSeed }
+    snapshot.value.lotteryResults.push(result); lottery.drawnAt = result.drawnAt
+    return result
+  }
+
+  const importMediaFile = async (file: File, type: ForumMediaItem['type'] = 'image') => storeForumMedia(file, { type, mimeType: file.type, alt: file.name })
+  const generateImageMedia = (prompt: string) => generateForumImage(prompt, snapshot.value.settings.preferredImageProvider || 'gpt')
+  const generateVoiceMedia = (text: string) => generateForumVoice(text)
+  const buildLightVideo = (image: ForumMediaItem, voice?: ForumMediaItem, subtitle = '') => createLightShortVideo(image, voice, subtitle)
+
+  const generateNewContent = async (circleId?: string, refreshWorldBookIds?: string[]) => {
+    if (!currentAccount.value || busy.value) return
+    busy.value = true; error.value = ''
+    try {
+      syncForumCharacters(snapshot.value)
+      await replenishAmbientPopulation(snapshot.value, currentAccount.value.id, circleId)
+      const result = await advanceForumWorld(snapshot.value, currentAccount.value.id, { force: true, circleId })
+      if (!result.posts && !result.actions) throw new Error(circleId ? '这次圈内没有居民产生新的公开内容，请稍后再看看。' : '社区已经是最新状态，暂时没有新的公开动态。')
+    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+    finally { busy.value = false }
+  }
+
+  const generatePostComments = async (postId: string) => {
+    if (!currentAccount.value || busy.value) return
+    const post = snapshot.value.posts.find(item => item.id === postId); if (!post) return
+    const circle = post.circleId ? snapshot.value.circles.find(item => item.id === post.circleId) : undefined
+    const eligible = snapshot.value.accounts.filter(account => account.id !== currentAccount.value?.id && canAccountAppear(snapshot.value, account, circle)).slice(0, snapshot.value.settings.aiBatchSize)
+    if (!eligible.length) { error.value = '没有允许参与当前讨论的角色或陌生网友。'; return }
+    busy.value = true; error.value = ''
+    try {
+      for (const account of shuffle(eligible).slice(0, 3)) {
+        const generated = await requestForumJson<{ willComment?: boolean; content?: string }>(snapshot.value, { viewerAccountId: currentAccount.value.id, circleId: post.circleId, postId, involvedAccountIds: [account.id] }, 'forum-comment', '这个居民刚刚看到了帖子。先判断是否真的有话想说；沉默完全正常。决定评论时只写符合本人习惯的一条自然评论，不总结原帖，不使用客服式赞美。', '{"willComment":true,"content":"评论正文"}')
+        const content = String(generated.content || '').trim().slice(0, 500)
+        if (generated.willComment !== false && content) { snapshot.value.comments.push({ id: id('comment'), postId, author: accountToUser(account), authorAccountId: account.id, content, likeCount: 0, createdAt: Date.now() }); post.commentCount += 1 }
+      }
+    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) } finally { busy.value = false }
+  }
+
+  const generateConversationReply = async (conversationId: string) => {
+    if (!currentAccount.value || busy.value) return
+    const conversation = snapshot.value.conversations.find(item => item.id === conversationId); if (!conversation) return
+    const candidates = conversation.participantAccountIds.filter(accountId => accountId !== currentAccount.value?.id).filter(accountId => {
+      const account = snapshot.value.accounts.find(item => item.id === accountId); return account ? canAccountAppear(snapshot.value, account) : false
+    })
+    if (!candidates.length) { error.value = '当前对话没有可生成回复的参与者。'; return }
+    busy.value = true; error.value = ''
+    try {
+      const recent = snapshot.value.messages.filter(item => item.conversationId === conversationId).slice(-20).map(item => `${item.senderId}: ${item.content}`).join('\n')
+      const purpose = conversation.kind === 'group' ? 'forum-group' : 'forum-dm'
+      for (const senderId of shuffle(candidates).slice(0, conversation.kind === 'group' ? 3 : 1)) {
+        const generated = await requestForumJson<{ willReply?: boolean; content?: string }>(snapshot.value, { viewerAccountId: currentAccount.value.id, involvedAccountIds: [senderId] }, purpose, `只替 involvedAccounts 中这一个居民判断是否会回复近期对话。允许不回复；回复时保持本人的聊天习惯，不替其他人发言。\n近期对话：\n${recent}`, '{"willReply":true,"content":"回复正文"}')
+        const content = String(generated.content || '').trim().slice(0, 1000)
+        if (generated.willReply === false || !content) continue
+        snapshot.value.messages.push({ id: id('generated_message'), conversationId, senderId, receiverId: conversation.kind === 'group' ? undefined : currentAccount.value.id, content, type: 'text', createdAt: Date.now(), isSelf: false })
+        conversation.lastMessage = content; conversation.lastMessageTime = nowLabel()
+      }
+    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) } finally { busy.value = false }
   }
 
   return {
-    activeTab,
-    routeStack,
-    currentRoute,
-    pushRoute,
-    popRoute,
-    resetToTab,
-    currentForumUser,
-    mockForumUsers,
-    mockForumTopics,
-    mockForumPosts,
-    mockForumComments,
-    mockForumConversations,
-    mockForumDirectMessages,
-    toggleLikePost,
-    toggleBookmarkPost,
-    toggleFollowUser,
-    publishNewPost,
-    addComment,
-    sendDirectMessage
+    snapshot, ready, busy, error, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications,
+    pushRoute, popRoute, resetToTab, completeOnboarding, updateForumProfile, addForumAccount, switchAccount, listParticipantCandidates, setCharacterParticipation, updateParticipantPolicy, updateBridgePolicy, createCircle, joinCircle, bindCircleWorldBooks,
+    publishNewPost, addComment, toggleLikePost, toggleBookmarkPost, deletePosts, toggleFollowUser, sendDirectMessage, createForumGroup, sendGroupMessage, conversationMessages, addBlock, addMute, addVisibilityRule, votePoll, enterLottery, drawLottery, importMediaFile, generateImageMedia, generateVoiceMedia, buildLightVideo, generateNewContent, generatePostComments, generateConversationReply,
+    recordFeedShown: (posts: ForumPost[], source: ForumFeedKind | 'circle') => currentAccount.value && recordFeedExposure(snapshot.value, currentAccount.value.id, posts, source),
+    markPostOpened: (postId: string) => currentAccount.value && markPostOpened(snapshot.value, currentAccount.value.id, postId)
   }
 }
+
+const normalizeHandle = (value: string) => value.trim().replace(/^@/, '').replace(/\s+/g, '_').slice(0, 32) || `nrj_${Date.now().toString(36)}`
+const uniqueHandle = (value: string) => {
+  const base = normalizeHandle(value)
+  let result = base; let index = 1
+  while (snapshot.value.accounts.some(account => account.handle.toLowerCase() === result.toLowerCase())) result = `${base}_${index++}`
+  return result
+}
+const hash = (value: string) => Array.from(value).reduce((score, char) => ((score << 5) - score + char.charCodeAt(0)) | 0, 0) >>> 0
+const shuffle = <T>(values: T[]) => {
+  const result = [...values]
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1))
+    ;[result[index], result[target]] = [result[target], result[index]]
+  }
+  return result
+}
+const postSignature = (value: unknown) => String(value || '').trim().toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '').slice(0, 120)

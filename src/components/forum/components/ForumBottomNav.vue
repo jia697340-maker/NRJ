@@ -2,7 +2,7 @@
 <script setup lang="ts">
 withDefaults(
   defineProps<{
-    activeTab: 'feed' | 'discover' | 'messages' | 'profile'
+    activeTab: 'feed' | 'circles' | 'messages' | 'profile'
     unreadMessagesCount?: number
   }>(),
   {
@@ -11,7 +11,7 @@ withDefaults(
 )
 
 const emit = defineEmits<{
-  (e: 'select-tab', tab: 'feed' | 'discover' | 'messages' | 'profile'): void
+  (e: 'select-tab', tab: 'feed' | 'circles' | 'messages' | 'profile'): void
   (e: 'click-publish'): void
 }>()
 </script>
@@ -35,15 +35,15 @@ const emit = defineEmits<{
     <!-- 2. 发现/探索 -->
     <button
       class="nav-tab-btn"
-      :class="{ 'is-active': activeTab === 'discover' }"
+      :class="{ 'is-active': activeTab === 'circles' }"
       type="button"
-      @click="emit('select-tab', 'discover')"
+      @click="emit('select-tab', 'circles')"
     >
       <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"></circle>
         <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
       </svg>
-      <span class="tab-label">发现</span>
+      <span class="tab-label">圈子</span>
     </button>
 
     <!-- 3. 居中快捷发布入口 -->

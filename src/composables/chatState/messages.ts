@@ -17,6 +17,7 @@ import { buildInnerThoughtContext } from '../../services/innerThoughtContext'
 import { formatTransferForContext } from '../../services/transferLifecycle'
 import { readGroupChats } from '../../services/groupChat'
 import { buildGroupToSingleBridgeContext } from '../../services/memoryBridge'
+import { buildForumToChatBridgeContext } from '../../services/forumMemoryBridge'
 import { useChatAuth } from '../useChatAuth'
 import { buildChatModelRulesPrompt } from '../../services/modelCommunication'
 import { formatIdentityDateTime, getConversationAdjustedTimestamp } from '../../services/conversationTime'
@@ -191,11 +192,12 @@ export const buildChatMessages = async (
     String(chat.characterEntityId || chat.id || ''),
     String(latestMemoryQuery)
   )
+  const forumMemoryBridge = await buildForumToChatBridgeContext(String(chat.characterEntityId || chat.id || ''))
   const baseSystemPrompt = buildSystemPrompt(chat, roleEmojisStr, callMode, offlineMeetMode, options.trace)
   const bilingualPrompt = buildBilingualPrompt(chat)
   const thoughtContext = buildInnerThoughtContext(chat, options.currentUserThought, options.currentTurnId, options.trace)
   const modelCommunicationRulesPrompt = buildChatModelRulesPrompt(chat)
-  const sysPrompt = baseSystemPrompt + bilingualPrompt + memoryPacket + groupMemoryBridge + thoughtContext + momentBehaviorPrompt + callTempSummaryContext + callModePrompt + modelCommunicationRulesPrompt
+  const sysPrompt = baseSystemPrompt + bilingualPrompt + memoryPacket + groupMemoryBridge + forumMemoryBridge + thoughtContext + momentBehaviorPrompt + callTempSummaryContext + callModePrompt + modelCommunicationRulesPrompt
   pushContextTrace(options.trace, { id: 'runtime:bilingual', category: 'system', group: '输出格式与协议', label: '双语对话规则', text: bilingualPrompt, reason: '当前聊天开启了双语输出' })
   const memoryMode = normalizeMemoryMode(chat.memoryMode)
   pushContextTrace(options.trace, {
@@ -205,6 +207,7 @@ export const buildChatMessages = async (
     reason: memoryMode === 'vector' ? '按当前语义通过 Embedding 召回' : '读取当前模式的全部启用记忆'
   })
   pushContextTrace(options.trace, { id: 'runtime:group-memory-bridge', category: 'memory', group: '跨会话记忆', label: '群聊与单聊互通记忆', text: groupMemoryBridge, reason: '该角色已与一个或多个群聊开启记忆互通' })
+  pushContextTrace(options.trace, { id: 'runtime:forum-memory-bridge', category: 'memory', group: '跨应用记忆', label: '论坛与聊天互通记忆', text: forumMemoryBridge, reason: '当前角色已明确开启论坛到聊天的记忆桥接' })
   pushContextTrace(options.trace, { id: 'runtime:moments', category: 'system', group: '朋友圈能力', label: '朋友圈当前行为规则', text: momentBehaviorPrompt, reason: chat.enableCharMoments === false ? '朋友圈已关闭，注入禁用说明' : '依据当前朋友圈模式生成' })
   pushContextTrace(options.trace, { id: 'runtime:call-summary', category: 'memory', group: '通话临时记忆', label: '本次通话前半段提要', text: callTempSummaryContext, reason: '当前通话存在临时总结' })
   pushContextTrace(options.trace, { id: 'runtime:call-mode', category: 'system', group: '通话能力', label: '当前通话模式规则', text: callModePrompt, reason: '当前处于语音或视频通话' })

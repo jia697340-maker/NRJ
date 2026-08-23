@@ -172,7 +172,10 @@ export function useAdvancedSettingsStorage(showConfirm: (message: string, title?
     }
 
     // 2. 扫描所有 IndexedDB
-    const knownStores = [
+const knownStores = [
+    { name: 'nrt-forum', storeName: 'forumData', label: '论坛数据', category: 'chat_data' },
+    { name: 'nrt-forum', storeName: 'forumMedia', label: '论坛媒体', category: 'chat_images' },
+    { name: 'nrt-forum', storeName: 'forumMediaMeta', label: '论坛媒体索引', category: 'chat_data' },
       { name: 'nrt-app', storeName: 'chatEmojis', label: '聊天表情包', category: 'chat_emojis' },
       { name: 'nrt-app', storeName: 'chatImages', label: '聊天配图', category: 'chat_images' },
       { name: 'nrt-app', storeName: 'avatars', label: '角色头像', category: 'avatars' },
@@ -661,7 +664,7 @@ export function useAdvancedSettingsStorage(showConfirm: (message: string, title?
           await caches.delete(name)
         }
       }
-      const knownDBs = ['nrt-app', 'app_vibe_storage', 'app_novelai_history', 'app_gpt_image_references', 'app_gpt_image_history', 'nrt-backup-manager']
+  const knownDBs = ['nrt-app', 'nrt-forum', 'app_vibe_storage', 'app_novelai_history', 'app_gpt_image_references', 'app_gpt_image_history', 'nrt-backup-manager']
       let databaseNames = knownDBs
       if (indexedDB.databases) {
         try {

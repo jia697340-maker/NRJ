@@ -17,6 +17,8 @@ export interface BackupCatalogItem {
 }
 
 export const BACKUP_CATALOG: BackupCatalogItem[] = [
+  { id: 'forum-data', group: '论坛', name: '论坛结构化数据', description: '论坛账号、角色准入、圈子、帖子、关系、消息与记忆', stores: [{ dbName: 'nrt-forum', storeName: 'forumData' }] },
+  { id: 'forum-media', group: '论坛', name: '论坛媒体', description: '论坛图片、语音、轻短视频素材及媒体元数据', stores: [{ dbName: 'nrt-forum', storeName: 'forumMedia' }, { dbName: 'nrt-forum', storeName: 'forumMediaMeta' }] },
   { id: 'novelai-api-key', group: '账号与安全', name: 'NovelAI API 密钥', description: 'NovelAI 的访问密钥', sensitive: true, localKeys: ['app_novelai_apikey'] },
   { id: 'novelai-api-address', group: '账号与安全', name: 'NovelAI API 地址', description: '自定义服务地址', localKeys: ['app_novelai_baseurl'] },
   { id: 'gpt-image-api-key', group: '账号与安全', name: 'GPT 生图 API 密钥', description: 'GPT Image 2 的访问密钥', sensitive: true, localKeys: ['app_gpt_image_apikey'] },

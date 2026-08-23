@@ -67,17 +67,23 @@ const cloneEntry = (entry: DesktopEntry): DesktopEntry => entry.type === 'app'
   ? { type: 'app', id: entry.id }
   : { type: 'folder', id: entry.id, name: entry.name, appIds: [...entry.appIds] }
 
-const createDefaultLayout = (appIds: string[]): DesktopLayoutState => ({
-  version: 1,
-  dock: appIds.slice(0, 4).map(id => ({ type: 'app', id })),
-  pages: [
-    appIds.slice(4, 8).map(id => ({ type: 'app', id })),
-    appIds.slice(8).filter(id => !THIRD_PAGE_APP_IDS.has(id) && !FOURTH_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id })),
-    appIds.filter(id => THIRD_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id })),
-    appIds.filter(id => FOURTH_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id }))
-  ],
-  hiddenAppIds: []
-})
+const createDefaultLayout = (appIds: string[]): DesktopLayoutState => {
+  // 第三、第四页的专属应用不能参与前两页和 Dock 的顺序切分。
+  // 例如“外观衣柜”虽然注册得很靠前，但原始设计位于第四页；若先 slice，
+  // 它会错误占据 Dock，并把短信、钱包等应用整体向后挤一位。
+  const primaryAppIds = appIds.filter(id => !THIRD_PAGE_APP_IDS.has(id) && !FOURTH_PAGE_APP_IDS.has(id))
+  return {
+    version: 1,
+    dock: primaryAppIds.slice(0, 4).map(id => ({ type: 'app', id })),
+    pages: [
+      primaryAppIds.slice(4, 8).map(id => ({ type: 'app', id })),
+      primaryAppIds.slice(8).map(id => ({ type: 'app', id })),
+      appIds.filter(id => THIRD_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id })),
+      appIds.filter(id => FOURTH_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id }))
+    ],
+    hiddenAppIds: []
+  }
+}
 
 const persistNow = () => {
   if (saveTimer) clearTimeout(saveTimer)
@@ -362,7 +368,9 @@ const renameFolder = (folderId: string, name: string) => {
 
 const reset = (appIds: string[]) => {
   assignLayout(createDefaultLayout(appIds))
-  save()
+  // 重置是一次明确的用户操作，必须立即覆盖此前拖动产生的延迟写入。
+  // 否则在移动端快速切页或关闭应用时，旧布局仍有机会重新落盘。
+  persistNow()
 }
 
 export const useDesktopLayout = () => ({

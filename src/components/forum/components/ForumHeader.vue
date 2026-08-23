@@ -5,12 +5,16 @@ withDefaults(
     title?: string
     showBack?: boolean
     showSearch?: boolean
+    showRefresh?: boolean
+    refreshBusy?: boolean
     transparent?: boolean
   }>(),
   {
     title: '',
     showBack: false,
     showSearch: false,
+    showRefresh: false,
+    refreshBusy: false,
     transparent: false
   }
 )
@@ -18,6 +22,7 @@ withDefaults(
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'search'): void
+  (e: 'refresh'): void
 }>()
 </script>
 
@@ -46,6 +51,22 @@ const emit = defineEmits<{
 
     <div class="header-right">
       <button
+        v-if="showRefresh"
+        class="header-action-btn"
+        :class="{ 'is-spinning': refreshBusy }"
+        type="button"
+        aria-label="刷新社区动态"
+        :disabled="refreshBusy"
+        @click="emit('refresh')"
+      >
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6v5h-5"></path>
+          <path d="M4 18v-5h5"></path>
+          <path d="M18.5 9a7 7 0 0 0-11.8-2.3L4 9"></path>
+          <path d="M5.5 15a7 7 0 0 0 11.8 2.3L20 15"></path>
+        </svg>
+      </button>
+      <button
         v-if="showSearch"
         class="header-action-btn"
         type="button"
@@ -69,7 +90,8 @@ const emit = defineEmits<{
   left: 0;
   right: 0;
   z-index: 100;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(44px, 1fr) auto minmax(44px, 1fr);
   align-items: center;
   justify-content: space-between;
   height: 52px;
@@ -132,5 +154,24 @@ const emit = defineEmits<{
 .header-action-btn:active {
   background: var(--sys-bg-tertiary, #f0f0f0);
   transform: scale(0.92);
+}
+
+.header-action-btn:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.header-action-btn.is-spinning svg {
+  animation: forum-header-spin 0.85s linear infinite;
+}
+
+@keyframes forum-header-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 340px) {
+  .forum-header { padding-left: 8px; padding-right: 8px; }
+  .header-left, .header-right { gap: 4px; }
+  .header-center { padding-left: 4px; padding-right: 4px; }
 }
 </style>

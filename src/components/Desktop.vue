@@ -86,12 +86,17 @@ const finishEditing = () => {
   openFolderId.value = null
 }
 
-const confirmReset = () => {
+const confirmReset = async () => {
+  cancelPendingPress()
+  if (dragVisible.value) endDrag(false)
   reset(props.apps.map(app => app.id))
   showResetConfirm.value = false
   openFolderId.value = null
   currentPage.value = 0
-  scrollContainer.value?.scrollTo({ left: 0, behavior: 'smooth' })
+  // 等默认布局渲染完成后直接归位；平滑滚动会被移动端的 scroll-snap
+  // 抢回原页面，让用户误以为重置没有生效。
+  await nextTick()
+  if (scrollContainer.value) scrollContainer.value.scrollLeft = 0
 }
 
 const removeApp = (location: DesktopLocation) => {
