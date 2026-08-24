@@ -3,7 +3,7 @@
 import { onBeforeUnmount, ref } from 'vue'
 import QRCode from 'qrcode'
 import type { MusicSourceConfig } from '../../../types/music'
-import { checkBundledMusicQrLogin, createBundledMusicQrLogin, createMusicProviders, getBundledMusicQrCapabilities } from '../../../services/musicProviders'
+import { checkBundledMusicQrLogin, createBundledMusicQrLogin, createMusicProviders, getBundledMusicQrCapabilities, MUSIC_QR_PROMISE } from '../../../services/musicProviders'
 import { useMusicLibrary } from '../../../composables/useMusicLibrary'
 import MusicQrConsentModal from './MusicQrConsentModal.vue'
 
@@ -23,15 +23,17 @@ const showGuide = ref(false)
 const qrConsentVisible = ref(false)
 const pendingQrSource = ref<MusicSourceConfig | null>(null)
 const pendingQrPlatform = ref<{ id: string; name: string } | null>(null)
-const qrRetentionDays = ref(90)
+const qrRetentionDays = ref(30)
+const qrMaxRetentionDays = ref(365)
+const qrPromiseText = ref(MUSIC_QR_PROMISE)
 let qrTimer: number | null = null
 const aggregateLoginSources = [
   { id: 'netease', name: '网易云' },
   { id: 'qq', name: 'QQ音乐' },
   { id: 'bilibili', name: 'B站' }
 ]
-const sourceAddressLabel = (source: MusicSourceConfig) => source.kind === 'aggregate' && Boolean(source.apiBase)
-  ? '本站统一账号服务（普通用户无需配置）'
+const sourceAddressLabel = (source: MusicSourceConfig) => source.kind === 'aggregate'
+  ? '扫码登录由本站公开代理提供（普通用户无需配置）'
   : source.apiBase || '尚未配置服务地址'
 
 const editSource = (source: MusicSourceConfig) => { editingId.value = source.id; draftBase.value = source.apiBase || ''; draftUsername.value = source.username || ''; draftToken.value = source.token || '' }
@@ -43,11 +45,11 @@ const saveSource = (source: MusicSourceConfig) => {
   if (source.kind === 'meting') emit('openPrivacy', 'public-consent')
 }
 const stopQr = () => { if (qrTimer !== null) window.clearInterval(qrTimer); qrTimer = null }
-const startAggregateQrLogin = async (source: MusicSourceConfig, platform: { id: string; name: string }) => {
+const startAggregateQrLogin = async (source: MusicSourceConfig, platform: { id: string; name: string }, retentionDays: number, promise: string) => {
   stopQr(); qrImage.value = ''; qrSourceName.value = platform.name; qrStatus.value = '正在生成二维码…'
   qrOwnerId.value = source.id
   try {
-    const qr = await createBundledMusicQrLogin(platform.id)
+    const qr = await createBundledMusicQrLogin(platform.id, retentionDays, promise)
     qrImage.value = qr.imageUrl || await QRCode.toDataURL(qr.url, { width: 256, margin: 1, errorCorrectionLevel: 'M' })
     qrStatus.value = platform.id === 'qq' ? '请使用 QQ App 扫码确认' : `请使用${platform.name} App 扫码确认`
     qrTimer = window.setInterval(async () => {
@@ -62,17 +64,19 @@ const startAggregateQrLogin = async (source: MusicSourceConfig, platform: { id: 
 }
 const requestAggregateQrLogin = async (source: MusicSourceConfig, platform: { id: string; name: string }) => {
   const capabilities = await getBundledMusicQrCapabilities()
-  if (capabilities.httpOnlySession !== true || capabilities.credentialNotReturned !== true) {
+  if (capabilities.httpOnlySession !== true || capabilities.credentialNotReturned !== true || capabilities.serverSideCredentialStore !== true || capabilities.typedPromiseRequired !== true) {
     setMessage('音乐登录服务尚未完成安全接入，请让部署者检查隔离网关')
     return
   }
-  qrRetentionDays.value = Number(capabilities.retentionDays) || 90
+  qrRetentionDays.value = Number(capabilities.retentionDays) || 30
+  qrMaxRetentionDays.value = Number(capabilities.maxRetentionDays) || 365
+  qrPromiseText.value = typeof capabilities.promiseText === 'string' ? capabilities.promiseText : MUSIC_QR_PROMISE
   pendingQrSource.value = source; pendingQrPlatform.value = platform; qrConsentVisible.value = true
 }
-const confirmQrLogin = () => {
+const confirmQrLogin = (retentionDays: number, promise: string) => {
   const source = pendingQrSource.value; const platform = pendingQrPlatform.value
   qrConsentVisible.value = false
-  if (source && platform) void startAggregateQrLogin(source, platform)
+  if (source && platform) void startAggregateQrLogin(source, platform, retentionDays, promise)
 }
 onBeforeUnmount(stopQr)
 const toggleSource = (source: MusicSourceConfig) => {
@@ -91,6 +95,16 @@ const toggleSource = (source: MusicSourceConfig) => {
 const checkSource = async (source: MusicSourceConfig) => {
   checkingId.value = source.id
   try {
+    if (source.kind === 'aggregate') {
+      const capabilities = await getBundledMusicQrCapabilities()
+      const ready = capabilities.httpOnlySession === true
+        && capabilities.credentialNotReturned === true
+        && capabilities.serverSideCredentialStore === true
+        && capabilities.typedPromiseRequired === true
+      if (!ready) throw new Error('本站公开扫码代理安全能力不完整')
+      setMessage('本站公开扫码代理连接正常，无需启动本地服务')
+      return
+    }
     const provider = createMusicProviders([{ ...source, enabled: true }])[0]
     if (!provider) throw new Error('该来源无需连接测试')
     if (provider.getProfile) {
@@ -133,7 +147,7 @@ const checkSource = async (source: MusicSourceConfig) => {
             <template v-else>
               <div class="source-address">{{ sourceAddressLabel(source) }}</div>
               <button class="source-action" @click="editSource(source)">{{ source.kind === 'aggregate' ? '高级' : '设置' }}</button>
-              <button v-if="source.apiBase" class="source-action" :disabled="checkingId === source.id" @click="checkSource(source)">{{ checkingId === source.id ? '检测中' : '检测' }}</button>
+              <button v-if="source.kind === 'aggregate' || source.apiBase" class="source-action" :disabled="checkingId === source.id" @click="checkSource(source)">{{ checkingId === source.id ? '检测中' : source.kind === 'aggregate' ? '检测代理' : '检测' }}</button>
             </template>
           </div>
           <div v-if="source.kind === 'aggregate' && editingId !== source.id" class="aggregate-login-row">
@@ -148,13 +162,13 @@ const checkSource = async (source: MusicSourceConfig) => {
           <strong>首页与公开音乐 · 无需后端</strong>
           <p>发现页、公开榜单与匿名搜索由浏览器直接载入。首次使用只需确认一次，不用填写地址，也不会因为扫码服务离线而消失。</p>
           <strong>扫码登录 · 站点统一提供</strong>
-          <p>普通用户无需部署或填写账号服务地址。只有站点已经接入统一扫码服务时才显示可用登录；未接入不会影响公开音乐。</p>
+          <p>二维码生成与状态查询由站内公开 Serverless 代理完成。普通用户无需部署服务、启动本地程序或填写 Cookie、Token、账号服务地址；拒绝登录不会影响公开音乐。</p>
         </div>
         <div class="source-note">搜索只显示可在本应用内完整播放的结果；30 秒试听、官网跳转和不可播放曲目会自动隐藏。平台账号权益仍由原平台管理。</div>
         <button class="leave-music" @click="emit('closeApp')">返回桌面</button>
       </div>
     </section>
-    <MusicQrConsentModal :visible="qrConsentVisible" :platformName="pendingQrPlatform?.name || ''" :retentionDays="qrRetentionDays" @cancel="qrConsentVisible = false" @confirm="confirmQrLogin" />
+    <MusicQrConsentModal :visible="qrConsentVisible" :platformName="pendingQrPlatform?.name || ''" :defaultRetentionDays="qrRetentionDays" :maxRetentionDays="qrMaxRetentionDays" :promiseText="qrPromiseText" @cancel="qrConsentVisible = false" @confirm="confirmQrLogin" />
   </div>
 </template>
 

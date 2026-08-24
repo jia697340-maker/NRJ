@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
@@ -26,7 +26,6 @@ const {
 
 const emit = defineEmits(['collapse', 'openPlaylistDrawer', 'openPlaybackSettings', 'openComments'])
 const { setMessage } = useMusicLibrary()
-const canViewComments = computed(() => currentTrack.value?.originSourceId === 'netease')
 
 const lyricsWrapperRef = ref<HTMLElement | null>(null)
 const lyricsScrollBoxRef = ref<HTMLElement | null>(null)
@@ -35,7 +34,6 @@ let userScrollTimer: number | null = null
 
 const openComments = () => {
   if (!currentTrack.value) { setMessage('请先播放一首歌曲'); return }
-  if (!canViewComments.value) { setMessage('只有网易云来源歌曲提供真实评论'); return }
   emit('openComments')
 }
 
@@ -208,7 +206,7 @@ const shareCurrent = async () => {
         </svg>
       </button>
 
-      <button class="interact-btn" title="评论" :class="{ unavailable: currentTrack && !canViewComments }" @click="openComments">
+      <button class="interact-btn" title="评论" @click="openComments">
         <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
         </svg>

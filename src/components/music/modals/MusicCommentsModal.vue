@@ -12,6 +12,7 @@ const comments = ref<MusicComment[]>([])
 const total = ref(0)
 const page = ref(1)
 const hasMore = ref(false)
+const isStale = ref(false)
 const loading = ref(false)
 const error = ref('')
 let requestVersion = 0
@@ -39,6 +40,7 @@ const loadPage = async (nextPage: number, append = false) => {
     comments.value = append ? [...comments.value, ...result.comments] : result.comments
     page.value = nextPage
     hasMore.value = result.more
+    isStale.value = result.stale === true
   } catch (reason) {
     if (version === requestVersion) error.value = reason instanceof Error ? reason.message : '评论加载失败'
   } finally {
@@ -48,7 +50,7 @@ const loadPage = async (nextPage: number, append = false) => {
 
 watch(() => [props.visible, props.track?.id] as const, ([visible]) => {
   if (!visible) { requestVersion += 1; return }
-  hotComments.value = []; comments.value = []; total.value = 0; page.value = 1; hasMore.value = false; error.value = ''
+  hotComments.value = []; comments.value = []; total.value = 0; page.value = 1; hasMore.value = false; isStale.value = false; error.value = ''
   void loadPage(1)
 }, { immediate: true })
 </script>
@@ -64,6 +66,7 @@ watch(() => [props.visible, props.track?.id] as const, ([visible]) => {
         <div v-if="loading && !comments.length" class="comments-state"><span class="spinner"></span>正在加载评论…</div>
         <div v-else-if="error && !comments.length" class="comments-state error-state"><span>{{ error }}</span><button @click="loadPage(1)">重新加载</button></div>
         <template v-else>
+          <div v-if="isStale" class="load-note">网易云暂时不可用，正在显示最近缓存的真实评论</div>
           <section v-if="hotComments.length" class="comment-section">
             <h3>热门评论</h3>
             <article v-for="comment in hotComments" :key="`hot-${comment.id}`" class="comment-card">

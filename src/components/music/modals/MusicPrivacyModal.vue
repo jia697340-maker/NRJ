@@ -4,7 +4,6 @@ defineProps<{ visible: boolean; mode: 'management' | 'public-consent'; anonymous
 const emit = defineEmits<{ (e: 'choose', allowed: boolean): void; (e: 'close'): void; (e: 'clearAccounts'): void }>()
 const operatorName = String(import.meta.env.VITE_MUSIC_OPERATOR_NAME || '本站运营者')
 const operatorContact = String(import.meta.env.VITE_MUSIC_OPERATOR_CONTACT || '请联系站点提供者')
-const retentionDays = Number(import.meta.env.VITE_MUSIC_SESSION_RETENTION_DAYS || 90)
 const privacyUrl = String(import.meta.env.VITE_MUSIC_PRIVACY_URL || '').trim()
 </script>
 
@@ -15,9 +14,9 @@ const privacyUrl = String(import.meta.env.VITE_MUSIC_PRIVACY_URL || '').trim()
       <div class="privacy-body">
         <div class="privacy-card"><span class="privacy-mark">匿</span><div><strong>匿名公共音乐</strong><p>启用后，搜索词、IP 地址和基础请求信息会发送给所选公共音乐服务。不会发送聊天、角色、本地音乐或其他应用数据。</p></div></div>
         <template v-if="mode === 'management'">
-          <div class="privacy-card"><span class="privacy-mark">码</span><div><strong>扫码登录按需确认</strong><p>只有点击网易云、QQ音乐或B站登录按钮时才会征求同意。各平台凭证分别保存在当前浏览器的 HttpOnly 安全 Cookie 中，不写入数据库，也不返回网页。</p></div></div>
+          <div class="privacy-card"><span class="privacy-mark">码</span><div><strong>扫码登录按需确认</strong><p>只有点击网易云、QQ音乐或B站登录按钮时才会征求同意。平台凭证保存在站点服务端隔离会话存储中；浏览器只保存随机的 HttpOnly、Secure 会话标识，凭据不返回网页。</p></div></div>
           <div class="privacy-card"><span class="privacy-mark">选</span><div><strong>功能彼此独立</strong><p>拒绝扫码或关闭匿名公共来源，不影响本地音乐；扫码凭证不会提供给公共匿名音源。</p></div></div>
-          <div class="privacy-card"><span class="privacy-mark">期</span><div><strong>保存与删除</strong><p>主动退出或 {{ retentionDays }} 天后，当前浏览器的凭证会被清除或失效。可通过下方按钮立即断开账号。</p></div></div>
+          <div class="privacy-card"><span class="privacy-mark">期</span><div><strong>保存与删除</strong><p>每次扫码前由用户自行选择仅本次会话、固定天数或自定义期限，并必须手动输入完整承诺。主动退出、期限届满或平台使会话失效后，账号连接会终止；可通过下方按钮立即删除。</p></div></div>
         </template>
         <div class="privacy-note">{{ anonymousAllowed ? '匿名公共查询当前已启用，可在此随时关闭。' : '匿名公共查询当前未启用。' }}公共服务的稳定性与可用曲目可能变化。</div>
         <div v-if="mode === 'management'" class="privacy-note">运营者：{{ operatorName }}　联系：{{ operatorContact }}</div>

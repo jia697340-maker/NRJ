@@ -2,14 +2,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useChatState } from '../../../composables/useChatState'
+import BubbleImportModal from '../../bubble/modals/BubbleImportModal.vue'
+import ChatBubbleQuickCssModal from './ChatBubbleQuickCssModal.vue'
 import {
   bubbleWorkshopState,
   getAllBubblePresets,
   getBubblePreset,
   setChatBubblePreset,
   setGlobalBubblePreset,
+  deleteBubblePreset,
   type BubblePreset
 } from '../../../services/bubbleWorkshop'
+import './ChatBubbleBeautifyModal.css'
 
 const emit = defineEmits<{ close: [] }>()
 const { selectedChat } = useChatState()
@@ -19,6 +23,22 @@ const selectedId = ref(currentAssignment.value || bubbleWorkshopState.globalPres
 const presets = computed(() => getAllBubblePresets())
 const selectedPreset = computed(() => getBubblePreset(selectedId.value))
 const followsGlobal = computed(() => !currentAssignment.value)
+
+const showImportModal = ref(false)
+const showCssModal = ref(false)
+const isBatchMode = ref(false)
+const selectedBatchIds = ref<string[]>([])
+const showBatchDeleteConfirm = ref(false)
+const toastMessage = ref('')
+let toastTimer: any = null
+
+const showToast = (msg: string) => {
+  toastMessage.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toastMessage.value = ''
+  }, 2200)
+}
 
 const chooseScope = (value: 'chat' | 'global') => {
   scope.value = value
@@ -38,6 +58,74 @@ const followGlobal = () => {
   emit('close')
 }
 
+const handleImported = (importedPresets: BubblePreset[]) => {
+  if (importedPresets.length > 0) {
+    selectedId.value = importedPresets[0].id
+  }
+}
+
+const handleCssSaved = (newPreset: BubblePreset) => {
+  selectedId.value = newPreset.id
+}
+
+const toggleBatchMode = () => {
+  isBatchMode.value = !isBatchMode.value
+  selectedBatchIds.value = []
+}
+
+const isAllSelected = computed(() => {
+  return presets.value.length > 0 && selectedBatchIds.value.length === presets.value.length
+})
+
+const toggleSelectAll = () => {
+  if (isAllSelected.value) {
+    selectedBatchIds.value = []
+  } else {
+    selectedBatchIds.value = presets.value.map(p => p.id)
+  }
+}
+
+const toggleBatchItem = (id: string) => {
+  const index = selectedBatchIds.value.indexOf(id)
+  if (index >= 0) {
+    selectedBatchIds.value.splice(index, 1)
+  } else {
+    selectedBatchIds.value.push(id)
+  }
+}
+
+const handleCardClick = (preset: BubblePreset) => {
+  if (isBatchMode.value) {
+    toggleBatchItem(preset.id)
+  } else {
+    selectedId.value = preset.id
+  }
+}
+
+const handleDeletePreset = (id: string, e: Event) => {
+  e.stopPropagation()
+  deleteBubblePreset(id)
+  if (selectedId.value === id) {
+    selectedId.value = ''
+  }
+  showToast('已移除方案')
+}
+
+const confirmBatchDelete = () => {
+  const idsToDelete = [...selectedBatchIds.value]
+  if (!idsToDelete.length) return
+  idsToDelete.forEach(id => {
+    deleteBubblePreset(id)
+    if (selectedId.value === id) {
+      selectedId.value = ''
+    }
+  })
+  showToast(`已删除 ${idsToDelete.length} 个方案`)
+  selectedBatchIds.value = []
+  showBatchDeleteConfirm.value = false
+  isBatchMode.value = false
+}
+
 const miniStyle = (preset: BubblePreset, target: 'self' | 'other') => {
   const value = preset[target]
   return {
@@ -52,47 +140,218 @@ const miniStyle = (preset: BubblePreset, target: 'self' | 'other') => {
 
 <template>
   <div class="bpm-page">
+    <!-- 顶部极简导航栏 -->
     <header class="bpm-header">
-      <button class="bpm-back" aria-label="返回" @click="emit('close')"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg></button>
-      <div><strong>气泡样式</strong><small>{{ selectedPreset.name }}</small></div>
-      <button class="bpm-apply" @click="apply">应用</button>
+      <button class="bpm-back-btn" aria-label="返回" @click="emit('close')">
+        <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <div class="bpm-header-center">
+        <h1 class="bpm-title">气泡美化</h1>
+        <span class="bpm-sub-badge">{{ selectedPreset ? selectedPreset.name : '系统原生' }}</span>
+      </div>
+      <button class="bpm-done-btn" @click="apply">
+        应用
+      </button>
     </header>
 
     <main class="bpm-body">
-      <section class="bpm-section">
-        <div class="bpm-section-title"><strong>应用范围</strong><small>当前聊天可覆盖全局设置</small></div>
-        <div class="bpm-scope">
-          <button :class="{ active: scope === 'chat' }" @click="chooseScope('chat')"><span>当前聊天</span><small>{{ followsGlobal ? '目前跟随全局' : '已有专属样式' }}</small></button>
-          <button :class="{ active: scope === 'global' }" @click="chooseScope('global')"><span>全局默认</span><small>用于未单独设置的聊天</small></button>
-        </div>
-        <button v-if="scope === 'chat' && !followsGlobal" class="bpm-follow" @click="followGlobal">恢复跟随全局气泡</button>
-      </section>
-
-      <section class="bpm-section">
-        <div class="bpm-section-title"><strong>我的气泡</strong><small>{{ presets.length }} 个作品</small></div>
-        <div v-if="presets.length" class="bpm-grid">
-          <button v-for="preset in presets" :key="preset.id" class="bpm-card" :class="{ active: selectedId === preset.id }" @click="selectedId = preset.id">
-            <span class="bpm-preview">
-              <i :style="miniStyle(preset, 'other')">你好呀</i>
-              <i :style="miniStyle(preset, 'self')">在这里</i>
-            </span>
-            <span class="bpm-card-name"><strong>{{ preset.name }}</strong><small>{{ preset.source === 'imported' ? '导入的作品' : '我的创作' }}</small></span>
-            <i class="bpm-check"><svg viewBox="0 0 24 24"><path d="M5 12l4 4 10-10" /></svg></i>
+      <!-- 范围分段器（极简白底胶囊） -->
+      <section class="bpm-scope-container">
+        <div class="bpm-capsule-switch">
+          <button
+            class="bpm-switch-tab"
+            :class="{ active: scope === 'chat' }"
+            @click="chooseScope('chat')"
+          >
+            <span>当前会话</span>
+            <span v-if="!followsGlobal" class="bpm-mini-tag">独享</span>
+          </button>
+          <button
+            class="bpm-switch-tab"
+            :class="{ active: scope === 'global' }"
+            @click="chooseScope('global')"
+          >
+            <span>全局默认</span>
           </button>
         </div>
-        <div v-else class="bpm-empty"><strong>还没有气泡作品</strong><span>在气泡工坊创作或导入后，会显示在这里。</span></div>
+        <div v-if="scope === 'chat' && !followsGlobal" class="bpm-scope-hint">
+          <span>当前已启用独立个性化气泡</span>
+          <button class="bpm-link-btn" @click="followGlobal">跟随全局</button>
+        </div>
       </section>
 
-      <section class="bpm-system-row">
-        <div><strong>恢复系统气泡</strong><small>清除当前范围的作品效果，不会生成预设。</small></div>
-        <button :class="{ active: !selectedId }" @click="selectedId = ''">选择</button>
+      <!-- 气泡方案展示列表 -->
+      <section class="bpm-list-wrapper">
+        <!-- 顶部操作栏 -->
+        <div class="bpm-action-header">
+          <div class="bpm-left-title">
+            <span class="bpm-group-label">气泡作品库</span>
+            <span class="bpm-count-tag">{{ isBatchMode ? `已选 ${selectedBatchIds.length}` : presets.length }}</span>
+          </div>
+
+          <div class="bpm-right-actions">
+            <template v-if="!isBatchMode">
+              <button class="bpm-pill-btn" @click="showImportModal = true">
+                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>导入</span>
+              </button>
+              <button class="bpm-pill-btn" @click="showCssModal = true">
+                <svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><polyline points="8 6 2 12 8 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>CSS</span>
+              </button>
+              <button v-if="presets.length > 0" class="bpm-pill-btn" @click="toggleBatchMode">
+                <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>管理</span>
+              </button>
+            </template>
+            <template v-else>
+              <button class="bpm-pill-btn bpm-btn-text" @click="toggleSelectAll">
+                {{ isAllSelected ? '取消全选' : '全选' }}
+              </button>
+              <button class="bpm-pill-btn bpm-btn-active" @click="toggleBatchMode">
+                完成
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <!-- 方案卡片网格 -->
+        <div class="bpm-grid-flow">
+          <!-- 原生默认卡片 -->
+          <div
+            class="bpm-card-item bpm-card-system"
+            :class="{ 'is-selected': !selectedId && !isBatchMode }"
+            @click="!isBatchMode && (selectedId = '')"
+          >
+            <div class="bpm-card-stage">
+              <div class="bpm-bubble-preview-area">
+                <div class="bpm-demo-bubble other sys-bubble">你好呀</div>
+                <div class="bpm-demo-bubble self sys-bubble">在这里</div>
+              </div>
+            </div>
+            <div class="bpm-card-meta">
+              <div class="bpm-meta-text">
+                <span class="bpm-meta-name">系统原生</span>
+                <span class="bpm-meta-badge sys">默认</span>
+              </div>
+              <div v-if="!selectedId && !isBatchMode" class="bpm-status-check">
+                <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- 自定义方案卡片 -->
+          <div
+            v-for="preset in presets"
+            :key="preset.id"
+            class="bpm-card-item"
+            :class="{
+              'is-selected': !isBatchMode && selectedId === preset.id,
+              'is-batch-picked': isBatchMode && selectedBatchIds.includes(preset.id),
+              'is-batch-active': isBatchMode
+            }"
+            @click="handleCardClick(preset)"
+          >
+            <!-- 批量勾选圆点 -->
+            <div v-if="isBatchMode" class="bpm-batch-checkbox" :class="{ checked: selectedBatchIds.includes(preset.id) }">
+              <svg v-if="selectedBatchIds.includes(preset.id)" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+
+            <!-- 气泡真实效果舞台 -->
+            <div class="bpm-card-stage">
+              <div class="bpm-bubble-preview-area">
+                <div class="bpm-demo-bubble other" :style="miniStyle(preset, 'other')">你好呀</div>
+                <div class="bpm-demo-bubble self" :style="miniStyle(preset, 'self')">在这里</div>
+              </div>
+            </div>
+
+            <!-- 底部信息 -->
+            <div class="bpm-card-meta">
+              <div class="bpm-meta-text">
+                <span class="bpm-meta-name" :title="preset.name">{{ preset.name }}</span>
+                <span class="bpm-meta-badge" :class="preset.source || (preset.customCss ? 'css' : 'custom')">
+                  {{ preset.source === 'imported' ? '导入' : (preset.customCss ? 'CSS' : '原创') }}
+                </span>
+              </div>
+
+              <button
+                v-if="!isBatchMode"
+                class="bpm-remove-btn"
+                title="删除方案"
+                @click="handleDeletePreset(preset.id, $event)"
+              >
+                <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </button>
+
+              <div v-if="!isBatchMode && selectedId === preset.id" class="bpm-status-check">
+                <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="!presets.length" class="bpm-empty-notice">
+          <p class="bpm-empty-main">暂无自定义方案</p>
+          <p class="bpm-empty-sub">支持点击上方导入方案文件、粘贴口令或编写 CSS</p>
+        </div>
       </section>
 
-      <p class="bpm-tip">气泡工坊中的保存作品和导入方案会自动同步到这里。</p>
+      <div class="bpm-footer-note">
+        气泡工坊制作的作品将自动沉淀并同步至此处
+      </div>
     </main>
+
+    <!-- 批量操作悬浮条 -->
+    <Transition name="bpm-slide-bar">
+      <div v-if="isBatchMode" class="bpm-float-bar">
+        <div class="bpm-float-bar-card">
+          <span class="bpm-float-bar-count">已选 {{ selectedBatchIds.length }} 个方案</span>
+          <button
+            class="bpm-float-delete-btn"
+            :disabled="selectedBatchIds.length === 0"
+            @click="showBatchDeleteConfirm = true"
+          >
+            批量删除
+          </button>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- 批量删除确认弹窗 -->
+    <Transition name="bpm-fade">
+      <div v-if="showBatchDeleteConfirm" class="bpm-dialog-overlay" @click.self="showBatchDeleteConfirm = false">
+        <div class="bpm-modal-box">
+          <h4 class="bpm-modal-title">确认批量删除</h4>
+          <p class="bpm-modal-desc">将彻底移除所选的 {{ selectedBatchIds.length }} 个气泡方案，删除后无法找回。</p>
+          <div class="bpm-modal-btns">
+            <button class="bpm-modal-cancel" @click="showBatchDeleteConfirm = false">取消</button>
+            <button class="bpm-modal-confirm" @click="confirmBatchDelete">确认删除</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- 导入弹窗 -->
+    <BubbleImportModal
+      :visible="showImportModal"
+      @update:visible="showImportModal = $event"
+      @imported="handleImported"
+      @toast="showToast"
+    />
+
+    <!-- 快捷自定义 CSS 弹窗 -->
+    <ChatBubbleQuickCssModal
+      :visible="showCssModal"
+      @update:visible="showCssModal = $event"
+      @saved="handleCssSaved"
+      @toast="showToast"
+    />
+
+    <!-- 轻量 Toast 提示 -->
+    <Transition name="bpm-fade">
+      <div v-if="toastMessage" class="bpm-toast-wrap">
+        {{ toastMessage }}
+      </div>
+    </Transition>
   </div>
 </template>
-
-<style scoped>
-.bpm-page{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;background:var(--sys-bg-primary,#f7f8fa);color:var(--text-primary,#282828)}.bpm-page *{box-sizing:border-box}.bpm-page button{border:0;font:inherit}.bpm-header{height:calc(60px + env(safe-area-inset-top,0px));flex:0 0 calc(60px + env(safe-area-inset-top,0px));display:grid;grid-template-columns:42px minmax(0,1fr) 56px;align-items:end;gap:5px;padding:env(safe-area-inset-top,0px) 12px 10px;border-bottom:1px solid var(--border-color,#e7e7e7);background:color-mix(in srgb,var(--sys-bg-primary,#fff) 92%,transparent);backdrop-filter:blur(14px)}.bpm-header>div{min-width:0;text-align:center}.bpm-header strong,.bpm-header small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bpm-header strong{font-size:17px;font-weight:600}.bpm-header small{margin-top:2px;color:var(--text-tertiary,#888);font-size:11px}.bpm-back{width:36px;height:36px;display:grid;place-items:center;border-radius:10px;background:transparent;color:var(--text-secondary,#666);cursor:pointer}.bpm-back svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.bpm-apply{height:36px;padding:0 13px;border-radius:10px;background:var(--theme-color,#4f7cff);color:#fff;cursor:pointer;font-size:13px;font-weight:650}.bpm-body{min-height:0;flex:1;overflow-y:auto;padding:18px 15px calc(30px + env(safe-area-inset-bottom,0px))}.bpm-section,.bpm-system-row,.bpm-tip{max-width:620px;margin-left:auto;margin-right:auto}.bpm-section{margin-bottom:22px}.bpm-section-title{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0 3px 10px}.bpm-section-title strong{font-size:15px}.bpm-section-title small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-tertiary,#888);font-size:12px}.bpm-scope{display:grid;grid-template-columns:1fr 1fr;gap:9px}.bpm-scope button{min-width:0;min-height:68px;padding:12px 13px;border:1px solid var(--border-color,#e3e6eb);border-radius:13px;background:var(--sys-bg-secondary,#fff);color:var(--text-primary,#333);text-align:left;cursor:pointer}.bpm-scope button.active{border-color:color-mix(in srgb,var(--theme-color,#4f7cff) 58%,var(--border-color));background:color-mix(in srgb,var(--theme-color,#4f7cff) 7%,var(--sys-bg-secondary,#fff))}.bpm-scope span,.bpm-scope small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bpm-scope span{font-size:14px;font-weight:600}.bpm-scope small{margin-top:6px;color:var(--text-tertiary,#888);font-size:11px}.bpm-follow{width:100%;height:38px;margin-top:9px;border:1px solid var(--border-color,#e3e6eb)!important;border-radius:10px;background:transparent;color:var(--theme-color,#4f7cff);cursor:pointer;font-size:13px}.bpm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.bpm-card{min-width:0;padding:10px;border:1px solid var(--border-color,#e3e6eb);border-radius:14px;background:var(--sys-bg-secondary,#fff);color:var(--text-primary,#333);cursor:pointer;text-align:left;position:relative}.bpm-card.active{border-color:color-mix(in srgb,var(--theme-color,#4f7cff) 62%,var(--border-color));box-shadow:0 0 0 1px color-mix(in srgb,var(--theme-color,#4f7cff) 14%,transparent)}.bpm-preview{height:86px;display:flex;flex-direction:column;justify-content:center;gap:8px;padding:11px;border-radius:10px;background:var(--sys-bg-primary,#f3f5f7);overflow:hidden}.bpm-preview i{max-width:82%;padding:7px 10px;font-size:11px;font-style:normal;line-height:1.35;white-space:nowrap}.bpm-preview i:first-child{align-self:flex-start}.bpm-preview i:last-child{align-self:flex-end}.bpm-card-name{min-width:0;display:block;padding:9px 27px 1px 2px}.bpm-card-name strong,.bpm-card-name small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bpm-card-name strong{font-size:13px}.bpm-card-name small{margin-top:4px;color:var(--text-tertiary,#888);font-size:11px}.bpm-check{position:absolute;right:11px;bottom:12px;width:18px;height:18px;display:none;place-items:center;border-radius:50%;background:var(--theme-color,#4f7cff);color:#fff}.bpm-card.active .bpm-check{display:grid}.bpm-check svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}.bpm-empty{padding:25px 18px;border:1px dashed var(--border-color,#dfe3e8);border-radius:13px;text-align:center}.bpm-empty strong,.bpm-empty span{display:block}.bpm-empty strong{font-size:14px}.bpm-empty span{margin-top:6px;color:var(--text-tertiary,#888);font-size:12px;line-height:1.5}.bpm-system-row{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--border-color,#e3e6eb);border-radius:13px;background:var(--sys-bg-secondary,#fff)}.bpm-system-row>div{min-width:0;flex:1}.bpm-system-row strong,.bpm-system-row small{display:block}.bpm-system-row strong{font-size:14px}.bpm-system-row small{margin-top:5px;color:var(--text-tertiary,#888);font-size:11px;line-height:1.45}.bpm-system-row button{height:34px;flex:0 0 auto;padding:0 12px;border:1px solid var(--border-color,#e3e6eb);border-radius:9px;background:var(--sys-bg-primary,#f5f6f8);color:var(--text-secondary,#666);cursor:pointer;font-size:12px}.bpm-system-row button.active{border-color:var(--theme-color,#4f7cff);color:var(--theme-color,#4f7cff)}.bpm-tip{margin-top:14px;color:var(--text-tertiary,#888);font-size:12px;line-height:1.6;text-align:center}@media(max-width:360px){.bpm-body{padding-left:10px;padding-right:10px}.bpm-scope,.bpm-grid{gap:6px}.bpm-scope button{padding-left:10px;padding-right:10px}.bpm-card{padding:8px}.bpm-preview{height:78px;padding:9px}.bpm-section-title small{max-width:155px}.bpm-system-row{padding:12px}}@media(max-width:320px){.bpm-header{grid-template-columns:36px minmax(0,1fr) 52px;padding-left:7px;padding-right:7px}.bpm-header strong{font-size:16px}.bpm-grid{grid-template-columns:1fr}.bpm-preview{height:82px}}
-</style>

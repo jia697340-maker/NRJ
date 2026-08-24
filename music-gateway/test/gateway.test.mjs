@@ -21,18 +21,23 @@ const close = server => new Promise(resolve => server.close(resolve))
 test('isolates QR ownership, strips credentials and deletes the current account session', async t => {
   let authCookies = {}
   let commentRequests = 0
-  const neteaseUpstream = await listen((request, response) => {
+  const neteaseUpstream = await listen(async (request, response) => {
     const url = new URL(request.url, 'http://mock')
     commentRequests += 1
-    assert.equal(url.pathname, '/api/v1/resource/comments/R_SO_4_186016')
-    assert.equal(url.searchParams.get('limit'), '20')
-    assert.equal(url.searchParams.get('offset'), '0')
+    assert.equal(url.pathname, '/api/v2/resource/comments')
+    assert.equal(request.method, 'POST')
+    assert.equal(Boolean(request.headers.cookie), false)
+    const form = new URLSearchParams(await body(request))
+    assert.equal(form.get('threadId'), 'R_SO_4_186016')
+    assert.equal(form.get('pageSize'), '20')
     response.setHeader('Content-Type', 'application/json')
-    response.end(JSON.stringify({
-      code: 200, total: 2, more: false,
-      hotComments: [{ commentId: 9, content: '热门评论', time: 1000, timeStr: '很久以前', likedCount: 88, user: { userId: 123, nickname: '云用户', avatarUrl: 'http://avatar.test/a.jpg', secret: 'hidden' } }],
-      comments: [{ commentId: 10, content: '最新评论', time: 2000, likedCount: 3, user: { userId: 456, nickname: '听众', avatarUrl: 'https://avatar.test/b.jpg' }, beReplied: [{ content: '原评论', user: { nickname: '另一位听众' } }] }]
-    }))
+    const isHot = form.get('sortType') === '2'
+    response.end(JSON.stringify({ code: 200, data: {
+      totalCount: 2, hasMore: false, cursor: 'next',
+      comments: isHot
+        ? [{ commentId: 9, content: '热门评论', time: 1000, timeStr: '很久以前', likedCount: 88, user: { userId: 123, nickname: '云用户', avatarUrl: 'http://avatar.test/a.jpg', secret: 'hidden' } }]
+        : [{ commentId: 10, content: '最新评论', time: 2000, likedCount: 3, user: { userId: 456, nickname: '听众', avatarUrl: 'https://avatar.test/b.jpg' }, beReplied: [{ content: '原评论', user: { nickname: '另一位听众' } }] }]
+    } }))
   })
   const publicUpstream = await listen((request, response) => {
     response.setHeader('Content-Type', 'application/json')
@@ -107,7 +112,7 @@ test('isolates QR ownership, strips credentials and deletes the current account 
   assert.equal(commentsBody.data.comments[0].reply.nickname, '另一位听众')
   assert.equal(JSON.stringify(commentsBody).includes('userId'), false)
   await fetch(`${base}/api/v1/music/comments?id=186016`, { headers })
-  assert.equal(commentRequests, 1)
+  assert.equal(commentRequests, 2)
   const protectedCookies = await fetch(`${base}/api/v1/system/cookies`, { headers: { ...headers, Cookie: cookieA } })
   assert.equal(protectedCookies.status, 404)
 

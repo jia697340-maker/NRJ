@@ -55,7 +55,10 @@ const numberValue = (value: unknown) => typeof value === 'number' && Number.isFi
 const stringMap = (value: unknown): Record<string, string> | undefined => {
   if (!isRecord(value)) return undefined
   const result: Record<string, string> = {}
-  Object.entries(value).forEach(([key, item]) => { if (typeof item === 'string') result[key] = item })
+  Object.entries(value).forEach(([key, item]) => {
+    if (typeof item === 'string') result[key] = item
+    else if (typeof item === 'number' && Number.isFinite(item)) result[key] = String(item)
+  })
   return Object.keys(result).length ? result : undefined
 }
 const sessionHeaders = (sessionId?: string): HeadersInit => sessionId ? { 'X-Music-Session': sessionId } : {}
@@ -70,6 +73,7 @@ const musicSessionCredentials = (): RequestCredentials => 'include'
 
 const neteaseTrack = (song: any): MusicTrack => ({
   id: `netease:${song.id}`, sourceId: 'netease', sourceTrackId: String(song.id),
+  neteaseTrackId: String(song.id),
   title: song.name || '未知歌曲',
   artist: (song.ar || song.artists || []).map((item: any) => item.name).join(' / ') || '未知歌手',
   artists: (song.ar || song.artists || []).map((item: any) => item.name),
@@ -144,9 +148,13 @@ const aggregateTrack = (value: unknown): MusicTrack | null => {
   if (!isRecord(value)) return null
   const id = textValue(value.id); const source = textValue(value.source)
   if (!id || !source || value.is_invalid === true) return null
+  const extra = stringMap(value.extra)
+  const rawMappedNeteaseId = value.netease_id || value.neteaseId || extra?.neteaseId || extra?.netease_id
+  const mappedNeteaseId = typeof rawMappedNeteaseId === 'number' || typeof rawMappedNeteaseId === 'string' ? String(rawMappedNeteaseId) : ''
   return {
     id: `aggregate:${source}:${id}`, sourceId: 'aggregate', sourceTrackId: id,
-    originSourceId: source, originExtra: stringMap(value.extra),
+    originSourceId: source, originExtra: extra,
+    neteaseTrackId: /^\d+$/.test(mappedNeteaseId) ? mappedNeteaseId : source === 'netease' && /^\d+$/.test(id) ? id : undefined,
     title: textValue(value.name, '未知歌曲'), artist: textValue(value.artist, '未知歌手'), album: textValue(value.album, '未知专辑'),
     albumId: textValue(value.album_id), duration: numberValue(value.duration), coverUrl: secureImageUrl(value.cover),
     available: true, requiresVip: value.is_vip === true, reason: `${source} · 完整播放`, playbackType: 'full'
@@ -175,6 +183,65 @@ const aggregateComment = (value: unknown): MusicComment | null => {
     user: { nickname: textValue(value.user.nickname, '网易云用户'), avatarUrl: secureImageUrl(value.user.avatarUrl) },
     reply: reply && textValue(reply.content) ? { content: textValue(reply.content), nickname: textValue(reply.nickname, '网易云用户') } : null
   }
+}
+
+const commentRequestParams = (track: MusicTrack, page = 1) => {
+  const limit = 20
+  const explicitNeteaseId = track.neteaseTrackId
+    || track.originExtra?.neteaseId || track.originExtra?.netease_id
+    || ((track.originSourceId === 'netease' || track.sourceId === 'netease') && /^\d+$/.test(track.sourceTrackId) ? track.sourceTrackId : '')
+  return {
+    id: track.sourceTrackId,
+    neteaseId: explicitNeteaseId || undefined,
+    source: track.originSourceId || track.sourceId,
+    name: track.title,
+    artist: track.artist,
+    album: track.album,
+    duration: Math.round(track.duration || 0),
+    limit,
+    offset: (Math.max(1, page) - 1) * limit
+  }
+}
+
+const requestMusicComments = async (url: string) => {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 15000)
+  try {
+    const response = await fetch(url, { credentials: 'omit', cache: 'no-store', signal: controller.signal })
+    const raw = await response.text()
+    let payload: unknown
+    try { payload = JSON.parse(raw) }
+    catch { throw new Error('评论服务返回了无效响应') }
+    if (!response.ok) {
+      const message = isRecord(payload) ? textValue(payload.msg) : ''
+      if (response.status === 404) throw new Error(message || '未找到可靠的网易云对应歌曲')
+      if (response.status === 400) throw new Error(message || '歌曲信息不完整，无法读取评论')
+      if (response.status === 429) throw new Error(message || '评论请求过于频繁，请稍后重试')
+      throw new Error('评论暂时无法加载，请稍后重试')
+    }
+    return payload
+  } catch (error) {
+    if (error instanceof Error && /未找到可靠|歌曲信息不完整|无效响应|评论暂时|请求过于频繁/.test(error.message)) throw error
+    throw new Error(error instanceof DOMException && error.name === 'AbortError' ? '评论加载超时，请稍后重试' : '评论暂时无法加载，请稍后重试')
+  } finally { window.clearTimeout(timer) }
+}
+
+const parseCommentPage = (payload: unknown): MusicCommentPage => {
+  const data = unwrapData(payload)
+  if (!isRecord(data)) throw new Error('评论响应格式无效')
+  return {
+    total: numberValue(data.total), more: data.more === true,
+    hotComments: (Array.isArray(data.hotComments) ? data.hotComments : []).map(aggregateComment).filter(Boolean) as MusicComment[],
+    comments: (Array.isArray(data.comments) ? data.comments : []).map(aggregateComment).filter(Boolean) as MusicComment[],
+    stale: data.stale === true,
+    resolvedNeteaseId: textValue(data.resolvedNeteaseId) || undefined,
+    matched: data.matched === true
+  }
+}
+
+export const loadPublicMusicComments = async (track: MusicTrack, page = 1): Promise<MusicCommentPage> => {
+  const url = joinUrl(window.location.origin, '/.netlify/functions/music-comments', commentRequestParams(track, page))
+  return parseCommentPage(await requestMusicComments(url))
 }
 
 class AggregateMusicProvider implements MusicProvider {
@@ -216,15 +283,8 @@ class AggregateMusicProvider implements MusicProvider {
     return parseMusicLyrics(isRecord(data) ? textValue(data.lyric) : '')
   }
   async getComments(track: MusicTrack, page = 1): Promise<MusicCommentPage> {
-    if (track.originSourceId !== 'netease') throw new Error('该歌曲不是网易云来源，暂无对应评论')
-    const limit = 20
-    const data = unwrapData(await this.request('/api/v1/music/comments', { id: track.sourceTrackId, limit, offset: (Math.max(1, page) - 1) * limit }))
-    if (!isRecord(data)) throw new Error('评论响应格式无效')
-    return {
-      total: numberValue(data.total), more: data.more === true,
-      hotComments: (Array.isArray(data.hotComments) ? data.hotComments : []).map(aggregateComment).filter(Boolean) as MusicComment[],
-      comments: (Array.isArray(data.comments) ? data.comments : []).map(aggregateComment).filter(Boolean) as MusicComment[]
-    }
+    const url = joinUrl(this.base, '/api/v1/music/comments', commentRequestParams(track, page))
+    return parseCommentPage(await requestMusicComments(url))
   }
 }
 
@@ -282,6 +342,7 @@ class MetingMusicProvider implements MusicProvider {
     return {
       id: `${this.id}:${server}:${sourceTrackId}`, sourceId: this.id, sourceTrackId,
       originSourceId: server, originExtra: { mediaUrl, lyricUrl: textValue(value.lrc) },
+      neteaseTrackId: server === 'netease' && /^\d+$/.test(sourceTrackId) ? sourceTrackId : undefined,
       title: textValue(value.title, '未知歌曲'), artist: textValue(value.author, '未知歌手'), album: `${server} · 公共音乐`,
       duration: 0, coverUrl: secureImageUrl(value.pic), available: true, playbackType: 'full', reason: '匿名公共音源 · 完整播放'
     }
@@ -375,18 +436,24 @@ export const createNeteaseQrLogin = async (apiBase: string) => {
 
 export const checkNeteaseQrLogin = async (apiBase: string, key: string) => withTimeout(joinUrl(apiBase, '/login/qr/check', { key, timestamp: Date.now() })) as Promise<{ code: number; message?: string; cookie?: string }>
 
-const bundledMusicQrRequest = (action: 'create' | 'check' | 'status' | 'capabilities' | 'logout', platform = 'netease') => withTimeout(
+export const MUSIC_QR_PROMISE = '我已阅读并理解账号连接与凭据保管说明，自愿扫码授权，并确认所选保留期限。'
+
+const bundledMusicQrRequest = (
+  action: 'create' | 'check' | 'status' | 'capabilities' | 'logout',
+  platform = 'netease',
+  options: { retentionDays?: number; promise?: string } = {}
+) => withTimeout(
   '/.netlify/functions/music-qr',
   {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, platform })
+    body: JSON.stringify({ action, platform, ...options })
   }
 )
 
-export const createBundledMusicQrLogin = async (platform: string): Promise<AggregateQrSession> => {
-  const data = await bundledMusicQrRequest('create', platform)
+export const createBundledMusicQrLogin = async (platform: string, retentionDays: number, promise: string): Promise<AggregateQrSession> => {
+  const data = await bundledMusicQrRequest('create', platform, { retentionDays, promise })
   if (!isRecord(data) || (!textValue(data.url) && !textValue(data.imageUrl))) throw new Error('登录二维码生成失败')
   return { source: platform, key: 'http-only', url: textValue(data.url), imageUrl: textValue(data.imageUrl) || undefined, expiresAt: numberValue(data.expiresAt) || undefined }
 }

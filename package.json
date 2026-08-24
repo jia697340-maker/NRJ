@@ -16,6 +16,7 @@
     "test:prompt": "tsx scripts/test-prompt-schemes.ts",
     "test:group": "tsx scripts/test-group-chat.ts",
     "test:reasoning": "tsx scripts/test-reasoning-adapters.ts",
+    "test:mcp": "tsx scripts/test-mcp-adapters.ts",
     "test:reply-variants": "tsx scripts/test-reply-variants.ts",
     "test:forum": "tsx scripts/test-forum-policy.ts",
     "test:forum-runtime": "tsx scripts/test-forum-runtime.ts",
@@ -24,6 +25,7 @@
     "typecheck": "vue-tsc -p tsconfig.app.json --noEmit --incremental false"
   },
   "dependencies": {
+    "@netlify/blobs": "^11.0.1",
     "jszip": "^3.10.1",
     "localforage": "^1.10.0",
     "mammoth": "^1.12.0",

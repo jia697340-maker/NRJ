@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import type { MusicCommentPage, MusicHomeSection, MusicPlaylist, MusicSearchPage, MusicSourceConfig, MusicTrack, MusicUserProfile } from '../types/music'
 import { musicTrackKey } from '../types/music'
-import { createMusicProviders, loadPublicMusicHomeSections, logoutBundledMusicAccounts } from '../services/musicProviders'
+import { createMusicProviders, loadPublicMusicComments, loadPublicMusicHomeSections, logoutBundledMusicAccounts } from '../services/musicProviders'
 import { loadMusicHomeCache, saveLocalMusicFile, saveMusicHomeCache } from '../services/musicStorage'
 import { readLocalMusicMetadata } from '../services/musicFileMetadata'
 import { parseMusicLyrics } from '../services/musicLyrics'
@@ -203,11 +203,15 @@ export function useMusicLibrary() {
   }
 
   const loadComments = async (track: MusicTrack, page = 1): Promise<MusicCommentPage> => {
-    if (track.originSourceId !== 'netease') throw new Error('该歌曲不是网易云来源，暂无对应评论')
-    const provider = providers().find(item => item.id === track.sourceId && item.getComments)
-      || providers().find(item => item.id === 'aggregate' && item.getComments)
-    if (!provider?.getComments) throw new Error('本站评论服务尚未连接')
-    return provider.getComments(track, page)
+    try {
+      return await loadPublicMusicComments(track, page)
+    } catch (publicError) {
+      if (publicError instanceof Error && /未找到可靠|歌曲信息不完整/.test(publicError.message)) throw publicError
+      const provider = providers().find(item => item.id === track.sourceId && item.getComments)
+        || providers().find(item => item.id === 'aggregate' && item.getComments)
+      if (!provider?.getComments) throw publicError
+      return provider.getComments(track, page)
+    }
   }
 
   const importLocalFiles = async (files: File[]) => {

@@ -9,6 +9,7 @@ import {
   type ReasoningSource
 } from './reasoning'
 import type { WebSearchTrace, WebSearchSource } from './webSearch'
+import type { McpModelTool, McpModelToolCall } from '../types/mcp'
 
 export type ModelAdapterProfile = OfflineModelProfile
 
@@ -26,6 +27,7 @@ export interface AdapterSettings {
   presencePenalty?: number
   reasoning?: ReasoningPolicy
   webSearch?: { enabled: boolean; maxResults?: number }
+  tools?: McpModelTool[]
 }
 
 export interface PreparedAdapterRequest {
@@ -47,6 +49,7 @@ export interface ParsedAdapterResponse {
   reasoningSource?: ReasoningSource
   providerState?: ProviderReasoningState
   webSearch?: WebSearchTrace
+  toolCalls?: McpModelToolCall[]
 }
 
 const trimSlash = (value: string) => value.replace(/\/+$/, '')
@@ -111,7 +114,7 @@ const normalizeMessages = (messages: any[]) => {
   for (const message of messages) {
     if (!message?.role || message.content === undefined) continue
     const previous = result[result.length - 1]
-    if (previous && previous.role === message.role && typeof previous.content === 'string' && typeof message.content === 'string') {
+    if (previous && previous.role === message.role && message.role !== 'tool' && !previous._mcpToolCalls && !message._mcpToolCalls && typeof previous.content === 'string' && typeof message.content === 'string') {
       previous.content += `\n\n${message.content}`
     } else {
       result.push(JSON.parse(JSON.stringify(message)))
@@ -119,6 +122,30 @@ const normalizeMessages = (messages: any[]) => {
   }
   return result
 }
+
+const safeToolArguments = (value: unknown): Record<string, unknown> => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch { return {} }
+  }
+  return {}
+}
+
+const openAITool = (tool: McpModelTool) => ({
+  type: 'function',
+  function: { name: tool.name, description: tool.description, parameters: tool.inputSchema }
+})
+
+const toolCallsFromOpenAI = (items: any[]): McpModelToolCall[] => (items || [])
+  .filter(item => item?.function?.name && String(item.function.name).startsWith('mcp__'))
+  .map((item, index) => ({
+    id: String(item.id || `mcp_call_${index}`),
+    name: String(item.function.name),
+    arguments: safeToolArguments(item.function.arguments)
+  }))
 
 const mergeProviderMessages = (messages: any[], field: 'content' | 'parts') => {
   const result: any[] = []
@@ -206,6 +233,17 @@ const prepareOpenAICompatible = (settings: AdapterSettings, messages: any[], pro
   if (!endpoint.endsWith('/chat/completions')) endpoint += endpoint.includes('/v1') ? '/chat/completions' : '/v1/chat/completions'
   const sanitizedMessages = normalizeMessages(messages).map(message => {
     const normalized: any = { role: message.role, content: message.content }
+    if (message.role === 'assistant' && Array.isArray(message._mcpToolCalls)) {
+      normalized.tool_calls = message._mcpToolCalls.map((call: McpModelToolCall) => ({
+        id: call.id,
+        type: 'function',
+        function: { name: call.name, arguments: JSON.stringify(call.arguments || {}) }
+      }))
+    }
+    if (message.role === 'tool') {
+      normalized.tool_call_id = message.tool_call_id
+      if (message.name) normalized.name = message.name
+    }
     if (profile === 'glm' && message._providerState?.provider === 'glm' && message._providerState.reasoningContent) {
       normalized.reasoning_content = message._providerState.reasoningContent
     }
@@ -215,6 +253,7 @@ const prepareOpenAICompatible = (settings: AdapterSettings, messages: any[], pro
   if (settings.webSearch?.enabled && isOpenRouterEndpoint(settings)) {
     body.tools = [{ type: 'openrouter:web_search', parameters: { max_results: Math.max(1, Math.min(10, Number(settings.webSearch.maxResults) || 5)) } }]
   }
+  if (settings.tools?.length) body.tools = [...(body.tools || []), ...settings.tools.map(openAITool)]
   if (settings.maxTokens !== undefined) body.max_tokens = settings.maxTokens
 
   if (profile !== 'deepseek-reasoner') {
@@ -239,13 +278,24 @@ const prepareOpenAICompatible = (settings: AdapterSettings, messages: any[], pro
 
 const prepareClaude = (settings: AdapterSettings, messages: any[]): PreparedAdapterRequest => {
   const nativeThinking = Boolean(settings.reasoning?.enabled && settings.reasoning.claudeNativeEnabled)
-  const prefillForbidden = nativeThinking || settings.webSearch?.enabled || /claude-.*-5/i.test(settings.model)
+  const prefillForbidden = nativeThinking || settings.webSearch?.enabled || Boolean(settings.tools?.length) || /claude-.*-5/i.test(settings.model)
   const safeMessages = prefillForbidden && messages[messages.length - 1]?.role === 'assistant' ? messages.slice(0, -1) : messages
   const { system, conversation } = splitSystemPrefix(restoreProviderTurns(safeMessages, 'claude'))
-  const normalized = conversation.map(message => ({
-    role: message.role === 'assistant' ? 'assistant' : 'user',
-    content: message._restoredProviderContent || toAnthropicContent(message.content)
-  }))
+  const normalized = conversation.map(message => {
+    if (message.role === 'tool') {
+      return {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: message.tool_call_id, content: contentToText(message.content), is_error: Boolean(message.is_error) }]
+      }
+    }
+    const content = message._restoredProviderContent || toAnthropicContent(message.content)
+    if (message.role === 'assistant' && Array.isArray(message._mcpToolCalls) && !message._restoredProviderContent) {
+      const blocks = typeof content === 'string' ? (content ? [{ type: 'text', text: content }] : []) : [...content]
+      blocks.push(...message._mcpToolCalls.map((call: McpModelToolCall) => ({ type: 'tool_use', id: call.id, name: call.name, input: call.arguments || {} })))
+      return { role: 'assistant', content: blocks }
+    }
+    return { role: message.role === 'assistant' ? 'assistant' : 'user', content }
+  })
   const body: any = {
     model: settings.model,
     max_tokens: settings.maxTokens || 4096,
@@ -254,6 +304,9 @@ const prepareClaude = (settings: AdapterSettings, messages: any[]): PreparedAdap
   }
   if (system) body.system = system
   if (settings.webSearch?.enabled) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }]
+  if (settings.tools?.length) {
+    body.tools = [...(body.tools || []), ...settings.tools.map(tool => ({ name: tool.name, description: tool.description, input_schema: tool.inputSchema }))]
+  }
   if (nativeThinking) {
     if (settings.reasoning!.mode === 'skip') {
       if (!/(?:fable|mythos)/i.test(settings.model)) body.thinking = { type: 'disabled' }
@@ -280,16 +333,25 @@ const prepareClaude = (settings: AdapterSettings, messages: any[]): PreparedAdap
 }
 
 const prepareGeminiGenerateContent = (settings: AdapterSettings, messages: any[]): PreparedAdapterRequest => {
-  const normalizedMessages = isGeminiPrefillUnsupported(settings.model) && messages[messages.length - 1]?.role === 'assistant'
+  const normalizedMessages = isGeminiPrefillUnsupported(settings.model) && messages[messages.length - 1]?.role === 'assistant' && !messages[messages.length - 1]?._mcpToolCalls
     ? messages.slice(0, -1)
     : messages
   const { system, conversation } = splitSystemPrefix(restoreProviderTurns(normalizedMessages, 'gemini'))
-  const contents = conversation.map(message => ({
-    role: message.role === 'assistant' ? 'model' : 'user',
-    parts: message._restoredProviderContent || toGeminiParts(message.content)
-  }))
+  const contents = conversation.map(message => {
+    if (message.role === 'tool') {
+      return { role: 'user', parts: [{ functionResponse: { name: message.name, response: { result: contentToText(message.content), isError: Boolean(message.is_error) } } }] }
+    }
+    const parts = message._restoredProviderContent || toGeminiParts(message.content)
+    if (message.role === 'assistant' && Array.isArray(message._mcpToolCalls) && !message._restoredProviderContent) {
+      parts.push(...message._mcpToolCalls.map((call: McpModelToolCall) => ({ functionCall: { name: call.name, args: call.arguments || {} } })))
+    }
+    return { role: message.role === 'assistant' ? 'model' : 'user', parts }
+  })
   const body: any = { contents: mergeProviderMessages(contents, 'parts') }
   if (settings.webSearch?.enabled) body.tools = [{ google_search: {} }]
+  if (settings.tools?.length) {
+    body.tools = [...(body.tools || []), { functionDeclarations: settings.tools.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema })) }]
+  }
   if (system) body.systemInstruction = { parts: [{ text: system }] }
 
   const generationConfig: any = {}
@@ -390,7 +452,7 @@ const prepareGeminiInteractions = (settings: AdapterSettings, messages: any[], f
 const prepareGemini = (settings: AdapterSettings, messages: any[]): PreparedAdapterRequest => {
   const fallback = prepareGeminiGenerateContent(settings, messages)
   const nativeEnabled = Boolean(settings.reasoning?.enabled && settings.reasoning.geminiNativeEnabled)
-  if (!nativeEnabled || !supportsGeminiInteractions(settings.model) || !isOfficialGeminiUrl(settings.url)) return fallback
+  if (settings.tools?.length || !nativeEnabled || !supportsGeminiInteractions(settings.model) || !isOfficialGeminiUrl(settings.url)) return fallback
   return prepareGeminiInteractions(settings, messages, fallback)
 }
 
@@ -409,12 +471,25 @@ const prepareOpenAIResponses = (settings: AdapterSettings, messages: any[]): Pre
   let continuationIndex = latestStateIndex + 1
   while (stateMessage?._turnId && messages[continuationIndex]?.role === 'assistant' && messages[continuationIndex]?._turnId === stateMessage._turnId) continuationIndex++
   const inputMessages = state?.responseId ? messages.slice(continuationIndex) : messages
-  const input = normalizeMessages(inputMessages).map(message => ({
-    role: message.role,
-    content: contentToText(message.content)
-  }))
+  const input = normalizeMessages(inputMessages).flatMap(message => {
+    if (message.role === 'tool') {
+      return [{ type: 'function_call_output', call_id: message.tool_call_id, output: contentToText(message.content) }]
+    }
+    const result: any[] = []
+    const text = contentToText(message.content)
+    if (text) result.push({ role: message.role, content: text })
+    if (message.role === 'assistant' && Array.isArray(message._mcpToolCalls)) {
+      result.push(...message._mcpToolCalls.map((call: McpModelToolCall) => ({
+        type: 'function_call', call_id: call.id, name: call.name, arguments: JSON.stringify(call.arguments || {})
+      })))
+    }
+    return result
+  })
   const body: any = { model: settings.model, input, stream: Boolean(settings.stream) }
   if (settings.webSearch?.enabled) body.tools = [{ type: 'web_search' }]
+  if (settings.tools?.length) {
+    body.tools = [...(body.tools || []), ...settings.tools.map(tool => ({ type: 'function', name: tool.name, description: tool.description, parameters: tool.inputSchema, strict: false }))]
+  }
   if (state?.responseId) body.previous_response_id = state.responseId
   if (settings.maxTokens !== undefined) body.max_output_tokens = settings.maxTokens
   if (settings.reasoning?.enabled) {
@@ -486,6 +561,11 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       providerState: blocks.some((item: any) => item.type === 'thinking' && item.signature)
         ? { provider: 'claude', blocks: blocks.map((item: any) => ({ ...item })) }
         : undefined,
+      toolCalls: blocks.filter((item: any) => item.type === 'tool_use' && String(item.name || '').startsWith('mcp__')).map((item: any, index: number) => ({
+        id: String(item.id || `mcp_call_${index}`),
+        name: String(item.name),
+        arguments: safeToolArguments(item.input)
+      })),
       webSearch: searchUseBlocks.length || searchSources.length
         ? webTrace('Claude Web Search', searchUseBlocks.map((item: any) => item.input?.query), searchSources)
         : undefined
@@ -508,6 +588,11 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       providerState: parts.some((item: any) => item.thoughtSignature)
         ? { provider: 'gemini', parts: parts.map((item: any) => ({ ...item })) }
         : undefined,
+      toolCalls: parts.filter((item: any) => String(item.functionCall?.name || '').startsWith('mcp__')).map((item: any, index: number) => ({
+        id: String(item.functionCall.id || `mcp_call_${index}`),
+        name: String(item.functionCall.name),
+        arguments: safeToolArguments(item.functionCall.args)
+      })),
       webSearch: (grounding.webSearchQueries?.length || searchSources.length)
         ? webTrace('Google Search', grounding.webSearchQueries || [], searchSources)
         : undefined
@@ -522,6 +607,7 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       .filter((item: any) => item.type === 'output_text')
       .map((item: any) => item.text || '').join('')
     const searchCalls = output.filter((item: any) => item.type === 'web_search_call')
+    const functionCalls = output.filter((item: any) => item.type === 'function_call' && String(item.name || '').startsWith('mcp__'))
     const searchSources = citationSources(output.filter((item: any) => item.type === 'message')
       .flatMap((item: any) => item.content || []).flatMap((item: any) => item.annotations || []))
     return {
@@ -533,6 +619,11 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
       stopReason: data.status === 'incomplete' ? (data.incomplete_details?.reason || 'incomplete') : data.status,
       reasoningSource: thinking ? 'native' : 'none',
       providerState: data.id ? { provider: 'openai', responseId: data.id } : undefined,
+      toolCalls: functionCalls.map((item: any, index: number) => ({
+        id: String(item.call_id || item.id || `mcp_call_${index}`),
+        name: String(item.name),
+        arguments: safeToolArguments(item.arguments)
+      })),
       webSearch: searchCalls.length || searchSources.length
         ? webTrace('OpenAI Web Search', searchCalls.flatMap((item: any) => item.action?.queries || (item.action?.query ? [item.action.query] : [])), searchSources)
         : undefined
@@ -558,6 +649,7 @@ export const parseAdapterResponse = (profile: PreparedAdapterRequest['profile'],
     stopReason: data.choices?.[0]?.finish_reason,
     reasoningSource: thinking ? 'native' : 'none',
     providerState: profile === 'glm' && thinking ? { provider: 'glm', reasoningContent: thinking } : undefined,
+    toolCalls: toolCallsFromOpenAI(message.tool_calls || []),
     webSearch: openRouterSearch.length || toolQueries.length ? webTrace('OpenRouter Web Search', toolQueries, openRouterSearch) : undefined
   }
 }

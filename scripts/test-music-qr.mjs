@@ -54,12 +54,12 @@ globalThis.fetch = async (url, init) => {
   throw new Error(`Unexpected request: ${requestUrl}`)
 }
 
-const { default: handler } = await import('../netlify/functions/music-qr.mjs')
+const { default: handler, MUSIC_QR_PROMISE } = await import('../netlify/functions/music-qr.mjs')
 const endpoint = 'https://example.netlify.app/.netlify/functions/music-qr'
-const invoke = (action, cookie = '', platform = 'netease') => handler(new Request(endpoint, {
+const invoke = (action, cookie = '', platform = 'netease', extra = {}) => handler(new Request(endpoint, {
   method: 'POST',
   headers: { Origin: 'https://example.netlify.app', Cookie: cookie, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ action, platform }),
+  body: JSON.stringify({ action, platform, ...(action === 'create' ? { retentionDays: 7, promise: MUSIC_QR_PROMISE } : {}), ...extra }),
 }))
 const responseCookie = (response, name) => {
   const value = response.headers.get('set-cookie') || ''
@@ -72,20 +72,30 @@ assert.equal(created.status, 200)
 assert.equal((await created.clone().json()).url, 'https://music.163.com/login?codekey=test-key')
 const qrCookie = responseCookie(created, '__Host-clingy-ncm-qr')
 assert.ok(qrCookie)
+assert.doesNotMatch(qrCookie, /test-device|test-key|secret/i)
+
+const missingPromise = await invoke('create', '', 'netease', { promise: '' })
+assert.equal(missingPromise.status, 400)
+assert.match((await missingPromise.json()).message, /完整输入/)
+const excessiveRetention = await invoke('create', '', 'netease', { retentionDays: 366 })
+assert.equal(excessiveRetention.status, 400)
+assert.match((await excessiveRetention.json()).message, /0 到 365 天/)
 
 const scanned = await invoke('check', qrCookie)
 assert.equal((await scanned.json()).status, 'scanned')
 
 const success = await invoke('check', qrCookie)
 const successBody = await success.clone().json()
-assert.deepEqual(successBody, { status: 'success', message: '网易云登录成功' })
+assert.deepEqual(successBody, { status: 'success', message: '网易云登录成功', retentionDays: 7 })
 assert.doesNotMatch(JSON.stringify(successBody), /secret-token|csrf-token/)
 const authCookie = responseCookie(success, '__Host-clingy-ncm-auth')
 assert.ok(authCookie)
+assert.doesNotMatch(authCookie, /secret-token|csrf-token/i)
 
 const status = await invoke('status', authCookie)
 assert.deepEqual(await status.json(), {
   connected: true,
+  retentionDays: 7,
   profile: { id: '7', nickname: '测试用户', avatarUrl: 'https://example.com/avatar.jpg' },
 })
 
@@ -95,11 +105,12 @@ const biliQrCookie = responseCookie(biliCreated, '__Host-clingy-bilibili-qr')
 assert.ok(biliQrCookie)
 assert.equal((await (await invoke('check', biliQrCookie, 'bilibili')).json()).status, 'scanned')
 const biliSuccess = await invoke('check', biliQrCookie, 'bilibili')
-assert.deepEqual(await biliSuccess.clone().json(), { status: 'success', message: 'B站登录成功' })
+assert.deepEqual(await biliSuccess.clone().json(), { status: 'success', message: 'B站登录成功', retentionDays: 7 })
 const biliAuthCookie = responseCookie(biliSuccess, '__Host-clingy-bilibili-auth')
 assert.ok(biliAuthCookie)
 assert.deepEqual(await (await invoke('status', biliAuthCookie, 'bilibili')).json(), {
   connected: true,
+  retentionDays: 7,
   profile: { id: '8', nickname: 'B站测试用户', avatarUrl: 'https://example.com/bili.jpg' },
 })
 
@@ -110,16 +121,32 @@ const qqQrCookie = responseCookie(qqCreated, '__Host-clingy-qqmusic-qr')
 assert.ok(qqQrCookie)
 assert.equal((await (await invoke('check', qqQrCookie, 'qq')).json()).status, 'scanned')
 const qqSuccess = await invoke('check', qqQrCookie, 'qq')
-assert.deepEqual(await qqSuccess.clone().json(), { status: 'success', message: 'QQ音乐登录成功' })
+assert.deepEqual(await qqSuccess.clone().json(), { status: 'success', message: 'QQ音乐登录成功', retentionDays: 7 })
 const qqAuthCookie = responseCookie(qqSuccess, '__Host-clingy-qqmusic-auth')
 assert.ok(qqAuthCookie)
 assert.equal((await (await invoke('status', qqAuthCookie, 'qq')).json()).connected, true)
 
 const capabilities = await invoke('capabilities')
-assert.deepEqual((await capabilities.json()).platforms.sort(), ['bilibili', 'netease', 'qq'])
+const capabilityBody = await capabilities.json()
+assert.deepEqual(capabilityBody.platforms.sort(), ['bilibili', 'netease', 'qq'])
+assert.equal(capabilityBody.serverSideCredentialStore, true)
+assert.equal(capabilityBody.typedPromiseRequired, true)
+assert.equal(capabilityBody.maxRetentionDays, 365)
 
 const logout = await invoke('logout', `${authCookie}; ${biliAuthCookie}; ${qqAuthCookie}`, 'all')
 assert.equal((await logout.json()).success, true)
 assert.match(logout.headers.get('set-cookie') || '', /Max-Age=0/)
+
+const crossOrigin = await handler(new Request(endpoint, {
+  method: 'POST', headers: { Origin: 'https://attacker.example', 'Content-Type': 'application/json' },
+  body: JSON.stringify({ action: 'capabilities' })
+}))
+assert.equal(crossOrigin.status, 403)
+
+const { musicSessionStore } = await import('../netlify/lib/music-session-store.mjs')
+await musicSessionStore.set('test/expired', { expiresAt: Date.now() - 1, secret: 'must-delete' })
+const { default: cleanup } = await import('../netlify/functions/music-session-cleanup.mjs')
+assert.equal((await cleanup()).status, 200)
+assert.equal(await musicSessionStore.get('test/expired'), null)
 
 console.log('music QR function tests passed')

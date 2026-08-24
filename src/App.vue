@@ -19,8 +19,10 @@ import AppPersonaWorkshop from './components/app_PersonaWorkshop.vue'
 import AppBubbleWorkshop from './components/app_BubbleWorkshop.vue'
 import AppMusic from './components/app_Music.vue'
 import AppForum from './components/app_Forum.vue'
+import AppMCP from './components/app_MCP.vue'
 import LockScreen from './components/LockScreen.vue'
 import AppWatermarkOverlay from './components/AppWatermarkOverlay.vue'
+import McpApprovalModal from './components/McpApprovalModal.vue'
 import { globalSettings, appStats } from './store'
 import { useChatState } from './composables/useChatState'
 import { useAppIcons } from './composables/useAppIcons'
@@ -398,6 +400,9 @@ watch(activeApp, appId => {
     <!-- 好友申请居中美化弹窗 -->
     <FriendRequestModal />
 
+    <!-- MCP 写入与外部操作逐次确认 -->
+    <McpApprovalModal />
+
     <!-- 锁屏界面 -->
     <Transition name="lock-fade">
       <LockScreen v-if="isLocked" data-font-area="lockscreen" @unlock="handleUnlock" @open-chat="handleOpenChatFromLock" />
@@ -531,6 +536,13 @@ watch(activeApp, appId => {
       <AppForum
         v-if="activeApp === 'forum'"
         data-font-app="forum"
+        @close="activeApp = null"
+      />
+    </Transition>
+    <Transition name="app-fade">
+      <AppMCP
+        v-if="activeApp === 'mcp'"
+        data-font-app="mcp"
         @close="activeApp = null"
       />
     </Transition>

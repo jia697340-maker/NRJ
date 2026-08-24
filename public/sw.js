@@ -7,6 +7,8 @@ const shouldBypassCache = (request) => {
     || url.pathname.includes('/v1/chat/completions')
     || url.pathname.includes('/v1/embeddings')
   const isMusicRequest = url.pathname.startsWith('/music-api/')
+    || url.pathname === '/.netlify/functions/music-comments'
+    || url.pathname === '/.netlify/functions/music-qr'
     || url.pathname.includes('/rest/stream.view')
     || eventLikeAudioPath(url.pathname)
   return isLocalApi || isOpenAiApi || isMusicRequest

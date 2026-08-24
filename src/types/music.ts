@@ -39,6 +39,7 @@ export interface MusicTrack {
   externalUrl?: string
   originSourceId?: string
   originExtra?: Record<string, string>
+  neteaseTrackId?: string
   playbackType?: 'full' | 'local'
 }
 
@@ -63,6 +64,9 @@ export interface MusicCommentPage {
   more: boolean
   hotComments: MusicComment[]
   comments: MusicComment[]
+  stale?: boolean
+  resolvedNeteaseId?: string
+  matched?: boolean
 }
 
 export interface MusicPlaylist {

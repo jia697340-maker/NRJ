@@ -1,9 +1,11 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { musicCommentsDevPlugin } from './scripts/vite-music-comments-plugin.mjs'
+import { musicQrDevPlugin } from './scripts/vite-music-qr-plugin.mjs'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), musicCommentsDevPlugin(), musicQrDevPlugin()],
   server: {
     proxy: {
       '/.netlify/functions/music-home': {

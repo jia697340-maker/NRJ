@@ -4,6 +4,8 @@ import { apiLogger } from './apiLogger'
 import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest, resolveModelAdapterProfile } from './modelAdapters'
 import type { ModelAdapterProfile } from './modelAdapters'
 import { extractEmbeddedReasoning, isGeminiPrefillUnsupported, mergeProviderReasoningState, type ProviderReasoningState, type ReasoningPolicy, type ReasoningSource } from './reasoning'
+import { executeMcpModelTool, getEnabledMcpTools } from './mcpRuntime'
+import type { McpModelToolCall } from '../types/mcp'
 import { saveTokenUsageSnapshot } from './tokenUsageSnapshot'
 import { commitDiagnosticTrace, createDiagnosticDraft, type DiagnosticContextMeta } from './diagnosticTrace'
 import { isRawApiConsoleLoggingEnabled, logApiFallback, logApiRequest, logApiResponse } from './apiDebug'
@@ -90,7 +92,7 @@ export const isCharacterApiReady = () => {
 }
 
 export async function sendChatMessage(
-  messages: { role: string; content: string | any[] }[], 
+  messages: any[],
   signal?: AbortSignal,
   isSummary: boolean = false,
   isVision: boolean = false,
@@ -98,7 +100,8 @@ export async function sendChatMessage(
   adapterOverride: ModelAdapterProfile = 'auto',
   diagnosticContext?: DiagnosticContextMeta,
   payloadReady: boolean = false,
-  webSearch?: WebSearchRequestOptions
+  webSearch?: WebSearchRequestOptions,
+  mcpDepth: number = 0
 ) {
   // 定义一个包含所有可能属性的接口，包括各个设置独有的属性
   interface MergedApiSettings {
@@ -163,6 +166,10 @@ export async function sendChatMessage(
     applyCot: reasoningPolicy.enabled
   })
 
+  const mcpTools = purpose === 'default' && !isSummary && !isVision && Boolean(diagnosticContext?.chatId)
+    ? getEnabledMcpTools()
+    : []
+
   let webSearchTrace: WebSearchTrace | undefined
   const webSearchEnabled = Boolean(webSearch?.enabled && purpose === 'default' && !isSummary && !isVision)
   if (webSearchEnabled) {
@@ -183,13 +190,14 @@ export async function sendChatMessage(
     key,
     model,
     profile: effectiveAdapter,
-    stream: activeSettings.enableStream,
+    stream: activeSettings.enableStream && mcpTools.length === 0,
     maxTokens: activeSettings.enableMaxTokens ? activeSettings.maxTokens : undefined,
     temperature: activeSettings.enableTemperature ? activeSettings.temperature : undefined,
     topP: activeSettings.enableTopP ? activeSettings.topP : undefined,
     frequencyPenalty: activeSettings.enableFrequencyPenalty ? activeSettings.frequencyPenalty : undefined,
     presencePenalty: activeSettings.enablePresencePenalty ? activeSettings.presencePenalty : undefined,
     reasoning: reasoningPolicy,
+    tools: mcpTools,
     webSearch: webSearchEnabled && webSearch?.mode === 'managed'
       ? { enabled: true, maxResults: webSearch.maxResults }
       : undefined
@@ -211,7 +219,7 @@ export async function sendChatMessage(
     model,
     adapter: preparedRequest.profile,
     protocol: preparedRequest.protocol,
-    stream: activeSettings.enableStream,
+    stream: activeSettings.enableStream && mcpTools.length === 0,
     context: diagnosticContext,
     reasoning: {
       enabled: reasoningPolicy.enabled,
@@ -235,6 +243,7 @@ export async function sendChatMessage(
   appStats.apiCalls++
   
   // --- 更新新增的趣味统计 (每日消息/熬夜/连续天数) ---
+  if (mcpDepth === 0) {
   const todayStr = new Date().toLocaleDateString() // YYYY/MM/DD
   const currentHour = new Date().getHours()
   const currentMinute = new Date().getMinutes()
@@ -284,6 +293,7 @@ export async function sendChatMessage(
       appStats.latestNightChatTime = totalMinutes
     }
   }
+  }
   // ----------------------------------------------------
 
   let response: Response
@@ -291,6 +301,7 @@ export async function sendChatMessage(
   let tokensUsage = 0
   let inputTokensUsage = 0
   let outputTokensUsage = 0
+  let mcpToolCalls: McpModelToolCall[] = []
   try {
     logApiRequest(activeRequest)
     response = await fetch(activeRequest.endpoint, {
@@ -437,6 +448,7 @@ export async function sendChatMessage(
     if (parsed.inputTokens) inputTokensUsage = parsed.inputTokens
     if (parsed.outputTokens) outputTokensUsage = parsed.outputTokens
     stopReason = parsed.stopReason || ''
+    mcpToolCalls = parsed.toolCalls || []
   }
 
   if (inputTokensUsage > 0 || outputTokensUsage > 0) {
@@ -524,6 +536,62 @@ export async function sendChatMessage(
       totalTokens: tokensUsage,
       createdAt: Date.now()
     })
+  }
+
+  if (mcpToolCalls.length) {
+    if (mcpDepth >= 4) {
+      return {
+        content: 'MCP 工具连续调用次数过多，已安全停止。',
+        thinking: '',
+        reasoningSource: 'none' as const,
+        providerState: undefined,
+        webSearch: webSearchTrace,
+        stopReason: 'mcp_tool_limit',
+        truncated: false
+      }
+    }
+
+    const followupMessages = JSON.parse(JSON.stringify(payloadMessages))
+    followupMessages.push({
+      role: 'assistant',
+      content,
+      _mcpToolCalls: mcpToolCalls,
+      _providerState: providerState
+    })
+
+    for (const call of mcpToolCalls) {
+      try {
+        const result = await executeMcpModelTool(call.name, call.arguments, signal)
+        followupMessages.push({
+          role: 'tool',
+          name: call.name,
+          tool_call_id: call.id,
+          content: result.content,
+          is_error: Boolean(result.isError)
+        })
+      } catch (error) {
+        followupMessages.push({
+          role: 'tool',
+          name: call.name,
+          tool_call_id: call.id,
+          content: JSON.stringify({ error: error instanceof Error ? error.message : '工具执行失败' }),
+          is_error: true
+        })
+      }
+    }
+
+    return sendChatMessage(
+      followupMessages,
+      signal,
+      false,
+      false,
+      purpose,
+      adapterOverride,
+      diagnosticContext,
+      true,
+      webSearch ? { ...webSearch, enabled: false } : undefined,
+      mcpDepth + 1
+    )
   }
 
   // 返回对象格式以支持 thinking
