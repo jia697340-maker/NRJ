@@ -10,6 +10,7 @@ export type ForumPostType = 'text' | 'single-image' | 'multi-image' | 'long-arti
 export type ForumMediaType = 'image' | 'voice' | 'video' | 'short-video' | 'music' | 'file'
 export type ForumAuthorLifecycle = 'lightweight' | 'persistent' | 'character' | 'user'
 export type ForumGenerationStatus = 'draft' | 'planning' | 'generating' | 'committed' | 'failed'
+export type ForumAutoImageProvider = 'novelai' | 'gpt' | 'gemini' | 'flux' | 'niji' | 'seedream' | 'pollinations' | 'aihorde' | 'off'
 export type ForumCommentGenerationMode = 'incremental' | 'replace-generated'
 export type ForumReplyTimingMode = 'immediate' | 'presence-aware'
 export type ForumFriendRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled'
@@ -99,7 +100,7 @@ export interface ForumDistributionPlan { id: string; sessionId: string; batchId:
 export interface ForumGenerationSession { id: string; status: ForumGenerationStatus; config: ForumGenerationConfig; plan?: ForumDistributionPlan; batchId?: string; progress: number; error?: string; createdAt: number; completedAt?: number }
 export interface ForumContentBatch { id: string; sessionId: string; postIds: string[]; commentIds: string[]; authorAccountIds: string[]; circleIds: string[]; createdAt: number }
 
-export interface ForumSettings { initialized: boolean; activeAccountId: string; defaultSquareEnabled: boolean; generateStrangers: boolean; manualGenerationOnly: boolean; autonomousCommunity: boolean; ambientPopulationTarget: number; aiBatchSize: number; aiContextTokenBudget: number; refreshWorldBookIds?: string[]; preferredImageProvider?: string; preferredVoiceProvider?: string; lastWorldTickAt?: number; defaultReplyTiming?: ForumReplyTimingMode; createdAt: number; updatedAt: number }
+export interface ForumSettings { initialized: boolean; activeAccountId: string; defaultSquareEnabled: boolean; generateStrangers: boolean; manualGenerationOnly: boolean; autonomousCommunity: boolean; ambientPopulationTarget: number; aiBatchSize: number; aiContextTokenBudget: number; refreshWorldBookIds?: string[]; autoImageProvider: ForumAutoImageProvider; preferredImageProvider?: string; preferredVoiceProvider?: string; lastWorldTickAt?: number; defaultReplyTiming?: ForumReplyTimingMode; createdAt: number; updatedAt: number }
 export interface AllowedForumContext { viewerAccount: ForumAccount; circle?: ForumCircle; worldBookEntries: Array<{ bookId: string; entryId: string; title: string; content: string; weight: number }>; eventPost?: Pick<ForumPost, 'id' | 'authorAccountId' | 'circleId' | 'type' | 'content' | 'topics'>; involvedAccounts: ForumAccount[]; involvedSubjects: Array<Pick<ForumSubject, 'id' | 'kind' | 'displayName' | 'persona'>>; involvedPersonas: Array<Pick<ForumPersona, 'accountId' | 'identity' | 'personality' | 'occupation' | 'interests' | 'boundaries' | 'postingStyle' | 'emojiStyle' | 'punctuationStyle' | 'activeHours'>>; recentPosts: Array<Pick<ForumPost, 'authorAccountId' | 'content' | 'topics' | 'createdAt'>>; reachableMemories: ForumMemory[]; anonymousActors: Array<{ anonymousIdentityId: string; label: string }> }
 
 export interface ForumSnapshot {

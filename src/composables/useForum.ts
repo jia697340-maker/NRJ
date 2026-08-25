@@ -10,6 +10,7 @@ import { emptyForumSnapshot, loadForumSnapshot, resolveForumMediaUrl, saveForumS
 import { markPostOpened, rankForumFeed, recordFeedExposure, type ForumFeedKind } from '../services/forumFeedRanking'
 import { syncForumCharacters } from '../services/forumPopulation'
 import { createLightweightForumAuthors, defaultForumGenerationConfig, generateForumContentBatch, promoteLightweightAuthor } from '../services/forumGeneration'
+import { forumGenerationRuntime, runSingleForumGenerationTask } from '../services/forumGenerationRuntime'
 import type {
   ForumAccount, ForumAccountKind, ForumBlockRule, ForumBridgePolicy, ForumCircle, ForumComment, ForumConversation, ForumDirectMessage, ForumLottery, ForumLotteryResult,
   ForumCommentGenerationMode, ForumGenerationConfig, ForumMediaItem, ForumMuteRule, ForumParticipantPolicy, ForumPoll, ForumPost, ForumPostType, ForumReplyTimingMode, ForumSnapshot, ForumSubject, ForumUser, ForumVisibilityRule, ForumWorldBinding
@@ -33,7 +34,9 @@ const error = ref('')
 const activeTab = ref<ForumTab>('feed')
 const feedMode = ref<ForumFeedKind>('recommend')
 const routeStack = ref<ForumRoute[]>([{ name: 'tab' }])
-const generationProgress = ref(0)
+const generationBusy = computed(() => forumGenerationRuntime.status === 'running')
+const generationProgress = computed(() => forumGenerationRuntime.progress)
+const generationError = computed(() => forumGenerationRuntime.error)
 let loading: Promise<void> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 const pendingRevealTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -568,20 +571,18 @@ export function useForum() {
   }
 
   const importMediaFile = async (file: File, type: ForumMediaItem['type'] = 'image') => storeForumMedia(file, { type, mimeType: file.type, alt: file.name })
-  const generateImageMedia = (prompt: string) => generateForumImage(prompt, snapshot.value.settings.preferredImageProvider || 'gpt')
+  const generateImageMedia = (prompt: string) => generateForumImage(prompt, snapshot.value.settings.preferredImageProvider === 'gpt' ? 'gpt' : 'pollinations')
   const generateVoiceMedia = (text: string) => generateForumVoice(text)
   const buildLightVideo = (image: ForumMediaItem, voice?: ForumMediaItem, subtitle = '') => createLightShortVideo(image, voice, subtitle)
 
   const generateNewContent = async (config: ForumGenerationConfig = defaultForumGenerationConfig()) => {
-    if (!currentAccount.value || busy.value) return false
-    busy.value = true; error.value = ''
-    try {
+    if (!currentAccount.value) return false
+    error.value = ''
+    return runSingleForumGenerationTask(async onProgress => {
       syncForumCharacters(snapshot.value)
-      generationProgress.value = 0
-      await generateForumContentBatch(snapshot.value, currentAccount.value.id, config, value => { generationProgress.value = value })
-      return true
-    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return false }
-    finally { busy.value = false }
+      await generateForumContentBatch(snapshot.value, currentAccount.value!.id, config, onProgress)
+      await saveForumSnapshot(snapshot.value)
+    })
   }
 
   const generatePostComments = async (postId: string, mode: ForumCommentGenerationMode = 'incremental', requestedCount = 3) => {
@@ -668,7 +669,7 @@ export function useForum() {
   }
 
   return {
-    snapshot, ready, busy, error, generationProgress, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications, friendRequests,
+    snapshot, ready, busy, error, generationBusy, generationProgress, generationError, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications, friendRequests,
     pushRoute, popRoute, resetToTab, completeOnboarding, updateForumProfile, addForumAccount, switchAccount, listParticipantCandidates, syncParticipantCandidates, setCharacterParticipation, updateParticipantPolicy, updateBridgePolicy, createCircle, joinCircle, bindCircleWorldBooks,
     publishNewPost, addComment, toggleLikePost, toggleBookmarkPost, deletePosts, deleteCircles, toggleFollowUser, sendDirectMessage, createForumGroup, sendGroupMessage, conversationMessages, addBlock, addMute, addVisibilityRule, votePoll, enterLottery, drawLottery, importMediaFile, generateImageMedia, generateVoiceMedia, buildLightVideo, generateNewContent, generatePostComments, generateConversationReply, adjustPendingReply, forumFriendStatus, sendForumFriendRequest, acceptForumFriendRequest, rejectForumFriendRequest, generateForumFriendDecision,
     recordFeedShown: (posts: ForumPost[], source: ForumFeedKind | 'circle') => currentAccount.value && recordFeedExposure(snapshot.value, currentAccount.value.id, posts, source),

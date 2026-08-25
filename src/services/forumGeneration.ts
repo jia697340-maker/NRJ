@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { requestForumJson } from './forumAI'
 import { generateForumImage } from './forumMediaGeneration'
+import { canAccountAppear } from './forumPolicy'
 import type {
   ForumAccount, ForumCircle, ForumComment, ForumContentBatch, ForumDistributionPlan, ForumGenerationConfig,
   ForumGenerationSession, ForumParticipantPolicy, ForumPost, ForumPostPlanSlot, ForumPostType, ForumSnapshot, ForumSubject
@@ -60,26 +61,6 @@ export const createLightweightForumAuthors = async (snapshot: ForumSnapshot, vie
 
 type CircleDraft = { name: string; avatar?: string; description: string; contentScope: string; tags?: string[]; memberCount?: number }
 
-const createGeneratedCircles = async (snapshot: ForumSnapshot, viewerAccountId: string, count: number, batchId: string) => {
-  if (!count) return []
-  const generated = await requestForumJson<{ circles: CircleDraft[] }>(snapshot, { userInitiated: true, viewerAccountId, involvedAccountIds: [] }, 'forum-post',
-    `创建 ${count} 个自然、具体、彼此不同的论坛圈子。圈子像真实小组，不要使用空泛的“生活分享社区”。成员数只是世界观数字。`,
-    '{"circles":[{"name":"圈名","avatar":"单字或表情","description":"公开简介","contentScope":"这里主要聊什么，具体约束","tags":["标签"],"memberCount":8421}]}')
-  const drafts = Array.isArray(generated.circles) ? generated.circles : []
-  const circles: ForumCircle[] = []
-  for (let index = 0; index < count; index += 1) {
-    const raw = drafts[index] || { name: `新鲜小组 ${index + 1}`, avatar: '组', description: '聊聊最近遇到的具体小事。', contentScope: '围绕日常生活中的具体问题、经验和发现交流。', tags: ['日常'], memberCount: 300 + index * 173 }
-    const circle: ForumCircle = {
-      id: makeId('circle'), name: String(raw.name).trim().slice(0, 24), avatar: String(raw.avatar || String(raw.name).slice(0, 1)), description: String(raw.description || '').trim().slice(0, 180), contentScope: String(raw.contentScope || raw.description || '').trim().slice(0, 500),
-      rules: [], tags: (raw.tags || []).map(String).slice(0, 6), creatorAccountId: `generated:${batchId}`, administratorAccountIds: [], memberCount: clamp(raw.memberCount || 500, 12, 999999), activityScore: 50,
-      searchable: true, isPublic: true, joinMode: Math.random() < .35 ? 'application' : 'public', contentPermissions: ['text', 'single-image', 'multi-image', 'long-article', 'link', 'poll', 'qa', 'anonymous'], anonymousMode: 'per-post', adminCanResolveAnonymous: false,
-      allowPoll: true, allowLottery: false, mediaPermissions: ['image'], participantSubjectIds: [], aiPopulation: 0, aiActivity: 'off', createdAt: Date.now(), source: 'generated', generationBatchId: batchId
-    }
-    snapshot.circles.push(circle); circles.push(circle)
-  }
-  return circles
-}
-
 const postKinds: ForumPostPlanSlot['contentKind'][] = ['thought', 'life', 'image-share', 'question', 'help', 'complaint', 'experience', 'discussion', 'link', 'poll', 'anonymous', 'circle-topic']
 const typeForKind = (kind: ForumPostPlanSlot['contentKind']): ForumPostType => kind === 'poll' ? 'poll' : kind === 'anonymous' ? 'anonymous' : kind === 'image-share' ? 'single-image' : kind === 'discussion' || kind === 'experience' ? 'long-article' : kind === 'question' || kind === 'help' ? 'qa' : kind === 'link' ? 'link' : 'text'
 
@@ -113,114 +94,148 @@ export const createForumDistributionPlan = (snapshot: ForumSnapshot, sessionId: 
   return { id: makeId('distribution'), sessionId, batchId, slots, plannedAuthorIds: unique(slots.map(item => item.authorAccountId)), plannedCircleIds: unique(slots.map(item => item.circleId).filter(Boolean) as string[]), plannedCommentCount: comments.reduce((sum, value) => sum + value, 0), createdAt: Date.now() }
 }
 
-type GeneratedPostDraft = { slotId: string; title?: string; content: string; topics?: string[]; pollOptions?: string[]; imagePrompt?: string }
+type BatchAuthorDraft = AuthorDraft & { authorKey: string }
+type BatchCircleDraft = CircleDraft & { circleKey: string }
+type BatchCommentDraft = { commentKey: string; content: string }
+type BatchPostDraft = { postKey: string; title?: string; content: string; topics?: string[]; pollOptions?: string[]; imagePrompt?: string; comments?: BatchCommentDraft[] }
+type ForumBatchDraft = { authors?: BatchAuthorDraft[]; circles?: BatchCircleDraft[]; posts?: BatchPostDraft[] }
+type AuthorRef = { key: string; account?: ForumAccount }
+type CircleRef = { key: string; circle?: ForumCircle }
+type CommentSpec = { commentKey: string; authorKey: string; parentCommentKey?: string; createdAt: number }
+type ForumGenerationDependencies = { requestJson?: typeof requestForumJson; generateImage?: typeof generateForumImage }
 
-const generatePosts = async (snapshot: ForumSnapshot, viewerAccountId: string, plan: ForumDistributionPlan) => {
-  const posts: ForumPost[] = []
-  for (let offset = 0; offset < plan.slots.length; offset += 6) {
-    const slots = plan.slots.slice(offset, offset + 6)
-    const descriptions = slots.map(slot => {
-      const author = snapshot.accounts.find(item => item.id === slot.authorAccountId); const circle = slot.circleId ? snapshot.circles.find(item => item.id === slot.circleId) : undefined
-      return { slotId: slot.id, authorId: author?.id, author: author?.name, expressionStyle: author?.expressionStyle, backgroundHints: author?.backgroundHints, circleId: circle?.id, circle: circle?.name, contentScope: circle?.contentScope, type: slot.postType, contentKind: slot.contentKind, heat: slot.heat }
-    })
-    const generated = await requestForumJson<{ posts: GeneratedPostDraft[] }>(snapshot, { userInitiated: true, viewerAccountId, involvedAccountIds: unique(slots.map(item => item.authorAccountId)) }, 'forum-post',
-      `严格按照下列已经规划好的槽位写帖子，不得改变作者、圈子或数量。帖子文风和长度要明显不同；允许极短碎碎念、普通问题、具体求助、经验、链接讨论和无人理会的普通内容。不要总结人设、鸡汤、档案口吻或整齐模板。\n槽位：${JSON.stringify(descriptions)}`,
-      '{"posts":[{"slotId":"必须原样返回","title":"仅长文可选","content":"帖子正文","topics":["最多两个自然话题"],"pollOptions":["投票时可选"],"imagePrompt":"晒图帖必须提供自然照片画面描述"}]}')
-    const drafts = Array.isArray(generated.posts) ? generated.posts : []
-    for (const slot of slots) {
-      const draft = drafts.find(item => item.slotId === slot.id)
-      if (!draft?.content?.trim()) throw new Error('模型没有完整返回规划中的帖子，请重试。')
-      const author = snapshot.accounts.find(item => item.id === slot.authorAccountId)
-      if (!author) throw new Error('帖子规划引用了不存在的作者。')
-      const post: ForumPost = {
-        id: makeId('post'), author: { ...author, followersCount: 0, followingCount: 0, postsCount: 0, likesCount: 0 }, authorAccountId: author.id, circleId: slot.circleId, type: slot.postType,
-        content: String(draft.content).trim().slice(0, 4000), title: draft.title?.trim().slice(0, 120), topics: unique((draft.topics || []).map(item => String(item).replace(/^#+/, '').trim()).filter(Boolean)).slice(0, 2),
-        visibility: slot.circleId ? 'circle' : 'public', likeCount: slot.heat === 'hot' ? 8 + slot.commentTarget * 2 : slot.commentTarget ? Math.floor(slot.commentTarget * .8) : Math.random() < .35 ? 1 : 0,
-        commentCount: slot.commentTarget, shareCount: slot.heat === 'hot' ? Math.max(1, Math.floor(slot.commentTarget / 4)) : 0, viewCount: slot.heat === 'hot' ? 90 + slot.commentTarget * 19 : 8 + slot.commentTarget * 7,
-        effectiveViewCount: slot.heat === 'hot' ? 50 + slot.commentTarget * 9 : 4 + slot.commentTarget * 3, createdAt: slot.createdAt, source: 'generated'
-      }
-      if (slot.postType === 'anonymous' && slot.circleId) {
-        const circle = snapshot.circles.find(item => item.id === slot.circleId)
-        if (circle?.anonymousMode !== 'disabled') {
-          const anonymous = { id: makeId('anonymous'), circleId: slot.circleId, ownerAccountId: author.id, anonymousCode: String(100 + Math.floor(Math.random() * 900)), rotationMode: circle?.anonymousMode || 'per-post', adminCanResolve: Boolean(circle?.adminCanResolveAnonymous) }
-          snapshot.anonymousIdentities.push(anonymous); post.anonymousIdentityId = anonymous.id
-        }
-      }
-      if (slot.postType === 'poll') {
-        const options = (draft.pollOptions || ['会','不会','还没想好']).map(String).map(item => item.trim()).filter(Boolean).slice(0, 8)
-        if (options.length >= 2) { const pollId = makeId('poll'); snapshot.polls.push({ id: pollId, postId: post.id, multiple: false, anonymous: true, changeable: false, resultsVisible: 'immediate', options: options.map(label => ({ id: makeId('option'), label, votes: Math.floor(Math.random() * 18), voterAccountIds: [] })) }); post.pollId = pollId }
-      }
-      if (slot.postType === 'single-image' && draft.imagePrompt?.trim()) {
-        try { post.media = [await generateForumImage(draft.imagePrompt.trim(), snapshot.settings.preferredImageProvider || 'gpt')] } catch { post.type = 'text' }
-      }
-      posts.push(post); (slot as ForumPostPlanSlot & { postId?: string }).postId = post.id
+const materializeAuthors = (snapshot: ForumSnapshot, refs: AuthorRef[], drafts: BatchAuthorDraft[], batchId: string) => {
+  const accounts = new Map<string, ForumAccount>()
+  refs.forEach((ref, index) => {
+    if (ref.account) { accounts.set(ref.key, ref.account); return }
+    const raw = drafts.find(item => item.authorKey === ref.key)
+    if (!raw?.name?.trim() || !raw.handle?.trim()) throw new Error(`模型没有完整返回轻量作者 ${ref.key}。`)
+    const name = String(raw.name).trim().slice(0, 20)
+    const subject: ForumSubject = { id: makeId('subject_light'), kind: 'npc', displayName: name, persona: String(raw.expressionStyle || raw.bio || '自然表达').slice(0, 240), createdAt: Date.now(), updatedAt: Date.now() }
+    const account: ForumAccount = {
+      id: makeId('forum_account'), subjectId: subject.id, kind: 'main', name, handle: uniqueHandle(snapshot, raw.handle), avatar: String(raw.avatar || name.slice(0, 1)), bio: String(raw.bio || '').slice(0, 160),
+      privacy: 'normal', searchable: true, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: false, showCircles: true,
+      joinedAt: Date.now() - (7 + index * 3) * 86400000, circleIds: [], lifecycle: 'lightweight', expressionStyle: String(raw.expressionStyle || '').slice(0, 240), backgroundHints: (raw.backgroundHints || []).map(String).slice(0, 4), firstSeenBatchId: batchId, lastSeenAt: Date.now()
     }
-  }
-  return posts
+    snapshot.subjects.push(subject); snapshot.accounts.push(account); snapshot.participantPolicies.push(lightweightPolicy(subject.id)); accounts.set(ref.key, account)
+  })
+  return accounts
 }
 
-type CommentSpec = { id: string; authorAccountId: string; parentSpecId?: string; replyToAccountId?: string; createdAt: number }
-
-const generateComments = async (snapshot: ForumSnapshot, viewerAccountId: string, plan: ForumDistributionPlan, posts: ForumPost[], authorPool: ForumAccount[]) => {
-  const comments: ForumComment[] = []
-  for (const slot of plan.slots) {
-    if (!slot.commentTarget) continue
-    const postId = (slot as ForumPostPlanSlot & { postId?: string }).postId; const post = posts.find(item => item.id === postId)
-    if (!post) continue
-    const specs: CommentSpec[] = []
-    const roots: CommentSpec[] = []
-    const commenterPool = authorPool.filter(item => item.id !== post.authorAccountId)
-    for (let index = 0; index < slot.commentTarget; index += 1) {
-      const makeReply = roots.length > 0 && index % 3 !== 0
-      const parent = makeReply ? sample(roots, index * 5) : undefined
-      const author = makeReply && index % 5 === 1 ? snapshot.accounts.find(item => item.id === post.authorAccountId)! : sample(commenterPool.length ? commenterPool : authorPool, index * 7 + slot.commentTarget)
-      const spec: CommentSpec = { id: `comment_spec_${slot.id}_${index}`, authorAccountId: author.id, parentSpecId: parent?.id, replyToAccountId: parent?.authorAccountId, createdAt: Math.min(Date.now(), Number(post.createdAt) + (index + 1) * Math.max(90000, (Date.now() - Number(post.createdAt)) / (slot.commentTarget + 2))) }
-      specs.push(spec); if (!parent) roots.push(spec)
+const materializeCircles = (snapshot: ForumSnapshot, refs: CircleRef[], drafts: BatchCircleDraft[], batchId: string) => {
+  const circles = new Map<string, ForumCircle>()
+  refs.forEach(ref => {
+    if (ref.circle) { circles.set(ref.key, ref.circle); return }
+    const raw = drafts.find(item => item.circleKey === ref.key)
+    if (!raw?.name?.trim() || !raw.description?.trim() || !raw.contentScope?.trim()) throw new Error(`模型没有完整返回圈子 ${ref.key}。`)
+    const circle: ForumCircle = {
+      id: makeId('circle'), name: String(raw.name).trim().slice(0, 24), avatar: String(raw.avatar || raw.name.slice(0, 1)), description: String(raw.description).trim().slice(0, 180), contentScope: String(raw.contentScope).trim().slice(0, 500), rules: [], tags: (raw.tags || []).map(String).slice(0, 6),
+      creatorAccountId: `generated:${batchId}`, administratorAccountIds: [], memberCount: clamp(raw.memberCount || 500, 12, 999999), activityScore: 50, searchable: true, isPublic: true, joinMode: 'public', contentPermissions: ['text', 'single-image', 'multi-image', 'long-article', 'link', 'poll', 'qa', 'anonymous'], anonymousMode: 'per-post', adminCanResolveAnonymous: false, allowPoll: true, allowLottery: false, mediaPermissions: ['image'], participantSubjectIds: [], aiPopulation: 0, aiActivity: 'off', createdAt: Date.now(), source: 'generated', generationBatchId: batchId
     }
-    for (let offset = 0; offset < specs.length; offset += 16) {
-      const chunk = specs.slice(offset, offset + 16)
-      const brief = chunk.map(spec => ({ specId: spec.id, authorId: spec.authorAccountId, author: snapshot.accounts.find(item => item.id === spec.authorAccountId)?.name, style: snapshot.accounts.find(item => item.id === spec.authorAccountId)?.expressionStyle, parentSpecId: spec.parentSpecId, replyTo: snapshot.accounts.find(item => item.id === spec.replyToAccountId)?.name }))
-      const generated = await requestForumJson<{ comments: Array<{ specId: string; content: string }> }>(snapshot, { userInitiated: true, viewerAccountId, circleId: post.circleId, postId: post.id, involvedAccountIds: unique(chunk.map(item => item.authorAccountId)) }, 'forum-comment',
-        `为当前帖子严格按评论槽位写评论。每条只替指定作者说话；长短不一，允许认真回答、一句话、口语、表情、跑题、追问、共鸣或轻微质疑。parentSpecId 表示楼中楼关系，不得改变数量。\n槽位：${JSON.stringify(brief)}`,
-        '{"comments":[{"specId":"必须原样返回","content":"自然评论"}]}')
-      const drafts = Array.isArray(generated.comments) ? generated.comments : []
-      for (const spec of chunk) {
-        const draft = drafts.find(item => item.specId === spec.id); const author = snapshot.accounts.find(item => item.id === spec.authorAccountId)
-        if (!draft?.content?.trim() || !author) throw new Error('模型没有完整返回规划中的评论，请重试。')
-        const parentComment = spec.parentSpecId ? comments.find(item => (item as ForumComment & { generationSpecId?: string }).generationSpecId === spec.parentSpecId) : undefined
-        const comment: ForumComment & { generationSpecId?: string } = {
-          id: makeId('comment'), generationSpecId: spec.id, postId: post.id, author: { ...author, followersCount: 0, followingCount: 0, postsCount: 0, likesCount: 0 }, authorAccountId: author.id,
-          parentId: parentComment?.id, rootCommentId: parentComment?.rootCommentId || parentComment?.id, replyToCommentId: parentComment?.id, depth: parentComment ? 1 : 0,
-          replyToUser: parentComment ? { id: parentComment.authorAccountId, name: parentComment.author.name } : undefined, content: String(draft.content).trim().slice(0, 800), likeCount: Math.random() < .18 ? 1 + Math.floor(Math.random() * 7) : 0, createdAt: spec.createdAt, source: 'generated', generationBatchId: plan.batchId
-        }
-        comments.push(comment)
-      }
-    }
-  }
-  comments.forEach(comment => { delete (comment as ForumComment & { generationSpecId?: string }).generationSpecId })
-  return comments
+    snapshot.circles.push(circle); circles.set(ref.key, circle)
+  })
+  return circles
 }
 
-export const generateForumContentBatch = async (snapshot: ForumSnapshot, viewerAccountId: string, rawConfig: ForumGenerationConfig, onProgress?: (value: number) => void) => {
+const canUseAuthorInCircle = (snapshot: ForumSnapshot, author: AuthorRef, circle?: CircleRef) => {
+  if (!author.account || !circle) return true
+  if (circle.circle) return canAccountAppear(snapshot, author.account, circle.circle)
+  const policy = snapshot.participantPolicies.find(item => item.subjectId === author.account?.subjectId)
+  return Boolean(policy?.enabled && !policy.allowedCircleIds.length)
+}
+
+const planComments = (snapshot: ForumSnapshot, plan: ForumDistributionPlan, authors: AuthorRef[], circles: CircleRef[]) => new Map(plan.slots.map(slot => {
+  const roots: CommentSpec[] = []
+  const circle = circles.find(item => item.key === slot.circleId)
+  const eligibleKeys = authors.filter(author => canUseAuthorInCircle(snapshot, author, circle)).map(author => author.key)
+  const pool = eligibleKeys.filter(key => key !== slot.authorAccountId)
+  const specs = Array.from({ length: slot.commentTarget }, (_, index) => {
+    const parent = roots.length && index % 3 !== 0 ? sample(roots, index * 5) : undefined
+    const authorKey = parent && index % 5 === 1 ? slot.authorAccountId : sample(pool.length ? pool : eligibleKeys, index * 7 + slot.commentTarget)
+    const spec: CommentSpec = { commentKey: `comment_${slot.id}_${index + 1}`, authorKey, parentCommentKey: parent?.commentKey, createdAt: Math.min(Date.now(), Number(slot.createdAt) + (index + 1) * Math.max(90000, (Date.now() - Number(slot.createdAt)) / (slot.commentTarget + 2))) }
+    if (!parent) roots.push(spec)
+    return spec
+  })
+  return [slot.id, specs]
+}))
+
+const attachGeneratedImages = async (snapshot: ForumSnapshot, jobs: Array<{ postId: string; prompt: string }>, generateImage: typeof generateForumImage) => {
+  const provider = snapshot.settings.autoImageProvider
+  if (provider === 'off') return
+  await Promise.allSettled(jobs.map(async job => {
+    const post = snapshot.posts.find(item => item.id === job.postId)
+    if (!post) return
+    try { post.media = [await generateImage(job.prompt, provider)]; post.updatedAt = Date.now() }
+    catch { post.type = 'text'; delete post.media; post.updatedAt = Date.now() }
+  }))
+}
+
+export const generateForumContentBatch = async (snapshot: ForumSnapshot, viewerAccountId: string, rawConfig: ForumGenerationConfig, onProgress?: (value: number) => void, dependencies: ForumGenerationDependencies = {}) => {
   const config = normalizeForumGenerationConfig(rawConfig); const sessionId = makeId('generation'); const batchId = makeId('content_batch')
   const session: ForumGenerationSession = { id: sessionId, status: 'planning', config, batchId, progress: 0, createdAt: Date.now() }
   snapshot.generationSessions.unshift(session)
   try {
     const draft = cloneSnapshot(snapshot); const draftSession = draft.generationSessions.find(item => item.id === sessionId)!
     const discoverCircleCount = config.postCount >= 3 && (draft.circles.every(circle => circle.source === 'user') || Math.random() < .18) ? 1 : 0
-    const generatedCircles = await createGeneratedCircles(draft, viewerAccountId, discoverCircleCount, batchId); onProgress?.(12)
-    const required = config.requiredCharacterAccountIds.map(id => draft.accounts.find(item => item.id === id)).filter(Boolean) as ForumAccount[]
+    const required = config.requiredCharacterAccountIds.map(id => draft.accounts.find(item => item.id === id)).filter((item): item is ForumAccount => Boolean(item))
+    const allowedRequired = required.filter(account => !account.isArchived && draft.participantPolicies.some(policy => policy.subjectId === account.subjectId && policy.enabled))
+    if (allowedRequired.length !== config.requiredCharacterAccountIds.length) throw new Error('所选角色中有未启用或已不可用的论坛参与者。')
     const desiredStrangers = Math.min(20, Math.max(config.postCount - required.length, config.postCount + 2 - required.length))
-    const strangers = await createLightweightForumAuthors(draft, viewerAccountId, desiredStrangers, batchId); onProgress?.(28)
-    const authorPool = unique([...required.map(item => item.id), ...strangers.map(item => item.id)]).map(id => draft.accounts.find(item => item.id === id)!).filter(Boolean)
-    if (!authorPool.length) throw new Error('本轮没有可用作者，请增加陌生作者数量或选择参与角色。')
-    const plan = createForumDistributionPlan(draft, sessionId, batchId, config, authorPool.map(item => item.id), generatedCircles.map(item => item.id)); draftSession.plan = plan; draftSession.status = 'generating'; draftSession.progress = 32; onProgress?.(32)
-    const posts = await generatePosts(draft, viewerAccountId, plan); draft.posts.unshift(...posts.sort((a, b) => Number(b.createdAt) - Number(a.createdAt))); onProgress?.(67)
-    const comments = await generateComments(draft, viewerAccountId, plan, posts, authorPool); onProgress?.(92)
-    draft.comments.push(...comments)
+    const authorRefs: AuthorRef[] = [...allowedRequired.map((account, index) => ({ key: `character_${index + 1}`, account })), ...Array.from({ length: desiredStrangers }, (_, index) => ({ key: `stranger_${index + 1}` }))]
+    const existingCircleRefs: CircleRef[] = draft.circles.filter(circle => circle.isPublic).map((circle, index) => ({ key: `circle_existing_${index + 1}`, circle }))
+    const generatedCircleRefs: CircleRef[] = Array.from({ length: discoverCircleCount }, (_, index) => ({ key: `circle_new_${index + 1}` }))
+    const circleRefs = [...generatedCircleRefs, ...existingCircleRefs]
+    if (!authorRefs.length) throw new Error('本轮没有可用作者。')
+    const keyedPlan = createForumDistributionPlan({ ...draft, circles: circleRefs.map(ref => ({ ...(ref.circle || draft.circles[0]), id: ref.key, isPublic: true })) as ForumCircle[] }, sessionId, batchId, { ...config, requiredCharacterAccountIds: authorRefs.filter(ref => ref.account).map(ref => ref.key) }, authorRefs.map(ref => ref.key), generatedCircleRefs.map(ref => ref.key))
+    keyedPlan.slots.forEach(slot => {
+      const author = authorRefs.find(ref => ref.key === slot.authorAccountId); const circle = circleRefs.find(ref => ref.key === slot.circleId)
+      if (author && circle && !canUseAuthorInCircle(draft, author, circle)) { delete slot.circleId; if (slot.postType === 'anonymous') { slot.postType = 'text'; slot.contentKind = 'thought' } }
+    })
+    keyedPlan.plannedCircleIds = unique(keyedPlan.slots.map(slot => slot.circleId).filter(Boolean) as string[])
+    const commentSpecs = planComments(draft, keyedPlan, authorRefs, circleRefs)
+    const promptPlan = keyedPlan.slots.map(slot => ({
+      postKey: slot.id, authorKey: slot.authorAccountId, author: authorRefs.find(ref => ref.key === slot.authorAccountId)?.account ? { name: authorRefs.find(ref => ref.key === slot.authorAccountId)!.account!.name, expressionStyle: authorRefs.find(ref => ref.key === slot.authorAccountId)!.account!.expressionStyle, backgroundHints: authorRefs.find(ref => ref.key === slot.authorAccountId)!.account!.backgroundHints } : '由 authors 中同 key 的轻量陌生人承担',
+      circleKey: slot.circleId, circle: circleRefs.find(ref => ref.key === slot.circleId)?.circle ? { name: circleRefs.find(ref => ref.key === slot.circleId)!.circle!.name, contentScope: circleRefs.find(ref => ref.key === slot.circleId)!.circle!.contentScope, rules: circleRefs.find(ref => ref.key === slot.circleId)!.circle!.rules } : slot.circleId ? '由 circles 中同 key 的新圈子' : undefined,
+      type: slot.postType, kind: slot.contentKind, heat: slot.heat, comments: commentSpecs.get(slot.id)?.map(spec => ({ commentKey: spec.commentKey, authorKey: spec.authorKey, parentCommentKey: spec.parentCommentKey })) || []
+    }))
+    draftSession.status = 'generating'; draftSession.progress = 18; onProgress?.(18)
+    const requestJson = dependencies.requestJson || requestForumJson
+    const generated = await requestJson<ForumBatchDraft>(draft, { userInitiated: true, viewerAccountId, involvedAccountIds: allowedRequired.map(item => item.id) }, 'forum-post',
+      `一次性生成本轮完整论坛批次，不得增删或改变规划中的 postKey、authorKey、circleKey、commentKey、parentCommentKey。authors 只创建这些轻量陌生人 key：${JSON.stringify(authorRefs.filter(ref => !ref.account).map(ref => ref.key))}；只写公开简介、表达习惯、少量背景和兴趣，不创建长期记忆、复杂人格或关系。circles 只创建这些新圈子 key：${JSON.stringify(generatedCircleRefs.map(ref => ref.key))}。posts 严格按规划写全部帖子及其内嵌 comments；评论只替指定 authorKey 发言，允许部分帖子零评论。图片帖给 imagePrompt，但不要生成图片。帖子长短和语气自然不同，避免模板、总结人设、鸡汤或档案口吻。\n完整规划：${JSON.stringify(promptPlan)}`,
+      '{"authors":[{"authorKey":"stranger_1","name":"昵称","handle":"账号","avatar":"单字","bio":"公开简介","expressionStyle":"表达习惯","backgroundHints":["少量背景"],"interests":["兴趣"]}],"circles":[{"circleKey":"circle_new_1","name":"圈名","avatar":"字","description":"简介","contentScope":"内容范围","tags":["标签"],"memberCount":800}],"posts":[{"postKey":"规划值","title":"可选","content":"正文","topics":["话题"],"pollOptions":["投票可选"],"imagePrompt":"图片帖画面描述","comments":[{"commentKey":"规划值","content":"评论"}]}]}')
+    onProgress?.(72)
+    const authorMap = materializeAuthors(draft, authorRefs, Array.isArray(generated.authors) ? generated.authors : [], batchId)
+    const circleMap = materializeCircles(draft, circleRefs, Array.isArray(generated.circles) ? generated.circles : [], batchId)
+    const storedPlan: ForumDistributionPlan = { ...keyedPlan, slots: keyedPlan.slots.map(slot => ({ ...slot, authorAccountId: authorMap.get(slot.authorAccountId)!.id, circleId: slot.circleId ? circleMap.get(slot.circleId)?.id : undefined })), plannedAuthorIds: keyedPlan.plannedAuthorIds.map(key => authorMap.get(key)!.id), plannedCircleIds: keyedPlan.plannedCircleIds.map(key => circleMap.get(key)!.id) }
+    draftSession.plan = storedPlan
+    const postDrafts = Array.isArray(generated.posts) ? generated.posts : []
+    const posts: ForumPost[] = []; const comments: ForumComment[] = []; const imageJobs: Array<{ postId: string; prompt: string }> = []
+    for (let index = 0; index < keyedPlan.slots.length; index += 1) {
+      const keyedSlot = keyedPlan.slots[index]; const slot = storedPlan.slots[index]; const raw = postDrafts.find(item => item.postKey === keyedSlot.id)
+      if (!raw?.content?.trim()) throw new Error(`模型没有完整返回帖子 ${keyedSlot.id}。`)
+      const author = draft.accounts.find(item => item.id === slot.authorAccountId); if (!author) throw new Error('帖子规划引用了不存在的作者。')
+      const imagePrompt = String(raw.imagePrompt || '').trim()
+      const post: ForumPost = { id: makeId('post'), author: { ...author, followersCount: 0, followingCount: 0, postsCount: 0, likesCount: 0 }, authorAccountId: author.id, circleId: slot.circleId, type: slot.postType === 'single-image' && (!imagePrompt || draft.settings.autoImageProvider === 'off') ? 'text' : slot.postType, content: String(raw.content).trim().slice(0, 4000), title: raw.title?.trim().slice(0, 120), topics: unique((raw.topics || []).map(item => String(item).replace(/^#+/, '').trim()).filter(Boolean)).slice(0, 2), visibility: slot.circleId ? 'circle' : 'public', likeCount: slot.heat === 'hot' ? 8 + slot.commentTarget * 2 : slot.commentTarget ? Math.floor(slot.commentTarget * .8) : 0, commentCount: slot.commentTarget, shareCount: slot.heat === 'hot' ? Math.max(1, Math.floor(slot.commentTarget / 4)) : 0, viewCount: slot.heat === 'hot' ? 90 + slot.commentTarget * 19 : 8 + slot.commentTarget * 7, effectiveViewCount: slot.heat === 'hot' ? 50 + slot.commentTarget * 9 : 4 + slot.commentTarget * 3, createdAt: slot.createdAt, source: 'generated' }
+      if (slot.postType === 'anonymous' && slot.circleId) { const circle = draft.circles.find(item => item.id === slot.circleId); if (circle && circle.anonymousMode !== 'disabled') { const anonymous = { id: makeId('anonymous'), circleId: slot.circleId, ownerAccountId: author.id, anonymousCode: String(100 + Math.floor(Math.random() * 900)), rotationMode: circle.anonymousMode, adminCanResolve: Boolean(circle.adminCanResolveAnonymous) }; draft.anonymousIdentities.push(anonymous); post.anonymousIdentityId = anonymous.id } }
+      if (slot.postType === 'poll') { const options = (raw.pollOptions || []).map(String).map(item => item.trim()).filter(Boolean).slice(0, 8); if (options.length >= 2) { const pollId = makeId('poll'); draft.polls.push({ id: pollId, postId: post.id, multiple: false, anonymous: true, changeable: false, resultsVisible: 'immediate', options: options.map(label => ({ id: makeId('option'), label, votes: Math.floor(Math.random() * 18), voterAccountIds: [] })) }); post.pollId = pollId } }
+      if (post.type === 'single-image') imageJobs.push({ postId: post.id, prompt: imagePrompt })
+      posts.push(post)
+      const rawComments = Array.isArray(raw.comments) ? raw.comments : []; const commentMap = new Map<string, ForumComment>()
+      for (const spec of commentSpecs.get(keyedSlot.id) || []) {
+        const content = rawComments.find(item => item.commentKey === spec.commentKey)?.content?.trim(); if (!content) throw new Error(`模型没有完整返回评论 ${spec.commentKey}。`)
+        const commentAuthor = authorMap.get(spec.authorKey); const parent = spec.parentCommentKey ? commentMap.get(spec.parentCommentKey) : undefined
+        if (!commentAuthor || (spec.parentCommentKey && !parent)) throw new Error('评论作者或楼中楼关联无效。')
+        const comment: ForumComment = { id: makeId('comment'), postId: post.id, author: { ...commentAuthor, followersCount: 0, followingCount: 0, postsCount: 0, likesCount: 0 }, authorAccountId: commentAuthor.id, parentId: parent?.id, rootCommentId: parent?.rootCommentId || parent?.id, replyToCommentId: parent?.id, depth: parent ? 1 : 0, replyToUser: parent ? { id: parent.authorAccountId, name: parent.author.name } : undefined, content: String(content).slice(0, 800), likeCount: 0, createdAt: spec.createdAt, source: 'generated', generationBatchId: batchId }
+        comments.push(comment); commentMap.set(spec.commentKey, comment)
+      }
+    }
+    draft.posts.unshift(...posts.sort((a, b) => Number(b.createdAt) - Number(a.createdAt))); draft.comments.push(...comments)
+    const strangers = authorRefs.filter(ref => !ref.account).map(ref => authorMap.get(ref.key)!)
+    const generatedCircles = generatedCircleRefs.map(ref => circleMap.get(ref.key)!)
     const batch: ForumContentBatch = { id: batchId, sessionId, postIds: posts.map(item => item.id), commentIds: comments.map(item => item.id), authorAccountIds: strangers.map(item => item.id), circleIds: generatedCircles.map(item => item.id), createdAt: Date.now() }
     draft.contentBatches.unshift(batch); draftSession.status = 'committed'; draftSession.progress = 100; draftSession.completedAt = Date.now()
     Object.assign(snapshot, draft); onProgress?.(100)
+    void attachGeneratedImages(snapshot, imageJobs, dependencies.generateImage || generateForumImage)
     return batch
   } catch (cause) {
     session.status = 'failed'; session.progress = 0; session.error = cause instanceof Error ? cause.message : String(cause); session.completedAt = Date.now(); throw cause

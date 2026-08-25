@@ -31,16 +31,16 @@ const submit = () => {
 </script>
 
 <template>
-  <div v-if="visible" class="refresh-overlay" @click.self="!busy && emit('close')">
+  <div v-if="visible" class="refresh-overlay" @click.self="emit('close')">
     <section class="refresh-sheet" role="dialog" aria-modal="true" aria-labelledby="forum-refresh-title">
-      <header><div><h2 id="forum-refresh-title">刷新论坛</h2><p>选数量和参与角色，其余由论坛自然安排</p></div><button type="button" aria-label="关闭" :disabled="busy" @click="emit('close')">×</button></header>
+      <header><div><h2 id="forum-refresh-title">刷新论坛</h2><p>{{busy?'正在后台生成，可以随时收起或离开论坛':'选数量和参与角色，其余由论坛自然安排'}}</p></div><button type="button" aria-label="关闭" @click="emit('close')">×</button></header>
       <div class="form-body">
         <section class="field-block"><div class="field-title"><b>生成帖子</b><small>默认少量生成，更快也更自然</small></div><div class="count-row"><button v-for="count in presets" :key="count" type="button" :class="{active:form.postCount===count}" @click="form.postCount=count;form.requiredCharacterAccountIds.splice(count)">{{count}} 篇</button><label :class="{active:!presets.includes(form.postCount)}"><span>自定义</span><input v-model.number="form.postCount" type="number" min="1" max="20" @change="form.requiredCharacterAccountIds.splice(form.postCount)"></label></div></section>
         <section class="field-block"><div class="field-title"><b>参与角色</b><small>可不选</small></div><div v-if="characters.length" class="character-list"><button v-for="user in characters" :key="user.id" type="button" :class="{selected:form.requiredCharacterAccountIds.includes(user.id)}" @click="toggleCharacter(user.id)"><i>✓</i><span>{{user.name}}</span></button></div><p v-else class="empty-characters">聊天 App 里还没有可参与论坛的角色</p><p class="character-hint">{{characterHint}}</p></section>
         <p v-if="!valid" class="validation">帖子数量需为 1～20，且不能少于已选角色数。</p><p v-else-if="error" class="validation">{{error}}</p>
       </div>
       <div v-if="busy" class="progress"><span :style="{width:`${progress||0}%`}"></span><small>正在生成 {{progress||0}}%</small></div>
-      <footer><button class="cancel" type="button" :disabled="busy" @click="emit('close')">取消</button><button class="confirm" type="button" :disabled="busy||!valid" @click="submit">{{busy?'生成中…':`生成 ${form.postCount} 篇`}}</button></footer>
+      <footer><button class="cancel" type="button" @click="emit('close')">{{busy?'收起':'取消'}}</button><button class="confirm" type="button" :disabled="busy||!valid" @click="submit">{{busy?'后台生成中…':`生成 ${form.postCount} 篇`}}</button></footer>
     </section>
   </div>
 </template>

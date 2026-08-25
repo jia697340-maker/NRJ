@@ -15,8 +15,8 @@ const mediaMetaStore = localforage.createInstance({ name: FORUM_DB_NAME, storeNa
 export const emptyForumSnapshot = (): ForumSnapshot => {
   const now = Date.now()
   return {
-    version: 4,
-    settings: { initialized: false, activeAccountId: '', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: true, autonomousCommunity: false, ambientPopulationTarget: 0, aiBatchSize: 6, aiContextTokenBudget: 5000, refreshWorldBookIds: [], lastWorldTickAt: now, defaultReplyTiming: 'immediate', createdAt: now, updatedAt: now },
+    version: 5,
+    settings: { initialized: false, activeAccountId: '', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: true, autonomousCommunity: false, ambientPopulationTarget: 0, aiBatchSize: 6, aiContextTokenBudget: 5000, refreshWorldBookIds: [], autoImageProvider: 'pollinations', lastWorldTickAt: now, defaultReplyTiming: 'immediate', createdAt: now, updatedAt: now },
     subjects: [], accounts: [], personas: [], participantPolicies: [], accountLinks: [], recognitions: [], circles: [], memberships: [], worldBindings: [], posts: [], comments: [], topics: [], relationships: [], blocks: [], mutes: [], visibilityRules: [], anonymousIdentities: [], polls: [], lotteries: [], lotteryEntries: [], lotteryResults: [], conversations: [], messages: [], friendRequests: [], groups: [], groupMembers: [], bridgePolicies: [], memories: [], circleMemories: [], events: [], notifications: [], residentProfiles: [], relationshipEdges: [], exposures: [], scheduledActions: [], generationSessions: [], contentBatches: []
   }
 }
@@ -54,6 +54,7 @@ export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | unde
   merged.settings.manualGenerationOnly = true
   merged.settings.ambientPopulationTarget = 0
   merged.settings.defaultReplyTiming = merged.settings.defaultReplyTiming === 'presence-aware' ? 'presence-aware' : 'immediate'
+  if (!['novelai', 'gpt', 'gemini', 'flux', 'niji', 'seedream', 'pollinations', 'aihorde', 'off'].includes(merged.settings.autoImageProvider)) merged.settings.autoImageProvider = 'pollinations'
   merged.settings.lastWorldTickAt ||= merged.settings.updatedAt || Date.now()
   merged.participantPolicies.forEach(policy => { policy.autonomy = { level: 'off', actions: {} } })
   merged.comments.forEach(comment => { comment.source ||= comment.authorAccountId === merged.settings.activeAccountId ? 'user' : 'generated' })
@@ -78,7 +79,7 @@ export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | unde
       if (policy) { policy.enabled = false; policy.autonomy = { level: 'off', actions: {} } }
     })
   }
-  merged.version = 4
+  merged.version = 5
   return merged
 }
 
