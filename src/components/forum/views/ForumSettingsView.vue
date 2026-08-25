@@ -78,11 +78,10 @@ const toggleBridgeType=(subjectId:string,direction:'forumToChat'|'chatToForum',t
       <template v-else-if="section==='circles'">
         <div class="section-head"><div><b>圈子背景与权限</b><small>世界书只提供背景，不参与角色准入</small></div></div>
         <details v-for="circle in snapshot.circles" :key="circle.id" class="setting-details">
-          <summary><span class="letter-avatar">{{circle.avatar}}</span><span><b>{{circle.name}}</b><small>{{circle.joinMode}} · {{circle.aiActivity==='off'?'安静':'会自然活动'}}</small></span><i>›</i></summary>
+          <summary><span class="letter-avatar">{{circle.avatar}}</span><span><b>{{circle.name}}</b><small>{{circle.joinMode}} · 按生成批次更新</small></span><i>›</i></summary>
           <div class="details-body">
             <div class="mini-title">这里聊什么</div><textarea v-model="circle.contentScope" class="circle-scope-input" maxlength="800" placeholder="明确圈内内容范围，也可写不适合出现的内容"></textarea>
             <div class="mini-title">对外简介</div><input v-model="circle.description" class="circle-description-input" maxlength="80" placeholder="列表中显示的简短介绍"/>
-            <div class="mini-title">居民活动</div><label class="compact-select-row"><span>活跃程度</span><select v-model="circle.aiActivity"><option value="off">关闭</option><option value="low">低</option><option value="normal">自然</option><option value="high">活跃</option></select></label>
             <div class="mini-title">绑定世界书</div><label v-for="book in worldBooks.filter(b=>b.type==='book')" :key="book.id" class="check-row"><span>{{book.title}}</span><input type="checkbox" :checked="selectedBookIds(circle.id).includes(book.id)" @change="toggleBook(circle.id,book.id,($event.target as HTMLInputElement).checked)"/></label><p v-if="!worldBooks.length" class="plain-note">暂无世界书</p><div v-if="worldBookGroups.length" class="mini-note">支持 {{worldBookGroups.length}} 个世界书分组；条目权重沿用世界书设置。</div>
             <div class="mini-title">圈子角色白名单</div><label v-for="subject in characterSubjects.filter(s=>policyFor(s.id)?.enabled)" :key="subject.id" class="check-row"><span>{{subject.displayName}}</span><input type="checkbox" :checked="circle.participantSubjectIds.includes(subject.id)" @change="toggleCircleSubject(circle.id,subject.id,($event.target as HTMLInputElement).checked)"/></label><p v-if="!characterSubjects.some(s=>policyFor(s.id)?.enabled)" class="mini-note">暂无已参与论坛的角色。白名单为空时只按角色自身参与范围过滤。</p>
             <div class="mini-title">内容规则</div><div class="tag-line"><span>匿名 {{circle.anonymousMode}}</span><span>投票 {{circle.allowPoll?'允许':'关闭'}}</span><span>抽奖 {{circle.allowLottery?'允许':'关闭'}}</span></div>
@@ -111,13 +110,11 @@ const toggleBridgeType=(subjectId:string,direction:'forumToChat'|'chatToForum',t
       </template>
 
       <template v-else-if="section==='ai'">
-        <div class="section-head"><div><b>社区运行</b><small>复用 NRJ 统一 API，居民状态长期保存</small></div></div>
-        <label class="switch-row runtime-switch"><span><b>社区自然运行</b><small>按经过时间推进少量发帖与互动</small></span><input v-model="snapshot.settings.autonomousCommunity" type="checkbox" @change="snapshot.settings.manualGenerationOnly=!snapshot.settings.autonomousCommunity"/><i></i></label>
-        <label class="switch-row runtime-switch"><span><b>补充环境居民</b><small>人口不足时分批建立长期普通居民</small></span><input v-model="snapshot.settings.generateStrangers" type="checkbox"/><i></i></label>
-        <label class="range-row"><span><b>环境居民目标</b><em>{{snapshot.settings.ambientPopulationTarget}} 人</em></span><input v-model.number="snapshot.settings.ambientPopulationTarget" type="range" min="6" max="60" step="2"/></label>
-        <label class="range-row"><span><b>单次活动预算</b><em>{{snapshot.settings.aiBatchSize}}</em></span><input v-model.number="snapshot.settings.aiBatchSize" type="range" min="1" max="12"/></label>
+        <div class="section-head"><div><b>内容生成</b><small>按用户配置先规划分布，再生成帖子与评论</small></div></div>
+        <div class="setting-row static"><span><b>手动批次生成</b><small>论坛不会在后台补居民、发帖或自动推进关系</small></span></div>
+        <label class="range-row"><span><b>单次调用预算</b><em>{{snapshot.settings.aiBatchSize}}</em></span><input v-model.number="snapshot.settings.aiBatchSize" type="range" min="1" max="12"/></label>
         <label class="range-row"><span><b>上下文预算</b><em>{{snapshot.settings.aiContextTokenBudget}}</em></span><input v-model.number="snapshot.settings.aiContextTokenBudget" type="range" min="1000" max="12000" step="500"/></label>
-        <p class="plain-note">社区只在应用运行或重新进入时按预算推进，不会无限补算。浏览、点赞等先由本地行为模型筛选，只有真正需要表达时才调用模型。</p>
+        <p class="plain-note">陌生作者默认是轻量资料；只有主动关注、私聊或收藏后才升级为持久用户。生成规模在首页刷新设置中控制。</p>
       </template>
 
       <template v-else>

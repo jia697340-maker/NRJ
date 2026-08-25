@@ -1,94 +1,51 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import type { WorldBook } from '../../../store'
+import type { ForumCircle, ForumGenerationConfig, ForumUser } from '../../../types/forum'
+import { defaultForumGenerationConfig, normalizeForumGenerationConfig } from '../../../services/forumGeneration'
 
-const props = defineProps<{
-  visible: boolean
-  books: WorldBook[]
-  initialBookIds: string[]
-  busy?: boolean
-}>()
-
-const emit = defineEmits<{
-  (e: 'close'): void
-  (e: 'confirm', bookIds: string[]): void
-}>()
-
-const selectedIds = ref<string[]>([])
-const selectableIds = computed(() => props.books.map(book => book.id))
-const allSelected = computed(() => selectableIds.value.length > 0 && selectableIds.value.every(id => selectedIds.value.includes(id)))
+const props = defineProps<{ visible: boolean; books: WorldBook[]; initialBookIds: string[]; initialCircleId?: string; circles: ForumCircle[]; characters: ForumUser[]; busy?: boolean; progress?: number; error?: string }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'confirm', config: ForumGenerationConfig): void }>()
+const form = reactive({ ...defaultForumGenerationConfig(), customStart: '', customEnd: '' })
+const ownedCircles = computed(() => props.circles.filter(item => item.source === 'user'))
+const circleAssigned = computed(() => Object.values(form.ownedCirclePostCounts).reduce((sum, value) => sum + Number(value || 0), 0))
+const hasCircleSource = computed(() => form.circlePostCount === 0 || circleAssigned.value === form.circlePostCount || form.randomCircleCount > 0 || props.circles.some(item => item.source !== 'user' && item.isPublic))
+const customDatesValid = computed(() => form.rangeDays !== 365 || Boolean(form.customStart && form.customEnd && form.customStart <= form.customEnd))
+const valid = computed(() => form.postCount > 0 && form.publicPostCount + form.circlePostCount === form.postCount && form.commentMin <= form.commentMax && form.strangerAuthorMin <= form.strangerAuthorMax && circleAssigned.value <= form.circlePostCount && form.randomCircleCount <= form.circlePostCount && hasCircleSource.value && customDatesValid.value && (form.strangerAuthorMax > 0 || form.requiredCharacterAccountIds.length > 0))
 
 watch(() => props.visible, visible => {
   if (!visible) return
-  const available = new Set(selectableIds.value)
-  selectedIds.value = props.initialBookIds.filter(id => available.has(id))
+  Object.assign(form, defaultForumGenerationConfig(), { worldBookIds: props.initialBookIds.filter(id => props.books.some(book => book.id === id)), customStart: '', customEnd: '' })
+  if (props.initialCircleId && ownedCircles.value.some(item => item.id === props.initialCircleId)) { form.includeOwnedCircles = true; form.ownedCirclePostCounts = { [props.initialCircleId]: form.circlePostCount } }
 })
-
-const toggleAll = () => {
-  selectedIds.value = allSelected.value ? [] : [...selectableIds.value]
-}
-
-const toggleBook = (bookId: string) => {
-  selectedIds.value = selectedIds.value.includes(bookId)
-    ? selectedIds.value.filter(id => id !== bookId)
-    : [...selectedIds.value, bookId]
+watch(() => form.postCount, value => { form.publicPostCount = Math.min(Number(value), form.publicPostCount); form.circlePostCount = Number(value) - form.publicPostCount })
+watch(() => form.publicPostCount, value => { form.publicPostCount = Math.max(0, Math.min(form.postCount, Number(value) || 0)); form.circlePostCount = form.postCount - form.publicPostCount })
+const toggle = (list: string[], value: string) => { const index = list.indexOf(value); if (index >= 0) list.splice(index, 1); else list.push(value) }
+const toggleOwnedCircle = (circleId: string) => { if (circleId in form.ownedCirclePostCounts) delete form.ownedCirclePostCounts[circleId]; else form.ownedCirclePostCounts[circleId] = 1 }
+const submit = () => {
+  if (!valid.value || props.busy) return
+  emit('confirm', normalizeForumGenerationConfig({ ...form, customStartAt: form.rangeDays === 365 && form.customStart ? new Date(`${form.customStart}T00:00:00`).getTime() : undefined, customEndAt: form.rangeDays === 365 && form.customEnd ? new Date(`${form.customEnd}T23:59:59`).getTime() : undefined }))
 }
 </script>
 
 <template>
   <div v-if="visible" class="refresh-overlay" @click.self="!busy && emit('close')">
     <section class="refresh-sheet" role="dialog" aria-modal="true" aria-labelledby="forum-refresh-title">
-      <header>
-        <div>
-          <h2 id="forum-refresh-title">刷新推荐内容</h2>
-          <p>可选择本次生成参考的世界书</p>
-        </div>
-        <button type="button" aria-label="关闭" :disabled="busy" @click="emit('close')">×</button>
-      </header>
-
-      <div class="selection-head">
-        <span>世界书</span>
-        <button v-if="books.length" type="button" :disabled="busy" @click="toggleAll">{{ allSelected ? '取消全选' : '全选' }}</button>
+      <header><div><h2 id="forum-refresh-title">生成论坛内容</h2><p>先规划作者、圈子与评论分布，再生成正文</p></div><button type="button" aria-label="关闭" :disabled="busy" @click="emit('close')">×</button></header>
+      <div class="form-scroll">
+        <div class="field-block"><div class="field-title"><b>时间跨度</b><small>内容时间会自然分散</small></div><div class="choice-row"><button v-for="item in [{v:1,t:'1 天'},{v:3,t:'3 天'},{v:7,t:'7 天'},{v:15,t:'15 天'},{v:30,t:'30 天'},{v:365,t:'自定义'}]" :key="item.v" type="button" :class="{active:form.rangeDays===item.v}" @click="form.rangeDays=item.v">{{item.t}}</button></div><div v-if="form.rangeDays===365" class="date-row"><input v-model="form.customStart" type="date" aria-label="开始日期"><span>至</span><input v-model="form.customEnd" type="date" aria-label="结束日期"></div></div>
+        <div class="field-block"><div class="field-title"><b>内容规模</b><small>公开帖 + 圈子帖须等于总数</small></div><div class="number-grid"><label><span>帖子总数</span><input v-model.number="form.postCount" type="number" min="1" max="50"></label><label><span>公开个人帖</span><input v-model.number="form.publicPostCount" type="number" min="0" :max="form.postCount"></label><label><span>圈子帖</span><input v-model.number="form.circlePostCount" type="number" disabled></label></div><div class="range-line"><span>评论总量</span><input v-model.number="form.commentMin" type="number" min="0" max="600"><i>～</i><input v-model.number="form.commentMax" type="number" min="0" max="600"><em>条</em></div></div>
+        <div class="field-block"><div class="field-title"><b>作者分布</b><small>默认优先一帖一人</small></div><div class="range-line"><span>陌生作者</span><input v-model.number="form.strangerAuthorMin" type="number" min="0" max="60"><i>～</i><input v-model.number="form.strangerAuthorMax" type="number" min="0" max="60"><em>人</em></div><div v-if="characters.length" class="subsection"><span>指定参与角色</span><div class="select-list"><button v-for="user in characters" :key="user.id" type="button" :class="{selected:form.requiredCharacterAccountIds.includes(user.id)}" @click="toggle(form.requiredCharacterAccountIds,user.id)"><i>✓</i><span>{{user.name}}</span></button></div></div></div>
+        <div class="field-block"><div class="field-title"><b>圈子来源</b><small>只有本轮选中的自建圈子会生成内容</small></div><div class="switch-row"><span>包含我的圈子</span><button type="button" :class="{on:form.includeOwnedCircles}" @click="form.includeOwnedCircles=!form.includeOwnedCircles"><i></i></button></div><div v-if="form.includeOwnedCircles&&ownedCircles.length" class="circle-counts"><div v-for="circle in ownedCircles" :key="circle.id"><button type="button" :class="{selected:circle.id in form.ownedCirclePostCounts}" @click="toggleOwnedCircle(circle.id)"><i>✓</i><span>{{circle.name}}</span></button><input v-if="circle.id in form.ownedCirclePostCounts" v-model.number="form.ownedCirclePostCounts[circle.id]" type="number" min="0" :max="form.circlePostCount" aria-label="本轮帖子数"><em v-if="circle.id in form.ownedCirclePostCounts">篇</em></div></div><div class="range-line single"><span>新增随机圈子</span><input v-model.number="form.randomCircleCount" type="number" min="0" max="8"><em>个</em></div></div>
+        <div v-if="books.length" class="field-block"><div class="field-title"><b>参考世界书</b><small>只提供背景事实</small></div><div class="select-list"><button v-for="book in books" :key="book.id" type="button" :class="{selected:form.worldBookIds.includes(book.id)}" @click="toggle(form.worldBookIds,book.id)"><i>✓</i><span>{{book.title||'未命名世界书'}}</span></button></div></div>
+        <p v-if="!valid" class="validation">请检查帖子分项、评论范围、圈子配额和作者数量。</p><p v-else-if="error" class="validation">{{error}}</p>
       </div>
-
-      <div v-if="books.length" class="book-list">
-        <button
-          v-for="book in books"
-          :key="book.id"
-          class="book-row"
-          :class="{ selected: selectedIds.includes(book.id) }"
-          type="button"
-          :disabled="busy"
-          @click="toggleBook(book.id)"
-        >
-          <span class="book-mark" :style="{ background: book.coverColor || 'var(--sys-bg-tertiary,#eceef1)' }">{{ book.title.trim().slice(0, 1) || '书' }}</span>
-          <span class="book-copy">
-            <b>{{ book.title || '未命名世界书' }}</b>
-            <small>{{ book.entries.filter(entry => entry.enabled).length }} 个可用条目</small>
-          </span>
-          <i aria-hidden="true">✓</i>
-        </button>
-      </div>
-      <p v-else class="empty-note">暂无可用世界书，不选择也可以正常刷新。</p>
-
-      <p class="context-note">世界书只提供背景事实，不会要求每条帖子都提及。</p>
-      <footer>
-        <button class="cancel" type="button" :disabled="busy" @click="emit('close')">取消</button>
-        <button class="confirm" type="button" :disabled="busy" @click="emit('confirm', selectedIds)">{{ busy ? '刷新中…' : '开始刷新' }}</button>
-      </footer>
+      <div v-if="busy" class="progress"><span :style="{width:`${progress||0}%`}"></span><small>正在生成 {{progress||0}}%</small></div>
+      <footer><button class="cancel" type="button" :disabled="busy" @click="emit('close')">取消</button><button class="confirm" type="button" :disabled="busy||!valid" @click="submit">{{busy?'生成中…':`生成 ${form.postCount} 篇`}}</button></footer>
     </section>
   </div>
 </template>
 
 <style scoped>
-.refresh-overlay{position:absolute;inset:0;z-index:520;display:flex;align-items:flex-end;background:rgba(0,0,0,.32)}
-.refresh-sheet{box-sizing:border-box;width:100%;max-height:min(76%,560px);display:flex;flex-direction:column;border-radius:16px 16px 0 0;background:var(--sys-bg-secondary,#fff);padding:5px 16px calc(10px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 28px rgba(0,0,0,.08)}
-.refresh-sheet header{display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;gap:12px;min-height:54px;border-bottom:1px solid var(--border-color,rgba(0,0,0,.06))}
-.refresh-sheet header>div{min-width:0;flex:1}.refresh-sheet h2{margin:0;color:var(--text-primary,#222);font-size:14px;font-weight:650;line-height:1.35}.refresh-sheet header p{margin:2px 0 0;overflow:hidden;color:var(--text-tertiary,#999);font-size:10.5px;line-height:1.35;white-space:nowrap;text-overflow:ellipsis}
-.refresh-sheet header>button{flex:0 0 30px;width:30px;height:30px;border:0;border-radius:50%;background:transparent;color:var(--text-secondary,#777);font:inherit;font-size:20px;line-height:1}.refresh-sheet button:disabled{opacity:.45}
-.selection-head{display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;gap:8px;padding:10px 1px 6px;color:var(--text-tertiary,#999);font-size:10.5px;font-weight:650}.selection-head button{border:0;background:transparent;color:var(--accent-color,#2b7de9);padding:3px 0;font:inherit;font-size:11px}
-.book-list{min-height:0;overflow-y:auto;border-top:1px solid var(--border-color,rgba(0,0,0,.045));border-bottom:1px solid var(--border-color,rgba(0,0,0,.045))}.book-row{display:flex;width:100%;min-height:48px;box-sizing:border-box;align-items:center;gap:10px;border:0;border-bottom:1px solid var(--border-color,rgba(0,0,0,.045));background:transparent;padding:6px 1px;color:var(--text-primary,#222);text-align:left}.book-row:last-child{border-bottom:0}.book-mark{display:flex;flex:0 0 32px;height:32px;align-items:center;justify-content:center;border-radius:8px;color:rgba(25,25,25,.72);font-size:12px;font-weight:650}.book-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:2px}.book-copy b{overflow:hidden;font-size:12.5px;font-weight:570;white-space:nowrap;text-overflow:ellipsis}.book-copy small{overflow:hidden;color:var(--text-tertiary,#999);font-size:10px;white-space:nowrap;text-overflow:ellipsis}.book-row>i{display:flex;flex:0 0 18px;width:18px;height:18px;align-items:center;justify-content:center;border:1px solid #c8ccd2;border-radius:5px;color:transparent;font-size:11px;font-style:normal}.book-row.selected>i{border-color:var(--accent-color,#576b95);background:var(--accent-color,#576b95);color:#fff}
-.empty-note{flex:1;margin:0;padding:28px 8px;text-align:center;color:var(--text-tertiary,#999);font-size:11.5px;line-height:1.5}.context-note{flex:0 0 auto;margin:8px 0 9px;color:var(--text-tertiary,#999);font-size:10.5px;line-height:1.45}
-.refresh-sheet footer{display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,1.28fr);flex:0 0 auto;gap:8px}.refresh-sheet footer button{height:36px;border:0;border-radius:9px;font:inherit;font-size:12.5px}.refresh-sheet footer .cancel{background:var(--sys-bg-tertiary,#eef0f2);color:var(--text-secondary,#666)}.refresh-sheet footer .confirm{background:var(--accent-color,#576b95);color:#fff;font-weight:570}
-@media(max-width:340px){.refresh-sheet{padding-left:12px;padding-right:12px}.refresh-sheet header{min-height:50px}.book-row{min-height:45px}.context-note{margin-top:7px;margin-bottom:8px}.refresh-sheet footer button{height:34px}}
+.refresh-overlay{position:absolute;inset:0;z-index:520;display:flex;align-items:flex-end;background:rgba(0,0,0,.34)}.refresh-sheet{box-sizing:border-box;width:100%;max-height:min(92%,720px);display:flex;flex-direction:column;border-radius:16px 16px 0 0;background:var(--sys-bg-secondary,#fff);padding:5px 14px calc(9px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 28px rgba(0,0,0,.08)}.refresh-sheet header{display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;gap:10px;min-height:52px;border-bottom:1px solid var(--border-color,rgba(0,0,0,.06))}.refresh-sheet header>div{min-width:0;flex:1}.refresh-sheet h2{margin:0;font-size:14px;font-weight:650;line-height:1.3}.refresh-sheet header p{margin:2px 0 0;overflow:hidden;color:var(--text-tertiary,#999);font-size:10.5px;white-space:nowrap;text-overflow:ellipsis}.refresh-sheet header>button{flex:0 0 28px;width:28px;height:28px;border:0;border-radius:50%;background:transparent;color:var(--text-secondary,#777);font:inherit;font-size:20px}.form-scroll{min-height:0;overflow:auto;padding:2px 0}.field-block{padding:10px 1px;border-bottom:1px solid var(--border-color,rgba(0,0,0,.055))}.field-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px}.field-title b{font-size:12.5px;font-weight:620}.field-title small{min-width:0;overflow:hidden;color:var(--text-tertiary,#999);font-size:9.8px;white-space:nowrap;text-overflow:ellipsis}.choice-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}.choice-row button,.select-list button,.circle-counts button{min-width:0;border:1px solid transparent;border-radius:8px;background:var(--sys-bg-primary,#f3f4f6);color:var(--text-secondary,#666);font:inherit;font-size:10.5px}.choice-row button{height:29px;padding:0 2px;white-space:nowrap}.choice-row button.active{border-color:color-mix(in srgb,var(--accent-color,#2b7de9) 45%,transparent);background:color-mix(in srgb,var(--accent-color,#2b7de9) 9%,transparent);color:var(--accent-color,#2b7de9);font-weight:600}.date-row{display:flex;align-items:center;gap:6px;margin-top:7px}.date-row input,.number-grid input,.range-line input,.circle-counts input{box-sizing:border-box;height:30px;border:1px solid var(--border-color,#e3e4e6);border-radius:8px;background:var(--sys-bg-primary,#f7f7f8);color:var(--text-primary,#222);padding:0 6px;font:inherit;font-size:11.5px;outline:0}.date-row input{min-width:0;flex:1}.date-row span{color:var(--text-tertiary,#999);font-size:10px}.number-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.number-grid label{min-width:0}.number-grid label span{display:block;margin:0 0 4px;color:var(--text-secondary,#777);font-size:10px;white-space:nowrap}.number-grid input{width:100%}.number-grid input:disabled{opacity:.65}.range-line{display:flex;align-items:center;gap:5px;margin-top:8px}.range-line>span{min-width:64px;color:var(--text-secondary,#666);font-size:11px}.range-line input{width:58px}.range-line i,.range-line em,.circle-counts em{color:var(--text-tertiary,#999);font-size:10px;font-style:normal}.range-line.single input{margin-left:auto}.subsection{margin-top:9px}.subsection>span{display:block;margin-bottom:6px;color:var(--text-secondary,#777);font-size:10px}.select-list{display:flex;flex-wrap:wrap;gap:5px}.select-list button,.circle-counts button{display:flex;max-width:100%;height:29px;align-items:center;gap:5px;padding:0 8px}.select-list button i,.circle-counts button i{display:flex;width:14px;height:14px;align-items:center;justify-content:center;border:1px solid #c5c7ca;border-radius:4px;color:transparent;font-size:9px;font-style:normal}.select-list button span,.circle-counts button span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.select-list button.selected,.circle-counts button.selected{color:var(--text-primary,#333)}.select-list button.selected i,.circle-counts button.selected i{border-color:var(--accent-color,#576b95);background:var(--accent-color,#576b95);color:#fff}.switch-row{display:flex;align-items:center;justify-content:space-between;color:var(--text-secondary,#666);font-size:11px}.switch-row>button{position:relative;width:36px;height:21px;border:0;border-radius:999px;background:#c9cbd0;padding:0}.switch-row>button i{position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#fff;transition:transform .15s}.switch-row>button.on{background:var(--accent-color,#2b7de9)}.switch-row>button.on i{transform:translateX(15px)}.circle-counts{display:flex;flex-direction:column;gap:5px;margin-top:7px}.circle-counts>div{display:flex;min-width:0;align-items:center;gap:5px}.circle-counts button{flex:1;justify-content:flex-start}.circle-counts input{width:48px}.validation{margin:8px 1px 3px;color:#c24a4a;font-size:10px;line-height:1.4}.progress{position:relative;flex:0 0 22px;overflow:hidden;border-radius:7px;background:var(--sys-bg-primary,#f2f3f5)}.progress>span{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--accent-color,#2b7de9) 25%,transparent);transition:width .2s}.progress small{position:relative;display:block;text-align:center;color:var(--text-secondary,#666);font-size:9.5px;line-height:22px}.refresh-sheet footer{display:flex;flex:0 0 auto;gap:8px;padding-top:9px}.refresh-sheet footer button{height:36px;border:0;border-radius:10px;font:inherit;font-size:12px;font-weight:600}.cancel{flex:0 0 30%;background:var(--sys-bg-primary,#f1f2f4);color:var(--text-secondary,#666)}.confirm{min-width:0;flex:1;background:var(--accent-color,#2b7de9);color:#fff}.refresh-sheet button:disabled{opacity:.38}@media(max-width:340px){.refresh-sheet{padding-left:11px;padding-right:11px}.choice-row{grid-template-columns:repeat(3,1fr)}.number-grid{gap:4px}.field-title small{max-width:54%}.range-line>span{min-width:58px}}
 </style>

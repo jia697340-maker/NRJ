@@ -14,14 +14,14 @@ const mediaMetaStore = localforage.createInstance({ name: FORUM_DB_NAME, storeNa
 export const emptyForumSnapshot = (): ForumSnapshot => {
   const now = Date.now()
   return {
-    version: 2,
-    settings: { initialized: false, activeAccountId: '', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: false, autonomousCommunity: true, ambientPopulationTarget: 24, aiBatchSize: 6, aiContextTokenBudget: 5000, refreshWorldBookIds: [], lastWorldTickAt: now, createdAt: now, updatedAt: now },
-    subjects: [], accounts: [], personas: [], participantPolicies: [], accountLinks: [], recognitions: [], circles: [], memberships: [], worldBindings: [], posts: [], comments: [], topics: [], relationships: [], blocks: [], mutes: [], visibilityRules: [], anonymousIdentities: [], polls: [], lotteries: [], lotteryEntries: [], lotteryResults: [], conversations: [], messages: [], groups: [], groupMembers: [], bridgePolicies: [], memories: [], circleMemories: [], events: [], notifications: [], residentProfiles: [], relationshipEdges: [], exposures: [], scheduledActions: []
+    version: 3,
+    settings: { initialized: false, activeAccountId: '', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: true, autonomousCommunity: false, ambientPopulationTarget: 24, aiBatchSize: 6, aiContextTokenBudget: 5000, refreshWorldBookIds: [], lastWorldTickAt: now, createdAt: now, updatedAt: now },
+    subjects: [], accounts: [], personas: [], participantPolicies: [], accountLinks: [], recognitions: [], circles: [], memberships: [], worldBindings: [], posts: [], comments: [], topics: [], relationships: [], blocks: [], mutes: [], visibilityRules: [], anonymousIdentities: [], polls: [], lotteries: [], lotteryEntries: [], lotteryResults: [], conversations: [], messages: [], groups: [], groupMembers: [], bridgePolicies: [], memories: [], circleMemories: [], events: [], notifications: [], residentProfiles: [], relationshipEdges: [], exposures: [], scheduledActions: [], generationSessions: [], contentBatches: []
   }
 }
 
 const arrays: Array<keyof ForumSnapshot> = [
-  'subjects', 'accounts', 'personas', 'participantPolicies', 'accountLinks', 'recognitions', 'circles', 'memberships', 'worldBindings', 'posts', 'comments', 'topics', 'relationships', 'blocks', 'mutes', 'visibilityRules', 'anonymousIdentities', 'polls', 'lotteries', 'lotteryEntries', 'lotteryResults', 'conversations', 'messages', 'groups', 'groupMembers', 'bridgePolicies', 'memories', 'circleMemories', 'events', 'notifications', 'residentProfiles', 'relationshipEdges', 'exposures', 'scheduledActions'
+  'subjects', 'accounts', 'personas', 'participantPolicies', 'accountLinks', 'recognitions', 'circles', 'memberships', 'worldBindings', 'posts', 'comments', 'topics', 'relationships', 'blocks', 'mutes', 'visibilityRules', 'anonymousIdentities', 'polls', 'lotteries', 'lotteryEntries', 'lotteryResults', 'conversations', 'messages', 'groups', 'groupMembers', 'bridgePolicies', 'memories', 'circleMemories', 'events', 'notifications', 'residentProfiles', 'relationshipEdges', 'exposures', 'scheduledActions', 'generationSessions', 'contentBatches'
 ]
 
 export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | undefined): ForumSnapshot => {
@@ -37,8 +37,20 @@ export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | unde
     if (previousVersion < 2 && circle.aiActivity === 'off') circle.aiActivity = 'normal'
   })
   merged.posts.forEach(post => { post.source ||= post.authorAccountId === merged.settings.activeAccountId ? 'user' : 'imported' })
-  merged.settings.autonomousCommunity ??= true
-  merged.settings.manualGenerationOnly = !merged.settings.autonomousCommunity
+  if (previousVersion < 3) {
+    merged.accounts.forEach(account => {
+      const subject = merged.subjects.find(item => item.id === account.subjectId)
+      account.lifecycle ||= subject?.kind === 'user' ? 'user' : subject?.kind === 'character' ? 'character' : 'persistent'
+    })
+    merged.comments.forEach(comment => {
+      comment.depth ??= comment.parentId ? 1 : 0
+      comment.rootCommentId ||= comment.parentId || comment.id
+    })
+    merged.circles.forEach(circle => { circle.source ||= circle.creatorAccountId === merged.settings.activeAccountId ? 'user' : 'imported' })
+    merged.scheduledActions.forEach(action => { action.completedAt ||= Date.now() })
+  }
+  merged.settings.autonomousCommunity = false
+  merged.settings.manualGenerationOnly = true
   merged.settings.ambientPopulationTarget = Math.max(6, Math.min(80, Number(merged.settings.ambientPopulationTarget || 24)))
   merged.settings.lastWorldTickAt ||= merged.settings.updatedAt || Date.now()
   if (previousVersion < 2) merged.bridgePolicies.forEach(bridge => {
@@ -57,7 +69,7 @@ export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | unde
       if (policy) { policy.enabled = false; policy.autonomy = { level: 'off', actions: {} } }
     })
   }
-  merged.version = 2
+  merged.version = 3
   return merged
 }
 

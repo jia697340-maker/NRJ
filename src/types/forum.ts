@@ -8,6 +8,8 @@ export type ForumBridgeMode = 'off' | 'all' | 'selected' | 'summary' | 'importan
 export type ForumMemoryType = 'identity' | 'public-profile' | 'relationship' | 'post' | 'comment' | 'like' | 'follow' | 'dm' | 'group' | 'circle' | 'important-event' | 'user-public' | 'user-private' | 'chat-daily' | 'chat-secret' | 'emotion' | 'image' | 'voice' | 'offline-event'
 export type ForumPostType = 'text' | 'single-image' | 'multi-image' | 'long-article' | 'quote' | 'repost' | 'poll' | 'qa' | 'voice' | 'video' | 'short-video' | 'music' | 'link' | 'location' | 'anonymous' | 'lottery' | 'event' | 'story'
 export type ForumMediaType = 'image' | 'voice' | 'video' | 'short-video' | 'music' | 'file'
+export type ForumAuthorLifecycle = 'lightweight' | 'persistent' | 'character' | 'user'
+export type ForumGenerationStatus = 'draft' | 'planning' | 'generating' | 'committed' | 'failed'
 
 export interface ForumSubject { id: string; kind: ForumSubjectKind; sourceId?: string; sourceAccountId?: string; displayName: string; persona: string; avatarKey?: string; detachedAt?: number; createdAt: number; updatedAt: number }
 export interface ForumPersona { id: string; accountId: string; identity?: string; personality?: string; occupation?: string; interests: string[]; boundaries: string[]; postingStyle?: string; commentingStyle?: string; dmStyle?: string; emojiStyle?: string; punctuationStyle?: string; socialInitiative: number; activeHours: string[]; habits: Partial<Record<'image' | 'voice' | 'shortVideo' | 'anonymous' | 'alternateAccount', boolean>>; lockedFields: string[] }
@@ -24,6 +26,7 @@ export interface ForumAccount {
   id: string; subjectId: string; kind: ForumAccountKind; customKind?: string; name: string; handle: string; avatar: string; avatarMediaId?: string; bio?: string; banner?: string; bannerMediaId?: string; verified?: boolean
   privacy: ForumPrivacy; searchable: boolean; acceptsFollow: boolean; followRequiresApproval: boolean; acceptsDm: 'all' | 'following' | 'mutual' | 'none'; showInRecommendations: boolean; showOnline: boolean; showCircles: boolean
   location?: string; ipLocation?: string; joinedAt: number; personaId?: string; circleIds: string[]; isArchived?: boolean
+  lifecycle?: ForumAuthorLifecycle; expressionStyle?: string; backgroundHints?: string[]; firstSeenBatchId?: string; lastSeenAt?: number; persistenceReason?: string
 }
 
 /** UI projection. Ownership remains in ForumAccount/ForumSubject. */
@@ -43,7 +46,7 @@ export interface ForumCircle {
   id: string; name: string; avatar: string; background?: string; description: string; contentScope: string; announcement?: string; rules: string[]; tags: string[]; creatorAccountId: string; administratorAccountIds: string[]
   memberCount: number; activityScore: number; searchable: boolean; isPublic: boolean; joinMode: 'public' | 'follow' | 'application' | 'invite' | 'password' | 'specified-account' | 'specified-character' | 'hidden'; passwordHint?: string
   contentPermissions: ForumPostType[]; anonymousMode: 'disabled' | 'per-post' | 'circle-fixed' | 'daily'; adminCanResolveAnonymous: boolean; allowPoll: boolean; allowLottery: boolean; mediaPermissions: ForumMediaType[]
-  participantSubjectIds: string[]; aiPopulation: number; aiActivity: ForumAutonomyLevel; worldBindingId?: string; createdAt: number
+  participantSubjectIds: string[]; aiPopulation: number; aiActivity: ForumAutonomyLevel; worldBindingId?: string; createdAt: number; source?: 'user' | 'generated' | 'imported'; generationBatchId?: string
 }
 export interface ForumMembership { id: string; circleId: string; accountId: string; role: 'owner' | 'admin' | 'member' | 'pending' | 'invited' | 'banned'; circleIdentity?: Partial<Pick<ForumAccount, 'name' | 'avatar' | 'bio'>>; joinedAt: number }
 
@@ -58,9 +61,9 @@ export interface ForumLotteryResult { id: string; lotteryId: string; winnerAccou
 export interface ForumPost {
   id: string; author: ForumUser; authorAccountId: string; circleId?: string; type: ForumPostType; content: string; title?: string; topics?: string[]; media?: ForumMediaItem[]; quote?: ForumQuoteContent; repostOrigin?: ForumPost
   anonymousIdentityId?: string; pollId?: string; lotteryId?: string; visibility: 'public' | 'followers' | 'mutual' | 'circle' | 'private' | 'custom'; visibleToAccountIds?: string[]; expiresAt?: number
-  likeCount: number; commentCount: number; shareCount: number; viewCount?: number; effectiveViewCount?: number; isLiked?: boolean; isBookmarked?: boolean; isReposted?: boolean; createdAt: number | string; updatedAt?: number; pinned?: boolean; source?: 'user' | 'resident' | 'autonomy' | 'imported'
+  likeCount: number; commentCount: number; shareCount: number; viewCount?: number; effectiveViewCount?: number; isLiked?: boolean; isBookmarked?: boolean; isReposted?: boolean; createdAt: number | string; updatedAt?: number; pinned?: boolean; source?: 'user' | 'generated' | 'resident' | 'autonomy' | 'imported'
 }
-export interface ForumComment { id: string; postId: string; author: ForumUser; authorAccountId: string; parentId?: string; content: string; media?: ForumMediaItem[]; likeCount: number; isLiked?: boolean; createdAt: number | string; replyToUser?: { id: string; name: string }; replies?: ForumComment[] }
+export interface ForumComment { id: string; postId: string; author: ForumUser; authorAccountId: string; parentId?: string; rootCommentId?: string; replyToCommentId?: string; depth?: number; content: string; media?: ForumMediaItem[]; likeCount: number; isLiked?: boolean; createdAt: number | string; replyToUser?: { id: string; name: string }; replies?: ForumComment[] }
 export interface ForumTopic { id: string; name: string; tag: string; hotScore: string; description?: string; postsCount: number }
 
 export interface ForumRelationship { id: string; fromAccountId: string; toAccountId: string; type: 'follow' | 'follow-request' | 'friend' | 'bookmark-account'; createdAt: number }
@@ -84,6 +87,15 @@ export interface ForumCircleMemory { id: string; circleId: string; kind: 'trend'
 export interface ForumEvent { id: string; type: string; actorAccountId?: string; targetAccountIds: string[]; circleId?: string; entityId?: string; payload: Record<string, unknown>; createdAt: number }
 export interface ForumNotification { id: string; accountId: string; type: 'like' | 'comment' | 'reply' | 'mention' | 'follow' | 'follow-request' | 'dm' | 'message-request' | 'group-invite' | 'circle-request' | 'management' | 'lottery' | 'poll' | 'event' | 'worldbook-update' | 'recognition'; actorAccountId?: string; entityId?: string; text: string; readAt?: number; createdAt: number }
 
+export interface ForumGenerationConfig {
+  rangeDays: number; customStartAt?: number; customEndAt?: number; postCount: number; commentMin: number; commentMax: number; publicPostCount: number; circlePostCount: number
+  strangerAuthorMin: number; strangerAuthorMax: number; requiredCharacterAccountIds: string[]; includeOwnedCircles: boolean; ownedCirclePostCounts: Record<string, number>; randomCircleCount: number; worldBookIds: string[]
+}
+export interface ForumPostPlanSlot { id: string; authorAccountId: string; circleId?: string; postType: ForumPostType; createdAt: number; commentTarget: number; heat: 'quiet' | 'normal' | 'hot'; contentKind: 'thought' | 'life' | 'image-share' | 'question' | 'help' | 'complaint' | 'experience' | 'discussion' | 'link' | 'poll' | 'anonymous' | 'circle-topic' }
+export interface ForumDistributionPlan { id: string; sessionId: string; batchId: string; slots: ForumPostPlanSlot[]; plannedAuthorIds: string[]; plannedCircleIds: string[]; plannedCommentCount: number; createdAt: number }
+export interface ForumGenerationSession { id: string; status: ForumGenerationStatus; config: ForumGenerationConfig; plan?: ForumDistributionPlan; batchId?: string; progress: number; error?: string; createdAt: number; completedAt?: number }
+export interface ForumContentBatch { id: string; sessionId: string; postIds: string[]; commentIds: string[]; authorAccountIds: string[]; circleIds: string[]; createdAt: number }
+
 export interface ForumSettings { initialized: boolean; activeAccountId: string; defaultSquareEnabled: boolean; generateStrangers: boolean; manualGenerationOnly: boolean; autonomousCommunity: boolean; ambientPopulationTarget: number; aiBatchSize: number; aiContextTokenBudget: number; refreshWorldBookIds?: string[]; preferredImageProvider?: string; preferredVoiceProvider?: string; lastWorldTickAt?: number; createdAt: number; updatedAt: number }
 export interface AllowedForumContext { viewerAccount: ForumAccount; circle?: ForumCircle; worldBookEntries: Array<{ bookId: string; entryId: string; title: string; content: string; weight: number }>; eventPost?: Pick<ForumPost, 'id' | 'authorAccountId' | 'circleId' | 'type' | 'content' | 'topics'>; involvedAccounts: ForumAccount[]; involvedSubjects: Array<Pick<ForumSubject, 'id' | 'kind' | 'displayName' | 'persona'>>; involvedPersonas: Array<Pick<ForumPersona, 'accountId' | 'identity' | 'personality' | 'occupation' | 'interests' | 'boundaries' | 'postingStyle' | 'emojiStyle' | 'punctuationStyle' | 'activeHours'>>; recentPosts: Array<Pick<ForumPost, 'authorAccountId' | 'content' | 'topics' | 'createdAt'>>; reachableMemories: ForumMemory[]; anonymousActors: Array<{ anonymousIdentityId: string; label: string }> }
 
@@ -93,4 +105,5 @@ export interface ForumSnapshot {
   anonymousIdentities: AnonymousIdentity[]; polls: ForumPoll[]; lotteries: ForumLottery[]; lotteryEntries: ForumLotteryEntry[]; lotteryResults: ForumLotteryResult[]; conversations: ForumConversation[]; messages: ForumDirectMessage[]; groups: ForumGroup[]; groupMembers: ForumGroupMember[]
   bridgePolicies: ForumBridgePolicy[]; memories: ForumMemory[]; circleMemories: ForumCircleMemory[]; events: ForumEvent[]; notifications: ForumNotification[]
   residentProfiles: ForumResidentProfile[]; relationshipEdges: ForumRelationshipEdge[]; exposures: ForumExposure[]; scheduledActions: ForumScheduledAction[]
+  generationSessions: ForumGenerationSession[]; contentBatches: ForumContentBatch[]
 }

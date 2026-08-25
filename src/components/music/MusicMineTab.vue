@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import localforage from 'localforage'
 import AvatarUploadModal from '../AvatarUploadModal.vue'
 import MusicProfileEditModal from './modals/MusicProfileEditModal.vue'
+import MusicClipboardImportModal from './modals/MusicClipboardImportModal.vue'
 import { horizontalCards, useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
@@ -32,6 +33,7 @@ const emit = defineEmits(['close', 'openDrawer', 'openSettings', 'openSources', 
 const customAvatar = ref<string | null>(null)
 const avatarModalVisible = ref(false)
 const profileEditModalVisible = ref(false)
+const clipboardModalVisible = ref(false)
 
 const store = localforage.createInstance({
   name: 'nrt-app',
@@ -286,6 +288,12 @@ onMounted(async () => {
         </div>
 
         <div class="tool-right">
+          <button class="tool-action-btn highlight-tool-btn" title="一键识别剪贴板" @click="clipboardModalVisible = true">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.2" fill="none">
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+            </svg>
+          </button>
           <button class="tool-action-btn" title="批量导入" @click="emit('openData')">
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
               <polyline points="9 10 4 15 9 20"/>
@@ -359,6 +367,12 @@ onMounted(async () => {
       :defaultVipLabel="primaryProfile?.vipLabel"
       :defaultSignature="primaryProfile?.signature"
       @close="profileEditModalVisible = false"
+    />
+
+    <MusicClipboardImportModal
+      :visible="clipboardModalVisible"
+      @close="clipboardModalVisible = false"
+      @imported="clipboardModalVisible = false"
     />
   </div>
 </template>
@@ -862,6 +876,9 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.highlight-tool-btn {
+  color: #10b981;
 }
 
 .art-bg-text {

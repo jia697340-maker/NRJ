@@ -6,7 +6,6 @@ Object.defineProperty(globalThis, 'localStorage', { value: { getItem: (key: stri
 const { emptyForumSnapshot, normalizeForumSnapshot } = await import('../src/services/forumRepository')
 const { ensureResidentProfile } = await import('../src/services/forumPopulation')
 const { canViewForumPost, rankForumFeed, recordFeedExposure } = await import('../src/services/forumFeedRanking')
-const { queuePostReactions } = await import('../src/services/forumLifeRuntime')
 
 const now = Date.now()
 const migrated = normalizeForumSnapshot({
@@ -14,10 +13,11 @@ const migrated = normalizeForumSnapshot({
   settings: { initialized: true, activeAccountId: 'viewer', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: true, aiBatchSize: 6, aiContextTokenBudget: 5000, createdAt: now, updatedAt: now },
   circles: [{ id: 'legacy-circle', name: '厨房', avatar: '厨', description: '聊做饭', rules: [], tags: [], creatorAccountId: 'viewer', administratorAccountIds: ['viewer'], memberCount: 1, activityScore: 0, searchable: true, isPublic: true, joinMode: 'public', contentPermissions: ['text'], anonymousMode: 'disabled', adminCanResolveAnonymous: false, allowPoll: false, allowLottery: false, mediaPermissions: [], participantSubjectIds: [], aiPopulation: 0, aiActivity: 'normal', createdAt: now }]
 } as never)
-assert.equal(migrated.version, 2)
+assert.equal(migrated.version, 3)
 assert.equal(migrated.circles[0].contentScope, '聊做饭')
-assert.equal(migrated.settings.autonomousCommunity, true)
-assert.ok(Array.isArray(migrated.residentProfiles) && Array.isArray(migrated.exposures) && Array.isArray(migrated.scheduledActions))
+assert.equal(migrated.settings.autonomousCommunity, false)
+assert.equal(migrated.settings.manualGenerationOnly, true)
+assert.ok(Array.isArray(migrated.residentProfiles) && Array.isArray(migrated.exposures) && Array.isArray(migrated.scheduledActions) && Array.isArray(migrated.generationSessions) && Array.isArray(migrated.contentBatches))
 
 const snapshot = emptyForumSnapshot()
 snapshot.settings.initialized = true
@@ -42,7 +42,6 @@ snapshot.relationships.push({ id: 'follow', fromAccountId: 'viewer', toAccountId
 assert.deepEqual(rankForumFeed(snapshot, 'viewer', 'following').map(item => item.id), ['plain-post'])
 recordFeedExposure(snapshot, 'viewer', rankForumFeed(snapshot, 'viewer', 'recommend'), 'recommend')
 assert.equal(snapshot.exposures.length, 2)
-queuePostReactions(snapshot, snapshot.posts[0])
-assert.ok(snapshot.scheduledActions.length > 0 && snapshot.scheduledActions.length <= 5, '帖子应进入多个居民的独立曝光队列，而不是固定三人生成')
+assert.equal(snapshot.scheduledActions.length, 0, '普通浏览和排序不得创建固定居民行为队列')
 
 console.log('forum runtime tests passed')

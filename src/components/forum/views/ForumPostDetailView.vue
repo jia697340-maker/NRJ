@@ -23,18 +23,15 @@ const emit = defineEmits<{
   (e: 'like', post: ForumPost): void
   (e: 'bookmark', post: ForumPost): void
   (e: 'share', post: ForumPost): void
-  (e: 'send-comment', content: string, replyTo?: { id: string; name: string }): void
+  (e: 'send-comment', content: string, replyTo?: ForumComment): void
   (e: 'generate-comments'): void
 }>()
 
 const replyInput = ref('')
-const replyingTarget = ref<{ id: string; name: string } | null>(null)
+const replyingTarget = ref<ForumComment | null>(null)
 
 const handleReply = (comment: ForumComment) => {
-  replyingTarget.value = {
-    id: comment.author.id,
-    name: comment.author.name
-  }
+  replyingTarget.value = comment
 }
 
 const cancelReplyTarget = () => {
@@ -71,7 +68,7 @@ const submitComment = () => {
 
       <!-- 分隔区域 -->
       <div class="comments-section-header">
-        <span class="section-title">全部评论 ({{ comments.length }})</span>
+        <span class="section-title">全部评论 ({{ post.commentCount }})</span>
       </div>
       <p v-if="error" class="detail-generation-error">{{error}}</p>
 
@@ -96,14 +93,14 @@ const submitComment = () => {
     <!-- 底部固钉评论输入框 -->
     <div class="detail-comment-bar">
       <div v-if="replyingTarget" class="reply-indicator">
-        <span>回复 @{{ replyingTarget.name }}</span>
+        <span>回复 @{{ replyingTarget.author.name }}</span>
         <button class="cancel-reply-btn" type="button" @click="cancelReplyTarget">×</button>
       </div>
       <div class="input-row">
         <input
           v-model="replyInput"
           type="text"
-          :placeholder="replyingTarget ? `回复 @${replyingTarget.name}...` : '说点什么吧...'"
+          :placeholder="replyingTarget ? `回复 @${replyingTarget.author.name}...` : '说点什么吧...'"
           class="comment-input"
           @keyup.enter="submitComment"
         />

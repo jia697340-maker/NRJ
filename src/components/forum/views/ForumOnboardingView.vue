@@ -31,7 +31,6 @@ const canSubmit = computed(() => name.value.trim().length > 0 && handle.value.tr
       <label class="field-row field-area"><span>简介</span><textarea v-model="bio" maxlength="160" placeholder="可以稍后再完善"></textarea></label>
       <div class="choice-list">
         <label class="choice-row"><span><b>进入公共广场</b><small>创建一个可选的初始公共圈子</small></span><input v-model="defaultSquare" type="checkbox" /><i></i></label>
-        <label class="choice-row"><span><b>补充社区居民</b><small>建立长期居民，不会每次刷新换人</small></span><input v-model="generateStrangers" type="checkbox" /><i></i></label>
       </div>
       <button class="primary-submit" type="button" :disabled="!canSubmit" @click="emit('complete', { name, handle, bio, avatar, defaultSquare, generateStrangers })">进入论坛</button>
     </div>

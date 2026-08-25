@@ -176,10 +176,30 @@ watch(() => props.posts.map(post => post.id), postIds => {
       />
     </div>
 
-    <div v-if="isSelecting" class="selection-toolbar">
-      <span>已选择 {{ selectedPostIds.length }} 篇帖子</span>
-      <button type="button" :disabled="selectedPostIds.length === 0" @click="showDeleteConfirm = true">删除所选</button>
-    </div>
+    <transition name="slide-up">
+      <div v-if="isSelecting" class="selection-toolbar">
+        <div class="toolbar-info">
+          <span class="info-label">已选择</span>
+          <strong class="info-count">{{ selectedPostIds.length }}</strong>
+          <span class="info-unit">篇动态</span>
+        </div>
+        <div class="toolbar-actions">
+          <button
+            class="delete-btn"
+            type="button"
+            :disabled="selectedPostIds.length === 0"
+            @click="showDeleteConfirm = true"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <line x1="10" y1="11" x2="10" y2="17"></line>
+              <line x1="14" y1="11" x2="14" y2="17"></line>
+            </svg>
+            <span>删除所选{{ selectedPostIds.length > 0 ? ` (${selectedPostIds.length})` : '' }}</span>
+          </button>
+        </div>
+      </div>
+    </transition>
 
     <div v-if="showDeleteConfirm" class="delete-confirm-overlay" @click.self="showDeleteConfirm = false">
       <section role="alertdialog" aria-modal="true" aria-labelledby="forum-delete-title">
@@ -269,16 +289,143 @@ watch(() => props.posts.map(post => post.id), postIds => {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
-.selectable-post { position: relative; }
-.selectable-post.is-selecting { padding-left: 42px; background: var(--sys-bg-secondary, #ffffff); }
-.selectable-post.is-selecting :deep(.forum-feed-item) { padding-left: 0; }
-.selectable-post.is-selected { background: color-mix(in srgb, var(--accent-color, #2b7de9) 6%, var(--sys-bg-secondary, #ffffff)); }
-.post-selection-checkbox { position: absolute; z-index: 2; top: 23px; left: 14px; display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; box-sizing: border-box; border: 1.5px solid var(--border-color, #b8b8b8); border-radius: 50%; background: var(--sys-bg-secondary, #fff); color: #fff; }
-.is-selected .post-selection-checkbox { border-color: var(--accent-color, #2b7de9); background: var(--accent-color, #2b7de9); }
-.selection-toolbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; min-height: 54px; padding: 7px 16px calc(7px + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08)); background: var(--sys-bg-secondary, #fff); box-shadow: 0 -5px 16px rgba(0, 0, 0, 0.04); }
-.selection-toolbar span { font-size: 12px; color: var(--text-secondary, #777); }
-.selection-toolbar button { height: 36px; padding: 0 17px; border: 0; border-radius: 999px; background: #d94b4b; color: #fff; font-size: 13px; font-weight: 600; }
-.selection-toolbar button:disabled { opacity: 0.38; }
+.selectable-post {
+  position: relative;
+  transition: background-color 0.18s ease;
+  cursor: pointer;
+}
+
+.selectable-post.is-selecting {
+  padding-left: 48px;
+  background: var(--sys-bg-secondary, #ffffff);
+  user-select: none;
+}
+
+.selectable-post.is-selecting :deep(.forum-feed-item) {
+  padding-left: 6px;
+  padding-right: 16px;
+}
+
+.selectable-post.is-selecting :deep(.forum-post-actions) {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.selectable-post.is-selected {
+  background: color-mix(in srgb, var(--accent-color, #2b7de9) 8%, var(--sys-bg-secondary, #ffffff));
+}
+
+.selectable-post.is-selected :deep(.forum-feed-item) {
+  background: transparent;
+}
+
+.post-selection-checkbox {
+  position: absolute;
+  z-index: 2;
+  top: 25px;
+  left: 16px;
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1.8px solid var(--border-color, #c0c4cc);
+  border-radius: 50%;
+  background: var(--sys-bg-secondary, #fff);
+  color: #fff;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.is-selected .post-selection-checkbox {
+  border-color: var(--accent-color, #2b7de9);
+  background: var(--accent-color, #2b7de9);
+  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(43, 125, 233, 0.28);
+}
+
+.selection-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  background: var(--sys-bg-secondary, #ffffff);
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.05);
+  z-index: 50;
+}
+
+.toolbar-info {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--text-secondary, #666666);
+  font-size: 13px;
+}
+
+.info-label {
+  font-size: 13px;
+}
+
+.info-count {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent-color, #2b7de9);
+}
+
+.info-unit {
+  font-size: 13px;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: #e04b4b;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 8px rgba(224, 75, 75, 0.25);
+}
+
+.delete-btn:active:not(:disabled) {
+  transform: scale(0.96);
+  background: #c93b3b;
+}
+
+.delete-btn:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
 .delete-confirm-overlay { position: absolute; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(0, 0, 0, 0.34); }
 .delete-confirm-overlay section { width: min(100%, 320px); box-sizing: border-box; border-radius: 16px; background: var(--sys-bg-secondary, #fff); padding: 20px; text-align: center; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18); }
 .delete-confirm-overlay h2 { margin: 0; color: var(--text-primary, #222); font-size: 16px; }

@@ -5,11 +5,11 @@ import { createLightShortVideo, generateForumImage, generateForumVoice } from '.
 import { canAccountAppear, visiblePostsFor } from '../services/forumPolicy'
 import { emptyForumSnapshot, loadForumSnapshot, resolveForumMediaUrl, saveForumSnapshot, storeForumMedia } from '../services/forumRepository'
 import { markPostOpened, rankForumFeed, recordFeedExposure, type ForumFeedKind } from '../services/forumFeedRanking'
-import { advanceForumWorld, queuePostReactions } from '../services/forumLifeRuntime'
-import { ensureResidentProfile, replenishAmbientPopulation, syncForumCharacters } from '../services/forumPopulation'
+import { ensureResidentProfile, syncForumCharacters } from '../services/forumPopulation'
+import { defaultForumGenerationConfig, generateForumContentBatch, promoteLightweightAuthor } from '../services/forumGeneration'
 import type {
   ForumAccount, ForumAccountKind, ForumBlockRule, ForumBridgePolicy, ForumCircle, ForumComment, ForumConversation, ForumDirectMessage, ForumLottery, ForumLotteryResult,
-  ForumMediaItem, ForumMuteRule, ForumParticipantPolicy, ForumPoll, ForumPost, ForumPostType, ForumSnapshot, ForumSubject, ForumUser, ForumVisibilityRule, ForumWorldBinding
+  ForumGenerationConfig, ForumMediaItem, ForumMuteRule, ForumParticipantPolicy, ForumPoll, ForumPost, ForumPostType, ForumSnapshot, ForumSubject, ForumUser, ForumVisibilityRule, ForumWorldBinding
 } from '../types/forum'
 
 export type ForumTab = 'feed' | 'circles' | 'messages' | 'profile'
@@ -30,9 +30,9 @@ const error = ref('')
 const activeTab = ref<ForumTab>('feed')
 const feedMode = ref<ForumFeedKind>('recommend')
 const routeStack = ref<ForumRoute[]>([{ name: 'tab' }])
+const generationProgress = ref(0)
 let loading: Promise<void> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
-let worldTimer: ReturnType<typeof setInterval> | null = null
 
 const id = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 const nowLabel = () => '刚刚'
@@ -52,23 +52,10 @@ const ensureLoaded = () => {
     syncForumCharacters(value)
     value.accounts.forEach(account => {
       const subject = value.subjects.find(item => item.id === account.subjectId)
-      if (subject && subject.kind !== 'user') ensureResidentProfile(value, account, subject.kind === 'character' ? 'character' : 'ambient')
+      if (subject && (subject.kind === 'character' || account.lifecycle === 'persistent')) ensureResidentProfile(value, account, subject.kind === 'character' ? 'character' : 'ambient')
     })
     snapshot.value = value
     ready.value = true
-    if (value.settings.initialized && value.settings.activeAccountId) {
-      void (async () => {
-        try {
-          await replenishAmbientPopulation(value, value.settings.activeAccountId)
-          await advanceForumWorld(value, value.settings.activeAccountId)
-          await saveForumSnapshot(value)
-        } catch { /* forum still opens when the configured model is temporarily unavailable */ }
-      })()
-      if (!worldTimer) worldTimer = setInterval(() => {
-        const viewerId = snapshot.value.settings.activeAccountId
-        if (viewerId) void advanceForumWorld(snapshot.value, viewerId)
-      }, 10 * 60000)
-    }
   })
   return loading
 }
@@ -129,13 +116,24 @@ export function useForum() {
     return rankForumFeed(snapshot.value, currentAccount.value.id, feedMode.value).map(hydratePost)
   })
   const circlePosts = computed(() => currentCircle.value && currentAccount.value ? visiblePostsFor(snapshot.value, currentAccount.value.id, currentCircle.value.id).map(hydratePost) : [])
-  const commentsByPost = computed(() => snapshot.value.comments.reduce<Record<string, ForumComment[]>>((all, comment) => {
-    const account = snapshot.value.accounts.find(item => item.id === comment.authorAccountId)
-    if (!account || !canAccountAppear(snapshot.value, account)) return all
-    const hydrated = { ...comment, author: accountToUser(account) }
-    ;(all[comment.postId] ||= []).push(hydrated)
-    return all
-  }, {}))
+  const commentsByPost = computed(() => {
+    const flat = snapshot.value.comments.reduce<Record<string, ForumComment[]>>((all, comment) => {
+      const account = snapshot.value.accounts.find(item => item.id === comment.authorAccountId)
+      if (!account || !canAccountAppear(snapshot.value, account)) return all
+      const hydrated = { ...comment, author: accountToUser(account), replies: [] }
+      ;(all[comment.postId] ||= []).push(hydrated)
+      return all
+    }, {})
+    return Object.fromEntries(Object.entries(flat).map(([postId, comments]) => {
+      const byId = new Map(comments.map(item => [item.id, item]))
+      const roots: ForumComment[] = []
+      comments.sort((a, b) => Number(a.createdAt) - Number(b.createdAt)).forEach(comment => {
+        const parent = comment.parentId ? byId.get(comment.parentId) : undefined
+        if (parent) (parent.replies ||= []).push(comment); else roots.push(comment)
+      })
+      return [postId, roots]
+    }))
+  })
   const conversations = computed(() => snapshot.value.conversations.filter(item => item.participantAccountIds.includes(snapshot.value.settings.activeAccountId)).map(item => ({ ...item, user: accountToUser(snapshot.value.accounts.find(account => account.id === item.user.id) || item.user) })))
   const notifications = computed(() => snapshot.value.notifications.filter(item => item.accountId === snapshot.value.settings.activeAccountId).sort((a, b) => b.createdAt - a.createdAt))
 
@@ -149,11 +147,10 @@ export function useForum() {
     const accountId = id('forum_account')
     const personaId = id('forum_persona')
     snapshot.value.subjects.push({ id: subjectId, kind: 'user', displayName: input.name.trim(), persona: input.bio || '', createdAt, updatedAt: createdAt })
-    snapshot.value.accounts.push({ id: accountId, subjectId, kind: 'main', name: input.name.trim(), handle: normalizeHandle(input.handle), avatar: input.avatar || '', bio: input.bio || '', privacy: 'public', searchable: true, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: true, showCircles: true, joinedAt: createdAt, personaId, circleIds: [] })
+    snapshot.value.accounts.push({ id: accountId, subjectId, kind: 'main', name: input.name.trim(), handle: normalizeHandle(input.handle), avatar: input.avatar || '', bio: input.bio || '', privacy: 'public', searchable: true, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: true, showCircles: true, joinedAt: createdAt, personaId, circleIds: [], lifecycle: 'user' })
     snapshot.value.personas.push({ id: personaId, accountId, identity: input.bio || '', interests: [], boundaries: [], socialInitiative: 50, activeHours: [], habits: {}, lockedFields: [] })
-    snapshot.value.settings = { ...snapshot.value.settings, initialized: true, activeAccountId: accountId, defaultSquareEnabled: input.defaultSquare, generateStrangers: input.generateStrangers, manualGenerationOnly: false, autonomousCommunity: true, updatedAt: createdAt }
+    snapshot.value.settings = { ...snapshot.value.settings, initialized: true, activeAccountId: accountId, defaultSquareEnabled: input.defaultSquare, generateStrangers: input.generateStrangers, manualGenerationOnly: true, autonomousCommunity: false, updatedAt: createdAt }
     if (input.defaultSquare) createDefaultSquare(accountId)
-    setTimeout(() => { void generateNewContent() }, 0)
   }
 
   const updateForumProfile = (input: Pick<ForumAccount, 'name' | 'handle' | 'avatar'> & Partial<Pick<ForumAccount, 'bio' | 'location'>>) => {
@@ -180,7 +177,7 @@ export function useForum() {
 
   const createDefaultSquare = (accountId: string) => {
     const circleId = id('circle')
-    snapshot.value.circles.push({ id: circleId, name: '公共广场', avatar: '广', description: '开放的公共交流空间', contentScope: '不限定单一主题，允许普通日常、临时感受、分享和公开讨论；避免把它写成公告栏或人设展示区。', rules: ['尊重彼此，内容由发布者负责'], tags: ['日常'], creatorAccountId: accountId, administratorAccountIds: [accountId], memberCount: 1, activityScore: 0, searchable: true, isPublic: true, joinMode: 'public', contentPermissions: ['text', 'single-image', 'multi-image', 'long-article', 'quote', 'repost', 'poll', 'qa', 'voice', 'short-video', 'link', 'location', 'anonymous', 'lottery', 'event'], anonymousMode: 'per-post', adminCanResolveAnonymous: false, allowPoll: true, allowLottery: true, mediaPermissions: ['image', 'voice', 'short-video', 'music'], participantSubjectIds: [], aiPopulation: 0, aiActivity: 'normal', createdAt: Date.now() })
+    snapshot.value.circles.push({ id: circleId, name: '公共广场', avatar: '广', description: '开放的公共交流空间', contentScope: '不限定单一主题，允许普通日常、临时感受、分享和公开讨论；避免把它写成公告栏或人设展示区。', rules: ['尊重彼此，内容由发布者负责'], tags: ['日常'], creatorAccountId: accountId, administratorAccountIds: [accountId], memberCount: 1, activityScore: 0, searchable: true, isPublic: true, joinMode: 'public', contentPermissions: ['text', 'single-image', 'multi-image', 'long-article', 'quote', 'repost', 'poll', 'qa', 'voice', 'short-video', 'link', 'location', 'anonymous', 'lottery', 'event'], anonymousMode: 'per-post', adminCanResolveAnonymous: false, allowPoll: true, allowLottery: true, mediaPermissions: ['image', 'voice', 'short-video', 'music'], participantSubjectIds: [], aiPopulation: 0, aiActivity: 'off', createdAt: Date.now(), source: 'user' })
     snapshot.value.memberships.push({ id: id('member'), circleId, accountId, role: 'owner', joinedAt: Date.now() })
     const account = snapshot.value.accounts.find(item => item.id === accountId)
     if (account) account.circleIds.push(circleId)
@@ -192,7 +189,8 @@ export function useForum() {
       subjectId = currentAccount.value?.subjectId || id('subject_user')
       if (!snapshot.value.subjects.some(subject => subject.id === subjectId)) snapshot.value.subjects.push({ id: subjectId, kind: 'user', displayName: input.name, persona: input.bio || '', createdAt: Date.now(), updatedAt: Date.now() })
     }
-    const account: ForumAccount = { id: id('forum_account'), subjectId, kind: input.kind, name: input.name.trim(), handle: uniqueHandle(input.handle), avatar: '', bio: input.bio || '', privacy: input.privacy || 'normal', searchable: input.privacy !== 'hidden', acceptsFollow: true, followRequiresApproval: input.privacy === 'private', acceptsDm: input.privacy === 'private' ? 'following' : 'all', showInRecommendations: input.privacy !== 'hidden', showOnline: true, showCircles: true, joinedAt: Date.now(), circleIds: [] }
+    const subjectKind = snapshot.value.subjects.find(item => item.id === subjectId)?.kind
+    const account: ForumAccount = { id: id('forum_account'), subjectId, kind: input.kind, name: input.name.trim(), handle: uniqueHandle(input.handle), avatar: '', bio: input.bio || '', privacy: input.privacy || 'normal', searchable: input.privacy !== 'hidden', acceptsFollow: true, followRequiresApproval: input.privacy === 'private', acceptsDm: input.privacy === 'private' ? 'following' : 'all', showInRecommendations: input.privacy !== 'hidden', showOnline: true, showCircles: true, joinedAt: Date.now(), circleIds: [], lifecycle: subjectKind === 'character' ? 'character' : 'user' }
     snapshot.value.accounts.push(account)
     const link = snapshot.value.accountLinks.find(item => item.subjectId === subjectId)
     if (link) link.accountIds.push(account.id)
@@ -240,7 +238,7 @@ export function useForum() {
 
   const createCircle = (input: Pick<ForumCircle, 'name' | 'description' | 'contentScope'> & Partial<ForumCircle>) => {
     if (!currentAccount.value) throw new Error('请先创建论坛账号')
-    const circle: ForumCircle = { id: id('circle'), name: input.name.trim(), avatar: input.avatar || input.name.trim().slice(0, 1), description: input.description.trim(), contentScope: input.contentScope.trim(), announcement: input.announcement || '', rules: input.rules || [], tags: input.tags || [], creatorAccountId: currentAccount.value.id, administratorAccountIds: [currentAccount.value.id], memberCount: 1, activityScore: 0, searchable: input.searchable ?? true, isPublic: input.isPublic ?? true, joinMode: input.joinMode || 'public', contentPermissions: input.contentPermissions || ['text', 'single-image', 'multi-image', 'long-article', 'quote', 'repost', 'poll', 'qa', 'voice', 'short-video', 'link', 'location', 'anonymous', 'lottery', 'event'], anonymousMode: input.anonymousMode || 'per-post', adminCanResolveAnonymous: input.adminCanResolveAnonymous ?? false, allowPoll: input.allowPoll ?? true, allowLottery: input.allowLottery ?? true, mediaPermissions: input.mediaPermissions || ['image', 'voice', 'short-video'], participantSubjectIds: input.participantSubjectIds || [], aiPopulation: input.aiPopulation || 0, aiActivity: input.aiActivity || 'normal', createdAt: Date.now() }
+    const circle: ForumCircle = { id: id('circle'), name: input.name.trim(), avatar: input.avatar || input.name.trim().slice(0, 1), description: input.description.trim(), contentScope: input.contentScope.trim(), announcement: input.announcement || '', rules: input.rules || [], tags: input.tags || [], creatorAccountId: currentAccount.value.id, administratorAccountIds: [currentAccount.value.id], memberCount: 1, activityScore: 0, searchable: input.searchable ?? true, isPublic: input.isPublic ?? true, joinMode: input.joinMode || 'public', contentPermissions: input.contentPermissions || ['text', 'single-image', 'multi-image', 'long-article', 'quote', 'repost', 'poll', 'qa', 'voice', 'short-video', 'link', 'location', 'anonymous', 'lottery', 'event'], anonymousMode: input.anonymousMode || 'per-post', adminCanResolveAnonymous: input.adminCanResolveAnonymous ?? false, allowPoll: input.allowPoll ?? true, allowLottery: input.allowLottery ?? true, mediaPermissions: input.mediaPermissions || ['image', 'voice', 'short-video'], participantSubjectIds: input.participantSubjectIds || [], aiPopulation: 0, aiActivity: 'off', createdAt: Date.now(), source: 'user' }
     snapshot.value.circles.push(circle)
     snapshot.value.memberships.push({ id: id('member'), circleId: circle.id, accountId: currentAccount.value.id, role: 'owner', joinedAt: Date.now() })
     currentAccount.value.circleIds.push(circle.id)
@@ -267,6 +265,8 @@ export function useForum() {
   const publishNewPost = (postData: Partial<ForumPost> & { pollOptions?: string[]; lottery?: Partial<ForumLottery> }) => {
     if (!currentForumUser.value) return
     const circle = postData.circleId ? snapshot.value.circles.find(item => item.id === postData.circleId) : undefined
+    if (postData.circleId && (!circle || !snapshot.value.memberships.some(item => item.circleId === postData.circleId && item.accountId === currentForumUser.value?.id && ['owner', 'admin', 'member'].includes(item.role)))) { error.value = '你尚未加入这个圈子。'; return }
+    if (circle && !circle.contentPermissions.includes(postData.type || 'text')) { error.value = '该圈子不允许发布这种内容。'; return }
     let anonymousIdentityId: string | undefined
     if ((postData.type === 'anonymous' || postData.anonymousIdentityId) && circle && circle.anonymousMode !== 'disabled') {
       const identity = { id: id('anonymous'), circleId: circle.id, ownerAccountId: currentForumUser.value.id, anonymousCode: String(Math.floor(100 + Math.random() * 900)), rotationMode: circle.anonymousMode as 'per-post' | 'circle-fixed' | 'daily', adminCanResolve: circle.adminCanResolveAnonymous }
@@ -277,13 +277,13 @@ export function useForum() {
     if (post.type === 'lottery' && postData.lottery?.prize) { const lottery: ForumLottery = { id: id('lottery'), postId: post.id, prize: postData.lottery.prize, winnerCount: postData.lottery.winnerCount || 1, drawAt: postData.lottery.drawAt || Date.now(), conditions: postData.lottery.conditions || ['none'], anonymous: postData.lottery.anonymous ?? false }; snapshot.value.lotteries.push(lottery); post.lotteryId = lottery.id }
     snapshot.value.posts.unshift(post)
     snapshot.value.events.push({ id: id('event'), type: 'post-created', actorAccountId: post.authorAccountId, targetAccountIds: [], circleId: post.circleId, entityId: post.id, payload: {}, createdAt: Date.now() })
-    queuePostReactions(snapshot.value, post)
     popRoute()
   }
 
-  const addComment = (postId: string, content: string, replyTo?: { id: string; name: string }) => {
+  const addComment = (postId: string, content: string, replyTo?: ForumComment) => {
     if (!currentForumUser.value || !content.trim()) return
-    snapshot.value.comments.unshift({ id: id('comment'), postId, author: currentForumUser.value, authorAccountId: currentForumUser.value.id, content: content.trim(), likeCount: 0, createdAt: Date.now(), replyToUser: replyTo })
+    const parentId = replyTo?.parentId || replyTo?.id
+    snapshot.value.comments.push({ id: id('comment'), postId, author: currentForumUser.value, authorAccountId: currentForumUser.value.id, parentId, rootCommentId: replyTo?.rootCommentId || replyTo?.id, replyToCommentId: replyTo?.id, depth: replyTo ? 1 : 0, content: content.trim(), likeCount: 0, createdAt: Date.now(), replyToUser: replyTo ? { id: replyTo.authorAccountId, name: replyTo.author.name } : undefined })
     const post = snapshot.value.posts.find(item => item.id === postId)
     if (post) {
       post.commentCount += 1
@@ -302,7 +302,49 @@ export function useForum() {
       rememberForAccount(post.authorAccountId, 'like', `${currentAccount.value.name}赞了自己的帖子`, eventId, 2, post.circleId)
     }
   })
-  const toggleBookmarkPost = (postId: string) => toggleEvent('post-bookmark', postId)
+  const toggleBookmarkPost = (postId: string) => {
+    toggleEvent('post-bookmark', postId)
+    const post = snapshot.value.posts.find(item => item.id === postId); if (post) promoteLightweightAuthor(snapshot.value, post.authorAccountId, '用户收藏其内容')
+  }
+  const deleteCircles = (circleIds: string[]) => {
+    const selectedIds = new Set(circleIds.filter(Boolean))
+    if (!selectedIds.size || !currentAccount.value) return 0
+
+    const currentAccountId = currentAccount.value.id
+    selectedIds.forEach(targetCircleId => {
+      const circle = snapshot.value.circles.find(c => c.id === targetCircleId)
+      if (!circle) return
+
+      const isOwner = circle.creatorAccountId === currentAccountId
+      if (isOwner) {
+        // 解散自建圈子：完全移除圈子、相关绑定、圈内帖子与成员记录
+        snapshot.value.circles = snapshot.value.circles.filter(c => c.id !== targetCircleId)
+        snapshot.value.worldBindings = snapshot.value.worldBindings.filter(wb => wb.circleId !== targetCircleId)
+        snapshot.value.memberships = snapshot.value.memberships.filter(m => m.circleId !== targetCircleId)
+        snapshot.value.accounts.forEach(acc => {
+          if (acc.circleIds) acc.circleIds = acc.circleIds.filter(cid => cid !== targetCircleId)
+        })
+        snapshot.value.participantPolicies.forEach(policy => {
+          if (policy.allowedCircleIds) policy.allowedCircleIds = policy.allowedCircleIds.filter(cid => cid !== targetCircleId)
+          if (policy.blockedCircleIds) policy.blockedCircleIds = policy.blockedCircleIds.filter(cid => cid !== targetCircleId)
+        })
+        snapshot.value.mutes = snapshot.value.mutes.filter(m => m.circleId !== targetCircleId)
+        const circlePostIds = snapshot.value.posts.filter(p => p.circleId === targetCircleId).map(p => p.id)
+        if (circlePostIds.length) deletePosts(circlePostIds)
+      } else {
+        // 退出加入的圈子
+        const memIdx = snapshot.value.memberships.findIndex(m => m.circleId === targetCircleId && m.accountId === currentAccountId)
+        if (memIdx >= 0) {
+          snapshot.value.memberships.splice(memIdx, 1)
+          circle.memberCount = Math.max(0, (circle.memberCount || 1) - 1)
+        }
+        if (currentAccount.value && currentAccount.value.circleIds) {
+          currentAccount.value.circleIds = currentAccount.value.circleIds.filter(cid => cid !== targetCircleId)
+        }
+      }
+    })
+    return selectedIds.size
+  }
   const deletePosts = (postIds: string[]) => {
     const selectedPostIds = new Set(postIds.filter(Boolean))
     if (!selectedPostIds.size) return 0
@@ -333,6 +375,7 @@ export function useForum() {
     const index = snapshot.value.relationships.findIndex(item => item.type === 'follow' && item.fromAccountId === currentAccount.value?.id && item.toAccountId === targetId)
     if (index >= 0) snapshot.value.relationships.splice(index, 1)
     else {
+      promoteLightweightAuthor(snapshot.value, targetId, '用户主动关注')
       snapshot.value.relationships.push({ id: id('relationship'), fromAccountId: currentAccount.value.id, toAccountId: targetId, type: 'follow', createdAt: Date.now() })
       const eventId = id('event')
       snapshot.value.events.push({ id: eventId, type: 'user-follow', actorAccountId: currentAccount.value.id, targetAccountIds: [targetId], payload: {}, createdAt: Date.now() })
@@ -345,6 +388,7 @@ export function useForum() {
     let conversation = snapshot.value.conversations.find(item => item.kind !== 'group' && item.participantAccountIds.includes(currentAccount.value!.id) && item.participantAccountIds.includes(targetId))
     const target = snapshot.value.accounts.find(item => item.id === targetId)
     if (!target) return
+    promoteLightweightAuthor(snapshot.value, targetId, '用户主动私聊')
     if (!conversation) { conversation = { id: id('conversation'), kind: 'direct', user: accountToUser(target), participantAccountIds: [currentAccount.value.id, targetId], lastMessage: '', lastMessageTime: '', unreadCount: 0, requestState: target.acceptsDm === 'all' ? 'accepted' : 'pending' }; snapshot.value.conversations.unshift(conversation) }
     const message: ForumDirectMessage = { id: id('dm'), conversationId: conversation.id, senderId: currentAccount.value.id, receiverId: targetId, content: content.trim(), type: media?.type === 'voice' ? 'voice' : media ? 'image' : 'text', mediaId: media?.id, mediaUrl: media?.url, createdAt: Date.now(), isSelf: true }
     snapshot.value.messages.push(message); conversation.lastMessage = content.trim() || (media?.type === 'voice' ? '[语音]' : '[图片]'); conversation.lastMessageTime = nowLabel()
@@ -401,15 +445,15 @@ export function useForum() {
   const generateVoiceMedia = (text: string) => generateForumVoice(text)
   const buildLightVideo = (image: ForumMediaItem, voice?: ForumMediaItem, subtitle = '') => createLightShortVideo(image, voice, subtitle)
 
-  const generateNewContent = async (circleId?: string, refreshWorldBookIds?: string[]) => {
-    if (!currentAccount.value || busy.value) return
+  const generateNewContent = async (config: ForumGenerationConfig = defaultForumGenerationConfig()) => {
+    if (!currentAccount.value || busy.value) return false
     busy.value = true; error.value = ''
     try {
       syncForumCharacters(snapshot.value)
-      await replenishAmbientPopulation(snapshot.value, currentAccount.value.id, circleId)
-      const result = await advanceForumWorld(snapshot.value, currentAccount.value.id, { force: true, circleId })
-      if (!result.posts && !result.actions) throw new Error(circleId ? '这次圈内没有居民产生新的公开内容，请稍后再看看。' : '社区已经是最新状态，暂时没有新的公开动态。')
-    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+      generationProgress.value = 0
+      await generateForumContentBatch(snapshot.value, currentAccount.value.id, config, value => { generationProgress.value = value })
+      return true
+    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return false }
     finally { busy.value = false }
   }
 
@@ -422,7 +466,7 @@ export function useForum() {
     busy.value = true; error.value = ''
     try {
       for (const account of shuffle(eligible).slice(0, 3)) {
-        const generated = await requestForumJson<{ willComment?: boolean; content?: string }>(snapshot.value, { viewerAccountId: currentAccount.value.id, circleId: post.circleId, postId, involvedAccountIds: [account.id] }, 'forum-comment', '这个居民刚刚看到了帖子。先判断是否真的有话想说；沉默完全正常。决定评论时只写符合本人习惯的一条自然评论，不总结原帖，不使用客服式赞美。', '{"willComment":true,"content":"评论正文"}')
+        const generated = await requestForumJson<{ willComment?: boolean; content?: string }>(snapshot.value, { viewerAccountId: currentAccount.value.id, circleId: post.circleId, postId, involvedAccountIds: [account.id] }, 'forum-comment', '这个作者刚刚看到了帖子。先判断是否真的有话想说；沉默完全正常。决定评论时只写符合本人习惯的一条自然评论，不总结原帖，不使用客服式赞美。', '{"willComment":true,"content":"评论正文"}')
         const content = String(generated.content || '').trim().slice(0, 500)
         if (generated.willComment !== false && content) { snapshot.value.comments.push({ id: id('comment'), postId, author: accountToUser(account), authorAccountId: account.id, content, likeCount: 0, createdAt: Date.now() }); post.commentCount += 1 }
       }
@@ -441,7 +485,7 @@ export function useForum() {
       const recent = snapshot.value.messages.filter(item => item.conversationId === conversationId).slice(-20).map(item => `${item.senderId}: ${item.content}`).join('\n')
       const purpose = conversation.kind === 'group' ? 'forum-group' : 'forum-dm'
       for (const senderId of shuffle(candidates).slice(0, conversation.kind === 'group' ? 3 : 1)) {
-        const generated = await requestForumJson<{ willReply?: boolean; content?: string }>(snapshot.value, { viewerAccountId: currentAccount.value.id, involvedAccountIds: [senderId] }, purpose, `只替 involvedAccounts 中这一个居民判断是否会回复近期对话。允许不回复；回复时保持本人的聊天习惯，不替其他人发言。\n近期对话：\n${recent}`, '{"willReply":true,"content":"回复正文"}')
+        const generated = await requestForumJson<{ willReply?: boolean; content?: string }>(snapshot.value, { viewerAccountId: currentAccount.value.id, involvedAccountIds: [senderId] }, purpose, `只替 involvedAccounts 中这一个作者判断是否会回复近期对话。允许不回复；回复时保持本人的聊天习惯，不替其他人发言。\n近期对话：\n${recent}`, '{"willReply":true,"content":"回复正文"}')
         const content = String(generated.content || '').trim().slice(0, 1000)
         if (generated.willReply === false || !content) continue
         snapshot.value.messages.push({ id: id('generated_message'), conversationId, senderId, receiverId: conversation.kind === 'group' ? undefined : currentAccount.value.id, content, type: 'text', createdAt: Date.now(), isSelf: false })
@@ -451,9 +495,9 @@ export function useForum() {
   }
 
   return {
-    snapshot, ready, busy, error, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications,
+    snapshot, ready, busy, error, generationProgress, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications,
     pushRoute, popRoute, resetToTab, completeOnboarding, updateForumProfile, addForumAccount, switchAccount, listParticipantCandidates, setCharacterParticipation, updateParticipantPolicy, updateBridgePolicy, createCircle, joinCircle, bindCircleWorldBooks,
-    publishNewPost, addComment, toggleLikePost, toggleBookmarkPost, deletePosts, toggleFollowUser, sendDirectMessage, createForumGroup, sendGroupMessage, conversationMessages, addBlock, addMute, addVisibilityRule, votePoll, enterLottery, drawLottery, importMediaFile, generateImageMedia, generateVoiceMedia, buildLightVideo, generateNewContent, generatePostComments, generateConversationReply,
+    publishNewPost, addComment, toggleLikePost, toggleBookmarkPost, deletePosts, deleteCircles, toggleFollowUser, sendDirectMessage, createForumGroup, sendGroupMessage, conversationMessages, addBlock, addMute, addVisibilityRule, votePoll, enterLottery, drawLottery, importMediaFile, generateImageMedia, generateVoiceMedia, buildLightVideo, generateNewContent, generatePostComments, generateConversationReply,
     recordFeedShown: (posts: ForumPost[], source: ForumFeedKind | 'circle') => currentAccount.value && recordFeedExposure(snapshot.value, currentAccount.value.id, posts, source),
     markPostOpened: (postId: string) => currentAccount.value && markPostOpened(snapshot.value, currentAccount.value.id, postId)
   }

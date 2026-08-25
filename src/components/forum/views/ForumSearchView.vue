@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import type { ForumPost, ForumTopic, ForumUser, ForumMediaItem, ForumQuoteContent } from '../../../types/forum'
+import type { ForumCircle, ForumPost, ForumTopic, ForumUser, ForumMediaItem, ForumQuoteContent } from '../../../types/forum'
 import ForumFeedItem from '../components/ForumFeedItem.vue'
 import ForumAvatar from '../components/ForumAvatar.vue'
 import ForumFollowButton from '../components/ForumFollowButton.vue'
@@ -11,6 +11,7 @@ const props = defineProps<{
   posts: ForumPost[]
   topics: ForumTopic[]
   users: ForumUser[]
+  circles: ForumCircle[]
 }>()
 
 const emit = defineEmits<{
@@ -25,10 +26,11 @@ const emit = defineEmits<{
   (e: 'comment', post: ForumPost): void
   (e: 'share', post: ForumPost): void
   (e: 'bookmark', post: ForumPost): void
+  (e: 'click-circle', circle: ForumCircle): void
 }>()
 
 const searchKeyword = ref('')
-const activeFilter = ref<'all' | 'posts' | 'users'>('all')
+const activeFilter = ref<'all' | 'posts' | 'users' | 'circles'>('all')
 
 const filteredPosts = computed(() => {
   const kw = searchKeyword.value.trim().toLowerCase()
@@ -49,6 +51,7 @@ const filteredUsers = computed(() => {
     (u.bio && u.bio.toLowerCase().includes(kw))
   )
 })
+const filteredCircles = computed(() => { const kw=searchKeyword.value.trim().toLowerCase();if(!kw)return [];return props.circles.filter(circle=>`${circle.name} ${circle.description} ${circle.contentScope} ${circle.tags.join(' ')}`.toLowerCase().includes(kw)) })
 
 const handleSelectTopic = (topicName: string) => {
   searchKeyword.value = topicName
@@ -114,6 +117,7 @@ const handleSelectTopic = (topicName: string) => {
       >
         用户 ({{ filteredUsers.length }})
       </button>
+      <button class="filter-tab" :class="{ 'is-active': activeFilter === 'circles' }" type="button" @click="activeFilter = 'circles'">圈子 ({{filteredCircles.length}})</button>
     </div>
 
     <!-- 搜索主体内容 -->
@@ -136,6 +140,7 @@ const handleSelectTopic = (topicName: string) => {
 
       <!-- 搜索结果列表 -->
       <div v-else class="results-list">
+        <div v-if="(activeFilter==='all'||activeFilter==='circles')&&filteredCircles.length" class="users-section"><div class="section-title">相关圈子与标签</div><button v-for="circle in filteredCircles" :key="circle.id" class="circle-match-row" type="button" @click="emit('click-circle',circle)"><span>{{circle.avatar||circle.name.slice(0,1)}}</span><div><b>{{circle.name}}</b><small>{{circle.description}} · {{circle.tags.join(' / ')}}</small></div><em>{{circle.memberCount}} 人</em></button></div>
         <!-- 用户板块（综合或用户Tab显示） -->
         <div
           v-if="(activeFilter === 'all' || activeFilter === 'users') && filteredUsers.length > 0"
@@ -190,7 +195,7 @@ const handleSelectTopic = (topicName: string) => {
 
         <!-- 无搜索结果 -->
         <ForumEmptyState
-          v-if="filteredPosts.length === 0 && filteredUsers.length === 0"
+          v-if="filteredPosts.length === 0 && filteredUsers.length === 0 && filteredCircles.length === 0"
           title="未找到相关结果"
           description="换个关键词试试看吧"
         />
@@ -354,6 +359,7 @@ const handleSelectTopic = (topicName: string) => {
   border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.03));
   cursor: pointer;
 }
+.circle-match-row{display:flex;width:100%;min-width:0;align-items:center;gap:9px;border:0;border-bottom:1px solid var(--border-color,rgba(0,0,0,.04));background:transparent;padding:8px 0;color:var(--text-primary,#222);text-align:left}.circle-match-row>span{display:flex;flex:0 0 34px;height:34px;align-items:center;justify-content:center;border-radius:10px;background:var(--sys-bg-tertiary,#eceef1);font-size:12px;font-weight:650}.circle-match-row>div{display:flex;min-width:0;flex:1;flex-direction:column;gap:2px}.circle-match-row b,.circle-match-row small{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.circle-match-row b{font-size:12.5px}.circle-match-row small{color:var(--text-tertiary,#999);font-size:10px}.circle-match-row em{flex:0 0 auto;color:var(--text-tertiary,#999);font-size:9.5px;font-style:normal}
 
 .user-match-info {
   flex: 1;

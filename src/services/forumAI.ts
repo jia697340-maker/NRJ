@@ -30,7 +30,7 @@ export const requestForumJson = async <T>(snapshot: ForumSnapshot, request: Foru
   assertNoDisabledSubjects(snapshot, allowed)
   const payload = sanitizeAllowedContext(allowed)
   const result = await sendChatMessage([
-    { role: 'system', content: `你负责模拟 NRJ 社区中彼此独立、长期存在的普通居民。只能使用 AllowedForumContext 中的信息；未出现的人物对社区不存在；不得猜测匿名真实身份。人物资料用于约束性格与经历，不是要求复述的人设标签。世界书只提供事实背景，不决定谁能参与，也不要把背景写成设定说明。若上下文包含 circle，circle.contentScope 是该圈明确的讨论范围，圈内帖子必须自然符合它及圈规；circle.description 只是公开简介。让表达保留个人动机、语气和不完美感，允许沉默和不行动，避免公告、档案、工作汇报、百科介绍和整齐重复的模板。只输出 JSON。\n输出结构：${schemaHint}` },
+    { role: 'system', content: `你负责为 NRJ 的开放论坛内容世界生成自然内容。作者可能是只在本批次出现的轻量路人，也可能是用户指定的长期角色；只能使用 AllowedForumContext 中的信息，不得为轻量作者擅自创建复杂关系、作息或长期记忆，不得猜测匿名真实身份。人物资料只约束表达，不要求复述人设。世界书只提供事实背景，不决定谁能参与，也不要写成设定说明。若上下文包含 circle，circle.contentScope 是明确讨论范围，圈内内容必须自然符合范围和圈规。表达应有长短、语气和不完美感，允许普通、沉默、跑题和轻微分歧，避免公告、档案、工作汇报、百科介绍、客服式夸奖和整齐模板。只输出 JSON。\n输出结构：${schemaHint}` },
     { role: 'user', content: `${instruction}\nAllowedForumContext:\n${JSON.stringify(payload)}` }
   ], undefined, false, false, purpose, 'auto', undefined, false)
   const text = typeof result === 'string' ? result : String(result?.content || '')

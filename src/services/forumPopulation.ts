@@ -1,6 +1,5 @@
 import { listCharacterDirectory, refreshCharacterDirectoryFromAllAccounts } from './characterDirectory'
-import { requestForumJson } from './forumAI'
-import type { ForumAccount, ForumParticipantPolicy, ForumResidentProfile, ForumSnapshot, ForumSubject, ForumUser } from '../types/forum'
+import type { ForumAccount, ForumParticipantPolicy, ForumResidentProfile, ForumSnapshot, ForumUser } from '../types/forum'
 
 const makeId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 const hash = (value: string) => Array.from(value).reduce((score, char) => ((score << 5) - score + char.charCodeAt(0)) | 0, 0) >>> 0
@@ -55,12 +54,13 @@ const createCharacterAccount = (snapshot: ForumSnapshot, entry: ReturnType<typeo
   if (!policy) { policy = defaultPolicy(subject.id); snapshot.participantPolicies.push(policy) }
   let account = snapshot.accounts.find(item => item.subjectId === subject!.id && item.kind === 'main')
   if (!account) {
-    account = { id: makeId('forum_account'), subjectId: subject.id, kind: 'main', name: entry.socialProfile?.nickname || entry.name, handle: uniqueHandle(snapshot, entry.socialProfile?.socialId || entry.name), avatar: '', bio: entry.socialProfile?.signature || '', privacy: 'normal', searchable: entry.discoverable !== false, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: true, showCircles: true, joinedAt: Date.now(), circleIds: [] }
+    account = { id: makeId('forum_account'), subjectId: subject.id, kind: 'main', name: entry.socialProfile?.nickname || entry.name, handle: uniqueHandle(snapshot, entry.socialProfile?.socialId || entry.name), avatar: '', bio: entry.socialProfile?.signature || '', privacy: 'normal', searchable: entry.discoverable !== false, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: true, showCircles: true, joinedAt: Date.now(), circleIds: [], lifecycle: 'character' }
     snapshot.accounts.push(account)
     const personaId = makeId('forum_persona')
     account.personaId = personaId
     snapshot.personas.push({ id: personaId, accountId: account.id, identity: account.bio, personality: entry.persona, interests: [], boundaries: [], socialInitiative: 50, activeHours: [], habits: {}, lockedFields: [] })
   } else {
+    account.lifecycle = 'character'
     account.name = entry.socialProfile?.nickname || entry.name
     account.handle = entry.socialProfile?.socialId || account.handle
     account.bio = entry.socialProfile?.signature || account.bio
@@ -73,45 +73,6 @@ const createCharacterAccount = (snapshot: ForumSnapshot, entry: ReturnType<typeo
 export const syncForumCharacters = (snapshot: ForumSnapshot) => {
   refreshCharacterDirectoryFromAllAccounts()
   return listCharacterDirectory().map(entry => createCharacterAccount(snapshot, entry))
-}
-
-const suspiciousName = /(记录者|观察员|收集癖|档案|信号|守夜人|机器人|ai|助手|bot|小编|官方)/i
-const validResident = (raw: AmbientResidentDraft) => {
-  const name = String(raw.name || '').trim()
-  const handle = String(raw.handle || '').trim()
-  return name.length >= 2 && name.length <= 16 && handle.length >= 2 && handle.length <= 28 && !suspiciousName.test(name) && !suspiciousName.test(handle)
-}
-
-type AmbientResidentDraft = { name: string; handle: string; bio: string; persona: string; interests?: string[]; postingStyle?: string; punctuationStyle?: string; activeHours?: [number, number]; homeCircleIds?: string[] }
-
-export const replenishAmbientPopulation = async (snapshot: ForumSnapshot, viewerAccountId: string, circleId?: string) => {
-  if (!snapshot.settings.generateStrangers) return []
-  const existingAmbient = snapshot.subjects.filter(item => item.kind === 'npc' && !item.detachedAt).length
-  const target = Math.max(6, Math.min(80, snapshot.settings.ambientPopulationTarget || 24))
-  const needed = Math.min(8, Math.max(0, target - existingAmbient))
-  if (!needed) return []
-  const circle = circleId ? snapshot.circles.find(item => item.id === circleId) : undefined
-  const circleBrief = circle ? `其中可以有适合“${circle.name}”的普通成员。该圈讨论范围：${circle.contentScope}` : '他们生活在不同的小圈层，也有人只发布公开动态。'
-  const result = await requestForumJson<{ accounts: AmbientResidentDraft[] }>(snapshot, { viewerAccountId, circleId, involvedAccountIds: [] }, 'forum-population', `创建 ${needed} 个可长期生活在社区中的普通居民。不是内容账号，不是职业标签，不使用“记录者、观察员、守夜人、档案、信号、小编”等概念昵称。昵称、账号和简介应像真人随手设置；每个人有多个关注点、生活限制和不同作息，彼此不必认识，也不围着当前用户转。${circleBrief}`, '{"accounts":[{"name":"自然昵称","handle":"自然账号名","bio":"简短公开简介","persona":"性格、生活状态、经历边界和多个关注点","interests":["兴趣"],"postingStyle":"表达习惯","punctuationStyle":"标点习惯","activeHours":[9,23]}]}')
-  const created: ForumAccount[] = []
-  for (const raw of (Array.isArray(result.accounts) ? result.accounts : []).filter(validResident).slice(0, needed)) {
-    const subject: ForumSubject = { id: makeId('subject_npc'), kind: 'npc', displayName: raw.name.trim(), persona: String(raw.persona || raw.bio || '').trim(), createdAt: Date.now(), updatedAt: Date.now() }
-    snapshot.subjects.push(subject)
-    snapshot.participantPolicies.push({ ...defaultPolicy(subject.id), allowedCircleIds: [] })
-    const account: ForumAccount = { id: makeId('forum_account'), subjectId: subject.id, kind: 'main', name: raw.name.trim(), handle: uniqueHandle(snapshot, raw.handle), avatar: '', bio: String(raw.bio || '').trim().slice(0, 160), privacy: 'normal', searchable: true, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: true, showCircles: true, joinedAt: Date.now(), circleIds: [] }
-    snapshot.accounts.push(account)
-    const personaId = makeId('forum_persona'); account.personaId = personaId
-    snapshot.personas.push({ id: personaId, accountId: account.id, identity: account.bio, personality: subject.persona, interests: unique((raw.interests || []).map(String)).slice(0, 8), boundaries: [], postingStyle: raw.postingStyle, punctuationStyle: raw.punctuationStyle, socialInitiative: 50, activeHours: [], habits: {}, lockedFields: [] })
-    const profile = ensureResidentProfile(snapshot, account, 'ambient')
-    if (Array.isArray(raw.activeHours) && raw.activeHours.length === 2) profile.activeHours = [Math.max(0, Math.min(23, Number(raw.activeHours[0]))), Math.max(0, Math.min(23, Number(raw.activeHours[1])))]
-    if (circle) {
-      profile.homeCircleIds.push(circle.id); account.circleIds.push(circle.id)
-      snapshot.memberships.push({ id: makeId('member'), circleId: circle.id, accountId: account.id, role: 'member', joinedAt: Date.now() })
-      circle.memberCount += 1
-    }
-    created.push(account)
-  }
-  return created
 }
 
 const uniqueHandle = (snapshot: ForumSnapshot, value: string) => {

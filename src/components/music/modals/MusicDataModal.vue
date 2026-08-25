@@ -2,9 +2,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useMusicLibrary } from '../../../composables/useMusicLibrary'
+import MusicClipboardImportModal from './MusicClipboardImportModal.vue'
 
 defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
+const isClipboardModalOpen = ref(false)
 const { history, likedTracks, localTracks, importLocalFiles, importPlaylistLink, importPlaylistFile, exportLibrary, importLibraryBackup, createPlaylist, setMessage } = useMusicLibrary()
 const audioInput = ref<HTMLInputElement | null>(null)
 const backupInput = ref<HTMLInputElement | null>(null)
@@ -46,6 +48,24 @@ const handlePlaylistFile = async (event: Event) => { const file = (event.target 
       <div class="data-body">
         <div class="stats-grid"><div><strong>{{ history.length }}</strong><small>听过歌曲</small></div><div><strong>{{ totalMinutes }}</strong><small>累计分钟</small></div><div><strong>{{ likedTracks.length }}</strong><small>喜欢</small></div><div><strong>{{ localTracks.length }}</strong><small>本地</small></div></div>
         <div class="top-artist">最常听的歌手 <strong>{{ topArtist }}</strong></div>
+        <!-- 一键读取识别剪贴板入口 -->
+        <button class="data-card highlight-card" @click="isClipboardModalOpen = true">
+          <span class="data-icon clip-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.2" fill="none">
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+            </svg>
+          </span>
+          <span>
+            <div class="card-title-row">
+              <strong>一键识别剪贴板</strong>
+              <span class="safe-badge">隐私保护</span>
+            </div>
+            <small>智能提取歌单/单曲链接、分享文案或多行歌单清单</small>
+          </span>
+          <b>›</b>
+        </button>
+
         <button class="data-card" :disabled="busy" @click="selectAudio"><span class="data-icon">入</span><span><strong>导入本地音乐</strong><small>支持多选音频，并可同时选择同名 LRC 歌词</small></span><b>›</b></button>
         <input ref="audioInput" class="hidden-input" type="file" accept="audio/*,.flac,.m4a,.aac,.ogg,.opus,.wav,.lrc,.txt" multiple @change="handleAudio" />
         <div class="create-card"><div class="data-icon">单</div><input v-model="playlistName" class="data-input" placeholder="新歌单名称" @keyup.enter="handleCreate" /><button class="create-btn" @click="handleCreate">创建</button></div>
@@ -58,9 +78,20 @@ const handlePlaylistFile = async (event: Event) => { const file = (event.target 
         <div class="data-note">本地音频保存在浏览器 IndexedDB 中，不写入普通 localStorage。清除站点数据会同时删除本地曲库副本。</div>
       </div>
     </section>
+
+    <!-- 剪贴板识别确认弹窗 -->
+    <MusicClipboardImportModal
+      :visible="isClipboardModalOpen"
+      @close="isClipboardModalOpen = false"
+      @imported="isClipboardModalOpen = false"
+    />
   </div>
 </template>
 
 <style scoped>
 .data-mask{position:absolute;inset:0;z-index:81;display:flex;align-items:flex-end;background:rgba(0,0,0,.42);backdrop-filter:blur(8px)}.data-sheet{width:100%;max-height:78%;border:1px solid var(--music-card-border);border-radius:20px 20px 0 0;background:var(--music-card-bg);box-shadow:0 -8px 30px rgba(0,0,0,.12)}.data-header{display:flex;align-items:center;justify-content:space-between;padding:19px 18px 14px;border-bottom:1px solid var(--music-divider)}.data-title{font-size:17px;font-weight:750}.data-subtitle{margin-top:4px;color:var(--music-text-sub);font-size:11px}.data-close{width:32px;height:32px;border:0;border-radius:50%;background:var(--music-pill-bg);color:var(--music-text);font-size:22px}.data-body{max-height:62vh;overflow:auto;padding:14px 16px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}.data-card,.create-card{width:100%;min-height:64px;padding:12px;display:flex;align-items:center;gap:11px;border:1px solid var(--music-card-border);border-radius:14px;background:var(--music-secondary-bg);color:var(--music-text);text-align:left}.data-card span:nth-child(2){min-width:0;flex:1}.data-card strong{display:block;font-size:13px}.data-card small{display:block;margin-top:4px;color:var(--music-text-sub);font-size:10px;line-height:1.4}.data-card b{color:var(--music-text-sub);font-size:21px;font-weight:400}.data-icon{width:34px;height:34px;flex:0 0 auto;display:grid;place-items:center;border:1px solid var(--music-card-border);border-radius:10px;background:var(--music-card-bg);font-size:12px;font-weight:800}.hidden-input{display:none}.data-input{min-width:0;flex:1;height:36px;padding:0 11px;border:1px solid var(--music-card-border);border-radius:10px;outline:0;background:var(--music-card-bg);color:var(--music-text);font:inherit;font-size:12px}.create-btn{height:36px;padding:0 14px;border:0;border-radius:10px;background:var(--music-text);color:var(--music-bg);font-weight:700}.data-note{padding:5px 3px;color:var(--music-text-sub);font-size:10px;line-height:1.6}.data-card:disabled{opacity:.5}.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.stats-grid div{padding:10px 3px;border:1px solid var(--music-card-border);border-radius:12px;background:var(--music-secondary-bg);text-align:center}.stats-grid strong,.stats-grid small{display:block}.stats-grid strong{font-size:15px}.stats-grid small{margin-top:3px;color:var(--music-text-sub);font-size:8px}.top-artist{padding:10px 12px;border:1px solid var(--music-card-border);border-radius:12px;background:var(--music-secondary-bg);color:var(--music-text-sub);font-size:10px}.top-artist strong{float:right;color:var(--music-text);font-size:11px}
+.highlight-card{background:linear-gradient(135deg,rgba(16,185,129,0.06) 0%,rgba(59,130,246,0.06) 100%);border-color:rgba(16,185,129,0.25)}
+.clip-icon{background:rgba(16,185,129,0.12);color:#10b981;border-color:rgba(16,185,129,0.25)}
+.card-title-row{display:flex;align-items:center;gap:6px}
+.safe-badge{padding:1px 5px;border-radius:6px;background:rgba(16,185,129,0.15);color:#10b981;font-size:9px;font-weight:600}
 </style>

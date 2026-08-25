@@ -30,18 +30,17 @@ const recommendationScore = (snapshot: ForumSnapshot, post: ForumPost, viewerId:
   const ageHours = Math.max(.08, (now - timestamp(post)) / 3600000)
   const freshness = 20 / Math.pow(ageHours + 1.6, .62)
   const engagement = Math.log1p(post.likeCount + post.commentCount * 2.5 + post.shareCount * 3.2) * 2.2
-  const follows = snapshot.relationships.some(item => item.type === 'follow' && item.fromAccountId === viewerId && item.toAccountId === post.authorAccountId) ? 8 : 0
-  const edge = snapshot.relationshipEdges.find(item => item.fromAccountId === viewerId && item.toAccountId === post.authorAccountId)
-  const relationship = edge ? edge.familiarity * .08 + edge.affinity * .06 + edge.trust * .04 - edge.tension * .08 : 0
-  const viewerProfile = snapshot.residentProfiles.find(item => item.accountId === viewerId)
+  const follows = snapshot.relationships.some(item => item.type === 'follow' && item.fromAccountId === viewerId && item.toAccountId === post.authorAccountId) ? 2.5 : 0
+  const viewerAccount = snapshot.accounts.find(item => item.id === viewerId)
+  const viewerProfile = snapshot.personas.find(item => item.accountId === viewerId)
   const topicText = `${post.topics?.join(' ') || ''} ${post.content}`.toLowerCase()
-  const interest = (viewerProfile?.interests || []).reduce((score, item) => score + (item && topicText.includes(item.toLowerCase()) ? 4 : 0), 0)
+  const interest = (viewerProfile?.interests || []).reduce((score, item) => score + (item && topicText.includes(item.toLowerCase()) ? 4 : 0), 0) + (viewerAccount?.bio && topicText.includes(viewerAccount.bio.toLowerCase()) ? 1 : 0)
   const circleAffinity = post.circleId && joinedCircleIds(snapshot, viewerId).has(post.circleId) ? 6 : 0
   const recentExposures = snapshot.exposures.filter(item => item.viewerAccountId === viewerId && item.postId === post.id && now - item.shownAt < 7 * 86400000)
   const exposurePenalty = Math.min(12, recentExposures.length * 4)
   const authorRepetition = snapshot.exposures.filter(item => item.viewerAccountId === viewerId && now - item.shownAt < 12 * 3600000).slice(-30).reduce((count, item) => count + (snapshot.posts.find(post => post.id === item.postId)?.authorAccountId === post.authorAccountId ? 1 : 0), 0)
-  const discovery = !follows && !edge ? 2.5 : 0
-  return freshness + engagement + follows + relationship + interest + circleAffinity + discovery - exposurePenalty - Math.max(0, authorRepetition - 2) * 2
+  const discovery = !follows ? 4 : 0
+  return freshness + engagement + follows + interest + circleAffinity + discovery - exposurePenalty - Math.max(0, authorRepetition - 1) * 4
 }
 
 export const rankForumFeed = (snapshot: ForumSnapshot, viewerId: string, kind: ForumFeedKind) => {
@@ -53,7 +52,14 @@ export const rankForumFeed = (snapshot: ForumSnapshot, viewerId: string, kind: F
     return visible.filter(post => post.authorAccountId === viewerId || following.has(post.authorAccountId)).sort((a, b) => timestamp(b) - timestamp(a))
   }
   if (kind === 'latest') return visible.sort((a, b) => timestamp(b) - timestamp(a))
-  return visible.map(post => ({ post, score: recommendationScore(snapshot, post, viewerId) })).sort((a, b) => b.score - a.score).map(item => item.post)
+  const ranked = visible.map(post => ({ post, score: recommendationScore(snapshot, post, viewerId) })).sort((a, b) => b.score - a.score)
+  const diverse: typeof ranked = []; const remaining = [...ranked]; const recentAuthors: string[] = []
+  while (remaining.length) {
+    const index = remaining.findIndex(item => !recentAuthors.slice(-8).includes(item.post.authorAccountId))
+    const [next] = remaining.splice(index >= 0 ? index : 0, 1)
+    diverse.push(next); recentAuthors.push(next.post.authorAccountId)
+  }
+  return diverse.map(item => item.post)
 }
 
 export const recordFeedExposure = (snapshot: ForumSnapshot, viewerId: string, posts: ForumPost[], source: ForumFeedKind | 'circle') => {
