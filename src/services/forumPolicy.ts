@@ -1,7 +1,9 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { worldBooks } from '../store'
 import type { AllowedForumContext, ForumAccount, ForumCircle, ForumMemory, ForumPost, ForumSnapshot, ForumSubject } from '../types/forum'
 
 export interface ForumContextRequest {
+  userInitiated?: true
   viewerAccountId: string
   circleId?: string
   postId?: string

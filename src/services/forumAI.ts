@@ -1,3 +1,4 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { sendChatMessage, type ForumApiPurpose } from './api'
 import { assertNoDisabledSubjects, buildAllowedForumContext, sanitizeAllowedContext, type ForumContextRequest } from './forumPolicy'
 import type { ForumSnapshot } from '../types/forum'
@@ -23,6 +24,7 @@ const extractJson = (text: string) => {
 }
 
 export const requestForumJson = async <T>(snapshot: ForumSnapshot, request: ForumContextRequest, purpose: ForumApiPurpose, instruction: string, schemaHint: string): Promise<T> => {
+  if (request.userInitiated !== true) throw new Error('论坛生成只能由用户手动操作触发')
   // This assertion sits immediately before the provider call. No caller can pass raw chat state.
   const bridgedMemories = collectChatToForumBridgeMemories(snapshot, request.involvedAccountIds || [])
   const contextSnapshot = bridgedMemories.length ? { ...snapshot, memories: [...snapshot.memories, ...bridgedMemories] } : snapshot

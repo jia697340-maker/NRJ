@@ -1,23 +1,36 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import assert from 'node:assert/strict'
 
 const memory = new Map<string, string>()
 Object.defineProperty(globalThis, 'localStorage', { value: { getItem: (key: string) => memory.get(key) ?? null, setItem: (key: string, value: string) => memory.set(key, value), removeItem: (key: string) => memory.delete(key), key: (index: number) => [...memory.keys()][index] ?? null, clear: () => memory.clear(), get length() { return memory.size } } })
 
 const { emptyForumSnapshot, normalizeForumSnapshot } = await import('../src/services/forumRepository')
-const { ensureResidentProfile } = await import('../src/services/forumPopulation')
 const { canViewForumPost, rankForumFeed, recordFeedExposure } = await import('../src/services/forumFeedRanking')
+const { isFormalChatCharacterContact } = await import('../src/services/characterDirectory')
+
+assert.equal(isFormalChatCharacterContact({ id: 'formal', contactState: 'friend', relationship: { friendship: 'friends' } }), true)
+assert.equal(isFormalChatCharacterContact({ id: 'legacy-formal' }), true)
+assert.equal(isFormalChatCharacterContact({ id: 'candidate', contactState: 'candidate', relationship: { friendship: 'strangers' } }), false)
+assert.equal(isFormalChatCharacterContact({ id: 'stranger', relationship: { friendship: 'strangers' } }), false)
+assert.equal(isFormalChatCharacterContact({ id: 'group', chatType: 'group' }), false)
+assert.equal(isFormalChatCharacterContact({ id: 1 }), false)
 
 const now = Date.now()
 const migrated = normalizeForumSnapshot({
   version: 1,
   settings: { initialized: true, activeAccountId: 'viewer', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: true, aiBatchSize: 6, aiContextTokenBudget: 5000, createdAt: now, updatedAt: now },
-  circles: [{ id: 'legacy-circle', name: '厨房', avatar: '厨', description: '聊做饭', rules: [], tags: [], creatorAccountId: 'viewer', administratorAccountIds: ['viewer'], memberCount: 1, activityScore: 0, searchable: true, isPublic: true, joinMode: 'public', contentPermissions: ['text'], anonymousMode: 'disabled', adminCanResolveAnonymous: false, allowPoll: false, allowLottery: false, mediaPermissions: [], participantSubjectIds: [], aiPopulation: 0, aiActivity: 'normal', createdAt: now }]
+  circles: [{ id: 'legacy-circle', name: '厨房', avatar: '厨', description: '聊做饭', rules: [], tags: [], creatorAccountId: 'viewer', administratorAccountIds: ['viewer'], memberCount: 1, activityScore: 0, searchable: true, isPublic: true, joinMode: 'public', contentPermissions: ['text'], anonymousMode: 'disabled', adminCanResolveAnonymous: false, allowPoll: false, allowLottery: false, mediaPermissions: [], participantSubjectIds: [], aiPopulation: 0, aiActivity: 'normal', createdAt: now }],
+  participantPolicies: [{ id: 'legacy-policy', subjectId: 'legacy-subject', enabled: true, allowedCircleIds: [], blockedCircleIds: [], allowedAccountIds: [], allowedGroupIds: [], scope: ['global'], allowPublicDiscovery: true, allowNpcKnowledge: true, allowMention: true, allowSearch: true, allowRecommendation: true, allowDm: true, allowGroup: true, autonomy: { level: 'normal', actions: { post: true } }, updatedAt: now }],
+  generationSessions: [{ id: 'legacy-session', status: 'committed', config: { rangeDays: 30, postCount: 30, commentMin: 20, commentMax: 40, requiredCharacterAccountIds: ['a'] }, progress: 100, createdAt: now }]
 } as never)
-assert.equal(migrated.version, 3)
+assert.equal(migrated.version, 4)
 assert.equal(migrated.circles[0].contentScope, '聊做饭')
 assert.equal(migrated.settings.autonomousCommunity, false)
 assert.equal(migrated.settings.manualGenerationOnly, true)
-assert.ok(Array.isArray(migrated.residentProfiles) && Array.isArray(migrated.exposures) && Array.isArray(migrated.scheduledActions) && Array.isArray(migrated.generationSessions) && Array.isArray(migrated.contentBatches))
+assert.equal(migrated.settings.ambientPopulationTarget, 0)
+assert.deepEqual(migrated.participantPolicies[0].autonomy, { level: 'off', actions: {} })
+assert.deepEqual(migrated.generationSessions[0].config, { postCount: 20, requiredCharacterAccountIds: ['a'] })
+assert.ok(Array.isArray(migrated.friendRequests) && Array.isArray(migrated.residentProfiles) && Array.isArray(migrated.exposures) && Array.isArray(migrated.scheduledActions) && Array.isArray(migrated.generationSessions) && Array.isArray(migrated.contentBatches))
 
 const snapshot = emptyForumSnapshot()
 snapshot.settings.initialized = true
@@ -29,7 +42,6 @@ snapshot.accounts.push(account('viewer', 'user'))
 for (let index = 0; index < 8; index += 1) {
   const id = `resident-${index}`
   snapshot.subjects.push(subject(id)); snapshot.accounts.push(account(id)); snapshot.participantPolicies.push({ id: `policy-${id}`, subjectId: `subject-${id}`, enabled: true, allowedCircleIds: [], blockedCircleIds: [], allowedAccountIds: [], allowedGroupIds: [], scope: ['global'], allowPublicDiscovery: true, allowNpcKnowledge: true, allowMention: true, allowSearch: true, allowRecommendation: true, allowDm: true, allowGroup: true, autonomy: { level: 'normal', actions: { post: true, comment: true, like: true } }, updatedAt: now })
-  ensureResidentProfile(snapshot, snapshot.accounts.at(-1)!, 'ambient')
 }
 snapshot.circles.push({ id: 'public-circle', name: '厨房', avatar: '厨', description: '做饭的人在这里', contentScope: '日常做饭、菜谱、食材处理和厨房经验', rules: [], tags: ['做饭'], creatorAccountId: 'viewer', administratorAccountIds: ['viewer'], memberCount: 1, activityScore: 0, searchable: true, isPublic: true, joinMode: 'public', contentPermissions: ['text'], anonymousMode: 'disabled', adminCanResolveAnonymous: false, allowPoll: false, allowLottery: false, mediaPermissions: [], participantSubjectIds: [], aiPopulation: 0, aiActivity: 'normal', createdAt: now })
 snapshot.circles.push({ ...snapshot.circles[0], id: 'private-circle', name: '私密厨房', isPublic: false, joinMode: 'invite' })

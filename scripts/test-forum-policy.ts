@@ -1,3 +1,4 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import assert from 'node:assert/strict'
 
 const memory = new Map<string, string>()
@@ -6,6 +7,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: { getItem: (key: stri
 const { emptyForumSnapshot } = await import('../src/services/forumRepository')
 const { assertNoDisabledSubjects, buildAllowedForumContext, canAccountAppear } = await import('../src/services/forumPolicy')
 const { collectChatToForumBridgeMemories } = await import('../src/services/forumMemoryBridge')
+const { requestForumJson } = await import('../src/services/forumAI')
 const snapshot = emptyForumSnapshot()
 const now = Date.now()
 snapshot.settings.initialized = true
@@ -52,5 +54,6 @@ const noWorldContext = buildAllowedForumContext(snapshot, { viewerAccountId: 'vi
 assert.equal(noWorldContext.worldBookEntries.length, 0, '明确不选世界书时不得注入背景')
 const selectedWorldContext = buildAllowedForumContext(snapshot, { viewerAccountId: 'viewer', involvedAccountIds: ['enabled-account'], worldBookIds: ['1'] })
 assert.ok(selectedWorldContext.worldBookEntries.length > 0, '公共推荐流应能按本次选择注入世界书')
+await assert.rejects(() => requestForumJson(snapshot, { viewerAccountId: 'viewer', involvedAccountIds: ['enabled-account'] }, 'forum-comment', '不应执行', '{}'), /只能由用户手动操作触发/, '未标记用户操作时必须在 API 调用前拒绝')
 
 console.log('forum policy tests passed')

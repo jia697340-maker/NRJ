@@ -14,6 +14,7 @@ const props = withDefaults(
     posts: ForumPost[]
     isSelf?: boolean
     showBack?: boolean
+    friendStatus?: 'none' | 'outgoing' | 'incoming' | 'friends'
   }>(),
   {
     isSelf: false,
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   (e: 'back'): void
   (e: 'toggle-follow', userId: string): void
   (e: 'send-dm', user: ForumUser): void
+  (e: 'friend-action', user: ForumUser): void
   (e: 'manage-user', user: ForumUser): void
   (e: 'edit-profile'): void
   (e: 'click-post', post: ForumPost): void
@@ -98,6 +100,7 @@ const displayPosts = computed(() => {
                   <polyline points="22,6 12,13 2,6"></polyline>
                 </svg>
               </button>
+              <button v-if="!isSelf" class="friend-action-btn" :class="friendStatus" type="button" :disabled="friendStatus==='friends'||friendStatus==='outgoing'" @click="emit('friend-action',user)">{{friendStatus==='friends'?'已是好友':friendStatus==='incoming'?'同意好友':friendStatus==='outgoing'?'等待同意':'加好友'}}</button>
               <ForumFollowButton
                 :is-self="isSelf"
                 :is-following="user.isFollowing"
@@ -268,6 +271,7 @@ const displayPosts = computed(() => {
 .dm-action-btn:active {
   transform: scale(0.92);
 }
+.friend-action-btn{height:34px;border:1px solid var(--border-color,rgba(0,0,0,.14));border-radius:999px;background:var(--sys-bg-secondary,#fff);color:var(--text-primary,#333);padding:0 11px;font-size:10.5px}.friend-action-btn.incoming{border-color:var(--accent-color,#576b95);color:var(--accent-color,#576b95)}.friend-action-btn.friends,.friend-action-btn.outgoing{opacity:.58}
 
 .profile-identity {
   margin-bottom: 8px;

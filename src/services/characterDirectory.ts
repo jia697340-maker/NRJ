@@ -18,9 +18,20 @@ export interface CharacterDirectoryEntry {
   socialPrivacy: SocialPrivacy
   discoverable: boolean
   allowFriendRequests: boolean
+  sourceForumAccountId?: string
   idAliases: string[]
   createdAt: number
   updatedAt: number
+}
+
+export interface ForumContactBridgeInput {
+  forumAccountId: string
+  name: string
+  handle: string
+  avatar?: string
+  bio?: string
+  persona?: string
+  interactionSummary?: string
 }
 
 const cleanId = (value: unknown) => String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)
@@ -146,6 +157,22 @@ export const registerAccountContactsInDirectory = (contacts: any[], accountId: s
 
 export const listCharacterDirectory = () => readDirectory()
 
+export const isFormalChatCharacterContact = (contact: any) => {
+  if (!contact || contact.id === 1 || contact.chatType === 'group' || contact.contactState === 'candidate') return false
+  const friendship = contact.relationship?.friendship
+  return friendship === undefined || friendship === 'friends'
+}
+
+export const listCurrentChatCharacterDirectory = () => {
+  const { currentChatUserId } = useChatAuth()
+  const accountId = currentChatUserId.value
+  if (!accountId) return []
+  let contacts: any[] = []
+  try { contacts = JSON.parse(localStorage.getItem(`${CONTACT_KEY_PREFIX}${accountId}`) || '[]') } catch {}
+  const formalEntityIds = new Set(contacts.filter(isFormalChatCharacterContact).map(contact => String(contact.characterEntityId || contact.id)))
+  return readDirectory().filter(entry => formalEntityIds.has(entry.entityId))
+}
+
 export const refreshCharacterDirectoryFromAllAccounts = () => {
   const { chatAccounts } = useChatAuth()
   chatAccounts.value.forEach(account => {
@@ -247,6 +274,60 @@ export const createDirectoryCandidate = (entry: CharacterDirectoryEntry) => {
   contacts.push(candidate)
   localStorage.setItem(key, JSON.stringify(contacts))
   return candidate
+}
+
+export const createForumFriendContact = (input: ForumContactBridgeInput) => {
+  const { currentChatUserId } = useChatAuth()
+  const accountId = currentChatUserId.value
+  if (!accountId) throw new Error('请先登录聊天 App 账号')
+  const entries = readDirectory()
+  let entry = entries.find(item => item.sourceForumAccountId === input.forumAccountId)
+  if (!entry) {
+    const suffix = input.forumAccountId.replace(/[^a-zA-Z0-9]/g, '').slice(-12) || Date.now().toString(36)
+    const entityId = `forum_${suffix}`
+    const socialProfile = normalizeSocialProfile({ id: entityId, name: input.name, socialProfile: { nickname: input.name, socialId: input.handle, signature: input.bio || '' } })
+    socialProfile.socialId = uniqueSocialId(entries, socialProfile.socialId, entityId)
+    entry = {
+      entityId,
+      ownerAccountId: accountId,
+      name: input.name.trim(),
+      persona: [input.persona, input.interactionSummary].filter(Boolean).join('\n\n').slice(0, 4000),
+      avatarKey: `forum_avatar_${suffix}`,
+      socialProfile,
+      socialCircle: [],
+      socialCircleSettings: normalizeSocialCircleSettings(null),
+      socialPrivacy: 'public',
+      discoverable: true,
+      allowFriendRequests: true,
+      sourceForumAccountId: input.forumAccountId,
+      idAliases: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+    entries.push(entry)
+    writeDirectory(entries)
+  }
+  const candidate = createDirectoryCandidate(entry)
+  if (!candidate) throw new Error('无法写入聊天联系人')
+  candidate.contactState = 'friend'
+  candidate.forumSourceAccountId = input.forumAccountId
+  candidate.avatarUrl = /^https?:|^blob:|^data:image/.test(input.avatar || '') ? input.avatar : candidate.avatarUrl
+  candidate.relationship ||= {}
+  candidate.relationship.friendship = 'friends'
+  candidate.relationship.blockedBy = 'none'
+  candidate.relationship.changedAt = Date.now()
+  candidate.relationship.stateChangedAt = Date.now()
+  candidate.relationship.events ||= []
+  candidate.relationship.events.unshift({ id: `forum_friend_${Date.now()}`, type: 'friendship_restored', title: '通过论坛成为好友', detail: input.interactionSummary || '', createdAt: Date.now(), memoryRelevant: true })
+  const key = `${CONTACT_KEY_PREFIX}${accountId}`
+  let contacts: any[] = []
+  try { contacts = JSON.parse(localStorage.getItem(key) || '[]') } catch {}
+  const index = contacts.findIndex(contact => String(contact.characterEntityId || contact.id) === entry!.entityId)
+  if (index >= 0) contacts[index] = candidate
+  else contacts.push(candidate)
+  localStorage.setItem(key, JSON.stringify(contacts))
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('clingy:character-directory-updated'))
+  return { entry, contact: candidate }
 }
 
 export const isDirectoryOwner = (entityId: string) => {

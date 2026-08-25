@@ -1,3 +1,4 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import localforage from 'localforage'
 import type { ForumMediaItem, ForumSnapshot } from '../types/forum'
 
@@ -14,14 +15,14 @@ const mediaMetaStore = localforage.createInstance({ name: FORUM_DB_NAME, storeNa
 export const emptyForumSnapshot = (): ForumSnapshot => {
   const now = Date.now()
   return {
-    version: 3,
-    settings: { initialized: false, activeAccountId: '', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: true, autonomousCommunity: false, ambientPopulationTarget: 24, aiBatchSize: 6, aiContextTokenBudget: 5000, refreshWorldBookIds: [], lastWorldTickAt: now, createdAt: now, updatedAt: now },
-    subjects: [], accounts: [], personas: [], participantPolicies: [], accountLinks: [], recognitions: [], circles: [], memberships: [], worldBindings: [], posts: [], comments: [], topics: [], relationships: [], blocks: [], mutes: [], visibilityRules: [], anonymousIdentities: [], polls: [], lotteries: [], lotteryEntries: [], lotteryResults: [], conversations: [], messages: [], groups: [], groupMembers: [], bridgePolicies: [], memories: [], circleMemories: [], events: [], notifications: [], residentProfiles: [], relationshipEdges: [], exposures: [], scheduledActions: [], generationSessions: [], contentBatches: []
+    version: 4,
+    settings: { initialized: false, activeAccountId: '', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: true, autonomousCommunity: false, ambientPopulationTarget: 0, aiBatchSize: 6, aiContextTokenBudget: 5000, refreshWorldBookIds: [], lastWorldTickAt: now, defaultReplyTiming: 'immediate', createdAt: now, updatedAt: now },
+    subjects: [], accounts: [], personas: [], participantPolicies: [], accountLinks: [], recognitions: [], circles: [], memberships: [], worldBindings: [], posts: [], comments: [], topics: [], relationships: [], blocks: [], mutes: [], visibilityRules: [], anonymousIdentities: [], polls: [], lotteries: [], lotteryEntries: [], lotteryResults: [], conversations: [], messages: [], friendRequests: [], groups: [], groupMembers: [], bridgePolicies: [], memories: [], circleMemories: [], events: [], notifications: [], residentProfiles: [], relationshipEdges: [], exposures: [], scheduledActions: [], generationSessions: [], contentBatches: []
   }
 }
 
 const arrays: Array<keyof ForumSnapshot> = [
-  'subjects', 'accounts', 'personas', 'participantPolicies', 'accountLinks', 'recognitions', 'circles', 'memberships', 'worldBindings', 'posts', 'comments', 'topics', 'relationships', 'blocks', 'mutes', 'visibilityRules', 'anonymousIdentities', 'polls', 'lotteries', 'lotteryEntries', 'lotteryResults', 'conversations', 'messages', 'groups', 'groupMembers', 'bridgePolicies', 'memories', 'circleMemories', 'events', 'notifications', 'residentProfiles', 'relationshipEdges', 'exposures', 'scheduledActions', 'generationSessions', 'contentBatches'
+  'subjects', 'accounts', 'personas', 'participantPolicies', 'accountLinks', 'recognitions', 'circles', 'memberships', 'worldBindings', 'posts', 'comments', 'topics', 'relationships', 'blocks', 'mutes', 'visibilityRules', 'anonymousIdentities', 'polls', 'lotteries', 'lotteryEntries', 'lotteryResults', 'conversations', 'messages', 'friendRequests', 'groups', 'groupMembers', 'bridgePolicies', 'memories', 'circleMemories', 'events', 'notifications', 'residentProfiles', 'relationshipEdges', 'exposures', 'scheduledActions', 'generationSessions', 'contentBatches'
 ]
 
 export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | undefined): ForumSnapshot => {
@@ -51,8 +52,16 @@ export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | unde
   }
   merged.settings.autonomousCommunity = false
   merged.settings.manualGenerationOnly = true
-  merged.settings.ambientPopulationTarget = Math.max(6, Math.min(80, Number(merged.settings.ambientPopulationTarget || 24)))
+  merged.settings.ambientPopulationTarget = 0
+  merged.settings.defaultReplyTiming = merged.settings.defaultReplyTiming === 'presence-aware' ? 'presence-aware' : 'immediate'
   merged.settings.lastWorldTickAt ||= merged.settings.updatedAt || Date.now()
+  merged.participantPolicies.forEach(policy => { policy.autonomy = { level: 'off', actions: {} } })
+  merged.comments.forEach(comment => { comment.source ||= comment.authorAccountId === merged.settings.activeAccountId ? 'user' : 'generated' })
+  merged.messages.forEach(message => { message.source ||= message.senderId === merged.settings.activeAccountId ? 'user' : 'generated' })
+  if (previousVersion < 4) merged.generationSessions.forEach(session => {
+    const legacy = session.config as unknown as { postCount?: number; requiredCharacterAccountIds?: string[] }
+    session.config = { postCount: Math.max(1, Math.min(20, Number(legacy.postCount || 5))), requiredCharacterAccountIds: [...new Set(legacy.requiredCharacterAccountIds || [])] }
+  })
   if (previousVersion < 2) merged.bridgePolicies.forEach(bridge => {
     if (bridge.forumToChat.mode === 'off' && bridge.chatToForum.mode === 'off' && !bridge.forumToChat.memoryTypes.length && !bridge.chatToForum.memoryTypes.length) {
       bridge.forumToChat = { mode: 'important', memoryTypes: ['post', 'comment', 'relationship', 'important-event'] }
@@ -69,7 +78,7 @@ export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | unde
       if (policy) { policy.enabled = false; policy.autonomy = { level: 'off', actions: {} } }
     })
   }
-  merged.version = 3
+  merged.version = 4
   return merged
 }
 

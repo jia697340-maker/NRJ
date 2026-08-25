@@ -1,5 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { ForumComment, ForumUser } from '../../../types/forum'
 import ForumAvatar from './ForumAvatar.vue'
 import ForumUserIdentity from './ForumUserIdentity.vue'
@@ -15,7 +16,10 @@ const emit = defineEmits<{
   (e: 'click-user', user: ForumUser): void
   (e: 'reply', comment: ForumComment): void
   (e: 'like', comment: ForumComment): void
+  (e: 'reveal-pending', commentId: string): void
+  (e: 'delay-pending', commentId: string, minutes: number): void
 }>()
+const delayMinutes = ref(10)
 </script>
 
 <template>
@@ -75,6 +79,7 @@ const emit = defineEmits<{
         <button class="reply-action-btn" type="button" @click="emit('reply', comment)">
           回复
         </button>
+        <template v-if="comment.pendingReply"><button class="reply-action-btn pending-action" type="button" @click="emit('reveal-pending', comment.id)">立即显示</button><label class="pending-delay"><input v-model.number="delayMinutes" type="number" min="1" max="1440"><span>分钟</span><button class="reply-action-btn pending-action" type="button" @click="emit('delay-pending', comment.id, delayMinutes)">修改</button></label></template>
       </div>
 
       <!-- 二级楼中楼子回复列表 -->
@@ -168,6 +173,8 @@ const emit = defineEmits<{
 
 .comment-actions {
   margin-top: 6px;
+  display:flex;
+  gap:10px;
 }
 
 .reply-action-btn {
@@ -183,6 +190,8 @@ const emit = defineEmits<{
 .reply-action-btn:hover {
   color: var(--text-primary, #333333);
 }
+.pending-action{color:var(--accent-color,#576b95)}
+.pending-delay{display:flex;align-items:center;gap:3px;color:var(--text-tertiary,#999);font-size:9px}.pending-delay input{box-sizing:border-box;width:40px;height:21px;border:1px solid var(--border-color,#ddd);border-radius:5px;background:var(--sys-bg-primary,#f5f5f7);color:var(--text-primary,#222);padding:0 3px;font-size:9px}
 
 /* 楼中楼二级回复 */
 .sub-replies-list {

@@ -1,3 +1,4 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { canAccountAppear } from './forumPolicy'
 import type { ForumExposure, ForumPost, ForumSnapshot } from '../types/forum'
 
@@ -40,7 +41,10 @@ const recommendationScore = (snapshot: ForumSnapshot, post: ForumPost, viewerId:
   const exposurePenalty = Math.min(12, recentExposures.length * 4)
   const authorRepetition = snapshot.exposures.filter(item => item.viewerAccountId === viewerId && now - item.shownAt < 12 * 3600000).slice(-30).reduce((count, item) => count + (snapshot.posts.find(post => post.id === item.postId)?.authorAccountId === post.authorAccountId ? 1 : 0), 0)
   const discovery = !follows ? 4 : 0
-  return freshness + engagement + follows + interest + circleAffinity + discovery - exposurePenalty - Math.max(0, authorRepetition - 1) * 4
+  const author = snapshot.accounts.find(item => item.id === post.authorAccountId)
+  const strangerDiscovery = author?.lifecycle === 'lightweight' ? 3 : 0
+  const familiarPenalty = author?.lifecycle === 'character' ? 2 : 0
+  return freshness + engagement + follows + interest + circleAffinity + discovery + strangerDiscovery - familiarPenalty - exposurePenalty - Math.max(0, authorRepetition - 1) * 4
 }
 
 export const rankForumFeed = (snapshot: ForumSnapshot, viewerId: string, kind: ForumFeedKind) => {
@@ -49,7 +53,8 @@ export const rankForumFeed = (snapshot: ForumSnapshot, viewerId: string, kind: F
   const visible = snapshot.posts.filter(post => !blocked.has(post.authorAccountId) && !muted.has(post.authorAccountId) && canViewForumPost(snapshot, post, viewerId))
   if (kind === 'following') {
     const following = new Set(snapshot.relationships.filter(item => item.type === 'follow' && item.fromAccountId === viewerId).map(item => item.toAccountId))
-    return visible.filter(post => post.authorAccountId === viewerId || following.has(post.authorAccountId)).sort((a, b) => timestamp(b) - timestamp(a))
+    const characterAccounts = new Set(snapshot.accounts.filter(item => item.lifecycle === 'character').map(item => item.id))
+    return visible.filter(post => post.authorAccountId === viewerId || following.has(post.authorAccountId) || characterAccounts.has(post.authorAccountId)).sort((a, b) => timestamp(b) - timestamp(a))
   }
   if (kind === 'latest') return visible.sort((a, b) => timestamp(b) - timestamp(a))
   const ranked = visible.map(post => ({ post, score: recommendationScore(snapshot, post, viewerId) })).sort((a, b) => b.score - a.score)

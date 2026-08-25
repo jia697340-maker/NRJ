@@ -1,3 +1,4 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { worldBooks, worldBookGroups } from '../../../store'
@@ -110,11 +111,11 @@ const toggleBridgeType=(subjectId:string,direction:'forumToChat'|'chatToForum',t
       </template>
 
       <template v-else-if="section==='ai'">
-        <div class="section-head"><div><b>内容生成</b><small>按用户配置先规划分布，再生成帖子与评论</small></div></div>
-        <div class="setting-row static"><span><b>手动批次生成</b><small>论坛不会在后台补居民、发帖或自动推进关系</small></span></div>
-        <label class="range-row"><span><b>单次调用预算</b><em>{{snapshot.settings.aiBatchSize}}</em></span><input v-model.number="snapshot.settings.aiBatchSize" type="range" min="1" max="12"/></label>
-        <label class="range-row"><span><b>上下文预算</b><em>{{snapshot.settings.aiContextTokenBudget}}</em></span><input v-model.number="snapshot.settings.aiContextTokenBudget" type="range" min="1000" max="12000" step="500"/></label>
-        <p class="plain-note">陌生作者默认是轻量资料；只有主动关注、私聊或收藏后才升级为持久用户。生成规模在首页刷新设置中控制。</p>
+        <div class="section-head"><div><b>内容生成</b><small>论坛只响应你明确点击的生成操作</small></div></div>
+        <div class="setting-row static"><span><b>手动调用</b><small>打开页面、浏览、点赞和等待都不会调用 API</small></span><i>固定</i></div>
+        <div class="setting-row static"><span><b>回复时间</b><small>默认立即回复；可在评论或私信中手动开启在线状态</small></span><i>即时</i></div>
+        <div class="setting-row static"><span><b>轻量陌生人</b><small>关注和私信只保留论坛身份，同意好友申请后才进入聊天 App</small></span></div>
+        <p class="plain-note">刷新帖子、增量或覆盖评论、生成指定回复和查看好友动向都有独立按钮；每次点击只执行当前这一次请求。</p>
       </template>
 
       <template v-else>

@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue'
+import { reactive, ref, nextTick, onMounted } from 'vue'
 import type { ForumUser, ForumDirectMessage } from '../../../types/forum'
 import ForumHeader from '../components/ForumHeader.vue'
 import ForumAvatar from '../components/ForumAvatar.vue'
@@ -10,17 +10,23 @@ const props = defineProps<{
   messages: ForumDirectMessage[]
   busy?: boolean
   error?: string
+  friendStatus?: 'none' | 'outgoing' | 'incoming' | 'friends'
+  allowFriend?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'back'): void
   (e: 'click-user', user: ForumUser): void
   (e: 'send', content: string): void
-  (e: 'generate-reply'): void
+  (e: 'generate-reply', timing: 'immediate' | 'presence-aware'): void
+  (e: 'adjust-pending', messageId: string, minutes?: number): void
+  (e: 'friend-action'): void
 }>()
 
 const inputContent = ref('')
 const messageContainer = ref<HTMLElement | null>(null)
+const presenceAware = ref(false)
+const delayDrafts = reactive<Record<string, number>>({})
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -46,7 +52,8 @@ const handleSend = () => {
   <div class="forum-chatroom-view">
     <ForumHeader :title="targetUser.name" show-back @back="emit('back')">
       <template #right>
-        <button class="generate-chat-btn" :disabled="busy" @click="emit('generate-reply')">{{busy?'生成中':'生成回复'}}</button>
+        <button v-if="allowFriend!==false&&friendStatus!=='friends'" class="friend-chat-btn" :disabled="busy||friendStatus==='incoming'" @click="emit('friend-action')">{{friendStatus==='outgoing'?'生成申请答复':'好友动向'}}</button>
+        <button class="generate-chat-btn" :disabled="busy" @click="emit('generate-reply',presenceAware?'presence-aware':'immediate')">{{busy?'生成中':'生成回复'}}</button>
       </template>
     </ForumHeader>
 
@@ -77,6 +84,7 @@ const handleSend = () => {
             {{ msg.content }}
           </div>
           <span class="message-time">{{ msg.createdAt }}</span>
+          <div v-if="msg.pendingReply" class="pending-message-actions"><button type="button" @click="emit('adjust-pending',msg.id)">立即显示</button><input v-model.number="delayDrafts[msg.id]" type="number" min="1" max="1440" placeholder="10"><span>分钟</span><button type="button" @click="emit('adjust-pending',msg.id,delayDrafts[msg.id]||10)">修改</button></div>
         </div>
       </div>
     </div>
@@ -84,6 +92,7 @@ const handleSend = () => {
     <!-- 底部输入栏 -->
     <div class="chat-input-bar">
       <span v-if="error" class="chat-error">{{error}}</span>
+      <label class="presence-toggle"><input v-model="presenceAware" type="checkbox"><span>在线状态</span></label>
       <input
         v-model="inputContent"
         type="text"
@@ -241,4 +250,6 @@ const handleSend = () => {
   transform: scale(0.94);
 }
 .generate-chat-btn{height:27px;border:0;border-radius:999px;background:var(--sys-bg-tertiary,#eef0f2);color:var(--text-secondary,#666);padding:0 9px;font-size:10.5px}.generate-chat-btn:disabled{opacity:.4}.chat-error{position:absolute;left:12px;right:12px;bottom:100%;overflow:hidden;background:color-mix(in srgb,#d44c4c 8%,var(--sys-bg-secondary,#fff));color:#c24a4a;padding:5px 8px;font-size:10px;white-space:nowrap;text-overflow:ellipsis}.chat-input-bar{position:relative}
+.friend-chat-btn{height:27px;border:0;background:transparent;color:var(--accent-color,#576b95);padding:0 6px;font-size:9.5px}.friend-chat-btn:disabled{opacity:.4}
+.presence-toggle{display:flex;flex:0 0 auto;align-items:center;gap:3px;color:var(--text-secondary,#777);font-size:9px}.presence-toggle input{width:13px;height:13px;margin:0;accent-color:var(--accent-color,#576b95)}.pending-message-actions{display:flex;align-items:center;gap:4px;color:var(--text-tertiary,#999);font-size:9px}.pending-message-actions button{border:0;background:transparent;color:var(--accent-color,#576b95);padding:0 3px;font-size:9.5px}.pending-message-actions input{box-sizing:border-box;width:38px;height:20px;border:1px solid var(--border-color,#ddd);border-radius:5px;background:var(--sys-bg-primary,#f5f5f7);color:var(--text-primary,#222);padding:0 3px;font-size:9px}
 </style>

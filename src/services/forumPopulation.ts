@@ -1,15 +1,13 @@
-import { listCharacterDirectory, refreshCharacterDirectoryFromAllAccounts } from './characterDirectory'
-import type { ForumAccount, ForumParticipantPolicy, ForumResidentProfile, ForumSnapshot, ForumUser } from '../types/forum'
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+import { listCurrentChatCharacterDirectory, refreshCharacterDirectoryFromAllAccounts } from './characterDirectory'
+import type { ForumAccount, ForumParticipantPolicy, ForumSnapshot, ForumUser } from '../types/forum'
 
 const makeId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-const hash = (value: string) => Array.from(value).reduce((score, char) => ((score << 5) - score + char.charCodeAt(0)) | 0, 0) >>> 0
-const bounded = (seed: number, min: number, span: number) => min + seed % span
-const unique = <T>(values: T[]) => [...new Set(values)]
 
 const defaultPolicy = (subjectId: string, enabled = true): ForumParticipantPolicy => ({
   id: makeId('participant'), subjectId, enabled, allowedCircleIds: [], blockedCircleIds: [], allowedAccountIds: [], allowedGroupIds: [], scope: ['global', 'circle', 'following-feed', 'passive', 'post'],
   allowPublicDiscovery: true, allowNpcKnowledge: true, allowMention: true, allowSearch: true, allowRecommendation: true, allowDm: true, allowGroup: true,
-  autonomy: { level: enabled ? 'normal' : 'off', actions: { post: enabled, comment: enabled, like: enabled, follow: enabled, replyDm: enabled } }, updatedAt: Date.now()
+  autonomy: { level: 'off', actions: {} }, updatedAt: Date.now()
 })
 
 export const projectForumUser = (snapshot: ForumSnapshot, account: ForumAccount): ForumUser => ({
@@ -22,24 +20,7 @@ export const projectForumUser = (snapshot: ForumSnapshot, account: ForumAccount)
   isFollowing: snapshot.relationships.some(item => item.type === 'follow' && item.fromAccountId === snapshot.settings.activeAccountId && item.toAccountId === account.id)
 })
 
-export const ensureResidentProfile = (snapshot: ForumSnapshot, account: ForumAccount, origin: ForumResidentProfile['origin'] = 'ambient') => {
-  const existing = snapshot.residentProfiles.find(item => item.accountId === account.id)
-  if (existing) return existing
-  const persona = snapshot.personas.find(item => item.accountId === account.id)
-  const seed = hash(`${account.subjectId}:${account.handle}`)
-  const activeStart = bounded(seed, 6, 15)
-  const activeEnd = (activeStart + bounded(seed >> 2, 7, 8)) % 24
-  const profile: ForumResidentProfile = {
-    id: makeId('resident'), subjectId: account.subjectId, accountId: account.id, origin,
-    browsingPatience: bounded(seed, 35, 56), likeTendency: bounded(seed >> 2, 18, 60), commentTendency: bounded(seed >> 4, 8, 48), followTendency: bounded(seed >> 6, 5, 35), socialInitiative: persona?.socialInitiative ?? bounded(seed >> 8, 20, 65), strangerTrust: bounded(seed >> 10, 16, 58), conflictTolerance: bounded(seed >> 12, 20, 65), trendSensitivity: bounded(seed >> 14, 12, 70), privacySensitivity: bounded(seed >> 16, 25, 66),
-    activeHours: [activeStart, activeEnd], homeCircleIds: [...account.circleIds], interests: unique(persona?.interests || []), avoidedTopics: [...(persona?.boundaries || [])],
-    averageLength: seed % 3 === 0 ? 'short' : seed % 3 === 1 ? 'medium' : 'long', punctuationStyle: persona?.punctuationStyle || (seed % 2 ? '句尾不总加标点，停顿自然' : '标点完整，很少连续感叹'), emojiFrequency: seed % 5 === 0 ? 'medium' : seed % 2 ? 'low' : 'none', commonWords: [], avoidedPhrases: ['作为一个', '值得一提的是', '期待更多精彩内容'], recentSamples: [], createdAt: Date.now(), updatedAt: Date.now()
-  }
-  snapshot.residentProfiles.push(profile)
-  return profile
-}
-
-const createCharacterAccount = (snapshot: ForumSnapshot, entry: ReturnType<typeof listCharacterDirectory>[number]) => {
+const createCharacterAccount = (snapshot: ForumSnapshot, entry: ReturnType<typeof listCurrentChatCharacterDirectory>[number]) => {
   let subject = snapshot.subjects.find(item => item.kind === 'character' && item.sourceId === entry.entityId)
   if (!subject) {
     subject = { id: makeId('subject_character'), kind: 'character', sourceId: entry.entityId, sourceAccountId: entry.ownerAccountId, displayName: entry.socialProfile?.nickname || entry.name, persona: entry.persona, avatarKey: entry.avatarKey, createdAt: Date.now(), updatedAt: Date.now() }
@@ -64,15 +45,26 @@ const createCharacterAccount = (snapshot: ForumSnapshot, entry: ReturnType<typeo
     account.name = entry.socialProfile?.nickname || entry.name
     account.handle = entry.socialProfile?.socialId || account.handle
     account.bio = entry.socialProfile?.signature || account.bio
+    const persona = snapshot.personas.find(item => item.accountId === account!.id)
+    if (persona) { persona.identity = account.bio; persona.personality = entry.persona }
   }
   if (!snapshot.bridgePolicies.some(item => item.subjectId === subject!.id)) snapshot.bridgePolicies.push({ id: makeId('bridge'), subjectId: subject.id, forumToChat: { mode: 'important', memoryTypes: ['post', 'comment', 'relationship', 'important-event'] }, chatToForum: { mode: 'reachable-only', memoryTypes: ['chat-daily', 'important-event', 'relationship'] }, updatedAt: Date.now() })
-  ensureResidentProfile(snapshot, account, 'character')
   return account
 }
 
 export const syncForumCharacters = (snapshot: ForumSnapshot) => {
   refreshCharacterDirectoryFromAllAccounts()
-  return listCharacterDirectory().map(entry => createCharacterAccount(snapshot, entry))
+  const entries = listCurrentChatCharacterDirectory()
+  const activeSourceIds = new Set(entries.map(entry => entry.entityId))
+  snapshot.subjects.filter(subject => subject.kind === 'character' && subject.sourceId && !activeSourceIds.has(subject.sourceId)).forEach(subject => {
+    const policy = snapshot.participantPolicies.find(item => item.subjectId === subject.id)
+    if (policy && (policy.enabled || policy.autonomy.level !== 'off' || Object.keys(policy.autonomy.actions).length)) {
+      policy.enabled = false
+      policy.autonomy = { level: 'off', actions: {} }
+      policy.updatedAt = Date.now()
+    }
+  })
+  return entries.map(entry => createCharacterAccount(snapshot, entry))
 }
 
 const uniqueHandle = (snapshot: ForumSnapshot, value: string) => {
