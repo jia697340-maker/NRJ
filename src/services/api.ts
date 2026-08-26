@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, characterApiSettings, cotSettings, globalPromptSettings, appStats, type ApiPreset } from '../store'
+import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, characterApiSettings, forumApiSettings, cotSettings, globalPromptSettings, appStats, type ApiPreset } from '../store'
 import { apiLogger } from './apiLogger'
 import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest, resolveModelAdapterProfile } from './modelAdapters'
 import type { ModelAdapterProfile } from './modelAdapters'
@@ -91,6 +91,14 @@ export const isCharacterApiReady = () => {
   return Boolean(url && key && characterApiSettings.model)
 }
 
+export const isForumApiReady = (purpose?: ForumApiPurpose) => {
+  if (!forumApiSettings.enabled) return false
+  if (purpose && !forumApiSettings.bindAllForum && !forumApiSettings.scopes.includes(purpose)) return false
+  const url = forumApiSettings.provider === 'custom' ? forumApiSettings.customUrl : forumApiSettings.url
+  const key = forumApiSettings.provider === 'custom' ? forumApiSettings.customKey : forumApiSettings.key
+  return Boolean(url && key && forumApiSettings.model)
+}
+
 export async function sendChatMessage(
   messages: any[],
   signal?: AbortSignal,
@@ -139,6 +147,8 @@ export async function sendChatMessage(
     activeSettings = momentApiSettings
   } else if (purpose === 'character-generation' && isCharacterApiReady()) {
     activeSettings = characterApiSettings
+  } else if (purpose.startsWith('forum-') && isForumApiReady(purpose as ForumApiPurpose)) {
+    activeSettings = forumApiSettings
   }
 
   const url = activeSettings.provider === 'custom' ? activeSettings.customUrl : activeSettings.url
@@ -210,6 +220,7 @@ export async function sendChatMessage(
   if (purpose === 'character-generation') diagnosticType = 'CharacterGeneration'
   if (purpose === 'character-review-global') diagnosticType = 'CharacterReview'
   if (purpose === 'prompt-generation') diagnosticType = 'PromptGeneration'
+  if (purpose.startsWith('forum-')) diagnosticType = 'Forum'
 
   const diagnosticDraft = createDiagnosticDraft({
     messages: payloadMessages,

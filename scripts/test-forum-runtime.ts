@@ -23,15 +23,16 @@ const migrated = normalizeForumSnapshot({
   participantPolicies: [{ id: 'legacy-policy', subjectId: 'legacy-subject', enabled: true, allowedCircleIds: [], blockedCircleIds: [], allowedAccountIds: [], allowedGroupIds: [], scope: ['global'], allowPublicDiscovery: true, allowNpcKnowledge: true, allowMention: true, allowSearch: true, allowRecommendation: true, allowDm: true, allowGroup: true, autonomy: { level: 'normal', actions: { post: true } }, updatedAt: now }],
   generationSessions: [{ id: 'legacy-session', status: 'committed', config: { rangeDays: 30, postCount: 30, commentMin: 20, commentMax: 40, requiredCharacterAccountIds: ['a'] }, progress: 100, createdAt: now }]
 } as never)
-assert.equal(migrated.version, 5)
+assert.equal(migrated.version, 6)
 assert.equal(migrated.settings.autoImageProvider, 'pollinations', '旧数据迁移不得暗中默认 GPT Image')
 assert.equal(migrated.circles[0].contentScope, '聊做饭')
 assert.equal(migrated.settings.autonomousCommunity, false)
 assert.equal(migrated.settings.manualGenerationOnly, true)
 assert.equal(migrated.settings.ambientPopulationTarget, 0)
 assert.deepEqual(migrated.participantPolicies[0].autonomy, { level: 'off', actions: {} })
-assert.deepEqual(migrated.generationSessions[0].config, { postCount: 20, requiredCharacterAccountIds: ['a'] })
-assert.ok(Array.isArray(migrated.friendRequests) && Array.isArray(migrated.residentProfiles) && Array.isArray(migrated.exposures) && Array.isArray(migrated.scheduledActions) && Array.isArray(migrated.generationSessions) && Array.isArray(migrated.contentBatches))
+assert.equal(migrated.generationSessions[0].config.postCount, 30, '旧配置迁移不再施加 20 篇业务硬上限')
+assert.deepEqual(migrated.generationSessions[0].config.requiredCharacterAccountIds, ['a'])
+assert.ok(Array.isArray(migrated.friendRequests) && Array.isArray(migrated.residentProfiles) && Array.isArray(migrated.exposures) && Array.isArray(migrated.scheduledActions) && Array.isArray(migrated.generationSessions) && Array.isArray(migrated.contentBatches) && Array.isArray(migrated.avatarLibrary) && Array.isArray(migrated.dmTasks))
 
 const snapshot = emptyForumSnapshot()
 snapshot.settings.initialized = true

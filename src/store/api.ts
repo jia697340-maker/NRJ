@@ -219,3 +219,38 @@ export const characterApiSettings = reactive({
 watch(characterApiSettings, value => {
   localStorage.setItem(CHARACTER_API_STORAGE_KEY, JSON.stringify(value))
 }, { deep: true })
+
+const FORUM_API_STORAGE_KEY = 'clingy_forum_api_settings'
+const savedForumApiSettings = readStoredJSON<Record<string, any>>(FORUM_API_STORAGE_KEY, {})
+
+// 论坛公共结构化生成与论坛私聊共用一个可选专用节点；未启用或配置不完整时回退全局节点。
+export const forumApiSettings = reactive({
+  enabled: savedForumApiSettings.enabled ?? false,
+  fallbackToDefault: savedForumApiSettings.fallbackToDefault ?? true,
+  bindAllForum: savedForumApiSettings.bindAllForum ?? true,
+  scopes: savedForumApiSettings.scopes || ['forum-account','forum-circle','forum-population','forum-post','forum-comment','forum-dm','forum-group','forum-media','forum-memory'],
+  provider: savedForumApiSettings.provider || 'deepseek',
+  url: savedForumApiSettings.url ?? 'https://api.deepseek.com',
+  key: savedForumApiSettings.key ?? '',
+  model: savedForumApiSettings.model ?? '',
+  availableModels: savedForumApiSettings.availableModels || [],
+  adapterProfile: savedForumApiSettings.adapterProfile || 'auto',
+  customUrl: savedForumApiSettings.customUrl ?? '',
+  customKey: savedForumApiSettings.customKey ?? '',
+  enableTemperature: savedForumApiSettings.enableTemperature ?? true,
+  temperature: savedForumApiSettings.temperature ?? 0.9,
+  enableMaxTokens: savedForumApiSettings.enableMaxTokens ?? true,
+  maxTokens: savedForumApiSettings.maxTokens ?? 4000,
+  enableTopP: savedForumApiSettings.enableTopP ?? false,
+  topP: savedForumApiSettings.topP ?? 1,
+  enableFrequencyPenalty: savedForumApiSettings.enableFrequencyPenalty ?? true,
+  frequencyPenalty: savedForumApiSettings.frequencyPenalty ?? 0.1,
+  enablePresencePenalty: savedForumApiSettings.enablePresencePenalty ?? false,
+  presencePenalty: savedForumApiSettings.presencePenalty ?? 0,
+  enableStream: savedForumApiSettings.enableStream ?? false,
+  presets: (savedForumApiSettings.presets || []) as ApiPreset[],
+  currentPresetId: savedForumApiSettings.currentPresetId ?? '',
+  newApiNode: (savedForumApiSettings.newApiNode || null) as NewApiNodeInfo | null
+})
+
+watch(forumApiSettings, value => localStorage.setItem(FORUM_API_STORAGE_KEY, JSON.stringify(value)), { deep: true })

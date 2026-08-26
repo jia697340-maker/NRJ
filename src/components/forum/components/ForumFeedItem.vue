@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { ForumPost, ForumUser, ForumMediaItem, ForumQuoteContent } from '../../../types/forum'
 import { useForum } from '../../../composables/useForum'
 import ForumAvatar from './ForumAvatar.vue'
@@ -10,6 +10,7 @@ import ForumImageGrid from './ForumImageGrid.vue'
 import ForumQuoteCard from './ForumQuoteCard.vue'
 import ForumPostActions from './ForumPostActions.vue'
 import ForumRichMedia from './ForumRichMedia.vue'
+import ForumPostInteractionModal from '../modals/ForumPostInteractionModal.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -27,6 +28,7 @@ const lotteryResult=computed(()=>lottery.value?forum.snapshot.value.lotteryResul
 const entered=computed(()=>lottery.value?forum.snapshot.value.lotteryEntries.some(item=>item.lotteryId===lottery.value?.id&&item.accountId===forum.currentAccount.value?.id):false)
 const canDraw=computed(()=>lottery.value&&!lottery.value.drawnAt&&lottery.value.drawAt<=Date.now()&&props.post.authorAccountId===forum.currentAccount.value?.id)
 const sourceCircle=computed(()=>props.post.circleId?forum.circles.value.find(item=>item.id===props.post.circleId):null)
+const interactionVisible=ref(false)
 
 const emit = defineEmits<{
   (e: 'click-post', post: ForumPost): void
@@ -119,7 +121,9 @@ const emit = defineEmits<{
       @comment="emit('comment', post)"
       @share="emit('share', post)"
       @bookmark="emit('bookmark', post)"
+      @interact="interactionVisible=true"
     />
+    <ForumPostInteractionModal :visible="interactionVisible" :post="post" :busy="forum.interactionBusy.value" :error="forum.interactionError.value" @close="interactionVisible=false" @confirm="async config=>{if(await forum.generatePostInteractions(post.id,config))interactionVisible=false}"/>
   </article>
 </template>
 

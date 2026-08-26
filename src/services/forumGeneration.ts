@@ -2,9 +2,10 @@
 import { requestForumJson } from './forumAI'
 import { generateForumImage } from './forumMediaGeneration'
 import { canAccountAppear } from './forumPolicy'
+import { removeForumMedia } from './forumRepository'
 import type {
   ForumAccount, ForumCircle, ForumComment, ForumContentBatch, ForumDistributionPlan, ForumGenerationConfig,
-  ForumGenerationSession, ForumParticipantPolicy, ForumPost, ForumPostPlanSlot, ForumPostType, ForumSnapshot, ForumSubject
+  ForumGenerationSession, ForumParticipantPolicy, ForumPost, ForumPostPlanSlot, ForumPostType, ForumSnapshot, ForumSubject, ForumContentKind
 } from '../types/forum'
 
 const makeId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -14,12 +15,24 @@ const unique = <T>(values: T[]) => [...new Set(values)]
 const cloneSnapshot = (snapshot: ForumSnapshot) => JSON.parse(JSON.stringify(snapshot)) as ForumSnapshot
 
 export const defaultForumGenerationConfig = (): ForumGenerationConfig => ({
-  postCount: 3, requiredCharacterAccountIds: []
+  postCount: 3, requiredCharacterAccountIds: [], refreshMode: 'incremental', replaceScope: 'latest-batch', replacePostIds: [], postTypeMode: 'natural',
+  allowedContentKinds: ['thought', 'life', 'image-share', 'question', 'help', 'complaint', 'experience', 'discussion', 'link', 'poll', 'anonymous', 'circle-topic'],
+  ensureEverySelectedKind: true, commentMode: 'natural', commentsPerPost: 3, totalComments: 12, strangerRepeatMode: 'avoid', npcGenerationMode: 'lightweight', discoverCircles: true, includeInitialComments: true,
+  anonymousUnavailable: 'create-circle', circleTopicUnavailable: 'create-circle', imageUnavailable: 'ai'
 })
 
 export const normalizeForumGenerationConfig = (input: ForumGenerationConfig): ForumGenerationConfig => {
-  const postCount = clamp(input?.postCount, 1, 20)
-  return { postCount, requiredCharacterAccountIds: unique(input?.requiredCharacterAccountIds || []).slice(0, postCount) }
+  const defaults = defaultForumGenerationConfig()
+  const postCount = Math.max(1, Math.round(Number(input?.postCount || defaults.postCount)))
+  const allowed = unique((input?.allowedContentKinds || defaults.allowedContentKinds).filter(kind => postKinds.includes(kind)))
+  return {
+    ...defaults, ...input, postCount,
+    requiredCharacterAccountIds: unique(input?.requiredCharacterAccountIds || []).slice(0, postCount),
+    replacePostIds: unique(input?.replacePostIds || []),
+    allowedContentKinds: allowed.length ? allowed : [...defaults.allowedContentKinds],
+    commentsPerPost: Math.max(0, Math.round(Number(input?.commentsPerPost ?? defaults.commentsPerPost))),
+    totalComments: Math.max(0, Math.round(Number(input?.totalComments ?? defaults.totalComments)))
+  }
 }
 
 const lightweightPolicy = (subjectId: string): ForumParticipantPolicy => ({
@@ -35,7 +48,20 @@ const uniqueHandle = (snapshot: ForumSnapshot, value: string) => {
   return result
 }
 
-type AuthorDraft = { name: string; handle: string; avatar?: string; bio?: string; expressionStyle?: string; backgroundHints?: string[]; interests?: string[] }
+type AuthorDraft = { name: string; handle: string; avatar?: string; bio?: string; gender?: 'male' | 'female' | 'other' | 'unknown'; expressionStyle?: string; backgroundHints?: string[]; interests?: string[]; identity?: string; personality?: string; occupation?: string; boundaries?: string[]; postingStyle?: string; commentingStyle?: string; dmStyle?: string; emojiStyle?: string; punctuationStyle?: string; activeHours?: string[] }
+
+const assignLibraryAvatar = (snapshot: ForumSnapshot, account: ForumAccount, gender: AuthorDraft['gender']) => {
+  if (!snapshot.settings.avatarLibraryEnabled || !snapshot.avatarLibrary.length) return
+  const preferredGroup = gender === 'male' || gender === 'female' ? gender : 'other'
+  const ordered = [...snapshot.avatarLibrary.filter(item => item.group === preferredGroup), ...snapshot.avatarLibrary.filter(item => item.group !== preferredGroup)]
+  const unused = ordered.find(item => !item.assignedAccountIds.length)
+  const allowReuse = snapshot.settings.allowAvatarReuse && Math.random() < snapshot.settings.avatarReuseProbability
+  const selected = unused || (allowReuse ? ordered[Math.floor(Math.random() * ordered.length)] : undefined)
+  if (!selected) return
+  selected.assignedAccountIds = unique([...selected.assignedAccountIds, account.id])
+  account.avatar = selected.url
+  account.avatarLibraryItemId = selected.id
+}
 
 export const createLightweightForumAuthors = async (snapshot: ForumSnapshot, viewerAccountId: string, count: number, batchId: string) => {
   if (!count) return []
@@ -51,9 +77,10 @@ export const createLightweightForumAuthors = async (snapshot: ForumSnapshot, vie
     const account: ForumAccount = {
       id: makeId('forum_account'), subjectId: subject.id, kind: 'main', name, handle: uniqueHandle(snapshot, raw.handle), avatar: String(raw.avatar || name.slice(0, 1)), bio: String(raw.bio || '').slice(0, 160),
       privacy: 'normal', searchable: true, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: false, showCircles: true,
-      joinedAt: Date.now() - (7 + index * 3) * 86400000, circleIds: [], lifecycle: 'lightweight', expressionStyle: String(raw.expressionStyle || '').slice(0, 240),
+      joinedAt: Date.now() - (7 + index * 3) * 86400000, circleIds: [], lifecycle: 'lightweight', expressionStyle: String(raw.expressionStyle || '').slice(0, 240), lockedFields: [], gender: raw.gender || 'unknown',
       backgroundHints: (raw.backgroundHints || []).map(String).slice(0, 4), firstSeenBatchId: batchId, lastSeenAt: Date.now()
     }
+    assignLibraryAvatar(snapshot, account, raw.gender)
     snapshot.subjects.push(subject); snapshot.accounts.push(account); snapshot.participantPolicies.push(lightweightPolicy(subject.id)); result.push(account)
   }
   return result
@@ -61,17 +88,40 @@ export const createLightweightForumAuthors = async (snapshot: ForumSnapshot, vie
 
 type CircleDraft = { name: string; avatar?: string; description: string; contentScope: string; tags?: string[]; memberCount?: number }
 
-const postKinds: ForumPostPlanSlot['contentKind'][] = ['thought', 'life', 'image-share', 'question', 'help', 'complaint', 'experience', 'discussion', 'link', 'poll', 'anonymous', 'circle-topic']
+export const postKinds: ForumContentKind[] = ['thought', 'life', 'image-share', 'question', 'help', 'complaint', 'experience', 'discussion', 'link', 'poll', 'anonymous', 'circle-topic']
 const typeForKind = (kind: ForumPostPlanSlot['contentKind']): ForumPostType => kind === 'poll' ? 'poll' : kind === 'anonymous' ? 'anonymous' : kind === 'image-share' ? 'single-image' : kind === 'discussion' || kind === 'experience' ? 'long-article' : kind === 'question' || kind === 'help' ? 'qa' : kind === 'link' ? 'link' : 'text'
 
-const distributeComments = (postCount: number) => {
-  const result: number[] = Array.from({ length: postCount }, (_, index) => index % 4 === 0 ? 0 : index % 3 === 0 ? 2 : 1)
-  if (postCount >= 5) result[postCount - 1] = 3 + Math.floor(Math.random() * 3)
+export const distributeForumComments = (kinds: ForumContentKind[], config: Pick<ForumGenerationConfig, 'commentMode' | 'commentsPerPost' | 'totalComments' | 'includeInitialComments'>, random: () => number = Math.random) => {
+  const postCount = kinds.length
+  if (!config.includeInitialComments) return Array(postCount).fill(0)
+  if (config.commentMode === 'per-post') return Array(postCount).fill(Math.max(0, Math.round(config.commentsPerPost)))
+  const weights = kinds.map((kind, index) => {
+    const discussionWeight = ['question', 'help', 'discussion', 'complaint', 'poll'].includes(kind) ? 2.2 : ['experience', 'circle-topic', 'link'].includes(kind) ? 1.45 : .9
+    return Math.max(.15, discussionWeight * (.58 + random() * .95) * (index % 4 === 0 ? .45 : 1))
+  })
+  const target = config.commentMode === 'total'
+    ? Math.max(0, Math.round(config.totalComments))
+    : Math.max(postCount + 2, Math.round(postCount * 3.2 + random() * postCount * 2.1))
+  const weightTotal = weights.reduce((sum, value) => sum + value, 0) || 1
+  const exact = weights.map(value => value / weightTotal * target)
+  const result = exact.map(Math.floor)
+  let remaining = target - result.reduce((sum, value) => sum + value, 0)
+  exact.map((value, index) => ({ index, fraction: value - result[index] })).sort((a, b) => b.fraction - a.fraction).forEach(item => { if (remaining > 0) { result[item.index] += 1; remaining -= 1 } })
+  const discussionIndexes = kinds.map((kind, index) => ['question', 'help', 'discussion', 'complaint', 'poll'].includes(kind) ? index : -1).filter(index => index >= 0)
+  const ordinaryIndexes = kinds.map((kind, index) => discussionIndexes.includes(index) ? -1 : index).filter(index => index >= 0)
+  if (discussionIndexes.length && ordinaryIndexes.length && target >= 2) {
+    const hot = discussionIndexes.sort((a, b) => weights[b] - weights[a])[0]
+    const ordinary = ordinaryIndexes.sort((a, b) => result[b] - result[a])[0]
+    while (result[hot] <= result[ordinary] && result[ordinary] > 0) { result[hot] += 1; result[ordinary] -= 1 }
+  }
+  if (postCount >= 2 && target >= 2 && new Set(result).size === 1) { const high = weights.indexOf(Math.max(...weights)); const low = weights.indexOf(Math.min(...weights)); if (high !== low && result[low] > 0) { result[high] += 1; result[low] -= 1 } }
   return result
 }
 
-export const createForumDistributionPlan = (snapshot: ForumSnapshot, sessionId: string, batchId: string, config: ForumGenerationConfig, authorIds: string[], generatedCircleIds: string[]): ForumDistributionPlan => {
-  const comments = distributeComments(config.postCount)
+export const createForumDistributionPlan = (snapshot: ForumSnapshot, sessionId: string, batchId: string, config: ForumGenerationConfig, authorIds: string[], generatedCircleIds: string[], random: () => number = Math.random): ForumDistributionPlan => {
+  const allowedKinds = config.postTypeMode === 'custom' ? config.allowedContentKinds : postKinds
+  const kinds = Array.from({ length: config.postCount }, (_, index) => config.postTypeMode === 'custom' && config.ensureEverySelectedKind && index < allowedKinds.length ? allowedKinds[index] : sample(allowedKinds, index * 3 + Math.floor(random() * allowedKinds.length)))
+  const comments = distributeForumComments(kinds, config, random)
   const availableCircles = unique([...generatedCircleIds, ...snapshot.circles.filter(circle => circle.isPublic).map(circle => circle.id)])
   const circlePostCount = availableCircles.length ? Math.min(config.postCount - 1, Math.max(generatedCircleIds.length, Math.floor(config.postCount * .3))) : 0
   const circleAssignments = Array.from({ length: circlePostCount }, (_, index) => sample(availableCircles, index * 3 + batchId.length))
@@ -85,11 +135,14 @@ export const createForumDistributionPlan = (snapshot: ForumSnapshot, sessionId: 
     ...Array.from({ length: Math.max(0, config.postCount - requiredIds.length) }, (_, index) => sample(strangerIds.length ? strangerIds : requiredIds, index))
   ]
   const slots: ForumPostPlanSlot[] = Array.from({ length: config.postCount }, (_, index) => {
-    const kind = sample(postKinds, index * 3 + Math.floor(Math.random() * postKinds.length))
-    const createdAt = Math.round(startAt + ((index + .35 + Math.random() * .3) / config.postCount) * Math.max(60000, endAt - startAt))
+    let kind = kinds[index]
+    const createdAt = Math.round(startAt + ((index + .35 + random() * .3) / config.postCount) * Math.max(60000, endAt - startAt))
+    let circleId = circleIndexes.has(index) ? circleAssignments[circleCursor++] : undefined
+    if ((kind === 'anonymous' || kind === 'circle-topic') && !circleId && availableCircles.length) circleId = sample(availableCircles, index + batchId.length)
+    if ((kind === 'anonymous' || kind === 'circle-topic') && !circleId) kind = 'thought'
     const commentTarget = comments[index]
     const heat: ForumPostPlanSlot['heat'] = commentTarget === 0 ? 'quiet' : commentTarget >= 4 ? 'hot' : 'normal'
-    return { id: makeId('post_slot'), authorAccountId: assignedAuthors[index], circleId: circleIndexes.has(index) ? circleAssignments[circleCursor++] : undefined, postType: typeForKind(kind), createdAt, commentTarget, heat, contentKind: kind }
+    return { id: makeId('post_slot'), authorAccountId: assignedAuthors[index], circleId, postType: typeForKind(kind), createdAt, commentTarget, heat, contentKind: kind }
   }).sort((a, b) => b.createdAt - a.createdAt)
   return { id: makeId('distribution'), sessionId, batchId, slots, plannedAuthorIds: unique(slots.map(item => item.authorAccountId)), plannedCircleIds: unique(slots.map(item => item.circleId).filter(Boolean) as string[]), plannedCommentCount: comments.reduce((sum, value) => sum + value, 0), createdAt: Date.now() }
 }
@@ -104,7 +157,7 @@ type CircleRef = { key: string; circle?: ForumCircle }
 type CommentSpec = { commentKey: string; authorKey: string; parentCommentKey?: string; createdAt: number }
 type ForumGenerationDependencies = { requestJson?: typeof requestForumJson; generateImage?: typeof generateForumImage }
 
-const materializeAuthors = (snapshot: ForumSnapshot, refs: AuthorRef[], drafts: BatchAuthorDraft[], batchId: string) => {
+const materializeAuthors = (snapshot: ForumSnapshot, refs: AuthorRef[], drafts: BatchAuthorDraft[], batchId: string, mode: ForumGenerationConfig['npcGenerationMode']) => {
   const accounts = new Map<string, ForumAccount>()
   refs.forEach((ref, index) => {
     if (ref.account) { accounts.set(ref.key, ref.account); return }
@@ -115,9 +168,14 @@ const materializeAuthors = (snapshot: ForumSnapshot, refs: AuthorRef[], drafts: 
     const account: ForumAccount = {
       id: makeId('forum_account'), subjectId: subject.id, kind: 'main', name, handle: uniqueHandle(snapshot, raw.handle), avatar: String(raw.avatar || name.slice(0, 1)), bio: String(raw.bio || '').slice(0, 160),
       privacy: 'normal', searchable: true, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: false, showCircles: true,
-      joinedAt: Date.now() - (7 + index * 3) * 86400000, circleIds: [], lifecycle: 'lightweight', expressionStyle: String(raw.expressionStyle || '').slice(0, 240), backgroundHints: (raw.backgroundHints || []).map(String).slice(0, 4), firstSeenBatchId: batchId, lastSeenAt: Date.now()
+      joinedAt: Date.now() - (7 + index * 3) * 86400000, circleIds: [], lifecycle: mode === 'full' ? 'persistent' : 'lightweight', expressionStyle: String(raw.expressionStyle || '').slice(0, 240), backgroundHints: (raw.backgroundHints || []).map(String).slice(0, mode === 'full' ? 8 : 4), firstSeenBatchId: batchId, lastSeenAt: Date.now(), lockedFields: [], gender: raw.gender || 'unknown'
     }
+    assignLibraryAvatar(snapshot, account, raw.gender)
     snapshot.subjects.push(subject); snapshot.accounts.push(account); snapshot.participantPolicies.push(lightweightPolicy(subject.id)); accounts.set(ref.key, account)
+    if (mode === 'full') {
+      const personaId = makeId('forum_persona'); account.personaId = personaId
+      snapshot.personas.push({ id: personaId, accountId: account.id, identity: String(raw.identity || raw.bio || '').slice(0, 500), personality: String(raw.personality || raw.expressionStyle || '').slice(0, 500), occupation: String(raw.occupation || '').slice(0, 120), interests: (raw.interests || []).map(String).slice(0, 12), boundaries: (raw.boundaries || []).map(String).slice(0, 10), postingStyle: String(raw.postingStyle || raw.expressionStyle || '').slice(0, 300), commentingStyle: String(raw.commentingStyle || raw.expressionStyle || '').slice(0, 300), dmStyle: String(raw.dmStyle || raw.expressionStyle || '').slice(0, 300), emojiStyle: String(raw.emojiStyle || '').slice(0, 120), punctuationStyle: String(raw.punctuationStyle || '').slice(0, 120), socialInitiative: 45, activeHours: (raw.activeHours || []).map(String).slice(0, 6), habits: {}, lockedFields: [] })
+    }
   })
   return accounts
 }
@@ -159,34 +217,61 @@ const planComments = (snapshot: ForumSnapshot, plan: ForumDistributionPlan, auth
   return [slot.id, specs]
 }))
 
-const attachGeneratedImages = async (snapshot: ForumSnapshot, jobs: Array<{ postId: string; prompt: string }>, generateImage: typeof generateForumImage) => {
+const attachGeneratedImages = async (snapshot: ForumSnapshot, jobs: Array<{ postId: string; prompt: string; batchId: string }>, generateImage: typeof generateForumImage) => {
   const provider = snapshot.settings.autoImageProvider
   if (provider === 'off') return
   await Promise.allSettled(jobs.map(async job => {
-    const post = snapshot.posts.find(item => item.id === job.postId)
-    if (!post) return
-    try { post.media = [await generateImage(job.prompt, provider)]; post.updatedAt = Date.now() }
-    catch { post.type = 'text'; delete post.media; post.updatedAt = Date.now() }
+    if (!snapshot.posts.some(item => item.id === job.postId && item.generationBatchId === job.batchId)) return
+    try {
+      const media = await generateImage(job.prompt, provider)
+      const current = snapshot.posts.find(item => item.id === job.postId && item.generationBatchId === job.batchId)
+      if (!current) { if (media.storageKey) void removeForumMedia(media.storageKey); return }
+      current.media = [media]; current.updatedAt = Date.now()
+    } catch {
+      const current = snapshot.posts.find(item => item.id === job.postId && item.generationBatchId === job.batchId)
+      if (current) { current.type = 'text'; delete current.media; current.updatedAt = Date.now() }
+    }
   }))
 }
 
-export const generateForumContentBatch = async (snapshot: ForumSnapshot, viewerAccountId: string, rawConfig: ForumGenerationConfig, onProgress?: (value: number) => void, dependencies: ForumGenerationDependencies = {}) => {
-  const config = normalizeForumGenerationConfig(rawConfig); const sessionId = makeId('generation'); const batchId = makeId('content_batch')
+const generateSingleForumContentBatch = async (snapshot: ForumSnapshot, viewerAccountId: string, rawConfig: ForumGenerationConfig, onProgress?: (value: number) => void, dependencies: ForumGenerationDependencies = {}) => {
+  const normalized = normalizeForumGenerationConfig(rawConfig)
+  const noCircle = !snapshot.circles.some(circle => circle.isPublic)
+  let allowedContentKinds = [...normalized.allowedContentKinds]
+  const needsAnonymousCircle = normalized.postTypeMode === 'custom' && allowedContentKinds.includes('anonymous') && noCircle
+  const needsTopicCircle = normalized.postTypeMode === 'custom' && allowedContentKinds.includes('circle-topic') && noCircle
+  if (needsAnonymousCircle && normalized.anonymousUnavailable === 'skip') allowedContentKinds = allowedContentKinds.filter(kind => kind !== 'anonymous')
+  if (needsTopicCircle && normalized.circleTopicUnavailable === 'skip') allowedContentKinds = allowedContentKinds.filter(kind => kind !== 'circle-topic')
+  if ((needsAnonymousCircle && normalized.anonymousUnavailable === 'existing-circle') || (needsTopicCircle && normalized.circleTopicUnavailable === 'existing-circle')) throw new Error('所选帖子类型需要圈子；请先选择/创建圈子，或改为跳过该类型。')
+  const needsCreatedCircle = needsAnonymousCircle && normalized.anonymousUnavailable === 'create-circle' || needsTopicCircle && normalized.circleTopicUnavailable === 'create-circle'
+  if (normalized.postTypeMode === 'custom' && allowedContentKinds.includes('image-share') && snapshot.settings.autoImageProvider === 'off') {
+    if (normalized.imageUnavailable === 'skip') allowedContentKinds = allowedContentKinds.filter(kind => kind !== 'image-share')
+    if (normalized.imageUnavailable === 'ai') throw new Error('图片分享选择了 AI 生图，但论坛自动配图当前已关闭。')
+  }
+  if (!allowedContentKinds.length) throw new Error('当前不可用类型处理后没有剩余帖子类型。')
+  const config: ForumGenerationConfig = { ...normalized, allowedContentKinds, discoverCircles: normalized.discoverCircles || needsCreatedCircle }
+  const sessionId = makeId('generation'); const batchId = makeId('content_batch')
   const session: ForumGenerationSession = { id: sessionId, status: 'planning', config, batchId, progress: 0, createdAt: Date.now() }
   snapshot.generationSessions.unshift(session)
   try {
     const draft = cloneSnapshot(snapshot); const draftSession = draft.generationSessions.find(item => item.id === sessionId)!
-    const discoverCircleCount = config.postCount >= 3 && (draft.circles.every(circle => circle.source === 'user') || Math.random() < .18) ? 1 : 0
-    const required = config.requiredCharacterAccountIds.map(id => draft.accounts.find(item => item.id === id)).filter((item): item is ForumAccount => Boolean(item))
+    const discoverCircleCount = config.discoverCircles && (needsCreatedCircle || config.postCount >= 3 && (draft.circles.every(circle => circle.source === 'user') || Math.random() < .18)) ? 1 : 0
+    const requiredIds = config.profileAccountId ? unique([config.profileAccountId, ...config.requiredCharacterAccountIds]) : config.requiredCharacterAccountIds
+    const required = requiredIds.map(id => draft.accounts.find(item => item.id === id)).filter((item): item is ForumAccount => Boolean(item))
     const allowedRequired = required.filter(account => !account.isArchived && draft.participantPolicies.some(policy => policy.subjectId === account.subjectId && policy.enabled))
-    if (allowedRequired.length !== config.requiredCharacterAccountIds.length) throw new Error('所选角色中有未启用或已不可用的论坛参与者。')
-    const desiredStrangers = Math.min(20, Math.max(config.postCount - required.length, config.postCount + 2 - required.length))
-    const authorRefs: AuthorRef[] = [...allowedRequired.map((account, index) => ({ key: `character_${index + 1}`, account })), ...Array.from({ length: desiredStrangers }, (_, index) => ({ key: `stranger_${index + 1}` }))]
+    if (allowedRequired.length !== required.length) throw new Error('所选角色中有未启用或已不可用的论坛参与者。')
+    const recentAuthorIds = new Set(draft.posts.slice(0, 30).map(item => item.authorAccountId))
+    const reusable = draft.accounts.filter(account => account.lifecycle === 'lightweight' && !account.isArchived && canAccountAppear(draft, account) && account.id !== viewerAccountId && (config.strangerRepeatMode === 'allow' || config.strangerRepeatMode === 'natural' && !recentAuthorIds.has(account.id)))
+    const reuseCount = config.profileAccountId || config.strangerRepeatMode === 'avoid' ? 0 : Math.min(reusable.length, Math.max(1, Math.floor(config.postCount * (config.strangerRepeatMode === 'allow' ? .6 : .25))))
+    const reused = reusable.slice(0, reuseCount)
+    const desiredStrangers = config.profileAccountId ? 0 : Math.min(20, Math.max(0, config.postCount + 2 - allowedRequired.length - reused.length))
+    const authorRefs: AuthorRef[] = [...allowedRequired.map((account, index) => ({ key: `character_${index + 1}`, account })), ...reused.map((account, index) => ({ key: `resident_${index + 1}`, account })), ...Array.from({ length: desiredStrangers }, (_, index) => ({ key: `stranger_${index + 1}` }))]
     const existingCircleRefs: CircleRef[] = draft.circles.filter(circle => circle.isPublic).map((circle, index) => ({ key: `circle_existing_${index + 1}`, circle }))
     const generatedCircleRefs: CircleRef[] = Array.from({ length: discoverCircleCount }, (_, index) => ({ key: `circle_new_${index + 1}` }))
     const circleRefs = [...generatedCircleRefs, ...existingCircleRefs]
     if (!authorRefs.length) throw new Error('本轮没有可用作者。')
-    const keyedPlan = createForumDistributionPlan({ ...draft, circles: circleRefs.map(ref => ({ ...(ref.circle || draft.circles[0]), id: ref.key, isPublic: true })) as ForumCircle[] }, sessionId, batchId, { ...config, requiredCharacterAccountIds: authorRefs.filter(ref => ref.account).map(ref => ref.key) }, authorRefs.map(ref => ref.key), generatedCircleRefs.map(ref => ref.key))
+    const keyedPlan = createForumDistributionPlan({ ...draft, circles: circleRefs.map(ref => ({ ...(ref.circle || draft.circles[0]), id: ref.key, isPublic: true })) as ForumCircle[] }, sessionId, batchId, { ...config, requiredCharacterAccountIds: config.profileAccountId ? authorRefs.filter(ref => ref.account?.id === config.profileAccountId).map(ref => ref.key) : authorRefs.filter(ref => ref.account).map(ref => ref.key) }, authorRefs.map(ref => ref.key), generatedCircleRefs.map(ref => ref.key))
+    if (config.profileAccountId) keyedPlan.slots.forEach(slot => { slot.authorAccountId = authorRefs.find(ref => ref.account?.id === config.profileAccountId)!.key })
     keyedPlan.slots.forEach(slot => {
       const author = authorRefs.find(ref => ref.key === slot.authorAccountId); const circle = circleRefs.find(ref => ref.key === slot.circleId)
       if (author && circle && !canUseAuthorInCircle(draft, author, circle)) { delete slot.circleId; if (slot.postType === 'anonymous') { slot.postType = 'text'; slot.contentKind = 'thought' } }
@@ -201,24 +286,24 @@ export const generateForumContentBatch = async (snapshot: ForumSnapshot, viewerA
     draftSession.status = 'generating'; draftSession.progress = 18; onProgress?.(18)
     const requestJson = dependencies.requestJson || requestForumJson
     const generated = await requestJson<ForumBatchDraft>(draft, { userInitiated: true, viewerAccountId, involvedAccountIds: allowedRequired.map(item => item.id) }, 'forum-post',
-      `一次性生成本轮完整论坛批次，不得增删或改变规划中的 postKey、authorKey、circleKey、commentKey、parentCommentKey。authors 只创建这些轻量陌生人 key：${JSON.stringify(authorRefs.filter(ref => !ref.account).map(ref => ref.key))}；只写公开简介、表达习惯、少量背景和兴趣，不创建长期记忆、复杂人格或关系。circles 只创建这些新圈子 key：${JSON.stringify(generatedCircleRefs.map(ref => ref.key))}。posts 严格按规划写全部帖子及其内嵌 comments；评论只替指定 authorKey 发言，允许部分帖子零评论。图片帖给 imagePrompt，但不要生成图片。帖子长短和语气自然不同，避免模板、总结人设、鸡汤或档案口吻。\n完整规划：${JSON.stringify(promptPlan)}`,
-      '{"authors":[{"authorKey":"stranger_1","name":"昵称","handle":"账号","avatar":"单字","bio":"公开简介","expressionStyle":"表达习惯","backgroundHints":["少量背景"],"interests":["兴趣"]}],"circles":[{"circleKey":"circle_new_1","name":"圈名","avatar":"字","description":"简介","contentScope":"内容范围","tags":["标签"],"memberCount":800}],"posts":[{"postKey":"规划值","title":"可选","content":"正文","topics":["话题"],"pollOptions":["投票可选"],"imagePrompt":"图片帖画面描述","comments":[{"commentKey":"规划值","content":"评论"}]}]}')
+      `一次性生成本轮完整论坛子批次，不得增删或改变规划中的 postKey、authorKey、circleKey、commentKey、parentCommentKey。authors 只创建这些${config.npcGenerationMode === 'full' ? '完整' : '轻量'}陌生人 key：${JSON.stringify(authorRefs.filter(ref => !ref.account).map(ref => ref.key))}。${config.npcGenerationMode === 'full' ? '完整 NPC 补充 identity、personality、occupation 和发帖/评论/私聊风格，但不伪造与用户的关系。' : '轻量 NPC 只写公开简介、表达习惯、少量背景和兴趣，不创建复杂人格。'}circles 只创建这些新圈子 key：${JSON.stringify(generatedCircleRefs.map(ref => ref.key))}。posts 严格按规划写全部帖子及内嵌 comments，不得少评论。图片帖给 imagePrompt，但不要生成图片。\n完整规划：${JSON.stringify(promptPlan)}`,
+      '{"authors":[{"authorKey":"stranger_1","name":"昵称","handle":"账号","avatar":"单字","gender":"male/female/other/unknown","bio":"公开简介","expressionStyle":"表达习惯","backgroundHints":["背景"],"interests":["兴趣"],"identity":"完整模式可用","personality":"完整模式可用","occupation":"职业","postingStyle":"发帖风格","commentingStyle":"评论风格","dmStyle":"私聊风格"}],"circles":[{"circleKey":"circle_new_1","name":"圈名","avatar":"字","description":"简介","contentScope":"内容范围","tags":["标签"],"memberCount":800}],"posts":[{"postKey":"规划值","title":"可选","content":"正文","topics":["话题"],"pollOptions":["投票可选"],"imagePrompt":"画面描述","comments":[{"commentKey":"规划值","content":"评论"}]}]}')
     onProgress?.(72)
-    const authorMap = materializeAuthors(draft, authorRefs, Array.isArray(generated.authors) ? generated.authors : [], batchId)
+    const authorMap = materializeAuthors(draft, authorRefs, Array.isArray(generated.authors) ? generated.authors : [], batchId, config.npcGenerationMode)
     const circleMap = materializeCircles(draft, circleRefs, Array.isArray(generated.circles) ? generated.circles : [], batchId)
     const storedPlan: ForumDistributionPlan = { ...keyedPlan, slots: keyedPlan.slots.map(slot => ({ ...slot, authorAccountId: authorMap.get(slot.authorAccountId)!.id, circleId: slot.circleId ? circleMap.get(slot.circleId)?.id : undefined })), plannedAuthorIds: keyedPlan.plannedAuthorIds.map(key => authorMap.get(key)!.id), plannedCircleIds: keyedPlan.plannedCircleIds.map(key => circleMap.get(key)!.id) }
     draftSession.plan = storedPlan
     const postDrafts = Array.isArray(generated.posts) ? generated.posts : []
-    const posts: ForumPost[] = []; const comments: ForumComment[] = []; const imageJobs: Array<{ postId: string; prompt: string }> = []
+    const posts: ForumPost[] = []; const comments: ForumComment[] = []; const imageJobs: Array<{ postId: string; prompt: string; batchId: string }> = []
     for (let index = 0; index < keyedPlan.slots.length; index += 1) {
       const keyedSlot = keyedPlan.slots[index]; const slot = storedPlan.slots[index]; const raw = postDrafts.find(item => item.postKey === keyedSlot.id)
       if (!raw?.content?.trim()) throw new Error(`模型没有完整返回帖子 ${keyedSlot.id}。`)
       const author = draft.accounts.find(item => item.id === slot.authorAccountId); if (!author) throw new Error('帖子规划引用了不存在的作者。')
       const imagePrompt = String(raw.imagePrompt || '').trim()
-      const post: ForumPost = { id: makeId('post'), author: { ...author, followersCount: 0, followingCount: 0, postsCount: 0, likesCount: 0 }, authorAccountId: author.id, circleId: slot.circleId, type: slot.postType === 'single-image' && (!imagePrompt || draft.settings.autoImageProvider === 'off') ? 'text' : slot.postType, content: String(raw.content).trim().slice(0, 4000), title: raw.title?.trim().slice(0, 120), topics: unique((raw.topics || []).map(item => String(item).replace(/^#+/, '').trim()).filter(Boolean)).slice(0, 2), visibility: slot.circleId ? 'circle' : 'public', likeCount: slot.heat === 'hot' ? 8 + slot.commentTarget * 2 : slot.commentTarget ? Math.floor(slot.commentTarget * .8) : 0, commentCount: slot.commentTarget, shareCount: slot.heat === 'hot' ? Math.max(1, Math.floor(slot.commentTarget / 4)) : 0, viewCount: slot.heat === 'hot' ? 90 + slot.commentTarget * 19 : 8 + slot.commentTarget * 7, effectiveViewCount: slot.heat === 'hot' ? 50 + slot.commentTarget * 9 : 4 + slot.commentTarget * 3, createdAt: slot.createdAt, source: 'generated' }
+      const post: ForumPost = { id: makeId('post'), author: { ...author, followersCount: 0, followingCount: 0, postsCount: 0, likesCount: 0 }, authorAccountId: author.id, circleId: slot.circleId, type: slot.postType === 'single-image' && (!imagePrompt || draft.settings.autoImageProvider === 'off') ? 'text' : slot.postType, content: String(raw.content).trim().slice(0, 4000), title: raw.title?.trim().slice(0, 120), topics: unique((raw.topics || []).map(item => String(item).replace(/^#+/, '').trim()).filter(Boolean)).slice(0, 2), visibility: slot.circleId ? 'circle' : 'public', likeCount: slot.heat === 'hot' ? 8 + slot.commentTarget * 2 : slot.commentTarget ? Math.floor(slot.commentTarget * .8) : 0, commentCount: slot.commentTarget, shareCount: slot.heat === 'hot' ? Math.max(1, Math.floor(slot.commentTarget / 4)) : 0, viewCount: slot.heat === 'hot' ? 90 + slot.commentTarget * 19 : 8 + slot.commentTarget * 7, effectiveViewCount: slot.heat === 'hot' ? 50 + slot.commentTarget * 9 : 4 + slot.commentTarget * 3, createdAt: slot.createdAt, source: 'generated', generationBatchId: batchId, isKept: false }
       if (slot.postType === 'anonymous' && slot.circleId) { const circle = draft.circles.find(item => item.id === slot.circleId); if (circle && circle.anonymousMode !== 'disabled') { const anonymous = { id: makeId('anonymous'), circleId: slot.circleId, ownerAccountId: author.id, anonymousCode: String(100 + Math.floor(Math.random() * 900)), rotationMode: circle.anonymousMode, adminCanResolve: Boolean(circle.adminCanResolveAnonymous) }; draft.anonymousIdentities.push(anonymous); post.anonymousIdentityId = anonymous.id } }
       if (slot.postType === 'poll') { const options = (raw.pollOptions || []).map(String).map(item => item.trim()).filter(Boolean).slice(0, 8); if (options.length >= 2) { const pollId = makeId('poll'); draft.polls.push({ id: pollId, postId: post.id, multiple: false, anonymous: true, changeable: false, resultsVisible: 'immediate', options: options.map(label => ({ id: makeId('option'), label, votes: Math.floor(Math.random() * 18), voterAccountIds: [] })) }); post.pollId = pollId } }
-      if (post.type === 'single-image') imageJobs.push({ postId: post.id, prompt: imagePrompt })
+      if (post.type === 'single-image') imageJobs.push({ postId: post.id, prompt: imagePrompt, batchId })
       posts.push(post)
       const rawComments = Array.isArray(raw.comments) ? raw.comments : []; const commentMap = new Map<string, ForumComment>()
       for (const spec of commentSpecs.get(keyedSlot.id) || []) {
@@ -231,7 +316,9 @@ export const generateForumContentBatch = async (snapshot: ForumSnapshot, viewerA
     }
     draft.posts.unshift(...posts.sort((a, b) => Number(b.createdAt) - Number(a.createdAt))); draft.comments.push(...comments)
     const strangers = authorRefs.filter(ref => !ref.account).map(ref => authorMap.get(ref.key)!)
-    const generatedCircles = generatedCircleRefs.map(ref => circleMap.get(ref.key)!)
+    const usedCircleIds = new Set(posts.map(item => item.circleId).filter(Boolean))
+    const generatedCircles = generatedCircleRefs.map(ref => circleMap.get(ref.key)!).filter(circle => circle && usedCircleIds.has(circle.id))
+    draft.circles = draft.circles.filter(circle => circle.source !== 'generated' || circle.generationBatchId !== batchId || usedCircleIds.has(circle.id))
     const batch: ForumContentBatch = { id: batchId, sessionId, postIds: posts.map(item => item.id), commentIds: comments.map(item => item.id), authorAccountIds: strangers.map(item => item.id), circleIds: generatedCircles.map(item => item.id), createdAt: Date.now() }
     draft.contentBatches.unshift(batch); draftSession.status = 'committed'; draftSession.progress = 100; draftSession.completedAt = Date.now()
     Object.assign(snapshot, draft); onProgress?.(100)
@@ -240,6 +327,86 @@ export const generateForumContentBatch = async (snapshot: ForumSnapshot, viewerA
   } catch (cause) {
     session.status = 'failed'; session.progress = 0; session.error = cause instanceof Error ? cause.message : String(cause); session.completedAt = Date.now(); throw cause
   }
+}
+
+const removeGeneratedPostsForReplacement = (snapshot: ForumSnapshot, config: ForumGenerationConfig) => {
+  if (config.refreshMode !== 'replace') return [] as string[]
+  const latestBatchId = snapshot.contentBatches.find(batch => batch.postIds.some(postId => snapshot.posts.some(post => post.id === postId)))?.id
+  const requested = config.replaceScope === 'selected'
+    ? new Set(config.replacePostIds)
+    : config.replaceScope === 'latest-batch'
+      ? new Set(snapshot.contentBatches.find(item => item.id === latestBatchId)?.postIds || [])
+      : new Set(snapshot.posts.filter(post => post.source !== 'user').map(post => post.id))
+  const protectedPostIds = new Set(snapshot.posts.filter(post => post.source === 'user' || post.isKept || snapshot.comments.some(comment => comment.postId === post.id && comment.source === 'user')).map(post => post.id))
+  const removing = new Set(snapshot.posts.filter(post => requested.has(post.id) && post.source !== 'user' && !protectedPostIds.has(post.id)).map(post => post.id))
+  if (!removing.size) return []
+  const removedMediaKeys = snapshot.posts.filter(post => removing.has(post.id)).flatMap(post => (post.media || []).flatMap(media => [media.storageKey, media.audioStorageKey].filter(Boolean) as string[]))
+  const retainedMediaKeys = new Set(snapshot.posts.filter(post => !removing.has(post.id)).flatMap(post => (post.media || []).flatMap(media => [media.storageKey, media.audioStorageKey].filter(Boolean) as string[])))
+  const lotteryIds = new Set(snapshot.lotteries.filter(item => removing.has(item.postId)).map(item => item.id))
+  snapshot.posts = snapshot.posts.filter(item => !removing.has(item.id))
+  snapshot.comments = snapshot.comments.filter(item => !removing.has(item.postId))
+  snapshot.polls = snapshot.polls.filter(item => !removing.has(item.postId))
+  snapshot.lotteries = snapshot.lotteries.filter(item => !removing.has(item.postId))
+  snapshot.lotteryEntries = snapshot.lotteryEntries.filter(item => !lotteryIds.has(item.lotteryId))
+  snapshot.lotteryResults = snapshot.lotteryResults.filter(item => !lotteryIds.has(item.lotteryId))
+  snapshot.events = snapshot.events.filter(item => !item.entityId || !removing.has(item.entityId))
+  snapshot.notifications = snapshot.notifications.filter(item => !item.entityId || !removing.has(item.entityId))
+  snapshot.contentBatches.forEach(batch => { batch.postIds = batch.postIds.filter(id => !removing.has(id)); batch.commentIds = batch.commentIds.filter(id => snapshot.comments.some(comment => comment.id === id)) })
+  removedMediaKeys.filter(key => !retainedMediaKeys.has(key)).forEach(key => { void removeForumMedia(key) })
+  return [...removing]
+}
+
+export const estimateForumBatchSize = (config: ForumGenerationConfig, contextTokenBudget = 5000) => {
+  const commentsPerPost = config.commentMode === 'per-post' ? config.commentsPerPost : config.commentMode === 'total' ? config.totalComments / Math.max(1, config.postCount) : 4
+  const personaCost = config.npcGenerationMode === 'full' ? 2.2 : 1
+  const contextCost = Math.max(.7, Math.min(2, contextTokenBudget / 5000))
+  return Math.max(1, Math.min(20, Math.floor(22 / Math.max(1, (1 + commentsPerPost / 5) * personaCost * contextCost))))
+}
+
+export const generateForumContentBatch = async (snapshot: ForumSnapshot, viewerAccountId: string, rawConfig: ForumGenerationConfig, onProgress?: (value: number) => void, dependencies: ForumGenerationDependencies = {}) => {
+  const config = normalizeForumGenerationConfig(rawConfig)
+  const working = cloneSnapshot(snapshot)
+  removeGeneratedPostsForReplacement(working, config)
+  const batchSize = estimateForumBatchSize(config, snapshot.settings.aiContextTokenBudget)
+  const batches: ForumContentBatch[] = []
+  let remaining = config.postCount
+  let generatedPosts = 0
+  let requiredCursor = 0
+  let kindCursor = 0
+  try {
+    while (remaining > 0) {
+      const count = Math.min(batchSize, remaining)
+      const requiredIds = config.profileAccountId ? [] : config.requiredCharacterAccountIds.slice(requiredCursor, requiredCursor + count)
+      requiredCursor += requiredIds.length
+      const uncoveredKinds = config.postTypeMode === 'custom' && config.ensureEverySelectedKind ? config.allowedContentKinds.slice(kindCursor, kindCursor + count) : []
+      kindCursor += uncoveredKinds.length
+      const batchConfig: ForumGenerationConfig = {
+        ...config,
+        postCount: count,
+        refreshMode: 'incremental',
+        requiredCharacterAccountIds: requiredIds,
+        allowedContentKinds: uncoveredKinds.length ? uncoveredKinds : config.allowedContentKinds,
+        totalComments: config.commentMode === 'total'
+          ? Math.max(0, Math.round(config.totalComments * (generatedPosts + count) / config.postCount) - Math.round(config.totalComments * generatedPosts / config.postCount))
+          : config.totalComments,
+        ensureEverySelectedKind: uncoveredKinds.length > 0
+      }
+      const batch = await generateSingleForumContentBatch(working, viewerAccountId, batchConfig, value => onProgress?.(Math.round((generatedPosts / config.postCount + value / 100 * count / config.postCount) * 100)), dependencies)
+      batches.push(batch)
+      generatedPosts += count
+      remaining -= count
+    }
+  } catch (cause) {
+    if (batches.length) Object.assign(snapshot, working)
+    const reason = cause instanceof Error ? cause.message : String(cause)
+    throw new Error(batches.length ? `已保留 ${generatedPosts} 篇成功内容；剩余 ${remaining} 篇未完成，可按相同设置重试。${reason}` : reason)
+  }
+  Object.assign(snapshot, working)
+  if (batches.length === 1) return batches[0]
+  const combined: ForumContentBatch = { id: makeId('content_batch_group'), sessionId: batches[0].sessionId, postIds: batches.flatMap(item => item.postIds), commentIds: batches.flatMap(item => item.commentIds), authorAccountIds: unique(batches.flatMap(item => item.authorAccountIds)), circleIds: unique(batches.flatMap(item => item.circleIds)), createdAt: Date.now() }
+  snapshot.contentBatches.unshift(combined)
+  onProgress?.(100)
+  return combined
 }
 
 export const promoteLightweightAuthor = (snapshot: ForumSnapshot, accountId: string, reason: string) => {

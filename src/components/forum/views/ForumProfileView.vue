@@ -28,6 +28,8 @@ const emit = defineEmits<{
   (e: 'send-dm', user: ForumUser): void
   (e: 'friend-action', user: ForumUser): void
   (e: 'manage-user', user: ForumUser): void
+  (e: 'manage-npc', user: ForumUser): void
+  (e: 'refresh-profile', user: ForumUser): void
   (e: 'edit-profile'): void
   (e: 'click-post', post: ForumPost): void
   (e: 'click-topic', topic: string): void
@@ -72,7 +74,7 @@ const displayPosts = computed(() => {
       <!-- 个人资料卡片区 -->
       <div class="profile-header-card">
         <!-- 顶部背景条 -->
-        <div class="profile-banner"></div>
+        <div class="profile-banner" :style="user.banner?{backgroundImage:`url(${user.banner})`}:undefined"></div>
 
         <div class="profile-main-info">
           <!-- 头像与操作按钮行 -->
@@ -87,6 +89,8 @@ const displayPosts = computed(() => {
             </div>
 
             <div class="profile-actions-group">
+              <button v-if="!isSelf&&user.lifecycle!=='character'" class="dm-action-btn" type="button" title="编辑 NPC" @click="emit('manage-npc',user)">✎</button>
+              <button v-if="!isSelf&&user.lifecycle!=='character'" class="dm-action-btn" type="button" title="增量刷新该主页" @click="emit('refresh-profile',user)">↻</button>
               <button v-if="!isSelf" class="dm-action-btn more-action-btn" type="button" aria-label="关系与可见性" @click="emit('manage-user', user)">•••</button>
               <button
                 v-if="!isSelf"

@@ -4,6 +4,9 @@ import { computed, reactive, ref } from 'vue'
 import {
   activateTaskPromptLanguage,
   globalPromptSettings,
+  forumPromptSettings,
+  resetForumGlobalPrompt,
+  resetForumDmPrompt,
   groupPromptSettings,
   offlinePresetSettings,
   resetGroupPromptSettings,
@@ -18,7 +21,7 @@ import ChatOfflinePresetModal from '../chat/modals/ChatOfflinePresetModal.vue'
 import SearchableSelect from '../SearchableSelect.vue'
 
 const props = defineProps<{ showConfirm: any }>()
-const activePromptTab = ref<'normal' | 'group' | 'offline' | 'task'>('normal')
+const activePromptTab = ref<'normal' | 'group' | 'offline' | 'task' | 'forum'>('normal')
 const variablesVisible = ref(false)
 const variableScope = ref<PromptVariableScope>('global')
 const offlineModalVisible = ref(false)
@@ -142,13 +145,14 @@ const allSchemeOptions = computed(() => {
   <div class="settings-panel">
     <div class="mag-header">
       <div class="mag-title-box"><span class="mag-title">全局提示词</span><span class="mag-subtitle">System Prompts</span></div>
-      <div class="mag-desc">管理常规聊天、群聊、线下互动与特殊任务的底层提示词。群聊规则独立生效，不会改变单聊提示词。</div>
+      <div class="mag-desc">管理常规聊天、群聊、线下互动、论坛与特殊任务的底层提示词。各用途的专属规则独立保存。</div>
     </div>
 
     <div class="mag-tabs main-tabs">
       <button class="mag-tab-btn" :class="{ active: activePromptTab === 'normal' }" @click="activePromptTab = 'normal'">常规聊天</button>
       <button class="mag-tab-btn" :class="{ active: activePromptTab === 'group' }" @click="activePromptTab = 'group'">群聊</button>
       <button class="mag-tab-btn" :class="{ active: activePromptTab === 'offline' }" @click="activePromptTab = 'offline'">线下互动</button>
+      <button class="mag-tab-btn" :class="{ active: activePromptTab === 'forum' }" @click="activePromptTab = 'forum'">论坛</button>
       <button class="mag-tab-btn" :class="{ active: activePromptTab === 'task' }" @click="activePromptTab = 'task'">特殊任务</button>
     </div>
 
@@ -284,6 +288,15 @@ const allSchemeOptions = computed(() => {
       </div>
     </template>
 
+    <template v-else-if="activePromptTab === 'forum'">
+      <div class="prompt-version-card"><div class="prompt-version-copy"><span class="mag-list-label">论坛专属提示词</span><span class="prompt-version-desc">公共结构化生成继续使用 JSON；论坛私聊使用多消息 XML，不混入主聊天 system prompt。</span></div></div>
+      <div class="mag-settings-card forum-prompt-card">
+        <div class="form-row"><div class="form-label form-label-line"><span>论坛全局提示词</span><button class="inline-text-btn" @click="resetForumGlobalPrompt">恢复默认</button></div><textarea v-model="forumPromptSettings.globalPrompt" class="simple-modal-input textarea forum-prompt-textarea" spellcheck="false"></textarea></div>
+        <div class="form-row"><div class="form-label form-label-line"><span>论坛私聊提示词</span><button class="inline-text-btn" @click="resetForumDmPrompt">恢复默认</button></div><textarea v-model="forumPromptSettings.dmPrompt" class="simple-modal-input textarea forum-prompt-textarea dm" spellcheck="false"></textarea></div>
+        <div class="readonly-notice">修改会自动保存。论坛私聊最终上下文另外包含当前 NPC 资料、双方私信和已授权的论坛经历。</div>
+      </div>
+    </template>
+
     <template v-else>
       <div class="mag-settings-card">
         <div class="mag-list-header">
@@ -375,6 +388,7 @@ const allSchemeOptions = computed(() => {
 .mag-subtitle{font-size:13px;color:#d4c9c1}
 .prompt-token-note,.cot-tag{font-size:11px;color:#8c8681;font-style:normal}
 .mag-desc,.prompt-version-desc{font-size:12px;color:#8c8681;line-height:1.5}
+.forum-prompt-textarea{min-height:180px;line-height:1.6}.forum-prompt-textarea.dm{min-height:360px}.forum-prompt-card{gap:22px}
 .mag-tabs{display:flex;gap:12px;margin-bottom:16px;padding:0 10px}
 .mag-tab-btn{padding:7px 16px;border-radius:20px;border:1px solid #ebe5df;background:#fff;color:#8c8681;font-size:13px;cursor:pointer;transition:.2s}
 .mag-tab-btn.active{background:#4a4643;border-color:#4a4643;color:#fff;box-shadow:0 2px 6px rgba(74,70,67,.2)}

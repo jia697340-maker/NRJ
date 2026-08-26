@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
-import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, embeddingApiSettings, characterApiSettings, cotSettings, type CotItem, type ApiPreset } from '../store'
+import { globalSettings, apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, embeddingApiSettings, characterApiSettings, forumApiSettings, cotSettings, type CotItem, type ApiPreset } from '../store'
 import SearchableSelect from './SearchableSelect.vue'
 import TextEditModal from './TextEditModal.vue'
 import ApiPresetManageModal from './ApiPresetManageModal.vue'
@@ -15,7 +15,12 @@ import {
   type NewApiDetectionResult
 } from '../services/newApiNode'
 
-const currentTab = ref<'global' | 'summary' | 'vision' | 'moment' | 'embedding' | 'character'>('global')
+const currentTab = ref<'global' | 'summary' | 'vision' | 'moment' | 'embedding' | 'character' | 'forum'>('global')
+const forumScopeOptions = [
+  { id: 'forum-account', label: '账号 / NPC' }, { id: 'forum-circle', label: '圈子' }, { id: 'forum-population', label: 'NPC 人口' },
+  { id: 'forum-post', label: '帖子' }, { id: 'forum-comment', label: '评论' }, { id: 'forum-dm', label: '私聊' },
+  { id: 'forum-group', label: '群组' }, { id: 'forum-media', label: '媒体提示' }, { id: 'forum-memory', label: '记忆 / 总结' }
+]
 
 const activeSettings = computed<any>(() => {
   if (currentTab.value === 'embedding') return embeddingApiSettings
@@ -23,6 +28,7 @@ const activeSettings = computed<any>(() => {
   if (currentTab.value === 'vision') return visionApiSettings
   if (currentTab.value === 'moment') return momentApiSettings
   if (currentTab.value === 'character') return characterApiSettings
+  if (currentTab.value === 'forum') return forumApiSettings
   return apiSettings
 })
 
@@ -331,7 +337,8 @@ const targetNodeName = computed(() => {
     vision: '识图节点',
     moment: '朋友圈节点',
     embedding: '向量节点',
-    character: '角色生成节点'
+    character: '角色生成节点',
+    forum: '论坛节点'
   }
   return map[currentTab.value] || '未知节点'
 })
@@ -592,6 +599,10 @@ const confirmTest = async () => {
           <span>角色生成</span>
           <div class="tab-line"></div>
         </div>
+        <div class="tab-item" :class="{ active: currentTab === 'forum' }" @click="currentTab = 'forum'">
+          <span>论坛节点</span>
+          <div class="tab-line"></div>
+        </div>
       </div>
 
       <!-- 线程主容器，用于绘制贯穿红线 -->
@@ -696,7 +707,19 @@ const confirmTest = async () => {
           <div class="section-desc" v-else>仅接管角色创建、补全与试演。配置不完整时自动回退全局节点，不影响日常聊天。</div>
         </div>
 
-        <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled) || (currentTab === 'moment' && momentApiSettings.enabled) || (currentTab === 'embedding' && embeddingApiSettings.enabled) || (currentTab === 'character' && characterApiSettings.enabled)">
+        <div class="settings-section" v-if="currentTab === 'forum'">
+          <div class="red-dot"></div>
+          <div class="form-grid">
+            <div class="form-row"><div class="form-label space-between"><span class="cn-text">启用独立的论坛节点</span><label class="editorial-switch"><input v-model="forumApiSettings.enabled" type="checkbox"><span class="slider"></span></label></div></div>
+            <div class="form-row"><div class="form-label space-between"><span class="cn-text">专用节点失败时回退全局节点</span><label class="editorial-switch"><input v-model="forumApiSettings.fallbackToDefault" type="checkbox"><span class="slider"></span></label></div></div>
+            <div class="form-row"><div class="form-label space-between"><span class="cn-text">作用于全部论坛请求</span><label class="editorial-switch"><input v-model="forumApiSettings.bindAllForum" type="checkbox"><span class="slider"></span></label></div></div>
+            <div v-if="!forumApiSettings.bindAllForum" class="forum-scope-grid"><label v-for="scope in forumScopeOptions" :key="scope.id"><input v-model="forumApiSettings.scopes" type="checkbox" :value="scope.id"><span>{{scope.label}}</span></label></div>
+          </div>
+          <div class="section-desc" v-if="!forumApiSettings.enabled">论坛帖子、评论、NPC、圈子和私聊使用全局节点。</div>
+          <div class="section-desc" v-else>一个论坛作用范围只绑定这一个节点；是否失败回退由上方开关决定。</div>
+        </div>
+
+        <template v-if="currentTab === 'global' || (currentTab === 'summary' && summaryApiSettings.enabled) || (currentTab === 'vision' && visionApiSettings.enabled) || (currentTab === 'moment' && momentApiSettings.enabled) || (currentTab === 'embedding' && embeddingApiSettings.enabled) || (currentTab === 'character' && characterApiSettings.enabled) || (currentTab === 'forum' && forumApiSettings.enabled)">
           
           <!-- 预设方案区域 -->
           <div class="settings-section" v-show="isMatch('预设 方案 管理')">

@@ -17,11 +17,15 @@ const emit = defineEmits<{
   (e: 'comment', post: ForumPost): void
   (e: 'share', post: ForumPost): void
   (e: 'bookmark', post: ForumPost): void
+  (e: 'interact', post: ForumPost): void
 }>()
 </script>
 
 <template>
   <div class="post-actions-row">
+    <button class="action-item interaction-action" type="button" aria-label="为当前帖子生成 NPC 增量互动" @click.stop="emit('interact', post)">
+      <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="8"/></svg><span class="action-count">增量互动</span>
+    </button>
     <!-- 评论按钮 -->
     <button
       class="action-item"
@@ -148,4 +152,5 @@ const emit = defineEmits<{
 .is-active-bookmark {
   color: #f59e0b;
 }
+.interaction-action{color:var(--accent-color,#576b95)}
 </style>

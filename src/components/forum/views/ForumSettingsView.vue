@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { worldBooks, worldBookGroups } from '../../../store'
-import type { ForumAccountKind, ForumBridgeMode, ForumMemoryType, ForumParticipantPolicy, ForumSnapshot } from '../../../types/forum'
+import type { ForumAccountKind, ForumAvatarLibraryItem, ForumBridgeMode, ForumMemoryType, ForumParticipantPolicy, ForumSnapshot } from '../../../types/forum'
 import ForumHeader from '../components/ForumHeader.vue'
 import ForumAvatar from '../components/ForumAvatar.vue'
 import AvatarUploadModal from '../../AvatarUploadModal.vue'
@@ -15,8 +15,12 @@ const emit=defineEmits<{
   (e:'participation',entry:any,enabled:boolean):void;(e:'participant-policy',subjectId:string,patch:Partial<ForumParticipantPolicy>):void;(e:'bridge',subjectId:string,direction:'forumToChat'|'chatToForum',mode:ForumBridgeMode):void
   (e:'bridge-types',subjectId:string,direction:'forumToChat'|'chatToForum',types:ForumMemoryType[]):void
   (e:'bind-world',circleId:string,bookIds:string[],groupIds:string[]):void
+  (e:'add-avatar-files',files:File[],group:ForumAvatarLibraryItem['group']):void
+  (e:'add-avatar-url',url:string,group:ForumAvatarLibraryItem['group']):void
+  (e:'generate-avatar',prompt:string,group:ForumAvatarLibraryItem['group']):void
+  (e:'remove-avatar',id:string,deleteMedia?:boolean):void
 }>()
-type Section='accounts'|'characters'|'circles'|'privacy'|'bridge'|'ai'|'media'
+type Section='accounts'|'characters'|'circles'|'privacy'|'bridge'|'ai'|'dm'|'avatars'|'media'
 const section=ref<Section>('accounts');const candidates=ref<any[]>([]);const addingAccount=ref(false);const name=ref('');const handle=ref('');const kind=ref<ForumAccountKind>('alternate');const privacy=ref<'public'|'normal'|'private'>('normal');const bio=ref('');const expandedSubject=ref('')
 const profileName=ref('');const profileHandle=ref('');const profileAvatar=ref('');const profileBio=ref('');const profileLocation=ref('');const avatarUploadVisible=ref(false);const profileMessage=ref('')
 onMounted(()=>{candidates.value=props.participantCandidates()})
@@ -37,13 +41,16 @@ const toggleCircleSubject=(circleId:string,subjectId:string,checked:boolean)=>{c
 const modeLabel=(mode?:ForumBridgeMode)=>({off:'关闭',all:'完全开启',selected:'选择性',summary:'仅摘要',important:'仅重要', 'reachable-only':'合理得知'}[mode||'off'])
 const memoryTypeOptions:Array<{id:ForumMemoryType;label:string}>=[{id:'identity',label:'身份'},{id:'public-profile',label:'公开资料'},{id:'relationship',label:'关系'},{id:'post',label:'发帖'},{id:'comment',label:'评论'},{id:'like',label:'点赞'},{id:'follow',label:'关注'},{id:'dm',label:'私信'},{id:'group',label:'群聊'},{id:'circle',label:'圈子'},{id:'important-event',label:'重要事件'},{id:'user-public',label:'公开发言'},{id:'user-private',label:'私密发言'},{id:'chat-daily',label:'聊天日常'},{id:'chat-secret',label:'聊天秘密'},{id:'emotion',label:'感情变化'},{id:'image',label:'图片'},{id:'voice',label:'语音'},{id:'offline-event',label:'线下事件'}]
 const autoImageProviders=IMAGE_PROVIDERS.filter(item=>item.capabilities.textToImage)
+const avatarGroup=ref<ForumAvatarLibraryItem['group']>('other');const avatarUrl=ref('');const avatarPrompt=ref('');const avatarFiles=ref<HTMLInputElement|null>(null)
+const submitAvatarUrl=()=>{if(!avatarUrl.value.trim())return;emit('add-avatar-url',avatarUrl.value,avatarGroup.value);avatarUrl.value=''}
+const submitAvatarFiles=(event:Event)=>{const files=[...((event.target as HTMLInputElement).files||[])];if(files.length)emit('add-avatar-files',files,avatarGroup.value);(event.target as HTMLInputElement).value=''}
 const autoImageProviderLabel=(id:string,name:string)=>id==='pollinations'?`${name}（默认 / 低门槛）`:id==='aihorde'?`${name}（社区免费）`:name
 const toggleBridgeType=(subjectId:string,direction:'forumToChat'|'chatToForum',type:ForumMemoryType,checked:boolean)=>{const current=bridgeFor(subjectId)?.[direction].memoryTypes||[];emit('bridge-types',subjectId,direction,checked?[...new Set([...current,type])]:current.filter(item=>item!==type))}
 </script>
 
 <template>
   <div class="settings-view"><ForumHeader title="论坛设置" show-back @back="emit('back')"/>
-    <nav class="settings-tabs"><button v-for="item in [{id:'accounts',t:'账号'},{id:'characters',t:'角色'},{id:'circles',t:'圈子'},{id:'privacy',t:'隐私'},{id:'bridge',t:'互通'},{id:'ai',t:'AI'},{id:'media',t:'媒体'}]" :key="item.id" :class="{active:section===item.id}" @click="section=item.id as Section">{{item.t}}</button></nav>
+    <nav class="settings-tabs"><button v-for="item in [{id:'accounts',t:'账号'},{id:'characters',t:'角色'},{id:'circles',t:'圈子'},{id:'privacy',t:'隐私'},{id:'bridge',t:'互通'},{id:'ai',t:'AI'},{id:'dm',t:'私信'},{id:'avatars',t:'头像库'},{id:'media',t:'媒体'}]" :key="item.id" :class="{active:section===item.id}" @click="section=item.id as Section">{{item.t}}</button></nav>
     <div class="settings-scroll">
       <template v-if="section==='accounts'">
         <div class="section-head"><div><b>个人资料</b><small>修改当前论坛账号对外显示的信息</small></div></div>
@@ -121,6 +128,33 @@ const toggleBridgeType=(subjectId:string,direction:'forumToChat'|'chatToForum',t
         <p class="plain-note">刷新帖子、增量或覆盖评论、生成指定回复和查看好友动向都有独立按钮；每次点击只执行当前这一次请求。</p>
       </template>
 
+      <template v-else-if="section==='dm'">
+        <div class="section-head"><div><b>论坛私信生成</b><small>每次只使用当前对话；最终消息同一请求生成，延时仅控制本地显示</small></div></div>
+        <label class="setting-row"><span><b>默认回复时机</b><small>在线状态会让模型返回建议分钟数</small></span><select v-model="snapshot.settings.dm.replyTiming" class="row-select"><option value="immediate">立即</option><option value="presence-aware">在线状态</option><option value="fixed">固定延时</option><option value="range">随机区间</option></select></label>
+        <label v-if="snapshot.settings.dm.replyTiming==='fixed'" class="range-row"><span><b>固定分钟</b><em>{{snapshot.settings.dm.fixedDelayMinutes}}</em></span><input v-model.number="snapshot.settings.dm.fixedDelayMinutes" type="range" min="0" max="1440"></label>
+        <div v-if="snapshot.settings.dm.replyTiming==='range'" class="runtime-switch"><label class="compact-select-row"><span>最短分钟</span><input v-model.number="snapshot.settings.dm.rangeDelayMin" type="number" min="0"></label><label class="compact-select-row"><span>最长分钟</span><input v-model.number="snapshot.settings.dm.rangeDelayMax" type="number" min="0"></label></div>
+        <label class="setting-row"><span><b>并发方式</b><small>同一会话可排队；不同会话不互相污染</small></span><select v-model="snapshot.settings.dm.concurrency" class="row-select"><option value="queue">逐会话排队</option><option value="parallel">允许并行</option></select></label>
+        <label class="setting-row"><span><b>待显示消息</b><small>不会把未揭示正文暴露给下一次请求</small></span><select v-model="snapshot.settings.dm.pendingVisibility" class="row-select"><option value="hidden">完全隐藏</option><option value="placeholder">显示状态占位</option></select></label>
+        <label class="setting-row"><span><b>气泡数量</b><small>自然模式由模型决定</small></span><select v-model="snapshot.settings.dm.maxBubbleMode" class="row-select"><option value="natural">自然</option><option value="limit">限制上限</option></select></label>
+        <label v-if="snapshot.settings.dm.maxBubbleMode==='limit'" class="range-row"><span><b>最多气泡</b><em>{{snapshot.settings.dm.maxBubbles}}</em></span><input v-model.number="snapshot.settings.dm.maxBubbles" type="range" min="1" max="12"></label>
+        <label class="switch-row runtime-switch"><span><b>双语消息</b><small>XML 可携带原文与翻译</small></span><input v-model="snapshot.settings.dm.bilingual" type="checkbox"><i></i></label>
+        <label class="setting-row"><span><b>人格事实写入</b><small>锁定字段永远不会被模型覆盖</small></span><select v-model="snapshot.settings.dm.factPersistence" class="row-select"><option value="auto">自动写入未锁字段</option><option value="confirm">仅提示待确认</option><option value="conversation-only">仅本对话使用</option></select></label>
+        <div class="section-head"><div><b>上下文开关</b><small>只注入当前 NPC 合理可知的论坛资料</small></div></div>
+        <label v-for="item in [{k:'publicPosts',t:'公开帖子'},{k:'publicComments',t:'公开评论'},{k:'circles',t:'共同圈子'},{k:'interactions',t:'双方互动'},{k:'forumMemories',t:'论坛记忆'},{k:'chatSummaries',t:'聊天摘要'}]" :key="item.k" class="switch-row runtime-switch"><span>{{item.t}}</span><input v-model="(snapshot.settings.dm.context as any)[item.k]" type="checkbox"><i></i></label>
+      </template>
+
+      <template v-else-if="section==='avatars'">
+        <div class="section-head"><div><b>NPC 头像库</b><small>本地文件写入 IndexedDB，不受 localStorage 约 5MB 限制</small></div></div>
+        <label class="switch-row runtime-switch"><span><b>生成时使用头像库</b><small>优先按性别和占用状态匹配</small></span><input v-model="snapshot.settings.avatarLibraryEnabled" type="checkbox"><i></i></label>
+        <label class="switch-row runtime-switch"><span><b>允许极低概率复用</b><small>关闭时活跃 NPC 之间绝不共用头像</small></span><input v-model="snapshot.settings.allowAvatarReuse" type="checkbox"><i></i></label>
+        <label v-if="snapshot.settings.allowAvatarReuse" class="range-row"><span><b>复用概率</b><em>{{Math.round(snapshot.settings.avatarReuseProbability*100)}}%</em></span><input v-model.number="snapshot.settings.avatarReuseProbability" type="range" min="0" max="0.05" step="0.001"></label>
+        <div class="avatar-tools"><select v-model="avatarGroup"><option value="female">女</option><option value="male">男</option><option value="other">其他/通用</option></select><button @click="avatarFiles?.click()">批量上传</button><input ref="avatarFiles" hidden type="file" accept="image/*" multiple @change="submitAvatarFiles"></div>
+        <div class="avatar-tools"><input v-model="avatarUrl" placeholder="https:// 图片地址"><button @click="submitAvatarUrl">添加 URL</button></div>
+        <div class="avatar-tools"><input v-model="avatarPrompt" placeholder="AI 头像描述"><button @click="emit('generate-avatar',avatarPrompt,avatarGroup)">AI 生成</button></div>
+        <div class="avatar-grid"><article v-for="item in snapshot.avatarLibrary" :key="item.id"><img :src="item.url"><small>{{item.label||item.group}} · {{item.assignedAccountIds.length?'使用中':'未使用'}}</small><button @click="emit('remove-avatar',item.id,false)">移出库</button><button v-if="!item.assignedAccountIds.some(id=>snapshot.accounts.some(a=>a.id===id&&!a.isArchived))&&item.storageKey" @click="emit('remove-avatar',item.id,true)">删文件</button></article></div>
+        <p v-if="!snapshot.avatarLibrary.length" class="empty-compact">头像库为空，可批量上传、粘贴 URL 或 AI 生成。</p>
+      </template>
+
       <template v-else>
         <div class="section-head"><div><b>论坛媒体</b><small>媒体文件保存在 IndexedDB，不写入 localStorage</small></div></div>
         <label class="setting-row"><span><b>自动配图</b><small>使用图像大厅中的同一引擎、模型与 API 配置</small></span><select v-model="snapshot.settings.autoImageProvider" class="row-select"><option value="off">关闭</option><option v-for="provider in autoImageProviders" :key="provider.id" :value="provider.id">{{autoImageProviderLabel(provider.id,provider.name)}}</option></select></label><p v-if="snapshot.settings.autoImageProvider==='aihorde'" class="plain-note">AI Horde 使用社区免费志愿算力，可能排队，且 Worker 理论上可以看到提示词和结果；请勿用于真人隐私或敏感内容。</p><div class="setting-row static"><span><b>语音</b><small>复用已配置的 Seed Audio TTS</small></span><i>复用</i></div><div class="setting-row static"><span><b>轻短视频</b><small>图片 + TTS + 字幕 + 前端动画实时播放</small></span><i>实时</i></div>
@@ -136,4 +170,5 @@ const toggleBridgeType=(subjectId:string,direction:'forumToChat'|'chatToForum',t
 .memory-type-grid{display:flex;flex-wrap:wrap;gap:5px;padding:6px 0 8px}.memory-type-grid label{display:block;min-height:0;border:0}.memory-type-grid input{position:absolute;opacity:0}.memory-type-grid span{display:block;border:1px solid var(--border-color,#ddd);border-radius:999px;background:var(--sys-bg-primary,#f6f6f7);padding:3px 7px;color:var(--text-tertiary,#888);font-size:10px;line-height:1.2}.memory-type-grid input:checked+span{border-color:color-mix(in srgb,var(--accent-color,#576b95) 60%,transparent);background:color-mix(in srgb,var(--accent-color,#576b95) 12%,var(--sys-bg-secondary,#fff));color:var(--accent-color,#576b95)}
 .profile-form{display:grid;grid-template-columns:92px minmax(0,1fr);gap:13px;margin:0 12px 8px;padding:14px;border-radius:14px;background:var(--sys-bg-secondary,#fff)}.profile-avatar-button{display:flex;align-items:center;align-self:start;flex-direction:column;gap:7px;padding:0;border:0;background:transparent;color:var(--accent-color,#2b7de9);font-size:11px}.profile-fields{display:grid;min-width:0;gap:9px}.profile-fields>label{display:grid;grid-template-columns:48px minmax(0,1fr);align-items:center;gap:8px;font-size:12px}.profile-fields input,.profile-fields textarea{box-sizing:border-box;width:100%;min-width:0;border:1px solid var(--border-color,#e2e2e2);border-radius:8px;background:var(--sys-bg-primary,#f7f7f8);padding:7px 9px;color:var(--text-primary,#222);font:inherit;font-size:12.5px;outline:0}.profile-fields textarea{min-height:58px;resize:vertical;line-height:1.45}.profile-handle-input{display:flex;align-items:center;border:1px solid var(--border-color,#e2e2e2);border-radius:8px;background:var(--sys-bg-primary,#f7f7f8);padding-left:9px}.profile-handle-input i{color:var(--text-tertiary,#999);font-style:normal}.profile-handle-input input{border:0;background:transparent;padding-left:2px}.field-error{margin:-5px 0 0 56px;color:#c54f4f;font-size:10.5px}.profile-save-row{display:flex;align-items:center;justify-content:flex-end;gap:10px}.profile-save-row>span{color:#4d8a61;font-size:10.5px}.profile-save-row button{height:32px;border:0;border-radius:8px;background:var(--accent-color,#2b7de9);padding:0 14px;color:#fff;font-size:12px}.profile-save-row button:disabled{opacity:.35}@media(max-width:380px){.profile-form{grid-template-columns:72px;padding:11px}.profile-fields>label{grid-template-columns:43px}.field-error{margin-left:51px}}
 .circle-scope-input,.circle-description-input{box-sizing:border-box;width:100%;min-width:0;border:1px solid var(--border-color,#e2e2e2);border-radius:8px;background:var(--sys-bg-primary,#f7f7f8);padding:7px 9px;color:var(--text-primary,#222);font:inherit;font-size:12px;outline:0}.circle-scope-input{min-height:68px;resize:vertical;line-height:1.48}.circle-description-input{height:33px}.compact-select-row{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:10px;min-height:36px;font-size:12.5px}.compact-select-row select{flex:0 0 92px;height:29px;border:1px solid var(--border-color,#ddd);border-radius:8px;background:var(--sys-bg-primary,#f6f6f7);padding:0 7px;color:var(--text-secondary,#666);font:inherit;font-size:11.5px}.runtime-switch{box-sizing:border-box;padding:5px 16px;background:var(--sys-bg-secondary,#fff);border-bottom:1px solid var(--border-color,rgba(0,0,0,.05))}@media(max-width:340px){.runtime-switch{padding-left:12px;padding-right:12px}}
+.avatar-tools{display:flex;gap:7px;padding:7px 14px;background:var(--sys-bg-secondary,#fff)}.avatar-tools input,.avatar-tools select{box-sizing:border-box;min-width:0;flex:1;height:34px;border:1px solid var(--border-color,#ddd);border-radius:8px;background:var(--sys-bg-primary,#f6f6f7);padding:0 8px;color:inherit;font:inherit;font-size:11px}.avatar-tools button{flex:0 0 auto;border:0;border-radius:8px;background:var(--accent-color,#576b95);padding:0 10px;color:#fff;font-size:11px}.avatar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:10px 14px}.avatar-grid article{display:flex;min-width:0;align-items:center;flex-direction:column;gap:5px;border-radius:10px;background:var(--sys-bg-secondary,#fff);padding:8px}.avatar-grid img{width:54px;height:54px;border-radius:50%;object-fit:cover}.avatar-grid small{width:100%;overflow:hidden;color:var(--text-tertiary,#888);font-size:9px;text-align:center;text-overflow:ellipsis;white-space:nowrap}.avatar-grid button{border:0;background:transparent;color:#c44;font-size:10px}.avatar-grid button:disabled{color:#aaa}
 </style>

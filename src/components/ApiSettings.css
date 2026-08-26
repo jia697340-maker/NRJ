@@ -23,12 +23,13 @@
 /* --- 百合花水印背景 --- */
 .lily-watermark {
   position: absolute;
-  right: -10%;
-  bottom: -5%;
-  width: 80%;
-  height: 80%;
+  top: 0;
+  right: -5%;
+  bottom: 0;
+  width: 75%;
+  height: 100%;
   object-fit: contain;
-  object-position: bottom right;
+  object-position: right center;
   pointer-events: none;
   z-index: 0;
   /* 褪色做旧调色 */
@@ -934,3 +935,4 @@ input:checked + .slider:before {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+.forum-scope-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:4px 0}.forum-scope-grid label{position:relative}.forum-scope-grid input{position:absolute;opacity:0}.forum-scope-grid span{display:block;border:1px solid var(--border-color,#ddd);border-radius:8px;padding:7px 5px;color:var(--text-secondary,#777);font-size:11px;text-align:center}.forum-scope-grid input:checked+span{border-color:var(--accent-color,#576b95);background:color-mix(in srgb,var(--accent-color,#576b95) 10%,transparent);color:var(--accent-color,#576b95)}

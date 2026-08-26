@@ -51,20 +51,29 @@ export const rankForumFeed = (snapshot: ForumSnapshot, viewerId: string, kind: F
   const blocked = new Set(snapshot.blocks.filter(item => item.ownerAccountId === viewerId || item.targetAccountId === viewerId).map(item => item.ownerAccountId === viewerId ? item.targetAccountId : item.ownerAccountId))
   const muted = new Set(snapshot.mutes.filter(item => item.ownerAccountId === viewerId && (!item.expiresAt || item.expiresAt > Date.now())).map(item => item.targetAccountId).filter(Boolean))
   const visible = snapshot.posts.filter(post => !blocked.has(post.authorAccountId) && !muted.has(post.authorAccountId) && canViewForumPost(snapshot, post, viewerId))
+
+  const pinnedPosts = visible.filter(p => Boolean(p.pinned))
+  const unpinnedPosts = visible.filter(p => !p.pinned)
+
+  let unpinnedRanked: ForumPost[] = []
   if (kind === 'following') {
     const following = new Set(snapshot.relationships.filter(item => item.type === 'follow' && item.fromAccountId === viewerId).map(item => item.toAccountId))
     const characterAccounts = new Set(snapshot.accounts.filter(item => item.lifecycle === 'character').map(item => item.id))
-    return visible.filter(post => post.authorAccountId === viewerId || following.has(post.authorAccountId) || characterAccounts.has(post.authorAccountId)).sort((a, b) => timestamp(b) - timestamp(a))
+    unpinnedRanked = unpinnedPosts.filter(post => post.authorAccountId === viewerId || following.has(post.authorAccountId) || characterAccounts.has(post.authorAccountId)).sort((a, b) => timestamp(b) - timestamp(a))
+  } else if (kind === 'latest') {
+    unpinnedRanked = unpinnedPosts.sort((a, b) => timestamp(b) - timestamp(a))
+  } else {
+    const ranked = unpinnedPosts.map(post => ({ post, score: recommendationScore(snapshot, post, viewerId) })).sort((a, b) => b.score - a.score)
+    const diverse: typeof ranked = []; const remaining = [...ranked]; const recentAuthors: string[] = []
+    while (remaining.length) {
+      const index = remaining.findIndex(item => !recentAuthors.slice(-8).includes(item.post.authorAccountId))
+      const [next] = remaining.splice(index >= 0 ? index : 0, 1)
+      diverse.push(next); recentAuthors.push(next.post.authorAccountId)
+    }
+    unpinnedRanked = diverse.map(item => item.post)
   }
-  if (kind === 'latest') return visible.sort((a, b) => timestamp(b) - timestamp(a))
-  const ranked = visible.map(post => ({ post, score: recommendationScore(snapshot, post, viewerId) })).sort((a, b) => b.score - a.score)
-  const diverse: typeof ranked = []; const remaining = [...ranked]; const recentAuthors: string[] = []
-  while (remaining.length) {
-    const index = remaining.findIndex(item => !recentAuthors.slice(-8).includes(item.post.authorAccountId))
-    const [next] = remaining.splice(index >= 0 ? index : 0, 1)
-    diverse.push(next); recentAuthors.push(next.post.authorAccountId)
-  }
-  return diverse.map(item => item.post)
+
+  return [...pinnedPosts, ...unpinnedRanked]
 }
 
 export const recordFeedExposure = (snapshot: ForumSnapshot, viewerId: string, posts: ForumPost[], source: ForumFeedKind | 'circle') => {

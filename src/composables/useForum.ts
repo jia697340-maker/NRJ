@@ -6,14 +6,18 @@ import { loadCustomContacts } from './chatState/contacts'
 import { requestForumJson } from '../services/forumAI'
 import { createLightShortVideo, generateForumImage, generateForumVoice } from '../services/forumMediaGeneration'
 import { canAccountAppear, visiblePostsFor } from '../services/forumPolicy'
-import { emptyForumSnapshot, loadForumSnapshot, resolveForumMediaUrl, saveForumSnapshot, storeForumMedia } from '../services/forumRepository'
+import { emptyForumSnapshot, loadForumSnapshot, removeForumMedia, resolveForumMediaUrl, saveForumSnapshot, storeForumMedia } from '../services/forumRepository'
 import { markPostOpened, rankForumFeed, recordFeedExposure, type ForumFeedKind } from '../services/forumFeedRanking'
 import { syncForumCharacters } from '../services/forumPopulation'
-import { createLightweightForumAuthors, defaultForumGenerationConfig, generateForumContentBatch, promoteLightweightAuthor } from '../services/forumGeneration'
+import { defaultForumGenerationConfig, generateForumContentBatch, promoteLightweightAuthor } from '../services/forumGeneration'
 import { forumGenerationRuntime, runSingleForumGenerationTask } from '../services/forumGenerationRuntime'
+import { generateForumPostInteractions } from '../services/forumPostInteraction'
+import { requestForumDmXml } from '../services/forumAI'
+import { parseChatMessageXml } from '../services/chatMessageXml'
+import { optimizeImageFile } from '../services/imageOptimization'
 import type {
-  ForumAccount, ForumAccountKind, ForumBlockRule, ForumBridgePolicy, ForumCircle, ForumComment, ForumConversation, ForumDirectMessage, ForumLottery, ForumLotteryResult,
-  ForumCommentGenerationMode, ForumGenerationConfig, ForumMediaItem, ForumMuteRule, ForumParticipantPolicy, ForumPoll, ForumPost, ForumPostType, ForumReplyTimingMode, ForumSnapshot, ForumSubject, ForumUser, ForumVisibilityRule, ForumWorldBinding
+  ForumAccount, ForumAccountKind, ForumAvatarLibraryItem, ForumBlockRule, ForumBridgePolicy, ForumCircle, ForumComment, ForumConversation, ForumDirectMessage, ForumLottery, ForumLotteryResult,
+  ForumCommentGenerationMode, ForumDmGenerationTask, ForumGenerationConfig, ForumMediaItem, ForumMuteRule, ForumParticipantPolicy, ForumPoll, ForumPost, ForumPostInteractionConfig, ForumPostType, ForumReplyTimingMode, ForumSnapshot, ForumSubject, ForumUser, ForumVisibilityRule, ForumWorldBinding
 } from '../types/forum'
 
 export type ForumTab = 'feed' | 'circles' | 'messages' | 'profile'
@@ -37,9 +41,13 @@ const routeStack = ref<ForumRoute[]>([{ name: 'tab' }])
 const generationBusy = computed(() => forumGenerationRuntime.status === 'running')
 const generationProgress = computed(() => forumGenerationRuntime.progress)
 const generationError = computed(() => forumGenerationRuntime.error)
+const interactionBusy = ref(false)
+const interactionError = ref('')
+const friendFeedback = ref('')
 let loading: Promise<void> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 const pendingRevealTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const dmQueues = new Map<string, Promise<boolean>>()
 
 const id = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 const nowLabel = () => '刚刚'
@@ -51,7 +59,14 @@ const scheduleLocalReveal = (kind: 'comment' | 'message', entityId: string, reve
   if (!revealAt || revealAt <= Date.now()) return
   const timer = setTimeout(() => {
     const entity = kind === 'comment' ? snapshot.value.comments.find(item => item.id === entityId) : snapshot.value.messages.find(item => item.id === entityId)
-    if (entity && entity.revealAt && entity.revealAt <= Date.now()) entity.revealAt = Date.now()
+    if (entity && entity.revealAt && entity.revealAt <= Date.now()) {
+      entity.revealAt = Date.now()
+      if (kind === 'message' && 'conversationId' in entity) {
+        const conversation = snapshot.value.conversations.find(item => item.id === entity.conversationId)
+        if (conversation) { conversation.lastMessage = entity.content; conversation.lastMessageTime = nowLabel() }
+      }
+      void saveForumSnapshot(snapshot.value)
+    }
     pendingRevealTimers.delete(key)
   }, Math.min(2147483647, Math.max(0, revealAt - Date.now())))
   pendingRevealTimers.set(key, timer)
@@ -61,6 +76,13 @@ const defaultPolicy = (subjectId: string, enabled = false): ForumParticipantPoli
   autonomy: { level: 'off', actions: {} }, updatedAt: Date.now()
 })
 const defaultBridge = (subjectId: string): ForumBridgePolicy => ({ id: id('bridge'), subjectId, forumToChat: { mode: 'off', memoryTypes: [] }, chatToForum: { mode: 'off', memoryTypes: [] }, updatedAt: Date.now() })
+const persistAvatarValue = async (value: string, label: string) => {
+  if (!value.startsWith('data:image/')) return { url: value, mediaId: undefined as string | undefined }
+  const source = await fetch(value).then(response => response.blob())
+  const optimized = source.size ? await optimizeImageFile(new File([source], `${label}.png`, { type: source.type || 'image/png' })) : source
+  const media = await storeForumMedia(optimized, { type: 'image', mimeType: optimized.type, alt: label })
+  return { url: await resolveForumMediaUrl(media), mediaId: media.storageKey }
+}
 
 const ensureLoaded = () => {
   if (loading) return loading
@@ -69,6 +91,14 @@ const ensureLoaded = () => {
       if (media.storageKey) media.url = await resolveForumMediaUrl(media)
       if (media.audioStorageKey) media.audioUrl = await resolveForumMediaUrl({ url: `localforage:nrt-forum/forumMedia/${media.audioStorageKey}`, storageKey: media.audioStorageKey })
     })))
+    await Promise.all(value.avatarLibrary.map(async item => {
+      if (item.storageKey) item.url = await resolveForumMediaUrl({ url: item.url, storageKey: item.storageKey })
+    }))
+    value.accounts.forEach(account => {
+      const libraryItem = account.avatarLibraryItemId ? value.avatarLibrary.find(item => item.id === account.avatarLibraryItemId) : undefined
+      if (libraryItem) account.avatar = libraryItem.url
+    })
+    await Promise.all(value.accounts.filter(account => account.avatarMediaId && !value.avatarLibrary.some(item => item.id === account.avatarLibraryItemId)).map(async account => { account.avatar = await resolveForumMediaUrl({ url: account.avatar, storageKey: account.avatarMediaId }) }))
     syncForumCharacters(value)
     value.comments.forEach(item => scheduleLocalReveal('comment', item.id, item.revealAt))
     value.messages.forEach(item => scheduleLocalReveal('message', item.id, item.revealAt))
@@ -162,19 +192,20 @@ export function useForum() {
   const popRoute = () => { if (routeStack.value.length > 1) routeStack.value.pop() }
   const resetToTab = (tab: ForumTab) => { activeTab.value = tab; routeStack.value = [{ name: 'tab' }] }
 
-  const completeOnboarding = (input: { name: string; handle: string; bio?: string; avatar?: string; defaultSquare: boolean; generateStrangers: boolean }) => {
+  const completeOnboarding = async (input: { name: string; handle: string; bio?: string; avatar?: string; defaultSquare: boolean; generateStrangers: boolean }) => {
     const createdAt = Date.now()
     const subjectId = id('subject_user')
     const accountId = id('forum_account')
     const personaId = id('forum_persona')
     snapshot.value.subjects.push({ id: subjectId, kind: 'user', displayName: input.name.trim(), persona: input.bio || '', createdAt, updatedAt: createdAt })
-    snapshot.value.accounts.push({ id: accountId, subjectId, kind: 'main', name: input.name.trim(), handle: normalizeHandle(input.handle), avatar: input.avatar || '', bio: input.bio || '', privacy: 'public', searchable: true, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: true, showCircles: true, joinedAt: createdAt, personaId, circleIds: [], lifecycle: 'user' })
+    const avatar = await persistAvatarValue(input.avatar || '', `${input.name.trim()}头像`)
+    snapshot.value.accounts.push({ id: accountId, subjectId, kind: 'main', name: input.name.trim(), handle: normalizeHandle(input.handle), avatar: avatar.url, avatarMediaId: avatar.mediaId, bio: input.bio || '', privacy: 'public', searchable: true, acceptsFollow: true, followRequiresApproval: false, acceptsDm: 'all', showInRecommendations: true, showOnline: true, showCircles: true, joinedAt: createdAt, personaId, circleIds: [], lifecycle: 'user' })
     snapshot.value.personas.push({ id: personaId, accountId, identity: input.bio || '', interests: [], boundaries: [], socialInitiative: 50, activeHours: [], habits: {}, lockedFields: [] })
     snapshot.value.settings = { ...snapshot.value.settings, initialized: true, activeAccountId: accountId, defaultSquareEnabled: input.defaultSquare, generateStrangers: input.generateStrangers, manualGenerationOnly: true, autonomousCommunity: false, updatedAt: createdAt }
     if (input.defaultSquare) createDefaultSquare(accountId)
   }
 
-  const updateForumProfile = (input: Pick<ForumAccount, 'name' | 'handle' | 'avatar'> & Partial<Pick<ForumAccount, 'bio' | 'location'>>) => {
+  const updateForumProfile = async (input: Pick<ForumAccount, 'name' | 'handle' | 'avatar'> & Partial<Pick<ForumAccount, 'bio' | 'location'>>) => {
     const account = currentAccount.value
     if (!account) return false
     const name = input.name.trim()
@@ -182,7 +213,9 @@ export function useForum() {
     if (!name || snapshot.value.accounts.some(item => item.id !== account.id && item.handle.toLowerCase() === handle.toLowerCase())) return false
     account.name = name
     account.handle = handle
-    account.avatar = input.avatar || ''
+    const avatar = await persistAvatarValue(input.avatar || '', `${name}头像`)
+    account.avatar = avatar.url
+    if (avatar.mediaId) account.avatarMediaId = avatar.mediaId
     account.bio = input.bio?.trim() || ''
     account.location = input.location?.trim() || ''
     if (account.kind === 'main') {
@@ -445,10 +478,11 @@ export function useForum() {
     const request = { id: id('forum_friend_request'), requesterAccountId: currentAccount.value.id, receiverAccountId: targetId, message: message.trim().slice(0, 240), status: 'pending' as const, createdAt: Date.now() }
     snapshot.value.friendRequests.unshift(request)
     snapshot.value.notifications.push({ id: id('notification'), accountId: currentAccount.value.id, type: 'friend-request', actorAccountId: targetId, entityId: request.id, text: `已向 ${target.name} 发送好友申请；需要你手动生成对方答复`, createdAt: Date.now() })
+    friendFeedback.value = `已向 ${target.name} 发送好友申请`
     return request
   }
 
-  const acceptForumFriendRequest = async (requestId: string) => {
+  const acceptForumFriendRequest = async (requestId: string, chatOptions: boolean | { create: boolean; existingEntityId?: string; copyAvatar?: boolean; copyPublicProfile?: boolean; copyPersona?: boolean; copySummary?: boolean } = false) => {
     if (!currentAccount.value) return false
     const request = snapshot.value.friendRequests.find(item => item.id === requestId && item.status === 'pending')
     if (!request || (request.requesterAccountId !== currentAccount.value.id && request.receiverAccountId !== currentAccount.value.id)) return false
@@ -456,28 +490,31 @@ export function useForum() {
     const account = snapshot.value.accounts.find(item => item.id === strangerId)
     const subject = account ? snapshot.value.subjects.find(item => item.id === account.subjectId) : undefined
     if (!account || !subject) return false
-    const persona = snapshot.value.personas.find(item => item.accountId === account.id)
-    const interactionSummary = [
-      ...snapshot.value.posts.filter(item => item.authorAccountId === account.id).slice(0, 6).map(item => `论坛帖子：${item.content}`),
-      ...snapshot.value.comments.filter(item => item.authorAccountId === account.id || item.replyToUser?.id === account.id).slice(-8).map(item => `论坛评论：${item.content}`),
-      ...snapshot.value.messages.filter(item => item.senderId === account.id || item.receiverId === account.id).slice(-12).map(item => `论坛私信：${item.content}`)
-    ].join('\n').slice(0, 3000)
-    const { entry } = createForumFriendContact({ forumAccountId: account.id, name: account.name, handle: account.handle, avatar: account.avatar, bio: account.bio, persona: persona?.personality || account.expressionStyle || subject.persona, interactionSummary })
-    request.status = 'accepted'; request.respondedAt = Date.now(); request.characterEntityId = entry.entityId
-    subject.kind = 'character'; subject.sourceId = entry.entityId; subject.sourceAccountId = entry.ownerAccountId; subject.updatedAt = Date.now()
-    account.lifecycle = 'character'; account.persistenceReason = '论坛好友申请已同意'
-    const policy = snapshot.value.participantPolicies.find(item => item.subjectId === subject.id)
-    if (policy) { policy.enabled = true; policy.autonomy = { level: 'off', actions: {} } }
-    if (!snapshot.value.bridgePolicies.some(item => item.subjectId === subject.id)) snapshot.value.bridgePolicies.push({ id: id('bridge'), subjectId: subject.id, forumToChat: { mode: 'important', memoryTypes: ['post', 'comment', 'dm', 'important-event'] }, chatToForum: { mode: 'reachable-only', memoryTypes: ['chat-daily', 'important-event', 'relationship'] }, updatedAt: Date.now() })
-    snapshot.value.notifications.push({ id: id('notification'), accountId: currentAccount.value.id, type: 'friend-request', actorAccountId: account.id, entityId: request.id, text: `已和 ${account.name} 成为好友，可在聊天 App 继续聊天`, createdAt: Date.now() })
-    try { await loadCustomContacts() } catch {}
+    request.status = 'accepted'; request.respondedAt = Date.now()
+    account.persistenceReason = '论坛好友关系'
+    const addToChatApp = typeof chatOptions === 'boolean' ? chatOptions : chatOptions.create
+    const options: { existingEntityId?: string; copyAvatar?: boolean; copyPublicProfile?: boolean; copyPersona?: boolean; copySummary?: boolean } = typeof chatOptions === 'boolean' ? { copyAvatar: true, copyPublicProfile: true, copyPersona: true, copySummary: false } : chatOptions
+    if (addToChatApp) {
+      const persona = snapshot.value.personas.find(item => item.accountId === account.id)
+      const interactionSummary = [...snapshot.value.posts.filter(item => item.authorAccountId === account.id).slice(0, 6).map(item => `论坛帖子：${item.content}`), ...snapshot.value.comments.filter(item => item.authorAccountId === account.id || item.replyToUser?.id === account.id).slice(-8).map(item => `论坛评论：${item.content}`), ...snapshot.value.messages.filter(item => item.senderId === account.id || item.receiverId === account.id).slice(-12).map(item => `论坛私信：${item.content}`)].join('\n').slice(0, 3000)
+      const { entry } = createForumFriendContact({ forumAccountId: account.id, existingEntityId: options.existingEntityId, name: account.name, handle: options.copyPublicProfile ? account.handle : '', avatar: options.copyAvatar ? account.avatar : '', bio: options.copyPublicProfile ? account.bio : '', persona: options.copyPersona ? persona?.personality || account.expressionStyle || subject.persona : '', interactionSummary: options.copySummary ? interactionSummary : '' })
+      request.characterEntityId = entry.entityId
+      subject.kind = 'character'; subject.sourceId = entry.entityId; subject.sourceAccountId = entry.ownerAccountId; subject.updatedAt = Date.now()
+      account.lifecycle = 'character'
+      const policy = snapshot.value.participantPolicies.find(item => item.subjectId === subject.id)
+      if (policy) { policy.enabled = true; policy.autonomy = { level: 'off', actions: {} } }
+      if (!snapshot.value.bridgePolicies.some(item => item.subjectId === subject.id)) snapshot.value.bridgePolicies.push({ id: id('bridge'), subjectId: subject.id, forumToChat: { mode: 'important', memoryTypes: ['post', 'comment', 'dm', 'important-event'] }, chatToForum: { mode: 'reachable-only', memoryTypes: ['chat-daily', 'important-event', 'relationship'] }, updatedAt: Date.now() })
+      try { await loadCustomContacts() } catch {}
+    }
+    snapshot.value.notifications.push({ id: id('notification'), accountId: currentAccount.value.id, type: 'friend-request', actorAccountId: account.id, entityId: request.id, text: addToChatApp ? `已和 ${account.name} 成为好友，并添加到聊天 App` : `已和 ${account.name} 成为论坛好友`, createdAt: Date.now() })
+    friendFeedback.value = addToChatApp ? `已成为好友并添加到聊天 App` : `已成为论坛好友（未添加到聊天 App）`
     return true
   }
 
   const rejectForumFriendRequest = (requestId: string) => {
     const request = snapshot.value.friendRequests.find(item => item.id === requestId && item.status === 'pending')
     if (!request || !currentAccount.value || request.receiverAccountId !== currentAccount.value.id) return false
-    request.status = 'rejected'; request.respondedAt = Date.now(); return true
+    request.status = 'rejected'; request.respondedAt = Date.now(); friendFeedback.value = '已拒绝这条好友申请'; return true
   }
 
   const generateForumFriendDecision = async (targetId: string) => {
@@ -493,15 +530,17 @@ export function useForum() {
         if (generated.action === 'accept') return await acceptForumFriendRequest(outgoing.id)
         outgoing.status = 'rejected'; outgoing.respondedAt = Date.now()
         snapshot.value.notifications.push({ id: id('notification'), accountId: currentAccount.value.id, type: 'friend-request', actorAccountId: targetId, entityId: outgoing.id, text: generated.message || `${target.name}暂时没有同意好友申请`, createdAt: Date.now() })
-        return false
+        friendFeedback.value = generated.message || `${target.name}暂时没有同意好友申请`; return false
       }
       if (generated.action === 'request') {
         const request = { id: id('forum_friend_request'), requesterAccountId: targetId, receiverAccountId: currentAccount.value.id, message: String(generated.message || '可以加个好友吗？').slice(0, 240), status: 'pending' as const, createdAt: Date.now() }
         snapshot.value.friendRequests.unshift(request)
         snapshot.value.notifications.push({ id: id('notification'), accountId: currentAccount.value.id, type: 'friend-request', actorAccountId: targetId, entityId: request.id, text: `${target.name}向你发送了好友申请`, createdAt: Date.now() })
+        friendFeedback.value = `${target.name}向你发送了好友申请`
         return true
       }
       snapshot.value.notifications.push({ id: id('notification'), accountId: currentAccount.value.id, type: 'friend-request', actorAccountId: targetId, text: `${target.name}现在没有提出加好友`, createdAt: Date.now() })
+      friendFeedback.value = `${target.name}现在没有好友动向`
       return false
     } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return false }
     finally { busy.value = false }
@@ -571,6 +610,68 @@ export function useForum() {
   }
 
   const importMediaFile = async (file: File, type: ForumMediaItem['type'] = 'image') => storeForumMedia(file, { type, mimeType: file.type, alt: file.name })
+  const addAvatarFiles = async (files: File[], group: ForumAvatarLibraryItem['group']) => {
+    const added: ForumAvatarLibraryItem[] = []
+    for (const file of files.filter(item => item.type.startsWith('image/'))) {
+      const optimized = await optimizeImageFile(file)
+      const media = await storeForumMedia(optimized, { type: 'image', mimeType: optimized.type || file.type, alt: file.name })
+      const item: ForumAvatarLibraryItem = { id: media.id, group, url: media.url, storageKey: media.storageKey, mimeType: media.mimeType, label: file.name, assignedAccountIds: [], createdAt: Date.now() }
+      snapshot.value.avatarLibrary.push(item)
+      item.url = await resolveForumMediaUrl({ url: item.url, storageKey: item.storageKey })
+      added.push(item)
+    }
+    return added
+  }
+  const addAvatarUrl = (url: string, group: ForumAvatarLibraryItem['group'], label = '') => {
+    const normalized = url.trim()
+    if (!/^https?:\/\//i.test(normalized)) return null
+    const item: ForumAvatarLibraryItem = { id: id('avatar'), group, url: normalized, label: label.trim() || undefined, assignedAccountIds: [], createdAt: Date.now() }
+    snapshot.value.avatarLibrary.push(item)
+    return item
+  }
+  const generateAvatarLibraryItem = async (prompt: string, group: ForumAvatarLibraryItem['group']) => {
+    const media = await generateForumImage(`论坛 NPC 圆形头像，单人半身，清晰背景，${prompt.trim() || '自然真实的社交头像'}`, snapshot.value.settings.preferredImageProvider === 'gpt' ? 'gpt' : 'pollinations')
+    const item: ForumAvatarLibraryItem = { id: media.id, group, url: media.url, storageKey: media.storageKey, mimeType: media.mimeType, label: prompt.trim().slice(0, 40), assignedAccountIds: [], createdAt: Date.now() }
+    snapshot.value.avatarLibrary.push(item)
+    return item
+  }
+  const removeAvatarLibraryItem = async (avatarId: string, deleteMedia = false) => {
+    const item = snapshot.value.avatarLibrary.find(entry => entry.id === avatarId)
+    if (!item) return false
+    const referenced = item.assignedAccountIds.some(accountId => snapshot.value.accounts.some(account => account.id === accountId && !account.isArchived))
+    snapshot.value.avatarLibrary = snapshot.value.avatarLibrary.filter(entry => entry.id !== avatarId)
+    if (deleteMedia && item.storageKey && !referenced) {
+      await removeForumMedia(item.storageKey)
+    }
+    return true
+  }
+  const assignAvatarToAccount = (accountId: string, avatarId: string) => {
+    const account = snapshot.value.accounts.find(item => item.id === accountId)
+    const avatar = snapshot.value.avatarLibrary.find(item => item.id === avatarId)
+    if (!account || !avatar) return false
+    const activeAssignments = avatar.assignedAccountIds.filter(id => id !== accountId && snapshot.value.accounts.some(item => item.id === id && !item.isArchived))
+    if (activeAssignments.length && (!snapshot.value.settings.allowAvatarReuse || Math.random() > snapshot.value.settings.avatarReuseProbability)) return false
+    snapshot.value.avatarLibrary.forEach(item => { item.assignedAccountIds = item.assignedAccountIds.filter(id => id !== accountId) })
+    avatar.assignedAccountIds.push(accountId)
+    account.avatarLibraryItemId = avatar.id
+    account.avatarMediaId = avatar.storageKey
+    account.avatar = avatar.url
+    account.lockedFields = [...new Set([...(account.lockedFields || []), 'avatar'])]
+    return true
+  }
+  const updateNpcProfile = (accountId: string, accountPatch: Partial<Pick<ForumAccount, 'name' | 'handle' | 'avatar' | 'banner' | 'bio' | 'location' | 'gender'>> & { lockedFields?: string[] }, personaPatch: Record<string, unknown> & { lockedFields?: string[] }) => {
+    const account = snapshot.value.accounts.find(item => item.id === accountId)
+    const persona = snapshot.value.personas.find(item => item.accountId === accountId)
+    if (!account || account.lifecycle === 'user' || !persona) return false
+    const nextHandle = accountPatch.handle === undefined ? account.handle : normalizeHandle(accountPatch.handle)
+    if (snapshot.value.accounts.some(item => item.id !== accountId && item.handle.toLowerCase() === nextHandle.toLowerCase())) return false
+    Object.assign(account, { ...accountPatch, name: accountPatch.name?.trim() || account.name, handle: nextHandle, bio: accountPatch.bio?.trim() ?? account.bio, location: accountPatch.location?.trim() ?? account.location })
+    const allowedPersonaFields = ['identity', 'personality', 'occupation', 'interests', 'boundaries', 'postingStyle', 'commentingStyle', 'dmStyle', 'emojiStyle', 'punctuationStyle', 'activeHours', 'socialInitiative', 'habits']
+    allowedPersonaFields.forEach(field => { if (field in personaPatch) (persona as unknown as Record<string, unknown>)[field] = personaPatch[field] })
+    account.lockedFields = [...new Set(accountPatch.lockedFields || account.lockedFields || [])]
+    persona.lockedFields = [...new Set(personaPatch.lockedFields || persona.lockedFields || [])]
+    return true
+  }
   const generateImageMedia = (prompt: string) => generateForumImage(prompt, snapshot.value.settings.preferredImageProvider === 'gpt' ? 'gpt' : 'pollinations')
   const generateVoiceMedia = (text: string) => generateForumVoice(text)
   const buildLightVideo = (image: ForumMediaItem, voice?: ForumMediaItem, subtitle = '') => createLightShortVideo(image, voice, subtitle)
@@ -588,12 +689,9 @@ export function useForum() {
   const generatePostComments = async (postId: string, mode: ForumCommentGenerationMode = 'incremental', requestedCount = 3) => {
     if (!currentAccount.value || busy.value) return
     const post = snapshot.value.posts.find(item => item.id === postId); if (!post) return
-    const circle = post.circleId ? snapshot.value.circles.find(item => item.id === post.circleId) : undefined
-    const batchId = id('comment_batch')
     busy.value = true; error.value = ''
     try {
-      const count = Math.max(1, Math.min(8, Math.round(requestedCount || 3)))
-      let keptComments = snapshot.value.comments
+      const count = Math.max(1, Math.round(requestedCount || 3))
       if (mode === 'replace-generated') {
         const comments = snapshot.value.comments.filter(item => item.postId === postId)
         const protectedIds = new Set(comments.filter(item => item.source === 'user').map(item => item.id))
@@ -604,61 +702,106 @@ export function useForum() {
             if (protectedIds.has(item.id) && item.parentId && !protectedIds.has(item.parentId)) { protectedIds.add(item.parentId); changed = true }
           })
         }
-        keptComments = snapshot.value.comments.filter(item => item.postId !== postId || item.source === 'user' || protectedIds.has(item.id))
+        snapshot.value.comments = snapshot.value.comments.filter(item => item.postId !== postId || item.source === 'user' || protectedIds.has(item.id))
       }
-      const characterPool = snapshot.value.accounts.filter(account => account.lifecycle === 'character' && account.id !== currentAccount.value?.id && canAccountAppear(snapshot.value, account, circle))
-      const selectedCharacters = shuffle(characterPool).slice(0, count >= 5 ? 1 : 0)
-      const freshStrangers = await createLightweightForumAuthors(snapshot.value, currentAccount.value.id, Math.min(count - selectedCharacters.length, 5), batchId)
-      const authorPool = [...freshStrangers, ...selectedCharacters]
-      if (!authorPool.length) throw new Error('没有可用于当前讨论的作者。')
-      const specs = authorPool.map((account, index) => ({ specId: `${batchId}_${index}`, authorAccountId: account.id, author: account.name, style: account.expressionStyle, replyToSpecId: index >= 2 && index % 3 === 0 ? `${batchId}_0` : undefined }))
-      const generated = await requestForumJson<{ comments?: Array<{ specId: string; content: string }> }>(snapshot.value, { userInitiated: true, viewerAccountId: currentAccount.value.id, circleId: post.circleId, postId, involvedAccountIds: authorPool.map(item => item.id) }, 'forum-comment',
-        `这是用户手动要求生成的 ${specs.length} 条评论。严格按槽位生成，允许简短、认真、疑问、共鸣、轻微质疑或跑题；不要每个人都夸楼主。replyToSpecId 表示楼中楼。槽位：${JSON.stringify(specs)}`,
-        '{"comments":[{"specId":"原样返回","content":"自然评论"}]}')
-      const drafts = specs.map(spec => ({ spec, content: String(generated.comments?.find(item => item.specId === spec.specId)?.content || '').trim().slice(0, 800) }))
-      if (drafts.some(item => !item.content)) throw new Error('模型没有完整返回评论，请重试。')
-      const created = new Map<string, ForumComment>(); const staged: ForumComment[] = []
-      drafts.forEach(({ spec, content }, index) => {
-        const account = authorPool.find(item => item.id === spec.authorAccountId)
-        if (!account || !content) return
-        const parent = spec.replyToSpecId ? created.get(spec.replyToSpecId) : undefined
-        const comment: ForumComment = { id: id('comment'), postId, author: accountToUser(account), authorAccountId: account.id, parentId: parent?.id, rootCommentId: parent?.id, replyToCommentId: parent?.id, depth: parent ? 1 : 0, replyToUser: parent ? { id: parent.authorAccountId, name: parent.author.name } : undefined, content, likeCount: Math.random() < .2 ? 1 : 0, createdAt: Date.now() + index * 1000, source: 'generated', generationBatchId: batchId }
-        staged.push(comment); created.set(spec.specId, comment)
-      })
-      snapshot.value.comments = [...keptComments, ...staged]
+      await generateForumPostInteractions(snapshot.value, currentAccount.value.id, postId, { comments: true, replies: true, postLikes: false, commentLikes: false, shares: false, bookmarks: false, follows: false, views: false, countMode: 'custom', commentCount: count, replyCount: Math.floor(count / 4), actorCount: Math.min(count, Math.max(1, Math.ceil(count * .7))), postLikeCount: 0, commentLikeCount: 0, shareCount: 0, bookmarkCount: 0, followCount: 0, viewCount: 0 })
       post.commentCount = snapshot.value.comments.filter(item => item.postId === postId).length
+      await saveForumSnapshot(snapshot.value)
     } catch (cause) {
-      const transientAccountIds = new Set(snapshot.value.accounts.filter(item => item.firstSeenBatchId === batchId).map(item => item.id))
-      const transientSubjectIds = new Set(snapshot.value.accounts.filter(item => transientAccountIds.has(item.id)).map(item => item.subjectId))
-      snapshot.value.accounts = snapshot.value.accounts.filter(item => !transientAccountIds.has(item.id)); snapshot.value.subjects = snapshot.value.subjects.filter(item => !transientSubjectIds.has(item.id)); snapshot.value.personas = snapshot.value.personas.filter(item => !transientAccountIds.has(item.accountId)); snapshot.value.participantPolicies = snapshot.value.participantPolicies.filter(item => !transientSubjectIds.has(item.subjectId))
       error.value = cause instanceof Error ? cause.message : String(cause)
     } finally { busy.value = false }
   }
 
-  const generateConversationReply = async (conversationId: string, timing: ForumReplyTimingMode = 'immediate') => {
-    if (!currentAccount.value || busy.value) return
-    const conversation = snapshot.value.conversations.find(item => item.id === conversationId); if (!conversation) return
-    const candidates = conversation.participantAccountIds.filter(accountId => accountId !== currentAccount.value?.id).filter(accountId => {
-      const account = snapshot.value.accounts.find(item => item.id === accountId); return account ? canAccountAppear(snapshot.value, account) : false
-    })
-    if (!candidates.length) { error.value = '当前对话没有可生成回复的参与者。'; return }
-    busy.value = true; error.value = ''
+  const generatePostInteractions = async (postId: string, config: ForumPostInteractionConfig) => {
+    if (!currentAccount.value || interactionBusy.value) return false
+    interactionBusy.value = true; interactionError.value = ''
     try {
-      const recent = snapshot.value.messages.filter(item => item.conversationId === conversationId).slice(-20).map(item => `${item.senderId}: ${item.content}`).join('\n')
-      const purpose = conversation.kind === 'group' ? 'forum-group' : 'forum-dm'
-      for (const senderId of shuffle(candidates).slice(0, conversation.kind === 'group' ? 3 : 1)) {
-        const generated = await requestForumJson<{ willReply?: boolean; content?: string; timing?: 'immediate' | 'delayed'; activity?: string; delayMinutes?: number }>(snapshot.value, { userInitiated: true, viewerAccountId: currentAccount.value.id, involvedAccountIds: [senderId] }, purpose, `这是用户手动点击的一次回复生成。只替 involvedAccounts 中这一个作者回应近期对话。${timing === 'presence-aware' ? '结合人物当前生活状态决定立即回复或延迟；即使延迟，也必须在本次调用中生成最终回复内容、状态和等待分钟数。' : '默认立即看到并回复。'}允许确实不想回复，不替其他人发言。\n近期对话：\n${recent}`, '{"willReply":true,"content":"最终回复正文","timing":"immediate或delayed","activity":"延迟时的状态","delayMinutes":30}')
-        const content = String(generated.content || '').trim().slice(0, 1000)
-        if (generated.willReply === false || !content) continue
-        const delayed = timing === 'presence-aware' && generated.timing === 'delayed'
-        const delayMinutes = Math.max(1, Math.min(1440, Number(generated.delayMinutes || 30)))
-        const availabilityText = delayed ? `${String(generated.activity || '暂时没看论坛').slice(0, 80)}，预计约 ${Math.round(delayMinutes)} 分钟后回复` : undefined
-        const generatedMessage: ForumDirectMessage = { id: id('generated_message'), conversationId, senderId, receiverId: conversation.kind === 'group' ? undefined : currentAccount.value.id, content, type: 'text', createdAt: Date.now(), isSelf: false, source: 'generated', revealAt: delayed ? Date.now() + delayMinutes * 60000 : undefined, availabilityText }
-        snapshot.value.messages.push(generatedMessage); scheduleLocalReveal('message', generatedMessage.id, generatedMessage.revealAt)
-        conversation.lastMessage = availabilityText || content; conversation.lastMessageTime = nowLabel()
-      }
-    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) } finally { busy.value = false }
+      await generateForumPostInteractions(snapshot.value, currentAccount.value.id, postId, config)
+      await saveForumSnapshot(snapshot.value)
+      return true
+    } catch (cause) {
+      interactionError.value = cause instanceof Error ? cause.message : String(cause)
+      return false
+    } finally { interactionBusy.value = false }
   }
+
+  const generateConversationReply = (conversationId: string, requestedTiming?: ForumReplyTimingMode) => {
+    if (!currentAccount.value) return Promise.resolve(false)
+    const initiatingAccountId = currentAccount.value.id
+    const execute = async () => {
+      const conversation = snapshot.value.conversations.find(item => item.id === conversationId)
+      if (!conversation) return false
+      const senderId = conversation.participantAccountIds.find(accountId => accountId !== initiatingAccountId)
+      const sender = senderId ? snapshot.value.accounts.find(item => item.id === senderId) : undefined
+      if (!senderId || !sender || !canAccountAppear(snapshot.value, sender)) { error.value = '当前对话没有可生成回复的参与者。'; return false }
+      if (conversation.kind === 'group') { error.value = '群聊回复请从群聊功能生成；本入口仅使用论坛单聊 XML。'; return false }
+      const requestId = id('forum_dm_request')
+      const timing = requestedTiming || snapshot.value.settings.dm.replyTiming
+      if (timing === 'range' && snapshot.value.settings.dm.rangeDelayMin > snapshot.value.settings.dm.rangeDelayMax) { error.value = '私信延迟范围无效：最短分钟不能大于最长分钟。'; return false }
+      const task: ForumDmGenerationTask = { id: requestId, conversationId, senderId, status: 'running', timing, createdAt: Date.now() }
+      snapshot.value.dmTasks.unshift(task)
+      error.value = ''
+      try {
+        const timingInstruction = timing === 'presence-aware'
+          ? '根据人物当前状态决定是否延迟显示。如需延迟，在 persona_updates 中返回 field="system.replyDelayMinutes" 的整数分钟和可选 field="system.activity"；最终消息仍必须本轮生成。'
+          : timing === 'fixed' ? `最终消息本轮生成，将在 ${snapshot.value.settings.dm.fixedDelayMinutes} 分钟后本地显示。`
+            : timing === 'range' ? `最终消息本轮生成，将在 ${snapshot.value.settings.dm.rangeDelayMin}～${snapshot.value.settings.dm.rangeDelayMax} 分钟内本地显示。`
+              : '立即回复。'
+        const raw = await requestForumDmXml(snapshot.value, { viewerAccountId: initiatingAccountId, senderId, conversationId, timingInstruction })
+        const parsed = parseChatMessageXml(raw, snapshot.value.settings.dm.maxBubbleMode === 'limit' ? snapshot.value.settings.dm.maxBubbles : undefined)
+        if (!parsed.messages.length) throw new Error('模型没有返回可用的论坛私聊消息。')
+        if (!snapshot.value.conversations.some(item => item.id === conversationId) || snapshot.value.settings.activeAccountId !== initiatingAccountId) { Object.assign(task, { status: 'cancelled' as const, completedAt: Date.now(), error: '会话已删除或账号已切换，迟到结果已废弃。' }); return false }
+        const delayFact = parsed.facts.find(fact => fact.field === 'system.replyDelayMinutes')
+        const activityFact = parsed.facts.find(fact => fact.field === 'system.activity')
+        const delayMinutes = timing === 'fixed' ? snapshot.value.settings.dm.fixedDelayMinutes
+          : timing === 'range' ? snapshot.value.settings.dm.rangeDelayMin + Math.random() * Math.max(0, snapshot.value.settings.dm.rangeDelayMax - snapshot.value.settings.dm.rangeDelayMin)
+            : timing === 'presence-aware' ? Math.max(0, Math.min(1440, Number(delayFact?.value || 0))) : 0
+        const revealAt = delayMinutes > 0 ? Date.now() + delayMinutes * 60000 : undefined
+        const availabilityText = revealAt ? `${String(activityFact?.value || '对方正在忙').slice(0, 80)}，预计约 ${Math.round(delayMinutes)} 分钟后回复` : undefined
+        parsed.messages.forEach((message, index) => {
+          const generatedMessage: ForumDirectMessage = { id: id('generated_message'), conversationId, senderId, receiverId: initiatingAccountId, content: message.content.slice(0, 2000), type: 'text', createdAt: Date.now() + index, isSelf: false, source: 'generated', requestId, revealAt, availabilityText, contentLanguage: message.contentLanguage, translation: message.translation, translationLanguage: message.translationLanguage }
+          snapshot.value.messages.push(generatedMessage); scheduleLocalReveal('message', generatedMessage.id, generatedMessage.revealAt)
+        })
+        const stableFacts = parsed.facts.filter(fact => !fact.field.startsWith('system.'))
+        applyPersonaFacts(sender, stableFacts)
+        conversation.lastMessage = revealAt ? '对方将在稍后回复' : parsed.messages.at(-1)!.content
+        conversation.lastMessageTime = nowLabel()
+        Object.assign(task, { status: 'completed' as const, completedAt: Date.now() })
+        await saveForumSnapshot(snapshot.value)
+        return true
+      } catch (cause) {
+        Object.assign(task, { status: 'failed' as const, error: cause instanceof Error ? cause.message : String(cause), completedAt: Date.now() })
+        error.value = task.error || ''
+        return false
+      }
+    }
+    if (snapshot.value.settings.dm.concurrency === 'parallel') return execute()
+    const previous = dmQueues.get(conversationId) || Promise.resolve(true)
+    const queued = previous.catch(() => false).then(execute)
+    dmQueues.set(conversationId, queued)
+    void queued.finally(() => { if (dmQueues.get(conversationId) === queued) dmQueues.delete(conversationId) })
+    return queued
+  }
+
+  const applyPersonaFacts = (account: ForumAccount, facts: Array<{ field: string; value: string }>) => {
+    if (!facts.length || snapshot.value.settings.dm.factPersistence === 'conversation-only') return
+    if (snapshot.value.settings.dm.factPersistence === 'confirm') {
+      facts.forEach(fact => snapshot.value.notifications.push({ id: id('notification'), accountId: snapshot.value.settings.activeAccountId, type: 'dm', actorAccountId: account.id, text: `待确认的人物新事实：${fact.field} = ${fact.value}`.slice(0, 240), createdAt: Date.now() }))
+      return
+    }
+    const persona = snapshot.value.personas.find(item => item.accountId === account.id)
+    facts.forEach(fact => {
+      const field = fact.field.replace(/^account\./, '').replace(/^persona\./, '')
+      const target = fact.field.startsWith('account.') ? account as unknown as Record<string, unknown> : persona as unknown as Record<string, unknown> | undefined
+      const current = String(target?.[field] || '').trim()
+      if (current && current !== fact.value.trim()) { snapshot.value.notifications.push({ id: id('notification'), accountId: snapshot.value.settings.activeAccountId, type: 'dm', actorAccountId: account.id, text: `人物事实与已知资料冲突，未自动覆盖：${field}`.slice(0, 240), createdAt: Date.now() }); return }
+      if (fact.field.startsWith('account.') && !account.lockedFields?.includes(field) && ['bio', 'location', 'expressionStyle'].includes(field)) (account as unknown as Record<string, unknown>)[field] = fact.value.slice(0, 500)
+      else if (persona && !persona.lockedFields.includes(field) && ['identity', 'personality', 'occupation', 'postingStyle', 'commentingStyle', 'dmStyle', 'emojiStyle', 'punctuationStyle'].includes(field)) (persona as unknown as Record<string, unknown>)[field] = fact.value.slice(0, 500)
+      else if (!account.lockedFields?.includes('backgroundHints')) account.backgroundHints = [...new Set([...(account.backgroundHints || []), fact.value.slice(0, 240)])].slice(-12)
+    })
+  }
+
+  const isConversationGenerating = (conversationId: string) => snapshot.value.dmTasks.some(task => task.conversationId === conversationId && task.status === 'running')
 
   const adjustPendingReply = (kind: 'comment' | 'message', entityId: string, minutes?: number) => {
     const entity = kind === 'comment' ? snapshot.value.comments.find(item => item.id === entityId) : snapshot.value.messages.find(item => item.id === entityId)
@@ -668,10 +811,59 @@ export function useForum() {
     scheduleLocalReveal(kind, entityId, entity.revealAt)
   }
 
+  const togglePinPost = (postId: string) => {
+    const post = snapshot.value.posts.find(item => item.id === postId)
+    if (!post) return false
+    post.pinned = !post.pinned
+    return true
+  }
+
+  const toggleKeepPost = (postId: string) => {
+    const post = snapshot.value.posts.find(item => item.id === postId)
+    if (!post || post.source !== 'generated') return false
+    post.isKept = !post.isKept
+    post.keptAt = post.isKept ? Date.now() : undefined
+    void saveForumSnapshot(snapshot.value)
+    return true
+  }
+
+  const movePost = (postId: string, direction: 'up' | 'down') => {
+    const postList = snapshot.value.posts
+    const index = postList.findIndex(item => item.id === postId)
+    if (index < 0) return false
+
+    if (direction === 'up' && index > 0) {
+      const targetIndex = index - 1
+      const current = postList[index]
+      const prev = postList[targetIndex]
+      const currentCreated = Number(current.createdAt) || Date.now()
+      const prevCreated = Number(prev.createdAt) || Date.now()
+      if (currentCreated <= prevCreated) {
+        current.createdAt = prevCreated + 1000
+      }
+      postList[index] = prev
+      postList[targetIndex] = current
+      return true
+    } else if (direction === 'down' && index < postList.length - 1) {
+      const targetIndex = index + 1
+      const current = postList[index]
+      const next = postList[targetIndex]
+      const currentCreated = Number(current.createdAt) || Date.now()
+      const nextCreated = Number(next.createdAt) || Date.now()
+      if (currentCreated >= nextCreated) {
+        current.createdAt = Math.max(0, nextCreated - 1000)
+      }
+      postList[index] = next
+      postList[targetIndex] = current
+      return true
+    }
+    return false
+  }
+
   return {
-    snapshot, ready, busy, error, generationBusy, generationProgress, generationError, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications, friendRequests,
+    snapshot, ready, busy, error, generationBusy, generationProgress, generationError, interactionBusy, interactionError, friendFeedback, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications, friendRequests,
     pushRoute, popRoute, resetToTab, completeOnboarding, updateForumProfile, addForumAccount, switchAccount, listParticipantCandidates, syncParticipantCandidates, setCharacterParticipation, updateParticipantPolicy, updateBridgePolicy, createCircle, joinCircle, bindCircleWorldBooks,
-    publishNewPost, addComment, toggleLikePost, toggleBookmarkPost, deletePosts, deleteCircles, toggleFollowUser, sendDirectMessage, createForumGroup, sendGroupMessage, conversationMessages, addBlock, addMute, addVisibilityRule, votePoll, enterLottery, drawLottery, importMediaFile, generateImageMedia, generateVoiceMedia, buildLightVideo, generateNewContent, generatePostComments, generateConversationReply, adjustPendingReply, forumFriendStatus, sendForumFriendRequest, acceptForumFriendRequest, rejectForumFriendRequest, generateForumFriendDecision,
+    publishNewPost, addComment, toggleLikePost, toggleBookmarkPost, togglePinPost, toggleKeepPost, movePost, deletePosts, deleteCircles, toggleFollowUser, sendDirectMessage, createForumGroup, sendGroupMessage, conversationMessages, addBlock, addMute, addVisibilityRule, votePoll, enterLottery, drawLottery, importMediaFile, addAvatarFiles, addAvatarUrl, generateAvatarLibraryItem, removeAvatarLibraryItem, assignAvatarToAccount, updateNpcProfile, generateImageMedia, generateVoiceMedia, buildLightVideo, generateNewContent, generatePostComments, generatePostInteractions, generateConversationReply, isConversationGenerating, adjustPendingReply, forumFriendStatus, sendForumFriendRequest, acceptForumFriendRequest, rejectForumFriendRequest, generateForumFriendDecision,
     recordFeedShown: (posts: ForumPost[], source: ForumFeedKind | 'circle') => currentAccount.value && recordFeedExposure(snapshot.value, currentAccount.value.id, posts, source),
     markPostOpened: (postId: string) => currentAccount.value && markPostOpened(snapshot.value, currentAccount.value.id, postId)
   }
@@ -685,12 +877,4 @@ const uniqueHandle = (value: string) => {
   return result
 }
 const hash = (value: string) => Array.from(value).reduce((score, char) => ((score << 5) - score + char.charCodeAt(0)) | 0, 0) >>> 0
-const shuffle = <T>(values: T[]) => {
-  const result = [...values]
-  for (let index = result.length - 1; index > 0; index -= 1) {
-    const target = Math.floor(Math.random() * (index + 1))
-    ;[result[index], result[target]] = [result[target], result[index]]
-  }
-  return result
-}
 const postSignature = (value: unknown) => String(value || '').trim().toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '').slice(0, 120)

@@ -32,6 +32,7 @@ export interface ForumContactBridgeInput {
   bio?: string
   persona?: string
   interactionSummary?: string
+  existingEntityId?: string
 }
 
 const cleanId = (value: unknown) => String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)
@@ -281,7 +282,7 @@ export const createForumFriendContact = (input: ForumContactBridgeInput) => {
   const accountId = currentChatUserId.value
   if (!accountId) throw new Error('请先登录聊天 App 账号')
   const entries = readDirectory()
-  let entry = entries.find(item => item.sourceForumAccountId === input.forumAccountId)
+  let entry = entries.find(item => item.sourceForumAccountId === input.forumAccountId) || (input.existingEntityId ? entries.find(item => item.entityId === input.existingEntityId) : undefined)
   if (!entry) {
     const suffix = input.forumAccountId.replace(/[^a-zA-Z0-9]/g, '').slice(-12) || Date.now().toString(36)
     const entityId = `forum_${suffix}`
@@ -305,8 +306,10 @@ export const createForumFriendContact = (input: ForumContactBridgeInput) => {
       updatedAt: Date.now()
     }
     entries.push(entry)
-    writeDirectory(entries)
   }
+  entry.sourceForumAccountId = input.forumAccountId
+  entry.updatedAt = Date.now()
+  writeDirectory(entries)
   const candidate = createDirectoryCandidate(entry)
   if (!candidate) throw new Error('无法写入聊天联系人')
   candidate.contactState = 'friend'

@@ -2,6 +2,7 @@
 
 export * from './global'
 export * from './api'
+export * from './forumPrompt'
 export * from './chat'
 export * from './cot'
 export * from './prompt'

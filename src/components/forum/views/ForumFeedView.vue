@@ -5,6 +5,7 @@ import type { ForumPost, ForumUser, ForumMediaItem, ForumQuoteContent } from '..
 import ForumHeader from '../components/ForumHeader.vue'
 import ForumFeedItem from '../components/ForumFeedItem.vue'
 import ForumEmptyState from '../components/ForumEmptyState.vue'
+import ForumPostActionMenuModal from '../modals/ForumPostActionMenuModal.vue'
 
 const props = defineProps<{
   posts: ForumPost[]
@@ -29,26 +30,81 @@ const emit = defineEmits<{
   (e: 'change-mode', mode: 'recommend' | 'following' | 'latest'): void
   (e: 'shown', posts: ForumPost[], mode: 'recommend' | 'following' | 'latest'): void
   (e: 'delete-posts', postIds: string[]): void
+  (e: 'toggle-pin', postId: string): void
+  (e: 'toggle-keep', postId: string): void
+  (e: 'move-post', postId: string, direction: 'up' | 'down'): void
 }>()
 
 const isSelecting = ref(false)
 const selectedPostIds = ref<string[]>([])
 const showDeleteConfirm = ref(false)
+const singlePostToDelete = ref<ForumPost | null>(null)
+
+const activeActionPost = ref<ForumPost | null>(null)
+const isActionMenuVisible = ref(false)
+
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+let touchStartPosition = { x: 0, y: 0 }
+let isMoved = false
 
 const activeSubTab = computed({ get:()=>props.mode, set:value=>emit('change-mode',value) })
 const displayPosts = computed(() => props.posts)
 
 const allDisplayedSelected = computed(() => displayPosts.value.length > 0 && displayPosts.value.every(post => selectedPostIds.value.includes(post.id)))
 
-const enterSelection = () => {
+const isFirstPost = (postId: string) => displayPosts.value[0]?.id === postId
+const isLastPost = (postId: string) => displayPosts.value[displayPosts.value.length - 1]?.id === postId
+
+const clearLongPress = () => {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+}
+
+const handleTouchStart = (post: ForumPost, event: TouchEvent | MouseEvent) => {
+  if (isSelecting.value) return
+  isMoved = false
+  const clientX = 'touches' in event ? event.touches[0].clientX : event.clientX
+  const clientY = 'touches' in event ? event.touches[0].clientY : event.clientY
+  touchStartPosition = { x: clientX, y: clientY }
+
+  clearLongPress()
+  longPressTimer = setTimeout(() => {
+    if (!isMoved) {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(35)
+      }
+      activeActionPost.value = post
+      isActionMenuVisible.value = true
+    }
+  }, 480)
+}
+
+const handleTouchMove = (event: TouchEvent | MouseEvent) => {
+  if (!longPressTimer) return
+  const clientX = 'touches' in event ? event.touches[0].clientX : event.clientX
+  const clientY = 'touches' in event ? event.touches[0].clientY : event.clientY
+  if (Math.hypot(clientX - touchStartPosition.x, clientY - touchStartPosition.y) > 8) {
+    isMoved = true
+    clearLongPress()
+  }
+}
+
+const handleTouchEnd = () => {
+  clearLongPress()
+}
+
+const enterSelection = (initialPost?: ForumPost) => {
   isSelecting.value = true
-  selectedPostIds.value = []
+  selectedPostIds.value = initialPost ? [initialPost.id] : []
 }
 
 const exitSelection = () => {
   isSelecting.value = false
   selectedPostIds.value = []
   showDeleteConfirm.value = false
+  singlePostToDelete.value = null
 }
 
 const togglePost = (postId: string) => {
@@ -73,10 +129,20 @@ const handleSelectionClick = (event: Event, postId: string) => {
   togglePost(postId)
 }
 
+const handleSinglePostDeleteRequest = (post: ForumPost) => {
+  singlePostToDelete.value = post
+  showDeleteConfirm.value = true
+}
+
 const confirmDelete = () => {
-  if (!selectedPostIds.value.length) return
-  emit('delete-posts', [...selectedPostIds.value])
-  exitSelection()
+  if (singlePostToDelete.value) {
+    emit('delete-posts', [singlePostToDelete.value.id])
+    singlePostToDelete.value = null
+    showDeleteConfirm.value = false
+  } else if (selectedPostIds.value.length) {
+    emit('delete-posts', [...selectedPostIds.value])
+    exitSelection()
+  }
 }
 
 watch(activeSubTab, () => {
@@ -130,12 +196,6 @@ watch(() => props.posts.map(post => post.id), postIds => {
         <button v-if="isSelecting" class="selection-header-action" type="button" :disabled="displayPosts.length === 0" @click="toggleSelectAll">
           {{ allDisplayedSelected ? '取消全选' : '全选' }}
         </button>
-        <button v-else-if="displayPosts.length" class="manage-posts-button" type="button" aria-label="批量管理帖子" title="批量管理帖子" @click="enterSelection">
-          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
-            <path d="m7.5 12 3 3 6-7"></path>
-          </svg>
-        </button>
       </template>
     </ForumHeader>
 
@@ -149,6 +209,14 @@ watch(() => props.posts.map(post => post.id), postIds => {
           class="selectable-post"
           :class="{ 'is-selecting': isSelecting, 'is-selected': selectedPostIds.includes(post.id) }"
           @click.capture="handleSelectionClick($event, post.id)"
+          @touchstart="handleTouchStart(post, $event)"
+          @touchmove="handleTouchMove($event)"
+          @touchend="handleTouchEnd"
+          @touchcancel="handleTouchEnd"
+          @mousedown="handleTouchStart(post, $event)"
+          @mousemove="handleTouchMove($event)"
+          @mouseup="handleTouchEnd"
+          @mouseleave="handleTouchEnd"
         >
           <span v-if="isSelecting" class="post-selection-checkbox" aria-hidden="true">
             <svg v-if="selectedPostIds.includes(post.id)" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"></path></svg>
@@ -201,9 +269,26 @@ watch(() => props.posts.map(post => post.id), postIds => {
       </div>
     </transition>
 
+    <!-- 长按快捷操作菜单 -->
+    <ForumPostActionMenuModal
+      :visible="isActionMenuVisible"
+      :post="activeActionPost"
+      :is-first="activeActionPost ? isFirstPost(activeActionPost.id) : false"
+      :is-last="activeActionPost ? isLastPost(activeActionPost.id) : false"
+      @close="isActionMenuVisible = false"
+      @toggle-pin="p => emit('toggle-pin', p.id)"
+      @toggle-keep="p => emit('toggle-keep', p.id)"
+      @move-up="p => emit('move-post', p.id, 'up')"
+      @move-down="p => emit('move-post', p.id, 'down')"
+      @enter-select="p => enterSelection(p)"
+      @delete-post="p => handleSinglePostDeleteRequest(p)"
+    />
+
     <div v-if="showDeleteConfirm" class="delete-confirm-overlay" @click.self="showDeleteConfirm = false">
       <section role="alertdialog" aria-modal="true" aria-labelledby="forum-delete-title">
-        <h2 id="forum-delete-title">删除选中的 {{ selectedPostIds.length }} 篇帖子？</h2>
+        <h2 id="forum-delete-title">
+          {{ singlePostToDelete ? '删除这篇帖子？' : `删除选中的 ${selectedPostIds.length} 篇帖子？` }}
+        </h2>
         <p>帖子及其评论、投票和抽奖记录将一并删除，且无法恢复。</p>
         <div><button type="button" @click="showDeleteConfirm = false">取消</button><button class="danger" type="button" @click="confirmDelete">确认删除</button></div>
       </section>
