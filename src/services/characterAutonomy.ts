@@ -1,5 +1,5 @@
 import localforage from 'localforage'
-import { sendChatMessage } from './api'
+import { sendCapabilityMessage } from './api'
 import { buildChatMessages } from '../composables/chatState/messages'
 import { formatIdentityDateTime, isConversationTimePaused } from './conversationTime'
 import { isChatContextVisible, mockChats } from '../composables/chatState/state'
@@ -265,7 +265,7 @@ export const runAutonomousCheck = async (
         ? `[${characterName}'s autonomous activity]\nCurrent local time: ${formatIdentityDateTime(chat, now)}. About ${elapsedMinutes} minutes have passed since the last check. Trigger: ${reason}. ${catchup ? 'This is a complete local catch-up for the recorded closed-page window. Place plausible actions across the elapsed time without repetition.' : 'This is a normal check while the page is running.'}\nDecide whether ${characterName} genuinely wants to do anything now. Every returned action belongs to ${characterName}; this check does not imply that the user sent a new message. Proactive messages allowed: ${chat.autonomyAllowMessages ? 'yes' : 'no'}; Moments allowed: ${chat.autonomyAllowMoments ? 'yes' : 'no'}; status changes allowed: ${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? 'yes' : 'no'}; friend request allowed: ${friendRequestAllowed ? 'yes' : 'no'}. ${policyText} Follow ${characterName}'s persona, relationship, recent conversation, and any schedule or busyness disclosed by the user. Outside mandatory policies, silence is normal. Avoid mechanical greetings, time announcements, and explanations of these rules.\nReturn JSON only: {"summary":"one internal summary sentence","emotion":"current emotion","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status|friend_request","content":"plain message, Moments post, or friend-request text without XML tags","status":"online|offline|busy|away","text":"status text","atOffsetMinutes":0,"important":false}]}. content must be plain text and never contain tags. actions may be empty unless a policy is due; at most ${maxActions}. nextCheckMinutes must be between ${minimum} and ${Math.max(720, minimum)}. During catch-up, atOffsetMinutes means how many minutes ago the action occurred and may not exceed ${elapsedMinutes}.`
         : `【角色${characterName}的自主活动】\n当前当地时间：${formatIdentityDateTime(chat, now)}。距离上次判断约 ${elapsedMinutes} 分钟。触发原因：${reason}。${catchup ? '这是记录到的页面关闭时间段的完整本地补演，应在经过时间内合理分布动作且避免重复。' : '这是页面运行期间的正常判断。'}\n判断角色${characterName}此刻是否真心想做些什么。所有返回动作都属于角色${characterName}；本次检查不代表用户刚刚发来了新消息。允许主动消息：${chat.autonomyAllowMessages ? '是' : '否'}；允许朋友圈：${chat.autonomyAllowMoments ? '是' : '否'}；允许状态变化：${chat.enableImmersiveStatus && chat.autonomyAllowStatus ? '是' : '否'}；允许好友申请：${friendRequestAllowed ? '是' : '否'}。${policyText}遵循角色${characterName}的人设、关系、最近聊天内容和用户透露的忙碌或作息；除强制保障外，沉默是正常选择。避免机械问候、报时或解释规则。\n只返回 JSON：{"summary":"一句内部摘要","emotion":"当前情绪","emotionIntensity":0,"emotionNeedsDelivery":false,"nextCheckMinutes":120,"actions":[{"type":"message|moment|status|friend_request","content":"不含标签的纯文本消息、朋友圈正文或好友申请文案","status":"online|offline|busy|away","text":"状态文案","atOffsetMinutes":0,"important":false}]}。actions 除保障到期外可以为空；最多 ${maxActions} 个；nextCheckMinutes 为 ${minimum} 到 ${Math.max(720, minimum)}。补演时 atOffsetMinutes 表示动作发生在多少分钟前，不能超过 ${elapsedMinutes}。`
     })
-    const result: any = await sendChatMessage(messages)
+    const result: any = await sendCapabilityMessage('chat-auxiliary', messages)
     const rawDecision = typeof result === 'string' ? result : result.content
     let decision = parseDecision(rawDecision)
     let actions = Array.isArray(decision.actions)
@@ -295,7 +295,7 @@ export const runAutonomousCheck = async (
             ? '必达的直接消息缺失。请重新按同一 JSON 结构返回，并加入一条真诚、符合人设的 message 动作；不要提及修正过程或规则。'
             : '最低联系保障已经到期，但没有返回可执行动作。请重新按同一 JSON 结构返回，并加入至少一个真诚且已获准的动作；不要提及修正过程或规则。'
       })
-      const repaired: any = await sendChatMessage(messages)
+      const repaired: any = await sendCapabilityMessage('chat-auxiliary', messages)
       decision = parseDecision(typeof repaired === 'string' ? repaired : repaired.content)
       actions = Array.isArray(decision.actions)
         ? decision.actions.filter(action => action && typeof action.type === 'string').slice(0, maxActions)

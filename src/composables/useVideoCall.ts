@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属"粘人精"，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
-import { sendChatMessage } from '../services/api'
+import { sendCapabilityMessage, sendChatMessage } from '../services/api'
 import { buildMemoryPacket } from '../services/memoryEngine'
 import { taskPromptSettings } from '../store'
 
@@ -254,7 +254,7 @@ ${userName} 正在向 ${charName} 发起实时通话请求。
       }
 
       try {
-        const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true, true)
+        const result = await sendCapabilityMessage('summary', [{ role: 'user', content: prompt }])
         let summaryContent = ''
         if (typeof result === 'string') {
           summaryContent = result
@@ -319,7 +319,7 @@ ${userName} 正在向 ${charName} 发起实时通话请求。
     }
 
     try {
-      const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true, true)
+      const result = await sendCapabilityMessage('summary', [{ role: 'user', content: prompt }])
       let summaryContent = ''
       if (typeof result === 'string') {
         summaryContent = result

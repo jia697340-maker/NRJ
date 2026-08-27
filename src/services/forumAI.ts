@@ -1,17 +1,24 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { isForumApiReady, sendChatMessage, type ForumApiPurpose } from './api'
+import { isForumApiReady, sendCapabilityMessage, sendChatMessage, type ForumApiPurpose } from './api'
 import { assertNoDisabledSubjects, buildAllowedForumContext, sanitizeAllowedContext, type ForumContextRequest } from './forumPolicy'
 import type { ForumSnapshot } from '../types/forum'
 import { collectChatToForumBridgeMemories } from './forumMemoryBridge'
 import { forumPromptSettings } from '../store/forumPrompt'
-import { forumApiSettings } from '../store/api'
+import type { ApiCapabilityId } from './apiCapabilities'
+import { resolveApiCapability } from '../store/api'
+
+const capabilityForPurpose = (purpose: ForumApiPurpose): ApiCapabilityId => purpose === 'forum-comment'
+  ? 'forum-interaction'
+  : purpose === 'forum-dm' ? 'forum-dm' : 'forum-content'
 
 const sendForumMessage = async (messages: Array<{ role: string; content: string }>, purpose: ForumApiPurpose) => {
+  const capability = capabilityForPurpose(purpose)
+  const route = resolveApiCapability(capability)
   const usingDedicatedNode = isForumApiReady(purpose)
   try {
-    return await sendChatMessage(messages, undefined, false, false, purpose, 'auto', undefined, false)
+    return await sendCapabilityMessage(capability, messages, { purpose })
   } catch (cause) {
-    if (!usingDedicatedNode || !forumApiSettings.fallbackToDefault) throw cause
+    if (!usingDedicatedNode || route.node?.fallbackToDefault === false || (cause as any)?.name === 'AbortError') throw cause
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nrj:forum-api-fallback', { detail: { purpose, message: cause instanceof Error ? cause.message : String(cause) } }))
     return sendChatMessage(messages, undefined, false, false, 'default', 'auto', undefined, true)
   }

@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { sendChatMessage } from './api'
+import { sendCapabilityMessage } from './api'
 
 export type SocialCircleCategory = 'family' | 'friend' | 'work' | 'other'
 export type SocialPrivacy = 'public' | 'limited' | 'private' | 'hidden'
@@ -145,10 +145,10 @@ export async function generateSocialCircleDraft(chat: any, count: number): Promi
   const safeCount = Math.min(10, Math.max(2, Math.round(Number(count) || 5)))
   const existing = ensureSocialCircle(chat).map(item => `${item.name}（${item.relation}）`).join('、') || '无'
   const prompt = `你是一名角色世界观与社会关系编辑。请为角色生成真实、克制、彼此有区别的一层生活人脉，不要继续为这些人物递归生成人脉。\n角色姓名：${chat.realName || chat.name}\n角色设定：${String(chat.persona || '').slice(0, 9000)}\n已有的人脉：${existing}\n生成 ${safeCount} 人，覆盖符合该角色背景的家人、朋友、工作/学业与其他关系；不要为了凑分类破坏设定。允许存在疏远、竞争、旧识等复杂但合理的关系。部分人物应重视隐私，部分人物可以不接受陌生好友申请。不得把每个人都写成围绕用户生活，也不得虚构其与用户已有经历。\n只返回 JSON 数组，不要 Markdown。每项字段：name、nickname、socialId、signature、relation、category（family|friend|work|other）、persona（含身份、性格、说话方式、与主角色相处方式）、privacy（public|limited|private|hidden）、discoverable、allowFriendRequests、reciprocalVisible、enableMoments、allowMention、interactionFrequency（high|medium|low）。socialId 为 4～20 位字母数字下划线或短横线。`
-  const response = await sendChatMessage([
+  const response = await sendCapabilityMessage('social-generation', [
     { role: 'system', content: prompt },
     { role: 'user', content: `生成 ${safeCount} 位与角色背景一致的生活人脉。` }
-  ], undefined, false, false, 'moment-followup')
+  ])
   const parsed = extractJson(typeof response === 'string' ? response : response.content)
   if (!Array.isArray(parsed) || !parsed.length) throw new Error('没有生成有效的人脉人物')
   const stamp = Date.now()

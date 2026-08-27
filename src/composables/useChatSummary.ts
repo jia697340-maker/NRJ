@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
-import { sendChatMessage } from '../services/api'
+import { sendCapabilityMessage } from '../services/api'
 import { globalPromptSettings } from '../store'
 import {
   applyMemoryExtraction,
@@ -56,7 +56,7 @@ export function useChatSummary(selectedChat: any, saveCustomContacts: () => void
         let lastError: any = null
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           try {
-            const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+            const result = await sendCapabilityMessage('summary', [{ role: 'user', content: prompt }])
             const rawContent = typeof result === 'string' ? result : result.content
             if (!rawContent) throw new Error('总结生成内容为空')
             extraction = parseMemoryExtraction(rawContent)
@@ -184,7 +184,7 @@ Requirements:
          prompt += globalPromptSettings.language === 'en' ? `\n\n[Later or complete call transcript]:\n${messagesPayload}` : `\n\n【通话后半段（或全部）详细记录】：\n${messagesPayload}`
       }
 
-      const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+      const result = await sendCapabilityMessage('summary', [{ role: 'user', content: prompt }])
       
       let summaryContent = ''
       if (typeof result === 'string') {
@@ -230,7 +230,7 @@ Requirements:
          prompt += globalPromptSettings.language === 'en' ? `\n\n[Later or complete call transcript]:\n${messagesPayload}` : `\n\n【通话后半段（或全部）详细记录】：\n${messagesPayload}`
       }
 
-      const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+      const result = await sendCapabilityMessage('summary', [{ role: 'user', content: prompt }])
       
       let summaryContent = ''
       if (typeof result === 'string') {
@@ -271,7 +271,7 @@ Requirements:
         ? `Refresh these chronological long-form memories into one concise, currently valid, conflict-free long-form memory. Newer explicit changes, cancellations, or replacements override older states. Preserve important events, promises, boundaries, relationships, and meaningful changes; remove repetition and obsolete details; add no facts. Use an objective third-person perspective and 100-300 words. Output valid JSON only: {"narrative":"refreshed long-form memory"}\n\nMemories:\n${memoriesPayload}`
         : `你是长文本记忆刷新助手。以下记忆已按从旧到新排列，请把它们精简为一份当前有效、不冲突的长文本记忆。后面的明确修改、取消或替代必须覆盖旧状态；保留重要事件、承诺、边界、人物关系及其变化，删除重复和失效内容，不得补写不存在的事实。使用第三人称客观视角，控制在100-300字。只输出合法 JSON：{"narrative":"刷新后的长文本记忆"}\n\n历史记忆：\n${memoriesPayload}`
 
-      const result = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+      const result = await sendCapabilityMessage('summary', [{ role: 'user', content: prompt }])
       
       const rawContent = typeof result === 'string' ? result : result.content
       if (!rawContent) throw new Error('刷新生成的记忆内容为空')
@@ -316,7 +316,7 @@ Requirements:
             content: item.text
           }))
           const prompt = buildExtractionPrompt(messages, 'structured', chat.summaryPrompt?.trim() || '')
-          const response = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+          const response = await sendCapabilityMessage('summary', [{ role: 'user', content: prompt }])
           const extraction = parseMemoryExtraction(typeof response === 'string' ? response : response.content)
           if (!(extraction.events.length || extraction.variables.length || extraction.tableRows.length || extraction.relations.length)) {
             throw new Error('转换没有生成有效的结构化记忆')
@@ -375,7 +375,7 @@ Requirements:
       }])
     } else {
       const prompt = buildExtractionPrompt(sourceMessages.length ? sourceMessages : [{ id: Date.now(), type: 'system', content: summaryText }], 'structured', chat.summaryPrompt?.trim() || '')
-      const response = await sendChatMessage([{ role: 'user', content: prompt }], undefined, true)
+      const response = await sendCapabilityMessage('summary', [{ role: 'user', content: prompt }])
       const extraction = parseMemoryExtraction(typeof response === 'string' ? response : response.content)
       if (!(extraction.events.length || extraction.variables.length || extraction.tableRows.length || extraction.relations.length)) {
         throw new Error('没有生成可保存的结构化记忆')

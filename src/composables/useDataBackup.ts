@@ -17,6 +17,7 @@ export interface BackupCatalogItem {
 }
 
 export const BACKUP_CATALOG: BackupCatalogItem[] = [
+  { id: 'api-nodes', group: '账号与安全', name: 'API 节点配置', description: '默认节点、自定义节点、功能绑定与模型参数', sensitive: true, localKeys: ['clingy_api_settings', 'clingy_api_nodes_v1'] },
   { id: 'forum-data', group: '论坛', name: '论坛结构化数据', description: '论坛账号、角色准入、圈子、帖子、关系、消息与记忆', stores: [{ dbName: 'nrt-forum', storeName: 'forumData' }] },
   { id: 'forum-media', group: '论坛', name: '论坛媒体', description: '论坛图片、语音、轻短视频素材及媒体元数据', stores: [{ dbName: 'nrt-forum', storeName: 'forumMedia' }, { dbName: 'nrt-forum', storeName: 'forumMediaMeta' }] },
   { id: 'novelai-api-key', group: '账号与安全', name: 'NovelAI API 密钥', description: 'NovelAI 的访问密钥', sensitive: true, localKeys: ['app_novelai_apikey'] },
@@ -160,7 +161,7 @@ const BACKUP_INTERNAL_KEYS = new Set([
   'webdav_config',
   'email_backup_password'
 ])
-const SENSITIVE_KEY_PATTERN = /(api[_-]?key|apikey|token|secret|password|credential|clingy_(api|vision_api|summary_api|moment_api|embedding_api)_settings|minimax_voice_config|seed_audio_config|gemini_voice_config|elevenlabs_voice_config)/i
+const SENSITIVE_KEY_PATTERN = /(api[_-]?key|apikey|token|secret|password|credential|clingy_(api|api_nodes|vision_api|summary_api|moment_api|embedding_api|character_api|forum_api)(?:_nodes)?(?:_v\d+)?_settings|clingy_api_nodes_v\d+|minimax_voice_config|seed_audio_config|gemini_voice_config|elevenlabs_voice_config)/i
 const NESTED_SENSITIVE_PROPERTY_PATTERN = /^(api[_-]?key|apikey|token|secret|password|credential)$/i
 
 const isInfrastructureCredentialKey = (key: string) => BACKUP_INTERNAL_KEYS.has(key) || /github.*config|webdav.*config/i.test(key)

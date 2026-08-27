@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { apiSettings, characterApiSettings } from '../store'
+import { apiSettings, isApiSettingsReady, resolveApiCapability } from '../store'
 import { compileCharacterPersona, runCharacterJson } from './characterGenerator'
 import type {
   CharacterCandidate, CharacterCanonAudit, CharacterDraft, CharacterGenerationInput,
@@ -59,10 +59,12 @@ export async function reviewCharacterWithModels(draft: CharacterDraft): Promise<
     (settings.provider === 'custom' ? settings.customUrl : settings.url) &&
     (settings.provider === 'custom' ? settings.customKey : settings.key) && settings.model
   )
-  const characterReady = characterApiSettings.enabled && isReady(characterApiSettings)
+  const characterRoute = resolveApiCapability('character-workshop')
+  const characterSettings = characterRoute.source === 'custom' ? characterRoute.settings : null
+  const characterReady = Boolean(characterSettings && isApiSettingsReady(characterSettings))
   const globalReady = isReady(apiSettings)
   const tasks: Promise<CharacterModelReview>[] = characterReady
-    ? [reviewWith(draft, 'character-generation', '角色生成节点', characterApiSettings.model)]
+    ? [reviewWith(draft, 'character-generation', characterRoute.node?.name || '角色与人设节点', characterSettings!.model)]
     : [reviewWith(draft, 'character-review-global', '全局聊天节点', apiSettings.model)]
   if (characterReady && globalReady) tasks.push(reviewWith(draft, 'character-review-global', '全局聊天节点', apiSettings.model))
   return Promise.all(tasks)

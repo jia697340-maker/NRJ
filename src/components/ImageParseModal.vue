@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { readImageMetadata, metadataToGenerationParams } from '../composables/useImageMetadata'
-import { sendChatMessage } from '../services/api'
+import { sendCapabilityMessage } from '../services/api'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'apply', params: any, image: string): void }>()
 
@@ -150,7 +150,7 @@ const analyze = async () => {
   if (!image.value) return
   busy.value = true; error.value = ''
   try {
-    const result: any = await sendChatMessage([{ role: 'user', content: [{ type: 'text', text: 'Analyze this image for NovelAI image generation. Reply in Chinese with a short visual breakdown, then strict JSON only in a code block: {"positive_en":"comma separated English tags","negative_en":"comma separated English negative tags","width":number,"height":number}. Do not claim you know its original seed or prompt.' }, { type: 'image_url', image_url: { url: image.value } }] }], undefined, false, true)
+    const result: any = await sendCapabilityMessage('vision-understanding', [{ role: 'user', content: [{ type: 'text', text: 'Analyze this image for NovelAI image generation. Reply in Chinese with a short visual breakdown, then strict JSON only in a code block: {"positive_en":"comma separated English tags","negative_en":"comma separated English negative tags","width":number,"height":number}. Do not claim you know its original seed or prompt.' }, { type: 'image_url', image_url: { url: image.value } }] }])
     analysis.value = typeof result === 'string' ? result : result.content || ''
   } catch (e: any) { error.value = e.message || '图片分析失败：请确认当前聊天模型支持视觉输入。' } finally { busy.value = false }
 }

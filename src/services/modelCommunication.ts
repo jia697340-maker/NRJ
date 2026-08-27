@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { sendChatMessage } from './api'
+import { sendCapabilityMessage, sendChatMessage } from './api'
 
 export interface ChatModelRule {
   id: string
@@ -92,10 +92,10 @@ export async function generateChatModelRules(options: {
 }) {
   const context = formatSelectedMessages(options.chat, options.selectedMessages, options.focusIds)
   const transcript = options.communicationMessages.slice(-16).map(item => `${item.role === 'user' ? '用户' : '模型助手'}：${item.content}`).join('\n')
-  const response = await sendChatMessage([
+  const response = await sendCapabilityMessage('prompt-assistant', [
     { role: 'system', content: '你是当前聊天的规则整理器。只返回合法 JSON，不要 Markdown、解释或思考过程。规则必须具体、可执行，不复述剧情事实，不提及幕后沟通。' },
     { role: 'user', content: `根据角色设定、选中对话和直接沟通，整理 1 至 6 条供后续角色扮演持续执行的纠正规则。合并重复要求，不要凭空添加用户未提出的偏好。\n\n角色：${options.chat?.name || '未命名角色'}\n角色设定：${options.chat?.persona || '未设置'}\n\n选中对话：\n${context || '无'}\n\n直接沟通：\n${transcript || '无'}\n\n返回结构：{"rules":[{"content":"规则正文"}]}` }
-  ], options.signal, false, false, 'prompt-generation')
+  ], { signal: options.signal })
   const parsed = extractJson(response.content)
   const contents = Array.isArray(parsed?.rules) ? parsed.rules.map((item: any) => String(item?.content || '').trim()).filter(Boolean).slice(0, 6) : []
   if (!contents.length) throw new Error('模型返回的规则为空，请补充沟通内容后重试。')

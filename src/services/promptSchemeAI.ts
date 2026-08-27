@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { sendChatMessage } from './api'
+import { sendCapabilityMessage } from './api'
 import { buildPromptVariableGuide, findUnknownPromptVariables, type PromptVariableScope } from './promptVariables'
 import type { PromptItem, PromptLanguage, PromptPresetId, PromptScheme } from '../store/prompt'
 
@@ -101,10 +101,10 @@ export const generatePromptSchemeOnline = async (options: {
 }) => {
   const scope = options.scope || 'global'
   const guide = buildPromptGenerationGuide(scope, options.language, options.basePresetId, options.current)
-  const response = await sendChatMessage([
+  const response = await sendCapabilityMessage('prompt-assistant', [
     { role: 'system', content: '你是提示词方案编辑器。严格按照用户提供的 JSON 结构输出，不要输出解释或 Markdown。' },
     { role: 'user', content: `${guide}\n\n用户的具体要求：\n${options.requirement.trim() || '生成一套自然、稳定、长期使用的方案。'}` }
-  ], options.signal, false, false, 'prompt-generation')
+  ], { signal: options.signal })
   if (response.truncated) throw new Error('模型输出达到上限，请缩短要求或提高 API 最大输出。')
   return parseGeneratedPromptPayload(response.content, options.basePresetId, scope)
 }
@@ -152,10 +152,10 @@ export const generateOfflinePromptOnline = async (options: {
   signal?: AbortSignal
 }) => {
   const guide = buildOfflinePromptGenerationGuide(options.language, options.current)
-  const response = await sendChatMessage([
+  const response = await sendCapabilityMessage('prompt-assistant', [
     { role: 'system', content: '你是线下互动提示词编辑器。只返回符合要求的 JSON。' },
     { role: 'user', content: `${guide}\n\n用户要求：\n${options.requirement.trim() || '生成自然、稳定、不替用户作主的线下互动预设。'}` }
-  ], options.signal, false, false, 'prompt-generation')
+  ], { signal: options.signal })
   if (response.truncated) throw new Error('模型输出达到上限，请缩短要求或提高 API 最大输出。')
   return parseGeneratedOfflinePrompt(response.content)
 }

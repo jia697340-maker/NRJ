@@ -9,7 +9,7 @@ import DiscoverBehaviorModal from './discover/modals/DiscoverBehaviorModal.vue'
 import DiscoverBatchDeleteModal from './discover/modals/DiscoverBatchDeleteModal.vue'
 
 import { useChatDiscover } from '../composables/useChatDiscover'
-import { sendChatMessage } from '../services/api'
+import { sendCapabilityMessage, sendChatMessage } from '../services/api'
 import { processMomentTags } from '../composables/useChatRoomMessage'
 import { ensureRelationship } from '../composables/useChatRelationship'
 import { addMomentNotification, canViewMoment } from '../services/moments'
@@ -208,7 +208,7 @@ const requestCharacterView = async (chat: any) => {
       { role: 'user', content: globalPromptSettings.language === 'en' ? 'View this Moments post.' : '请看看这条朋友圈。' }
     ]
     let result
-    try { result = await sendChatMessage(request, undefined, false, false, 'moment-followup') }
+    try { result = await sendCapabilityMessage('moment-interaction', request) }
     catch { result = await sendChatMessage(request) }
     chat.__forceMomentAction = true
     try { await processMomentTags(typeof result === 'string' ? result : result.content, chat) } finally { delete chat.__forceMomentAction }

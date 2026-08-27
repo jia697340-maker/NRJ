@@ -11,7 +11,7 @@ import { useSeedreamImage } from './useSeedreamImage'
 import { useSeedreamImageReference } from './useSeedreamImageReference'
 import { usePollinationsImage } from './usePollinationsImage'
 import { useAiHordeImage } from './useAiHordeImage'
-import { sendChatMessage } from '../services/api'
+import { sendCapabilityMessage } from '../services/api'
 import { resolveIdentityContext } from '../services/identityProfile'
 
 // 朋友圈与聊天共用已有 NovelAI 接入；每次生成使用独立实例，避免影响聊天室中的生成状态。
@@ -196,10 +196,10 @@ export async function generateMomentImage(description: string, character: any): 
 
   let prompt = description.trim()
   try {
-    const translated = await sendChatMessage([
+    const translated = await sendCapabilityMessage('image-prompt', [
       { role: 'system', content: 'Translate the scene into concise NovelAI Danbooru-style English tags. Output tags only.' },
       { role: 'user', content: prompt }
-    ], undefined, false, true)
+    ])
     prompt = (typeof translated === 'string' ? translated : translated.content).trim() || prompt
   } catch {
     // 支持直接将中文描述交给兼容的图像服务，翻译失败不阻断发帖。

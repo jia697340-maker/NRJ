@@ -3,7 +3,7 @@ import localforage from 'localforage'
 import { cloneTimelineVectors, exportTimelineVectors, importTimelineVectors, removeTimelineVectors } from './memoryEngine'
 import { getMomentListKey, listMoments, listSharedCharacterMoments, saveMomentList, saveSharedCharacterMoments } from './momentRepository'
 import { walletStorageKey } from './walletService'
-import { sendChatMessage } from './api'
+import { sendCapabilityMessage } from './api'
 
 export type TimelineDeleteMode = 'trash' | 'permanent'
 export type TimelineRetention = 7 | 30 | 90 | -1
@@ -559,7 +559,7 @@ export const generateTimelineReconstructionDraft = async (chat: any, accountId: 
   const record = await store.getItem<TimelineRecord>(timelineKey(accountId, chat.id, timelineId))
   if (!meta || !record) throw new Error('没有找到这条时间线')
   const source = (record.state.messages || []).filter((item: any) => ['left', 'right', 'system'].includes(item.type)).slice(-160).map((item: any) => `${item.type === 'right' ? '用户' : item.type === 'left' ? '角色' : '事件'}：${String(item.content || '').slice(0, 500)}`).join('\n')
-  const result: any = await sendChatMessage([{
+  const result: any = await sendCapabilityMessage('chat-auxiliary', [{
     role: 'system',
     content: '你负责根据给定的历史聊天重建分支点状态草稿。只能使用聊天中明确出现的信息，不得补造。返回严格 JSON：{"relationshipStage":"关系阶段短名称","relationshipSummary":"关系与未完成事件摘要","walletSummary":"资金和交易状态摘要或无法确定","socialSummary":"朋友圈、好友、群聊等社交状态摘要或无法确定","uncertain":["无法确定的项目"]}'
   }, { role: 'user', content: source || '没有可用的历史消息' }])

@@ -1,7 +1,7 @@
 <!-- WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { apiSettings, characterApiSettings, globalSettings } from '../store'
+import { isApiSettingsReady, resolveApiCapability, globalSettings } from '../store'
 import { usePersonaWorkshop } from '../composables/usePersonaWorkshop'
 import { mockChats } from '../composables/chatState/state'
 import type { PersonaDraft, PersonaGenerationInput, PersonaWorkshopMode } from '../types/personaWorkshop'
@@ -73,10 +73,8 @@ const editorSections = [
 ]
 
 const nodeReady = computed(() => {
-  const target = characterApiSettings.enabled ? characterApiSettings : apiSettings
-  const url = target.provider === 'custom' ? target.customUrl : target.url
-  const key = target.provider === 'custom' ? target.customKey : target.key
-  return Boolean(url && key && target.model)
+  const target = resolveApiCapability('character-workshop').settings
+  return Boolean(target && isApiSettingsReady(target))
 })
 const filteredDrafts = computed(() => recentDrafts.value.filter(item => homeFilter.value === 'all' || (homeFilter.value === 'published' ? item.status === 'published' : item.status !== 'published')))
 const selectableChats = computed(() => mockChats.value.filter(chat => chat.id !== 1))

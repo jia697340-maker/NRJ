@@ -2,6 +2,7 @@
 import { reactive, watch } from 'vue'
 import { readStoredJSON } from './utils'
 import type { NewApiNodeInfo } from '../services/newApiNode'
+import { apiCapabilityRegistry, type ApiCapabilityId } from '../services/apiCapabilities'
 
 export interface ApiPreset {
   id: string
@@ -27,8 +28,76 @@ export interface ApiPreset {
   batchSize?: number
 }
 
+export interface ApiParameterSettings {
+  enableTemperature: boolean
+  temperature: number
+  enableMaxTokens: boolean
+  maxTokens: number
+  enableTopP: boolean
+  topP: number
+  enableFrequencyPenalty: boolean
+  frequencyPenalty: number
+  enablePresencePenalty: boolean
+  presencePenalty: number
+  enableStream: boolean
+}
+
+export interface ApiCapabilityOverride {
+  inheritModel: boolean
+  model: string
+  inheritParameters: boolean
+  parameters: ApiParameterSettings
+}
+
+export interface ApiNode extends ApiParameterSettings {
+  id: string
+  name: string
+  enabled: boolean
+  provider: string
+  url: string
+  key: string
+  model: string
+  availableModels: string[]
+  adapterProfile: string
+  customUrl: string
+  customKey: string
+  presets: ApiPreset[]
+  currentPresetId: string
+  newApiNode: NewApiNodeInfo | null
+  batchSize: number
+  fallbackToDefault: boolean
+  capabilities: Partial<Record<ApiCapabilityId, ApiCapabilityOverride>>
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ApiNodesState {
+  schemaVersion: 1
+  nodes: ApiNode[]
+  migratedAt: number
+  migrationNotes: string[]
+  legacyReconciliationVersion: number
+}
+
+export type ApiNodeConflictResolution = 'keep-current' | 'take-over'
+
 const API_STORAGE_KEY = 'clingy_api_settings'
+const API_NODES_STORAGE_KEY = 'clingy_api_nodes_v1'
 const savedApiSettings = readStoredJSON<Record<string, any>>(API_STORAGE_KEY, {})
+
+const parameterDefaults = (source: Record<string, any> = {}): ApiParameterSettings => ({
+  enableTemperature: source.enableTemperature ?? false,
+  temperature: Number(source.temperature ?? 0.7),
+  enableMaxTokens: source.enableMaxTokens ?? false,
+  maxTokens: Number(source.maxTokens ?? 1000),
+  enableTopP: source.enableTopP ?? false,
+  topP: Number(source.topP ?? 1),
+  enableFrequencyPenalty: source.enableFrequencyPenalty ?? false,
+  frequencyPenalty: Number(source.frequencyPenalty ?? 0),
+  enablePresencePenalty: source.enablePresencePenalty ?? false,
+  presencePenalty: Number(source.presencePenalty ?? 0),
+  enableStream: source.enableStream ?? false
+})
 
 export const apiSettings = reactive({
   provider: savedApiSettings.provider || 'deepseek',
@@ -40,17 +109,7 @@ export const apiSettings = reactive({
   apiClassicTheme: savedApiSettings.apiClassicTheme || 'default',
   customUrl: savedApiSettings.customUrl ?? '',
   customKey: savedApiSettings.customKey ?? '',
-  enableTemperature: savedApiSettings.enableTemperature ?? false,
-  temperature: savedApiSettings.temperature ?? 0.7,
-  enableMaxTokens: savedApiSettings.enableMaxTokens ?? false,
-  maxTokens: savedApiSettings.maxTokens ?? 1000,
-  enableTopP: savedApiSettings.enableTopP ?? false,
-  topP: savedApiSettings.topP ?? 1.0,
-  enableFrequencyPenalty: savedApiSettings.enableFrequencyPenalty ?? false,
-  frequencyPenalty: savedApiSettings.frequencyPenalty ?? 0,
-  enablePresencePenalty: savedApiSettings.enablePresencePenalty ?? false,
-  presencePenalty: savedApiSettings.presencePenalty ?? 0,
-  enableStream: savedApiSettings.enableStream ?? false,
+  ...parameterDefaults(savedApiSettings),
   presets: (savedApiSettings.presets || []) as ApiPreset[],
   currentPresetId: savedApiSettings.currentPresetId ?? '',
   newApiNode: (savedApiSettings.newApiNode || null) as NewApiNodeInfo | null,
@@ -58,199 +117,262 @@ export const apiSettings = reactive({
   apiLogMaxCount: savedApiSettings.apiLogMaxCount ?? 1000
 })
 
-watch(apiSettings, (newVal) => {
-  localStorage.setItem(API_STORAGE_KEY, JSON.stringify(newVal))
-}, { deep: true })
+watch(apiSettings, value => localStorage.setItem(API_STORAGE_KEY, JSON.stringify(value)), { deep: true })
 
-const VISION_API_STORAGE_KEY = 'clingy_vision_api_settings'
-const savedVisionApiSettings = readStoredJSON<Record<string, any>>(VISION_API_STORAGE_KEY, {})
+const makeId = (prefix = 'api_node') => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`
+// url/key 是节点编辑器的当前值；customUrl/customKey 仅作为旧数据兼容回退，
+// 避免用户修改自定义节点后仍被历史字段中的旧地址或旧密钥覆盖。
+const effectiveUrl = (settings: { provider: string; url: string; customUrl: string }) => settings.url || settings.customUrl
+const effectiveKey = (settings: { provider: string; key: string; customKey: string }) => settings.key || settings.customKey
 
-export const visionApiSettings = reactive({
-  enabled: savedVisionApiSettings.enabled ?? false,
-  provider: savedVisionApiSettings.provider || 'deepseek',
-  url: savedVisionApiSettings.url ?? 'https://api.deepseek.com',
-  key: savedVisionApiSettings.key ?? '',
-  model: savedVisionApiSettings.model ?? '',
-  availableModels: savedVisionApiSettings.availableModels || [],
-  adapterProfile: savedVisionApiSettings.adapterProfile || 'auto',
-  customUrl: savedVisionApiSettings.customUrl ?? '',
-  customKey: savedVisionApiSettings.customKey ?? '',
-  enableTemperature: savedVisionApiSettings.enableTemperature ?? false,
-  temperature: savedVisionApiSettings.temperature ?? 0.7,
-  enableMaxTokens: savedVisionApiSettings.enableMaxTokens ?? false,
-  maxTokens: savedVisionApiSettings.maxTokens ?? 1000,
-  enableTopP: savedVisionApiSettings.enableTopP ?? false,
-  topP: savedVisionApiSettings.topP ?? 1.0,
-  enableFrequencyPenalty: savedVisionApiSettings.enableFrequencyPenalty ?? false,
-  frequencyPenalty: savedVisionApiSettings.frequencyPenalty ?? 0,
-  enablePresencePenalty: savedVisionApiSettings.enablePresencePenalty ?? false,
-  presencePenalty: savedVisionApiSettings.presencePenalty ?? 0,
-  enableStream: savedVisionApiSettings.enableStream ?? false,
-  presets: (savedVisionApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedVisionApiSettings.currentPresetId ?? '',
-  newApiNode: (savedVisionApiSettings.newApiNode || null) as NewApiNodeInfo | null
+const createCapabilityOverride = (source: Record<string, any>, base: Record<string, any>): ApiCapabilityOverride => {
+  const sourceParameters = parameterDefaults(source)
+  const baseParameters = parameterDefaults(base)
+  return {
+    inheritModel: String(source.model || '') === String(base.model || ''),
+    model: String(source.model || ''),
+    inheritParameters: JSON.stringify(sourceParameters) === JSON.stringify(baseParameters),
+    parameters: sourceParameters
+  }
+}
+
+const createNodeFromSettings = (name: string, source: Record<string, any>): ApiNode => ({
+  id: makeId(),
+  name,
+  enabled: source.enabled !== false,
+  provider: source.provider || 'deepseek',
+  url: source.url || '',
+  key: source.key || '',
+  model: source.model || '',
+  availableModels: Array.isArray(source.availableModels) ? [...source.availableModels] : [],
+  adapterProfile: source.adapterProfile || 'auto',
+  customUrl: source.customUrl || '',
+  customKey: source.customKey || '',
+  ...parameterDefaults(source),
+  presets: Array.isArray(source.presets) ? source.presets.map((item: ApiPreset) => ({ ...item })) : [],
+  currentPresetId: source.currentPresetId || '',
+  newApiNode: source.newApiNode ? { ...source.newApiNode } : null,
+  batchSize: Math.max(1, Math.min(100, Number(source.batchSize || 20))),
+  fallbackToDefault: source.fallbackToDefault !== false,
+  capabilities: {},
+  createdAt: Date.now(),
+  updatedAt: Date.now()
 })
 
-watch(visionApiSettings, (newVal) => {
-  localStorage.setItem(VISION_API_STORAGE_KEY, JSON.stringify(newVal))
-}, { deep: true })
+const connectionFingerprint = (source: Record<string, any>) => [
+  source.provider || 'deepseek',
+  effectiveUrl({ provider: source.provider || 'deepseek', url: source.url || '', customUrl: source.customUrl || '' }).replace(/\/+$/, ''),
+  effectiveKey({ provider: source.provider || 'deepseek', key: source.key || '', customKey: source.customKey || '' }),
+  source.adapterProfile || 'auto'
+].join('\u0001')
 
-const SUMMARY_API_STORAGE_KEY = 'clingy_summary_api_settings'
-const savedSummaryApiSettings = readStoredJSON<Record<string, any>>(SUMMARY_API_STORAGE_KEY, {})
+type LegacyCandidate = { name: string; sourceKey: string; settings: Record<string, any>; capabilities: ApiCapabilityId[] }
 
-export const summaryApiSettings = reactive({
-  enabled: savedSummaryApiSettings.enabled ?? false,
-  provider: savedSummaryApiSettings.provider || 'deepseek',
-  url: savedSummaryApiSettings.url ?? 'https://api.deepseek.com',
-  key: savedSummaryApiSettings.key ?? '',
-  model: savedSummaryApiSettings.model ?? '',
-  availableModels: savedSummaryApiSettings.availableModels || [],
-  adapterProfile: savedSummaryApiSettings.adapterProfile || 'auto',
-  customUrl: savedSummaryApiSettings.customUrl ?? '',
-  customKey: savedSummaryApiSettings.customKey ?? '',
-  enableTemperature: savedSummaryApiSettings.enableTemperature ?? false,
-  temperature: savedSummaryApiSettings.temperature ?? 0.7,
-  enableMaxTokens: savedSummaryApiSettings.enableMaxTokens ?? false,
-  maxTokens: savedSummaryApiSettings.maxTokens ?? 1000,
-  enableTopP: savedSummaryApiSettings.enableTopP ?? false,
-  topP: savedSummaryApiSettings.topP ?? 1.0,
-  enableFrequencyPenalty: savedSummaryApiSettings.enableFrequencyPenalty ?? false,
-  frequencyPenalty: savedSummaryApiSettings.frequencyPenalty ?? 0,
-  enablePresencePenalty: savedSummaryApiSettings.enablePresencePenalty ?? false,
-  presencePenalty: savedSummaryApiSettings.presencePenalty ?? 0,
-  enableStream: savedSummaryApiSettings.enableStream ?? false,
-  presets: (savedSummaryApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedSummaryApiSettings.currentPresetId ?? '',
-  newApiNode: (savedSummaryApiSettings.newApiNode || null) as NewApiNodeInfo | null
-})
+const collectNestedNaiCandidates = () => {
+  const candidates: LegacyCandidate[] = []
+  if (typeof localStorage === 'undefined') return candidates
+  const seen = new Set<string>()
+  const visit = (value: any) => {
+    if (!value || typeof value !== 'object') return
+    if (Array.isArray(value)) { value.forEach(visit); return }
+    const config = value.naiConfig
+    if (config?.llmApiUrl && config.llmApiKey && config.llmModel) {
+      const fingerprint = `${config.llmApiUrl}\u0001${config.llmApiKey}\u0001${config.llmModel}`
+      if (!seen.has(fingerprint)) {
+        seen.add(fingerprint)
+        candidates.push({ name: '旧 NAI 生图辅助', sourceKey: `nai_${seen.size}`, settings: { enabled: config.enableLlmAssist === true, provider: config.llmProvider || 'custom', url: config.llmApiUrl, key: config.llmApiKey, customUrl: config.llmApiUrl, customKey: config.llmApiKey, model: config.llmModel, enableTemperature: true, temperature: 0.7, enableMaxTokens: true, maxTokens: 1000 }, capabilities: [] })
+      }
+    }
+    Object.values(value).forEach(visit)
+  }
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index)
+    if (!key || (!key.includes('chat') && !key.includes('contact'))) continue
+    try { visit(JSON.parse(localStorage.getItem(key) || 'null')) } catch { /* 非 JSON 存储无需迁移。 */ }
+  }
+  return candidates
+}
 
-watch(summaryApiSettings, (newVal) => {
-  localStorage.setItem(SUMMARY_API_STORAGE_KEY, JSON.stringify(newVal))
-}, { deep: true })
+const migrateLegacyNodes = (): ApiNodesState => {
+  const notes: string[] = []
+  const candidates: LegacyCandidate[] = []
+  const add = (sourceKey: string, name: string, capabilities: ApiCapabilityId[]) => {
+    const settings = readStoredJSON<Record<string, any>>(sourceKey, {})
+    if (typeof localStorage === 'undefined' || localStorage.getItem(sourceKey) === null) return
+    candidates.push({ name, sourceKey, settings: { ...settings, enabled: settings.enabled === true }, capabilities })
+  }
+  add('clingy_summary_api_settings', '总结节点', ['summary'])
+  add('clingy_vision_api_settings', '图像辅助节点', ['vision-understanding', 'image-prompt'])
+  add('clingy_moment_api_settings', '朋友圈与社交节点', ['moment-interaction', 'social-generation'])
+  add('clingy_character_api_settings', '角色与人设节点', ['character-workshop'])
+  add('clingy_embedding_api_settings', '向量节点', ['embedding'])
 
-const EMBEDDING_API_STORAGE_KEY = 'clingy_embedding_api_settings'
-const savedEmbeddingApiSettings = readStoredJSON<Record<string, any>>(EMBEDDING_API_STORAGE_KEY, {})
+  const forum = readStoredJSON<Record<string, any>>('clingy_forum_api_settings', {})
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('clingy_forum_api_settings') !== null) {
+    const scopes = new Set<string>(forum.bindAllForum !== false ? ['forum-post', 'forum-comment', 'forum-dm'] : (forum.scopes || []))
+    const capabilities: ApiCapabilityId[] = []
+    if (['forum-account', 'forum-circle', 'forum-population', 'forum-post'].some(item => scopes.has(item))) capabilities.push('forum-content')
+    if (scopes.has('forum-comment')) capabilities.push('forum-interaction')
+    if (scopes.has('forum-dm')) capabilities.push('forum-dm')
+    if (['forum-group', 'forum-media', 'forum-memory'].some(item => scopes.has(item))) notes.push('旧论坛节点中的群组、媒体或记忆选项没有对应 LLM 调用，未创建无效绑定。')
+    candidates.push({ name: '论坛节点', sourceKey: 'clingy_forum_api_settings', settings: { ...forum, enabled: forum.enabled === true }, capabilities })
+  }
 
-// 向量节点完全可选。未启用时，长期记忆自动降级为关键词、标签、时间与重要度混合检索。
-export const embeddingApiSettings = reactive({
-  enabled: savedEmbeddingApiSettings.enabled ?? false,
-  provider: savedEmbeddingApiSettings.provider || 'openai',
-  url: savedEmbeddingApiSettings.url ?? 'https://api.openai.com',
-  key: savedEmbeddingApiSettings.key ?? '',
-  model: savedEmbeddingApiSettings.model ?? '',
-  availableModels: savedEmbeddingApiSettings.availableModels || [],
-  customUrl: savedEmbeddingApiSettings.customUrl ?? '',
-  customKey: savedEmbeddingApiSettings.customKey ?? '',
-  batchSize: savedEmbeddingApiSettings.batchSize ?? 20,
-  presets: (savedEmbeddingApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedEmbeddingApiSettings.currentPresetId ?? '',
-  newApiNode: (savedEmbeddingApiSettings.newApiNode || null) as NewApiNodeInfo | null
-})
+  const llmPresets = readStoredJSON<any[]>('app_llm_presets', [])
+  llmPresets.filter(item => item?.apiUrl && item?.apiKey && item?.model).forEach((item, index) => candidates.push({
+    name: `NAI 辅助 · ${String(item.name || index + 1)}`,
+    sourceKey: `app_llm_presets_${index}`,
+    settings: { enabled: true, provider: item.provider || 'custom', url: item.apiUrl, key: item.apiKey, customUrl: item.apiUrl, customKey: item.apiKey, model: item.model, enableTemperature: true, temperature: 0.7, enableMaxTokens: true, maxTokens: 1000 },
+    capabilities: []
+  }))
+  candidates.push(...collectNestedNaiCandidates())
 
-watch(embeddingApiSettings, (newVal) => {
-  localStorage.setItem(EMBEDDING_API_STORAGE_KEY, JSON.stringify(newVal))
-}, { deep: true })
+  const nodes: ApiNode[] = []
+  const namesByNode = new Map<string, string[]>()
+  const assigned = new Set<ApiCapabilityId>()
+  for (const candidate of candidates) {
+    const fingerprint = connectionFingerprint(candidate.settings)
+    let node = nodes.find(item => connectionFingerprint(item) === fingerprint && item.enabled === (candidate.settings.enabled !== false))
+    if (!node) {
+      node = createNodeFromSettings(candidate.name, candidate.settings)
+      nodes.push(node)
+      namesByNode.set(node.id, [])
+    }
+    namesByNode.get(node.id)!.push(candidate.name.replace(/节点$/, ''))
+    for (const capability of candidate.capabilities) {
+      if (assigned.has(capability)) {
+        notes.push(`${apiCapabilityRegistry[capability].name}存在多份旧配置，已保留额外节点但仅绑定第一份有效配置。`)
+        continue
+      }
+      node.capabilities[capability] = createCapabilityOverride(candidate.settings, node)
+      assigned.add(capability)
+    }
+    const prefix = candidate.sourceKey.replace(/[^a-z0-9]+/gi, '_')
+    const importedPresets = (candidate.settings.presets || []).map((preset: ApiPreset) => ({ ...preset, id: `${prefix}_${preset.id}` }))
+    for (const preset of importedPresets) if (!node.presets.some(item => item.id === preset.id)) node.presets.push(preset)
+  }
+  const imagePromptOwner = nodes.some(node => node.enabled && node.capabilities['image-prompt'])
+  if (!imagePromptOwner) {
+    const naiNode = nodes.find(node => node.name.startsWith('NAI') || node.name.startsWith('旧 NAI'))
+    if (naiNode) {
+      naiNode.capabilities['image-prompt'] = createCapabilityOverride(naiNode, naiNode)
+      notes.push('已将第一份旧 NAI LLM 配置绑定到“生图提示词辅助”，其他旧配置保留为未绑定节点。')
+    }
+  }
+  nodes.forEach(node => {
+    const names = [...new Set(namesByNode.get(node.id) || [node.name])]
+    if (names.length > 1) node.name = `迁移节点 · ${names.join(' / ')}`
+  })
+  return { schemaVersion: 1, nodes, migratedAt: Date.now(), migrationNotes: [...new Set(notes)], legacyReconciliationVersion: 2 }
+}
 
-const MOMENT_API_STORAGE_KEY = 'clingy_moment_api_settings'
-const savedMomentApiSettings = readStoredJSON<Record<string, any>>(MOMENT_API_STORAGE_KEY, {})
+const savedNodesState = readStoredJSON<Partial<ApiNodesState>>(API_NODES_STORAGE_KEY, {})
+const initialNodesState = savedNodesState.schemaVersion === 1 && Array.isArray(savedNodesState.nodes)
+  ? { schemaVersion: 1 as const, nodes: savedNodesState.nodes.map(node => ({ ...node, fallbackToDefault: node.fallbackToDefault !== false })), migratedAt: Number(savedNodesState.migratedAt || Date.now()), migrationNotes: savedNodesState.migrationNotes || [], legacyReconciliationVersion: Number(savedNodesState.legacyReconciliationVersion || 0) }
+  : migrateLegacyNodes()
 
-// 朋友圈专用节点只接管角色读取朋友圈后的第二轮回应。
-// 未启用或配置不完整时，调用层会自动继续使用全局节点。
-export const momentApiSettings = reactive({
-  enabled: savedMomentApiSettings.enabled ?? false,
-  provider: savedMomentApiSettings.provider || 'deepseek',
-  url: savedMomentApiSettings.url ?? 'https://api.deepseek.com',
-  key: savedMomentApiSettings.key ?? '',
-  model: savedMomentApiSettings.model ?? '',
-  availableModels: savedMomentApiSettings.availableModels || [],
-  adapterProfile: savedMomentApiSettings.adapterProfile || 'auto',
-  customUrl: savedMomentApiSettings.customUrl ?? '',
-  customKey: savedMomentApiSettings.customKey ?? '',
-  enableTemperature: savedMomentApiSettings.enableTemperature ?? false,
-  temperature: savedMomentApiSettings.temperature ?? 0.7,
-  enableMaxTokens: savedMomentApiSettings.enableMaxTokens ?? true,
-  maxTokens: savedMomentApiSettings.maxTokens ?? 500,
-  enableTopP: savedMomentApiSettings.enableTopP ?? false,
-  topP: savedMomentApiSettings.topP ?? 1.0,
-  enableFrequencyPenalty: savedMomentApiSettings.enableFrequencyPenalty ?? false,
-  frequencyPenalty: savedMomentApiSettings.frequencyPenalty ?? 0,
-  enablePresencePenalty: savedMomentApiSettings.enablePresencePenalty ?? false,
-  presencePenalty: savedMomentApiSettings.presencePenalty ?? 0,
-  enableStream: savedMomentApiSettings.enableStream ?? false,
-  presets: (savedMomentApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedMomentApiSettings.currentPresetId ?? '',
-  newApiNode: (savedMomentApiSettings.newApiNode || null) as NewApiNodeInfo | null
-})
+// 兼容已经打开过重构版本的用户：旧的停用节点或后发现的 NAI 配置也要补迁移，
+// 但绝不覆盖用户已经在新节点页面做过的编辑。
+if (savedNodesState.schemaVersion === 1 && Array.isArray(savedNodesState.nodes) && initialNodesState.legacyReconciliationVersion < 2) {
+  const supplemental = migrateLegacyNodes()
+  for (const legacyNode of supplemental.nodes) {
+    if (legacyNode.enabled) continue
+    const existing = initialNodesState.nodes.find(node => connectionFingerprint(node) === connectionFingerprint(legacyNode))
+    if (!existing) initialNodesState.nodes.push(legacyNode)
+  }
+  initialNodesState.migrationNotes = [...new Set([...initialNodesState.migrationNotes, ...supplemental.migrationNotes])]
+  initialNodesState.legacyReconciliationVersion = 2
+}
 
-watch(momentApiSettings, (newVal) => {
-  localStorage.setItem(MOMENT_API_STORAGE_KEY, JSON.stringify(newVal))
-}, { deep: true })
+export const apiNodesState = reactive<ApiNodesState>(initialNodesState)
+localStorage.setItem(API_NODES_STORAGE_KEY, JSON.stringify(apiNodesState))
+watch(apiNodesState, value => localStorage.setItem(API_NODES_STORAGE_KEY, JSON.stringify(value)), { deep: true })
 
-const CHARACTER_API_STORAGE_KEY = 'clingy_character_api_settings'
-const savedCharacterApiSettings = readStoredJSON<Record<string, any>>(CHARACTER_API_STORAGE_KEY, {})
+export const createEmptyApiNode = (name = '新节点') => createNodeFromSettings(name, { enabled: true, provider: 'deepseek', url: 'https://api.deepseek.com' })
 
-// 角色工坊的长文本与结构化生成可使用独立模型；未开启或配置不完整时回退全局节点。
-export const characterApiSettings = reactive({
-  enabled: savedCharacterApiSettings.enabled ?? false,
-  provider: savedCharacterApiSettings.provider || 'deepseek',
-  url: savedCharacterApiSettings.url ?? 'https://api.deepseek.com',
-  key: savedCharacterApiSettings.key ?? '',
-  model: savedCharacterApiSettings.model ?? '',
-  availableModels: savedCharacterApiSettings.availableModels || [],
-  adapterProfile: savedCharacterApiSettings.adapterProfile || 'auto',
-  customUrl: savedCharacterApiSettings.customUrl ?? '',
-  customKey: savedCharacterApiSettings.customKey ?? '',
-  enableTemperature: savedCharacterApiSettings.enableTemperature ?? true,
-  temperature: savedCharacterApiSettings.temperature ?? 0.85,
-  enableMaxTokens: savedCharacterApiSettings.enableMaxTokens ?? true,
-  maxTokens: savedCharacterApiSettings.maxTokens ?? 2400,
-  enableTopP: savedCharacterApiSettings.enableTopP ?? false,
-  topP: savedCharacterApiSettings.topP ?? 1,
-  enableFrequencyPenalty: savedCharacterApiSettings.enableFrequencyPenalty ?? true,
-  frequencyPenalty: savedCharacterApiSettings.frequencyPenalty ?? 0.15,
-  enablePresencePenalty: savedCharacterApiSettings.enablePresencePenalty ?? false,
-  presencePenalty: savedCharacterApiSettings.presencePenalty ?? 0,
-  enableStream: savedCharacterApiSettings.enableStream ?? false,
-  presets: (savedCharacterApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedCharacterApiSettings.currentPresetId ?? '',
-  newApiNode: (savedCharacterApiSettings.newApiNode || null) as NewApiNodeInfo | null
-})
+export const addApiNode = (node: ApiNode) => {
+  node.name = node.name.trim() || '未命名节点'
+  node.updatedAt = Date.now()
+  apiNodesState.nodes.push(node)
+  return node
+}
 
-watch(characterApiSettings, value => {
-  localStorage.setItem(CHARACTER_API_STORAGE_KEY, JSON.stringify(value))
-}, { deep: true })
+export const findApiNode = (nodeId: string) => apiNodesState.nodes.find(node => node.id === nodeId)
 
-const FORUM_API_STORAGE_KEY = 'clingy_forum_api_settings'
-const savedForumApiSettings = readStoredJSON<Record<string, any>>(FORUM_API_STORAGE_KEY, {})
+export const getCapabilityOwner = (capability: ApiCapabilityId, excludeNodeId = '') => apiNodesState.nodes.find(node => (
+  node.enabled && node.id !== excludeNodeId && Boolean(node.capabilities[capability])
+))
 
-// 论坛公共结构化生成与论坛私聊共用一个可选专用节点；未启用或配置不完整时回退全局节点。
-export const forumApiSettings = reactive({
-  enabled: savedForumApiSettings.enabled ?? false,
-  fallbackToDefault: savedForumApiSettings.fallbackToDefault ?? true,
-  bindAllForum: savedForumApiSettings.bindAllForum ?? true,
-  scopes: savedForumApiSettings.scopes || ['forum-account','forum-circle','forum-population','forum-post','forum-comment','forum-dm','forum-group','forum-media','forum-memory'],
-  provider: savedForumApiSettings.provider || 'deepseek',
-  url: savedForumApiSettings.url ?? 'https://api.deepseek.com',
-  key: savedForumApiSettings.key ?? '',
-  model: savedForumApiSettings.model ?? '',
-  availableModels: savedForumApiSettings.availableModels || [],
-  adapterProfile: savedForumApiSettings.adapterProfile || 'auto',
-  customUrl: savedForumApiSettings.customUrl ?? '',
-  customKey: savedForumApiSettings.customKey ?? '',
-  enableTemperature: savedForumApiSettings.enableTemperature ?? true,
-  temperature: savedForumApiSettings.temperature ?? 0.9,
-  enableMaxTokens: savedForumApiSettings.enableMaxTokens ?? true,
-  maxTokens: savedForumApiSettings.maxTokens ?? 4000,
-  enableTopP: savedForumApiSettings.enableTopP ?? false,
-  topP: savedForumApiSettings.topP ?? 1,
-  enableFrequencyPenalty: savedForumApiSettings.enableFrequencyPenalty ?? true,
-  frequencyPenalty: savedForumApiSettings.frequencyPenalty ?? 0.1,
-  enablePresencePenalty: savedForumApiSettings.enablePresencePenalty ?? false,
-  presencePenalty: savedForumApiSettings.presencePenalty ?? 0,
-  enableStream: savedForumApiSettings.enableStream ?? false,
-  presets: (savedForumApiSettings.presets || []) as ApiPreset[],
-  currentPresetId: savedForumApiSettings.currentPresetId ?? '',
-  newApiNode: (savedForumApiSettings.newApiNode || null) as NewApiNodeInfo | null
-})
+export const setApiNodeCapability = (nodeId: string, capability: ApiCapabilityId, selected: boolean) => {
+  const node = findApiNode(nodeId)
+  if (!node || !apiCapabilityRegistry[capability].assignable) return { ok: false, owner: undefined as ApiNode | undefined }
+  if (!selected) {
+    delete node.capabilities[capability]
+    node.updatedAt = Date.now()
+    return { ok: true, owner: undefined }
+  }
+  const owner = getCapabilityOwner(capability, nodeId)
+  if (node.enabled && owner) return { ok: false, owner }
+  node.capabilities[capability] ||= createCapabilityOverride(node, node)
+  node.updatedAt = Date.now()
+  return { ok: true, owner: undefined }
+}
 
-watch(forumApiSettings, value => localStorage.setItem(FORUM_API_STORAGE_KEY, JSON.stringify(value)), { deep: true })
+export const getApiNodeEnableConflicts = (nodeId: string) => {
+  const node = findApiNode(nodeId)
+  if (!node) return []
+  return (Object.keys(node.capabilities) as ApiCapabilityId[]).flatMap(capability => {
+    const owner = getCapabilityOwner(capability, nodeId)
+    return owner ? [{ capability, owner }] : []
+  })
+}
+
+export const setApiNodeEnabled = (nodeId: string, enabled: boolean, resolution?: ApiNodeConflictResolution) => {
+  const node = findApiNode(nodeId)
+  if (!node) return { ok: false, conflicts: [] as ReturnType<typeof getApiNodeEnableConflicts> }
+  if (!enabled) { node.enabled = false; node.updatedAt = Date.now(); return { ok: true, conflicts: [] } }
+  const conflicts = getApiNodeEnableConflicts(nodeId)
+  if (conflicts.length && !resolution) return { ok: false, conflicts }
+  if (resolution === 'keep-current') conflicts.forEach(({ capability }) => delete node.capabilities[capability])
+  if (resolution === 'take-over') conflicts.forEach(({ capability, owner }) => delete owner.capabilities[capability])
+  node.enabled = true
+  node.updatedAt = Date.now()
+  return { ok: true, conflicts: [] }
+}
+
+export const deleteApiNode = (nodeId: string) => {
+  const index = apiNodesState.nodes.findIndex(node => node.id === nodeId)
+  if (index < 0) return false
+  apiNodesState.nodes.splice(index, 1)
+  return true
+}
+
+export const isApiSettingsReady = (settings: { provider: string; url: string; key: string; customUrl: string; customKey: string; model: string }) => Boolean(
+  effectiveUrl(settings).trim() && effectiveKey(settings).trim() && settings.model.trim()
+)
+
+const mergeCapabilitySettings = (node: ApiNode, capability: ApiCapabilityId): ApiNode => {
+  const override = node.capabilities[capability]
+  if (!override) return node
+  const merged = { ...node, capabilities: node.capabilities } as ApiNode
+  if (!override.inheritModel && override.model.trim()) merged.model = override.model.trim()
+  if (!override.inheritParameters) Object.assign(merged, override.parameters)
+  return merged
+}
+
+export const resolveApiCapability = (capability: ApiCapabilityId, options: { forceDefault?: boolean; excludeNodeId?: string } = {}) => {
+  const definition = apiCapabilityRegistry[capability]
+  const owner = !options.forceDefault && definition.assignable
+    ? apiNodesState.nodes.find(node => node.enabled && node.id !== options.excludeNodeId && Boolean(node.capabilities[capability]))
+    : undefined
+  if (owner) {
+    const settings = mergeCapabilitySettings(owner, capability)
+    if (isApiSettingsReady(settings)) return { capability, definition, settings, node: owner, source: 'custom' as const, fallbackReason: '' }
+  }
+  if (definition.fallback === 'local-non-vector') return { capability, definition, settings: null, node: owner, source: 'local' as const, fallbackReason: owner ? '节点配置不完整' : '未绑定节点' }
+  return { capability, definition, settings: apiSettings, node: owner, source: 'default' as const, fallbackReason: owner ? '节点配置不完整' : '未绑定节点' }
+}
+
+export const apiNodeEffectiveUrl = effectiveUrl
+export const apiNodeEffectiveKey = effectiveKey
+export const API_NODES_KEY = API_NODES_STORAGE_KEY

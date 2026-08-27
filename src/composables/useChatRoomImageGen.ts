@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { sendChatMessage } from '../services/api'
+import { sendCapabilityMessage } from '../services/api'
 import localforage from 'localforage'
 import { useGptImageReference } from './useGptImageReference'
 import { useGeminiImageReference } from './useGeminiImageReference'
@@ -84,10 +84,10 @@ export function useChatRoomImageGen(
             .slice(-contextSize)
             .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value?.name || '用户')}：${message.content}`)
             .join('\n')
-          const result = await sendChatMessage([
+          const result = await sendCapabilityMessage('image-prompt', [
             { role: 'system', content: `你是 ${providerName} 的画面整理助手。根据角色设定、聊天上下文和本次要求，输出一段清晰、可直接用于生图的自然语言描述，写明人物外貌、服装、动作、场景、构图、镜头与光线。不要输出 JSON、参数或解释。` },
             { role: 'user', content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}` }
-          ], undefined, false, true)
+          ])
           scenePrompt = (typeof result === 'string' ? result : result.content).trim() || scenePrompt
         } catch (error) { console.warn(`${providerName} 生图画面整理失败，改用原始描述`, error) }
       }
@@ -172,7 +172,7 @@ export function useChatRoomImageGen(
             .slice(-contextSize)
             .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value.name || '用户')}：${message.content}`)
             .join('\n')
-          const result = await sendChatMessage([
+          const result = await sendCapabilityMessage('image-prompt', [
             {
               role: 'system',
               content: '你是 Seedream 5.0 的画面整理助手。根据角色设定、聊天上下文和本次要求，输出一段简洁明确的中文自然语言生图描述，写清人物外貌、服装、动作、场景、构图、镜头和光线。不要输出 JSON、标签列表、Negative Prompt 或解释。'
@@ -181,7 +181,7 @@ export function useChatRoomImageGen(
               role: 'user',
               content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}`
             }
-          ], undefined, false, true)
+          ])
           scenePrompt = (typeof result === 'string' ? result : result.content).trim() || scenePrompt
         } catch (error) {
           console.warn('Seedream 生图画面整理失败，改用原始描述', error)
@@ -251,7 +251,7 @@ export function useChatRoomImageGen(
             .slice(-contextSize)
             .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value.name || '用户')}：${message.content}`)
             .join('\n')
-          const result = await sendChatMessage([
+          const result = await sendCapabilityMessage('image-prompt', [
             {
               role: 'system',
               content: '你是 Niji 7 的画面整理助手。根据角色设定、聊天上下文和本次要求，输出一段精确的自然语言生图描述，明确写出人物外貌、服装、动作、场景、构图、镜头与光线。Niji 7 偏字面理解，不要只写空泛氛围词。不要输出参数、JSON、Negative Prompt 或解释。'
@@ -260,7 +260,7 @@ export function useChatRoomImageGen(
               role: 'user',
               content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}`
             }
-          ], undefined, false, true)
+          ])
           scenePrompt = (typeof result === 'string' ? result : result.content).trim() || scenePrompt
         } catch (error) {
           console.warn('Niji 生图画面整理失败，改用原始描述', error)
@@ -330,7 +330,7 @@ export function useChatRoomImageGen(
             .slice(-contextSize)
             .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value.name || '用户')}：${message.content}`)
             .join('\n')
-          const result = await sendChatMessage([
+          const result = await sendCapabilityMessage('image-prompt', [
             {
               role: 'system',
               content: '你是 FLUX.2 的画面整理助手。根据角色设定、聊天上下文和本次要求，输出一段明确的中文自然语言生图描述，包含人物外貌、动作、场景、构图、镜头与光线。不要输出 JSON、标签、Negative Prompt 或解释。'
@@ -339,7 +339,7 @@ export function useChatRoomImageGen(
               role: 'user',
               content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}`
             }
-          ], undefined, false, true)
+          ])
           scenePrompt = (typeof result === 'string' ? result : result.content).trim() || scenePrompt
         } catch (error) {
           console.warn('FLUX 生图画面整理失败，改用原始描述', error)
@@ -487,7 +487,7 @@ export function useChatRoomImageGen(
             .slice(-contextSize)
             .map((message: any) => `${message.type === 'left' ? (chatToUpdate.name || '角色') : (myProfile.value.name || '用户')}：${message.content}`)
             .join('\n')
-          const result = await sendChatMessage([
+          const result = await sendCapabilityMessage('image-prompt', [
             {
               role: 'system',
               content: '你是 GPT Image 2 的画面整理助手。根据角色设定、聊天上下文和本次画面要求，输出一段完整、明确的中文自然语言生图描述。写清人物外貌、动作、场景、构图、镜头和光线。不要输出 JSON、标签列表、Negative Prompt 或解释。'
@@ -496,7 +496,7 @@ export function useChatRoomImageGen(
               role: 'user',
               content: `角色设定：${chatToUpdate.persona || '未设置'}\n\n最近聊天：\n${recentMessages}\n\n本次画面：${actionContent}`
             }
-          ], undefined, false, true)
+          ])
           gptPrompt = (typeof result === 'string' ? result : result.content).trim() || gptPrompt
         } catch (error) {
           console.warn('GPT 生图画面整理失败，改用原始描述', error)
@@ -569,7 +569,7 @@ export function useChatRoomImageGen(
     let dynamicNegativePrompt = ''
 
     // LLM 生图辅助逻辑
-    if (naiConfig.enableLlmAssist && naiConfig.llmApiUrl && naiConfig.llmApiKey) {
+    if (naiConfig.enableLlmAssist) {
       try {
         const contextSize = typeof naiConfig.llmContextSize === 'number' ? naiConfig.llmContextSize : 15
         const recentMsgs = chatToUpdate.messages
@@ -586,36 +586,29 @@ export function useChatRoomImageGen(
         const llmSystemPrompt = `你是一个专业的生图辅助 AI。以下是你的工作准则：\n\n${enabledPrompts || ''}`
         const llmUserPrompt = `[最近的聊天记录上下文]\n${recentMsgs}\n\n[本次生图的动作/画面描述]\n${actionContent}\n\n只输出严格 JSON，不要 Markdown：{"scene_zh":"不超过80字的中文画面理解","positive_en":"逗号分隔的英文 NovelAI tags","negative_en":"逗号分隔的英文 negative tags"}`
 
-        let endpoint = naiConfig.llmApiUrl || ''
-        if (endpoint && !endpoint.endsWith('/chat/completions')) {
-          endpoint = endpoint.replace(/\/+$/, '') + (endpoint.includes('/v1') ? '/chat/completions' : '/v1/chat/completions')
-        }
-        
-        const requestBody = {
-          model: naiConfig.llmModel || 'gpt-4o',
-          messages: [
+        let llmReply = ''
+        if (naiConfig.llmApiUrl && naiConfig.llmApiKey) {
+          let endpoint = String(naiConfig.llmApiUrl).replace(/\/+$/, '')
+          if (!endpoint.endsWith('/chat/completions')) endpoint += endpoint.includes('/v1') ? '/chat/completions' : '/v1/chat/completions'
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${naiConfig.llmApiKey}` },
+            body: JSON.stringify({
+              model: naiConfig.llmModel || 'gpt-4o',
+              messages: [{ role: 'system', content: llmSystemPrompt }, { role: 'user', content: llmUserPrompt }],
+              temperature: 0.7,
+              max_tokens: 1000
+            })
+          })
+          if (!response.ok) throw new Error(`LLM 辅助生图请求失败: ${response.status}`)
+          llmReply = (await response.json())?.choices?.[0]?.message?.content || ''
+        } else {
+          const llmResponse = await sendCapabilityMessage('image-prompt', [
             { role: 'system', content: llmSystemPrompt },
             { role: 'user', content: llmUserPrompt }
-          ],
-          temperature: 0.7,
-          max_tokens: 1000
+          ])
+          llmReply = typeof llmResponse === 'string' ? llmResponse : llmResponse.content || ''
         }
-        
-        const llmRes = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${naiConfig.llmApiKey}`
-          },
-          body: JSON.stringify(requestBody)
-        })
-
-        if (!llmRes.ok) {
-          throw new Error(`LLM 辅助生图请求失败: ${llmRes.status}`)
-        }
-
-        const llmData = await llmRes.json()
-        const llmReply = llmData.choices[0].message.content || ''
 
         const jsonText = llmReply.match(/\{[\s\S]*\}/)?.[0]
         if (jsonText) {
@@ -634,7 +627,7 @@ export function useChatRoomImageGen(
           { role: 'user', content: actionContent }
         ]
         try {
-          const res = await sendChatMessage(translatePromptRequest, undefined, false, true)
+          const res = await sendCapabilityMessage('image-prompt', translatePromptRequest)
           finalPrompt = typeof res === 'string' ? res : res.content
           finalPrompt = finalPrompt.trim()
         } catch (e) {
@@ -647,7 +640,7 @@ export function useChatRoomImageGen(
         { role: 'user', content: actionContent }
       ]
       try {
-        const res = await sendChatMessage(translatePromptRequest, undefined, false, true)
+        const res = await sendCapabilityMessage('image-prompt', translatePromptRequest)
         finalPrompt = typeof res === 'string' ? res : res.content
         finalPrompt = finalPrompt.trim()
       } catch (err: any) {

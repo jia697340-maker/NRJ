@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { sendChatMessage } from './api'
+import { sendCapabilityMessage } from './api'
 import type { PersonaDraft, PersonaGenerationInput, PersonaHealthReport } from '../types/personaWorkshop'
 
 const extractJson = (text: string) => {
@@ -17,10 +17,10 @@ const systemPrompt = `你是用户人设档案设计师。你的任务是帮助�
 把稳定特质与暂时情绪分开，把用户事实与互动偏好分开。避免标签堆砌、完美主角化和关系绑架。`
 
 const runJson = async (instruction: string, signal?: AbortSignal) => {
-  const response = await sendChatMessage([
+  const response = await sendCapabilityMessage('character-workshop', [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: instruction }
-  ], signal, false, false, 'character-generation')
+  ], { signal })
   if (response.truncated) throw new Error('模型达到输出上限，请提高角色生成节点的最大输出或重试。')
   return extractJson(response.content)
 }

@@ -319,7 +319,7 @@ const handleSave = () => {
                 <label>LLM API URL (支持自定义)</label>
                 <input type="text" v-model="localConfig.llmApiUrl" class="form-input" placeholder="例如 https://api.openai.com/v1/chat/completions" />
               </div>
-              
+
               <div class="form-row">
                 <label>LLM API Key</label>
                 <div class="input-with-btn">
@@ -333,14 +333,12 @@ const handleSave = () => {
                   <label style="margin-bottom: 0;">LLM Model</label>
                   <button class="simple-modal-btn cancel" style="padding: 4px 12px; font-size: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(0,0,0,0.02); color: var(--text-primary); height: auto; flex: none; min-width: 80px;" @click="fetchLlmModels" :disabled="isFetchingModels">{{ isFetchingModels ? '拉取中...' : '拉取模型列表' }}</button>
                 </div>
-                
                 <div v-if="llmModelOptions.length > 0" style="margin-bottom: 8px;">
                   <select v-model="localConfig.llmModel" class="form-select" style="background: rgba(0,122,255,0.05); border-color: rgba(0,122,255,0.3);">
                     <option value="" disabled>-- 请选择拉取到的模型 --</option>
                     <option v-for="m in llmModelOptions" :key="m" :value="m">{{ m }}</option>
                   </select>
                 </div>
-                
                 <input type="text" v-model="localConfig.llmModel" class="form-input" placeholder="若列表未拉取或无目标模型，可在此手动填入模型名 (如 gpt-4o)" />
                 <div v-if="fetchModelError" style="font-size: 11px; color: #ff3b30; margin-top: 4px;">{{ fetchModelError }}</div>
                 <div v-if="fetchModelSuccess" style="font-size: 11px; color: #34c759; margin-top: 4px;">模型拉取成功！请在上方下拉框选择，或继续手动输入。</div>

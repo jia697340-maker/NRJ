@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
-import { apiSettings } from '../store'
+import { apiSettings, resolveApiCapability } from '../store'
+import { sendCapabilityMessage } from '../services/api'
 
 export const DEFAULT_NEGATIVE = 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry'
 
@@ -163,22 +164,10 @@ export function useChatNAIConfig(chatProps: any) {
       return
     }
 
-    const apiUrl = localConfig.value.llmApiUrl || apiSettings.url
-    const apiKey = localConfig.value.llmApiKey || apiSettings.key
-    const model = localConfig.value.llmModel || apiSettings.model
-
-    if (!apiUrl || !apiKey || !model) {
-      translateError.value = '请先在全局设置或本页面配置 LLM (API地址、密钥和模型)'
-      return
-    }
-
     isTranslating.value = true
     translateError.value = ''
 
     try {
-      const baseUrl = apiUrl.replace(/\/+$/, '')
-      const endpoint = `${baseUrl}/v1/chat/completions`
-      
       const messages = [
         {
           role: 'system',
@@ -190,24 +179,24 @@ export function useChatNAIConfig(chatProps: any) {
         }
       ]
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: messages,
-          temperature: 0.3,
-          max_tokens: 500
+      let raw = ''
+      const localModel = localConfig.value.llmModel || apiSettings.model
+      if (localConfig.value.llmApiUrl && localConfig.value.llmApiKey && localModel) {
+        const baseUrl = localConfig.value.llmApiUrl.replace(/\/+$/, '')
+        const endpoint = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}${baseUrl.includes('/v1') ? '' : '/v1'}/chat/completions`
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${localConfig.value.llmApiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: localModel, messages, temperature: 0.3, max_tokens: 500 })
         })
-      })
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      if (data.choices && data.choices[0] && data.choices[0].message) {
-        let result = data.choices[0].message.content.trim()
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        raw = (await response.json())?.choices?.[0]?.message?.content || ''
+      } else {
+        const response = await sendCapabilityMessage('image-prompt', messages)
+        raw = typeof response === 'string' ? response : response.content
+      }
+      if (raw?.trim()) {
+        let result = raw.trim()
         result = result.replace(/^`+|`+$/g, '').replace(/^txt\n/, '').replace(/^text\n/, '').trim()
         
         localConfig.value.visualProfile.promptEn = result
@@ -234,35 +223,25 @@ export function useChatNAIConfig(chatProps: any) {
   }
 
   const fetchLlmModels = async () => {
-    if (!localConfig.value.llmApiUrl || !localConfig.value.llmApiKey) {
-      fetchModelError.value = '请先填写API地址和密钥'
-      return
-    }
     isFetchingModels.value = true
     fetchModelError.value = ''
     fetchModelSuccess.value = false
     
     try {
-      const baseUrl = localConfig.value.llmApiUrl.replace(/\/+$/, '')
-      const endpoint = `${baseUrl}/v1/models`
-      const res = await fetch(endpoint, {
-        headers: {
-          'Authorization': `Bearer ${localConfig.value.llmApiKey}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      if (data && data.data && Array.isArray(data.data)) {
-        llmModelOptions.value = data.data.map((m: any) => m.id)
-        fetchModelSuccess.value = true
-        
-        if (llmModelOptions.value.length > 0 && (!localConfig.value.llmModel || !llmModelOptions.value.includes(localConfig.value.llmModel))) {
-          localConfig.value.llmModel = llmModelOptions.value[0]
-        }
+      if (localConfig.value.llmApiUrl && localConfig.value.llmApiKey) {
+        const baseUrl = localConfig.value.llmApiUrl.replace(/\/+$/, '')
+        const endpoint = `${baseUrl}${baseUrl.endsWith('/v1') ? '' : '/v1'}/models`
+        const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${localConfig.value.llmApiKey}`, 'Content-Type': 'application/json' } })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const data = await response.json()
+        llmModelOptions.value = Array.isArray(data?.data) ? data.data.map((model: any) => model.id).filter(Boolean) : []
       } else {
-        throw new Error('未返回标准格式')
+        const route = resolveApiCapability('image-prompt')
+        llmModelOptions.value = route.settings && Array.isArray(route.settings.availableModels) ? [...route.settings.availableModels] : []
       }
+      if (!llmModelOptions.value.length) throw new Error(localConfig.value.llmApiUrl ? '未返回标准格式' : '当前生图提示词节点还没有同步模型，请前往 API 设置同步')
+      fetchModelSuccess.value = true
+      if (!localConfig.value.llmModel || !llmModelOptions.value.includes(localConfig.value.llmModel)) localConfig.value.llmModel = llmModelOptions.value[0]
     } catch (err: any) {
       fetchModelError.value = err.message || '拉取失败'
     } finally {

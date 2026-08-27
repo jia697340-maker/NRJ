@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { ref } from 'vue'
 import localforage from 'localforage'
-import { sendChatMessage } from '../services/api'
+import { sendCapabilityMessage } from '../services/api'
 import { useChatState } from './useChatState'
 import { invalidateMemoriesForMessages, invalidateVectorMemoriesForMessages } from '../services/memoryEngine'
 
@@ -148,7 +148,7 @@ export function useChatRoomMultiSelect(
          ]}
        ]
        try {
-         const res = await sendChatMessage(compressRequest, undefined, false, true)
+         const res = await sendCapabilityMessage('vision-understanding', compressRequest)
          let summaryContent = typeof res === 'string' ? res : res.content
          summaryContent = summaryContent.trim()
          if (summaryContent) {

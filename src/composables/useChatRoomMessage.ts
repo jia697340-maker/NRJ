@@ -2,8 +2,8 @@
 import { ref, computed } from 'vue'
 import { createChatMessageId, createTransferData } from '../services/transferLifecycle'
 import localforage from 'localforage'
-import { chatSettings, visionApiSettings } from '../store'
-import { sendChatMessage } from '../services/api'
+import { chatSettings, isApiSettingsReady, resolveApiCapability } from '../store'
+import { sendCapabilityMessage } from '../services/api'
 import { useChatAuth } from './useChatAuth'
 import { canViewUserProfileSection, getCharacterOverride, loadUserSocialProfile } from '../services/userSocialProfile'
 import { ensureRelationship } from './useChatRelationship'
@@ -310,7 +310,8 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
         aiContext = `【系统旁白：${charName}打开了朋友圈。${behaviorHint}${userInteractionHint}${charName}看到了以下最新动态：\n`
         
         // 如果开启了视觉 API 和图片省 Token 机制，进行静默识图
-        const shouldSummarizeImages = visionApiSettings.enabled && chatSettings.enableVisionTokenSaver
+        const visionRoute = resolveApiCapability('vision-understanding')
+        const shouldSummarizeImages = Boolean(visionRoute.settings && isApiSettingsReady(visionRoute.settings)) && chatSettings.enableVisionTokenSaver
 
         for (let m of visibleMoments) {
           aiContext += `[动态ID：${m.id}] ${m.author}：${m.content}\n`
@@ -331,7 +332,7 @@ export async function processMomentTags(content: string, selectedChat: any): Pro
                        { type: 'image_url', image_url: { url } }
                      ]}
                    ]
-                   const res = await sendChatMessage(compressRequest, undefined, false, true)
+                   const res = await sendCapabilityMessage('vision-understanding', compressRequest)
                    let summaryContent = typeof res === 'string' ? res : res.content
                    summaryContent = summaryContent.trim()
                    if (summaryContent) {

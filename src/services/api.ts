@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { apiSettings, summaryApiSettings, visionApiSettings, momentApiSettings, characterApiSettings, forumApiSettings, cotSettings, globalPromptSettings, appStats, type ApiPreset } from '../store'
+import { apiNodeEffectiveKey, apiNodeEffectiveUrl, apiSettings, resolveApiCapability, cotSettings, globalPromptSettings, appStats, type ApiPreset } from '../store'
 import { apiLogger } from './apiLogger'
 import { consumeAdapterStreamEvent, parseAdapterResponse, prepareAdapterRequest, resolveModelAdapterProfile } from './modelAdapters'
 import type { ModelAdapterProfile } from './modelAdapters'
@@ -10,9 +10,26 @@ import { saveTokenUsageSnapshot } from './tokenUsageSnapshot'
 import { commitDiagnosticTrace, createDiagnosticDraft, type DiagnosticContextMeta } from './diagnosticTrace'
 import { isRawApiConsoleLoggingEnabled, logApiFallback, logApiRequest, logApiResponse } from './apiDebug'
 import { buildWebSearchContext, inferWebSearchQuery, mergeWebSearchTrace, runSelfHostedWebSearch, supportsManagedWebSearch, type WebSearchRequestOptions, type WebSearchTrace } from './webSearch'
+import type { ApiCapabilityId } from './apiCapabilities'
 
 export type ForumApiPurpose = 'forum-account' | 'forum-circle' | 'forum-population' | 'forum-post' | 'forum-comment' | 'forum-dm' | 'forum-group' | 'forum-media' | 'forum-memory'
 export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global' | 'prompt-generation' | ForumApiPurpose
+
+const capabilityForForumPurpose = (purpose: ForumApiPurpose): ApiCapabilityId => {
+  if (purpose === 'forum-comment') return 'forum-interaction'
+  if (purpose === 'forum-dm') return 'forum-dm'
+  return 'forum-content'
+}
+
+const inferCapability = (isSummary: boolean, isVision: boolean, purpose: ChatApiPurpose): ApiCapabilityId => {
+  if (isSummary) return 'summary'
+  if (isVision) return 'vision-understanding'
+  if (purpose === 'moment-followup') return 'moment-interaction'
+  if (purpose === 'character-generation') return 'character-workshop'
+  if (purpose === 'prompt-generation') return 'prompt-assistant'
+  if (purpose.startsWith('forum-')) return capabilityForForumPurpose(purpose as ForumApiPurpose)
+  return 'chat'
+}
 
 export const decorateChatPayload = (
   messages: { role: string; content: string | any[] }[],
@@ -78,26 +95,49 @@ export const decorateChatPayload = (
 }
 
 export const isMomentApiReady = () => {
-  if (!momentApiSettings.enabled) return false
-  const url = momentApiSettings.provider === 'custom' ? momentApiSettings.customUrl : momentApiSettings.url
-  const key = momentApiSettings.provider === 'custom' ? momentApiSettings.customKey : momentApiSettings.key
-  return Boolean(url && key && momentApiSettings.model)
+  return resolveApiCapability('moment-interaction').source === 'custom'
 }
 
 export const isCharacterApiReady = () => {
-  if (!characterApiSettings.enabled) return false
-  const url = characterApiSettings.provider === 'custom' ? characterApiSettings.customUrl : characterApiSettings.url
-  const key = characterApiSettings.provider === 'custom' ? characterApiSettings.customKey : characterApiSettings.key
-  return Boolean(url && key && characterApiSettings.model)
+  return resolveApiCapability('character-workshop').source === 'custom'
 }
 
 export const isForumApiReady = (purpose?: ForumApiPurpose) => {
-  if (!forumApiSettings.enabled) return false
-  if (purpose && !forumApiSettings.bindAllForum && !forumApiSettings.scopes.includes(purpose)) return false
-  const url = forumApiSettings.provider === 'custom' ? forumApiSettings.customUrl : forumApiSettings.url
-  const key = forumApiSettings.provider === 'custom' ? forumApiSettings.customKey : forumApiSettings.key
-  return Boolean(url && key && forumApiSettings.model)
+  return resolveApiCapability(capabilityForForumPurpose(purpose || 'forum-post')).source === 'custom'
 }
+
+export interface CapabilityMessageOptions {
+  signal?: AbortSignal
+  purpose?: ChatApiPurpose
+  adapterOverride?: ModelAdapterProfile
+  diagnosticContext?: DiagnosticContextMeta
+  payloadReady?: boolean
+  webSearch?: WebSearchRequestOptions
+}
+
+export const sendCapabilityMessage = (
+  capability: ApiCapabilityId,
+  messages: any[],
+  options: CapabilityMessageOptions = {}
+) => sendChatMessage(
+  messages,
+  options.signal,
+  capability === 'summary',
+  capability === 'vision-understanding',
+  options.purpose || (capability === 'moment-interaction' ? 'moment-followup'
+    : capability === 'character-workshop' ? 'character-generation'
+      : capability === 'prompt-assistant' || capability === 'image-prompt' || capability === 'social-generation' ? 'prompt-generation'
+        : capability === 'forum-interaction' ? 'forum-comment'
+          : capability === 'forum-dm' ? 'forum-dm'
+            : capability === 'forum-content' ? 'forum-post'
+              : 'default'),
+  options.adapterOverride || 'auto',
+  options.diagnosticContext,
+  options.payloadReady || false,
+  options.webSearch,
+  0,
+  capability
+)
 
 export async function sendChatMessage(
   messages: any[],
@@ -109,7 +149,8 @@ export async function sendChatMessage(
   diagnosticContext?: DiagnosticContextMeta,
   payloadReady: boolean = false,
   webSearch?: WebSearchRequestOptions,
-  mcpDepth: number = 0
+  mcpDepth: number = 0,
+  capabilityOverride?: ApiCapabilityId
 ) {
   // 定义一个包含所有可能属性的接口，包括各个设置独有的属性
   interface MergedApiSettings {
@@ -138,21 +179,21 @@ export async function sendChatMessage(
     currentPresetId: string
   }
 
-  let activeSettings: MergedApiSettings = apiSettings as MergedApiSettings
-  if (isSummary && summaryApiSettings.enabled) {
-    activeSettings = summaryApiSettings
-  } else if (isVision && visionApiSettings.enabled) {
-    activeSettings = visionApiSettings
-  } else if (purpose === 'moment-followup' && isMomentApiReady()) {
-    activeSettings = momentApiSettings
-  } else if (purpose === 'character-generation' && isCharacterApiReady()) {
-    activeSettings = characterApiSettings
-  } else if (purpose.startsWith('forum-') && isForumApiReady(purpose as ForumApiPurpose)) {
-    activeSettings = forumApiSettings
+  const capability = capabilityOverride || inferCapability(isSummary, isVision, purpose)
+  const resolvedRoute = resolveApiCapability(capability, { forceDefault: purpose === 'character-review-global' })
+  const activeSettings: MergedApiSettings = (resolvedRoute.settings || apiSettings) as MergedApiSettings
+  if (resolvedRoute.node && resolvedRoute.source === 'default' && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nrj:api-capability-fallback', { detail: {
+      capability,
+      capabilityName: resolvedRoute.definition.name,
+      nodeId: resolvedRoute.node.id,
+      nodeName: resolvedRoute.node.name,
+      reason: resolvedRoute.fallbackReason
+    } }))
   }
 
-  const url = activeSettings.provider === 'custom' ? activeSettings.customUrl : activeSettings.url
-  let key = activeSettings.provider === 'custom' ? activeSettings.customKey : activeSettings.key
+  const url = apiNodeEffectiveUrl(activeSettings)
+  let key = apiNodeEffectiveKey(activeSettings)
   const model = activeSettings.model
 
   if (!url || !key || !model) {
@@ -601,7 +642,8 @@ export async function sendChatMessage(
       diagnosticContext,
       true,
       webSearch ? { ...webSearch, enabled: false } : undefined,
-      mcpDepth + 1
+      mcpDepth + 1,
+      capability
     )
   }
 

@@ -16,7 +16,7 @@ import {
   type WalletFundingSource,
   type WalletOrder
 } from '../services/walletService'
-import { sendChatMessage } from '../services/api'
+import { sendCapabilityMessage } from '../services/api'
 
 const emit = defineEmits<{ (event: 'close'): void }>()
 const { state, currentAccount, stockMarketValueCents, stockCostCents, totalAssetCents, persist } = useWallet()
@@ -417,7 +417,7 @@ const activateCredit = async () => {
       const charName = currentAccount.value?.name || state.value.accountName || '神秘用户'
       const prompt = `请根据角色“${charName}”的背景人设，评估其信用额度（类似于花呗/信用卡的初始额度）。注意现实常识：大学生或无稳定收入群体的额度极低（可能在 0 ~ 500 元之间，只有几十块也很正常）；普通上班族约 2000-30000 元；高净值人群可更高。只需返回一个表示金额（人民币，元）的纯数字，不要返回任何其他文字。`
       
-      const res = await sendChatMessage([{ role: 'user', content: prompt }])
+      const res = await sendCapabilityMessage('chat-auxiliary', [{ role: 'user', content: prompt }])
       const numberMatch = res.content.match(/\d+/)
       if (numberMatch) {
         finalLimit = Math.min(500000000, Math.max(0, parseInt(numberMatch[0]) * 100)) // 转换为分

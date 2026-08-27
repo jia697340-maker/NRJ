@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { sendChatMessage } from './api'
+import { sendCapabilityMessage } from './api'
 import type { CharacterDraft, CharacterGenerationInput } from '../types/characterWorkshop'
 import { globalPromptSettings } from '../store'
 
@@ -39,10 +39,10 @@ const mergeUnlocked = (draft: CharacterDraft, patch: Record<string, any>) => {
 }
 
 export const runCharacterJson = async (instruction: string, purpose: 'character-generation' | 'character-review-global' = 'character-generation', signal?: AbortSignal) => {
-  const response = await sendChatMessage([
+  const response = await sendCapabilityMessage('character-workshop', [
     { role: 'system', content: globalPromptSettings.language === 'en' ? englishStageSystem : stageSystem },
     { role: 'user', content: instruction }
-  ], signal, false, false, purpose)
+  ], { signal, purpose })
   if (response.truncated) throw new Error('模型达到输出上限，已保留前面完成的阶段。请重试当前阶段，或提高角色生成节点的最大输出。')
   return extractJson(response.content)
 }

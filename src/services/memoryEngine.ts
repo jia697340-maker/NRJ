@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import localforage from 'localforage'
-import { embeddingApiSettings, globalPromptSettings } from '../store'
+import { apiNodeEffectiveKey, apiNodeEffectiveUrl, isApiSettingsReady, resolveApiCapability, globalPromptSettings } from '../store'
 import { estimateTextTokens } from '../utils/tokenEstimate'
 
 export type MemoryMode = 'long_text' | 'vector' | 'structured'
@@ -492,26 +492,26 @@ export const parseMemoryExtraction = (raw: string): MemoryExtractionResult => {
   }
 }
 
-const resolveEmbeddingEndpoint = () => {
-  const base = (embeddingApiSettings.provider === 'custom' ? embeddingApiSettings.customUrl : embeddingApiSettings.url).replace(/\/+$/, '')
+const embeddingSettings = () => {
+  const route = resolveApiCapability('embedding')
+  return route.source === 'custom' && route.settings && isApiSettingsReady(route.settings) ? route.settings : null
+}
+
+const resolveEmbeddingEndpoint = (settings: NonNullable<ReturnType<typeof embeddingSettings>>) => {
+  const base = apiNodeEffectiveUrl(settings).replace(/\/+$/, '')
   if (base.endsWith('/embeddings')) return base
   return `${base}${base.includes('/v1') ? '' : '/v1'}/embeddings`
 }
 
-export const isEmbeddingReady = () => Boolean(
-  embeddingApiSettings.enabled &&
-  (embeddingApiSettings.provider === 'custom' ? embeddingApiSettings.customUrl : embeddingApiSettings.url) &&
-  (embeddingApiSettings.provider === 'custom' ? embeddingApiSettings.customKey : embeddingApiSettings.key) &&
-  embeddingApiSettings.model
-)
+export const isEmbeddingReady = () => Boolean(embeddingSettings())
 
 export const createEmbeddings = async (texts: string[]): Promise<number[][]> => {
   if (!isEmbeddingReady() || texts.length === 0) return []
-  const key = embeddingApiSettings.provider === 'custom' ? embeddingApiSettings.customKey : embeddingApiSettings.key
-  const response = await fetch(resolveEmbeddingEndpoint(), {
+  const settings = embeddingSettings()!
+  const response = await fetch(resolveEmbeddingEndpoint(settings), {
     method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: embeddingApiSettings.model, input: texts })
+    headers: { Authorization: `Bearer ${apiNodeEffectiveKey(settings)}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: settings.model, input: texts })
   })
   if (!response.ok) throw new Error(`Embedding 请求失败（HTTP ${response.status}）`)
   const data = await response.json()
@@ -546,7 +546,8 @@ export const writeVectorMemoryTexts = async (
   if (!isEmbeddingReady()) throw new Error('请先启用并完整配置向量节点')
   const valid = items.map(item => ({ ...item, text: String(item.text || '').trim() })).filter(item => item.text)
   if (!valid.length) throw new Error('没有可写入的向量记忆')
-  const batchSize = Math.max(1, Math.min(100, Number(embeddingApiSettings.batchSize || 20)))
+  const settings = embeddingSettings()!
+  const batchSize = Math.max(1, Math.min(100, Number(settings.batchSize || 20)))
   const staged: VectorRecord[] = []
   for (let offset = 0; offset < valid.length; offset += batchSize) {
     const batch = valid.slice(offset, offset + batchSize)
@@ -564,7 +565,7 @@ export const writeVectorMemoryTexts = async (
         sourceId,
         text: item.text,
         vector,
-        model: embeddingApiSettings.model,
+        model: settings.model,
         dimensions: vector.length,
         createdAt: Number(item.createdAt || Date.now()),
         updatedAt: Date.now(),
@@ -723,8 +724,9 @@ export const buildMemoryPacket = async (
   if (!query.trim()) return ''
   const [queryVector] = await createEmbeddings([query])
   if (!Array.isArray(queryVector)) throw new Error('向量节点没有返回查询向量')
+  const settings = embeddingSettings()!
   const records = (await readChatVectorMemories(chat))
-    .filter(record => record.model === embeddingApiSettings.model && record.vector.length === queryVector.length)
+    .filter(record => record.model === settings.model && record.vector.length === queryVector.length)
     .map(record => ({ ...record, score: cosine(queryVector, record.vector) }))
     .sort((left, right) => right.score - left.score)
   if (!records.length) return ''
