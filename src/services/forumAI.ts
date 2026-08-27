@@ -44,9 +44,12 @@ export const requestForumJson = async <T>(snapshot: ForumSnapshot, request: Foru
   const allowed = buildAllowedForumContext(contextSnapshot, request)
   assertNoDisabledSubjects(snapshot, allowed)
   const payload = sanitizeAllowedContext(allowed)
+  const serializedPayload = purpose === 'forum-post'
+    ? { ...payload, viewerAccount: { id: payload.viewerAccount.id, role: '仅为当前查看者，不是本批内容主题或默认参与者' } }
+    : payload
   const result = await sendForumMessage([
     { role: 'system', content: `${forumPromptSettings.globalPrompt}\n\n你负责为 NRJ 的开放论坛内容世界生成自然内容。作者可能是只在本批次出现的轻量路人，也可能是用户指定的长期角色；只能使用 AllowedForumContext 中的信息，不得为轻量作者擅自创建复杂关系、作息或长期记忆，不得猜测匿名真实身份。人物资料只约束表达，不要求复述人设。世界书只提供事实背景，不决定谁能参与，也不要写成设定说明。若上下文包含 circle，circle.contentScope 是明确讨论范围，圈内内容必须自然符合范围和圈规。表达应有长短、语气和不完美感，允许普通、沉默、跑题和轻微分歧，避免公告、档案、工作汇报、百科介绍、客服式夸奖和整齐模板。只输出 JSON。\n输出结构：${schemaHint}` },
-    { role: 'user', content: `${instruction}\nAllowedForumContext:\n${JSON.stringify(payload)}` }
+    { role: 'user', content: `${instruction}\nAllowedForumContext:\n${JSON.stringify(serializedPayload)}` }
   ], purpose)
   const text = typeof result === 'string' ? result : String(result?.content || '')
   return extractJson(text) as T

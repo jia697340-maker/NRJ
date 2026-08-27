@@ -11,6 +11,7 @@ import ForumQuoteCard from './ForumQuoteCard.vue'
 import ForumPostActions from './ForumPostActions.vue'
 import ForumRichMedia from './ForumRichMedia.vue'
 import ForumPostInteractionModal from '../modals/ForumPostInteractionModal.vue'
+import { forumContentKindLabels } from '../../../services/forumContentKinds'
 
 const props = withDefaults(
   defineProps<{
@@ -28,6 +29,7 @@ const lotteryResult=computed(()=>lottery.value?forum.snapshot.value.lotteryResul
 const entered=computed(()=>lottery.value?forum.snapshot.value.lotteryEntries.some(item=>item.lotteryId===lottery.value?.id&&item.accountId===forum.currentAccount.value?.id):false)
 const canDraw=computed(()=>lottery.value&&!lottery.value.drawnAt&&lottery.value.drawAt<=Date.now()&&props.post.authorAccountId===forum.currentAccount.value?.id)
 const sourceCircle=computed(()=>props.post.circleId?forum.circles.value.find(item=>item.id===props.post.circleId):null)
+const kindLabel=computed(()=>props.post.contentKind?forumContentKindLabels[props.post.contentKind]:'')
 const interactionVisible=ref(false)
 
 const emit = defineEmits<{
@@ -65,7 +67,7 @@ const emit = defineEmits<{
           :time="post.createdAt"
           @click-user="emit('click-user', post.author)"
         />
-        <button v-if="sourceCircle" class="post-source" type="button" @click.stop="forum.pushRoute({name:'circle',circleId:sourceCircle.id})">来自 {{sourceCircle.name}}</button>
+        <div v-if="sourceCircle||kindLabel" class="post-context-row"><button v-if="sourceCircle" class="post-source" type="button" @click.stop="forum.pushRoute({name:'circle',circleId:sourceCircle.id})">来自 {{sourceCircle.name}}</button><span v-if="kindLabel" class="post-kind">{{kindLabel}}</span></div>
       </div>
       <div v-if="post.pinned" class="pinned-badge">置顶</div>
     </div>
@@ -103,6 +105,8 @@ const emit = defineEmits<{
         <button v-for="option in poll.options" :key="option.id" type="button" @click="forum.votePoll(poll.id, option.id)"><span>{{option.label}}</span><em>{{option.votes}} 票</em><i :style="{width:`${Math.round(option.votes/Math.max(1,poll.options.reduce((n,o)=>n+o.votes,0))*100)}%`}"></i></button>
         <small>{{poll.multiple?'多选':'单选'}} · {{poll.anonymous?'匿名投票':'公开投票'}}</small>
       </div>
+
+      <a v-if="post.linkPreview" class="link-preview" :href="post.linkPreview.url" target="_blank" rel="noopener noreferrer" @click.stop><span><b>{{post.linkPreview.title||post.linkPreview.url}}</b><small v-if="post.linkPreview.description">{{post.linkPreview.description}}</small><em>{{post.linkPreview.url}}</em></span><i>↗</i></a>
 
       <div v-if="lottery" class="lottery-box" @click.stop><span><b>抽奖 · {{lottery.prize}}</b><small>{{lottery.winnerCount}} 个名额 · 本地随机开奖</small></span><button v-if="!lotteryResult&&!canDraw" :disabled="entered" @click="forum.enterLottery(lottery.id)">{{entered?'已参与':'参与'}}</button><button v-else-if="canDraw" @click="forum.drawLottery(lottery.id)">开奖</button><em v-else>已开奖</em></div>
 
@@ -160,7 +164,7 @@ const emit = defineEmits<{
   flex-direction: column;
   align-items: flex-start;
 }
-.post-source{max-width:100%;height:17px;overflow:hidden;border:0;background:transparent;padding:0;color:var(--text-tertiary,#929292);font:inherit;font-size:10px;line-height:17px;white-space:nowrap;text-overflow:ellipsis}
+.post-context-row{display:flex;min-width:0;align-items:center;gap:5px;margin-top:2px}.post-source{max-width:100%;height:17px;overflow:hidden;border:0;background:transparent;padding:0;color:var(--text-tertiary,#929292);font:inherit;font-size:10px;line-height:17px;white-space:nowrap;text-overflow:ellipsis}.post-kind{flex:0 0 auto;border-radius:999px;background:var(--sys-bg-tertiary,#eff0f2);padding:2px 6px;color:var(--text-secondary,#777);font-size:9.5px;line-height:1.3}
 
 .pinned-badge {
   font-size: 11px;
@@ -203,5 +207,6 @@ const emit = defineEmits<{
   flex-wrap: wrap;
   margin-top: 8px;
 }
+.link-preview{display:flex;align-items:center;gap:9px;margin-top:9px;padding:10px 11px;border:1px solid var(--border-color,#e3e5e8);border-radius:10px;background:var(--sys-bg-primary,#f6f7f8);color:inherit;text-decoration:none}.link-preview>span{display:flex;min-width:0;flex:1;flex-direction:column;gap:2px}.link-preview b,.link-preview small,.link-preview em{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.link-preview b{font-size:12px}.link-preview small{color:var(--text-secondary,#777);font-size:10.5px}.link-preview em{color:var(--text-tertiary,#999);font-size:9.5px;font-style:normal}.link-preview>i{color:var(--accent-color,#576b95);font-size:15px;font-style:normal}
 .poll-box{display:flex;flex-direction:column;gap:6px;margin-top:9px;padding:9px;border-radius:11px;background:var(--sys-bg-primary,#f4f5f7)}.poll-box button{position:relative;display:flex;min-width:0;align-items:center;justify-content:space-between;gap:8px;height:34px;overflow:hidden;border:1px solid var(--border-color,#e1e3e6);border-radius:8px;background:var(--sys-bg-secondary,#fff);padding:0 9px;color:var(--text-primary,#333);font-size:12px}.poll-box button span,.poll-box button em{position:relative;z-index:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.poll-box button span{min-width:0;flex:1;text-align:left}.poll-box button em{flex:0 0 auto;color:var(--text-tertiary,#999);font-size:10px;font-style:normal}.poll-box button i{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--accent-color,#576b95) 10%,transparent)}.poll-box>small{font-size:10px;color:var(--text-tertiary,#999)}.lottery-box{display:flex;min-width:0;align-items:center;gap:9px;margin-top:9px;padding:10px;border-radius:11px;background:color-mix(in srgb,#f2b35c 10%,var(--sys-bg-secondary,#fff))}.lottery-box>span{display:flex;min-width:0;flex:1;flex-direction:column;gap:3px}.lottery-box b{overflow:hidden;font-size:12.5px;white-space:nowrap;text-overflow:ellipsis}.lottery-box small{color:var(--text-secondary,#777);font-size:10.5px}.lottery-box button{flex:0 0 auto;height:27px;border:0;border-radius:999px;background:#d99539;color:#fff;padding:0 10px;font-size:11px}.lottery-box button:disabled{opacity:.45}.lottery-box em{color:var(--text-tertiary,#999);font-size:10.5px;font-style:normal}
 </style>

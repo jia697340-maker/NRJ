@@ -1,18 +1,22 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useForum } from '../../../composables/useForum'
 import type { ForumPost, ForumUser, ForumMediaItem, ForumQuoteContent } from '../../../types/forum'
 import ForumHeader from '../components/ForumHeader.vue'
 import ForumFeedItem from '../components/ForumFeedItem.vue'
 import ForumEmptyState from '../components/ForumEmptyState.vue'
 import ForumPostActionMenuModal from '../modals/ForumPostActionMenuModal.vue'
+import { forumContentKindLabels } from '../../../services/forumContentKinds'
 
 const props = defineProps<{
   posts: ForumPost[]
   mode: 'recommend' | 'following' | 'latest'
   busy?: boolean
   error?: string
+  generationSummary?: { postCount: number; kindCounts: Record<string, number>; circleIds: string[]; circleNames: string[] }
 }>()
+const generationKindSummary = computed(() => Object.entries(props.generationSummary?.kindCounts || {}).map(([kind, count]) => `${forumContentKindLabels[kind as keyof typeof forumContentKindLabels] || kind} ${count}`).join('、'))
 
 const emit = defineEmits<{
   (e: 'back'): void
@@ -32,9 +36,13 @@ const emit = defineEmits<{
   (e: 'delete-posts', postIds: string[]): void
   (e: 'toggle-pin', postId: string): void
   (e: 'toggle-keep', postId: string): void
+  (e: 'dismiss-generation-summary'): void
+  (e: 'open-generated-circle', circleId: string): void
   (e: 'move-post', postId: string, direction: 'up' | 'down'): void
 }>()
 
+const forum = useForum()
+const scrollContainerRef = ref<HTMLElement | null>(null)
 const isSelecting = ref(false)
 const selectedPostIds = ref<string[]>([])
 const showDeleteConfirm = ref(false)
@@ -47,7 +55,42 @@ let longPressTimer: ReturnType<typeof setTimeout> | null = null
 let touchStartPosition = { x: 0, y: 0 }
 let isMoved = false
 
-const activeSubTab = computed({ get:()=>props.mode, set:value=>emit('change-mode',value) })
+const saveScrollPosition = () => {
+  if (scrollContainerRef.value) {
+    forum.setFeedScrollPosition(props.mode, scrollContainerRef.value.scrollTop)
+  }
+}
+
+const restoreScrollPosition = () => {
+  nextTick(() => {
+    if (scrollContainerRef.value) {
+      const savedTop = forum.getFeedScrollPosition(props.mode)
+      scrollContainerRef.value.scrollTop = savedTop
+    }
+  })
+}
+
+const handleScroll = () => {
+  if (scrollContainerRef.value) {
+    forum.setFeedScrollPosition(props.mode, scrollContainerRef.value.scrollTop)
+  }
+}
+
+onMounted(() => {
+  restoreScrollPosition()
+})
+
+onBeforeUnmount(() => {
+  saveScrollPosition()
+})
+
+const activeSubTab = computed({
+  get: () => props.mode,
+  set: value => {
+    saveScrollPosition()
+    emit('change-mode', value)
+  }
+})
 const displayPosts = computed(() => props.posts)
 
 const allDisplayedSelected = computed(() => displayPosts.value.length > 0 && displayPosts.value.every(post => selectedPostIds.value.includes(post.id)))
@@ -147,12 +190,16 @@ const confirmDelete = () => {
 
 watch(activeSubTab, () => {
   if (isSelecting.value) selectedPostIds.value = []
+  restoreScrollPosition()
 })
 
-watch(() => props.posts.map(post => post.id), postIds => {
+watch(() => props.posts.map(post => post.id), (postIds, oldPostIds) => {
   const existingIds = new Set(postIds)
   selectedPostIds.value = selectedPostIds.value.filter(id => existingIds.has(id))
   emit('shown', props.posts.slice(0,10), props.mode)
+  if (!oldPostIds || oldPostIds.length === 0) {
+    restoreScrollPosition()
+  }
 }, { immediate:true })
 </script>
 
@@ -200,8 +247,12 @@ watch(() => props.posts.map(post => post.id), postIds => {
     </ForumHeader>
 
     <!-- 动态流滚动容器 -->
-    <div class="feed-scroll-container">
+    <div ref="scrollContainerRef" class="feed-scroll-container" @scroll.passive="handleScroll">
       <p v-if="error" class="generation-error">{{ error }}</p>
+      <div v-if="generationSummary" class="generation-summary">
+        <div><b>本轮已生成 {{generationSummary.postCount}} 篇</b><span>实际类型：{{generationKindSummary}}<template v-if="generationSummary.circleNames.length"> · 新圈子：<button v-for="(name,index) in generationSummary.circleNames" :key="generationSummary.circleIds[index]" type="button" @click="emit('open-generated-circle',generationSummary.circleIds[index])">{{name}}</button></template><template v-else> · 本轮未发现新圈子</template></span></div>
+        <button type="button" aria-label="关闭本轮结果" @click="emit('dismiss-generation-summary')">×</button>
+      </div>
       <template v-if="displayPosts.length > 0">
         <div
           v-for="post in displayPosts"
@@ -519,4 +570,5 @@ watch(() => props.posts.map(post => post.id), postIds => {
 .delete-confirm-overlay button { flex: 1; height: 38px; border: 0; border-radius: 10px; background: var(--sys-bg-tertiary, #f0f0f0); color: var(--text-primary, #333); font-size: 13px; }
 .delete-confirm-overlay button.danger { background: #d94b4b; color: #fff; }
 .generation-error{margin:0;padding:7px 16px;background:color-mix(in srgb,#d44c4c 7%,var(--sys-bg-secondary,#fff));color:#c24a4a;font-size:10.5px;line-height:1.4}@media(max-width:340px){.generation-error{padding-left:12px;padding-right:12px}}
+.generation-summary{display:flex;align-items:center;gap:10px;margin:9px 12px;padding:10px 11px;border:1px solid color-mix(in srgb,var(--accent-color,#2b7de9) 18%,transparent);border-radius:11px;background:color-mix(in srgb,var(--accent-color,#2b7de9) 6%,var(--sys-bg-secondary,#fff))}.generation-summary>div{display:flex;min-width:0;flex:1;flex-direction:column;gap:2px}.generation-summary b{font-size:12px}.generation-summary span{overflow:hidden;color:var(--text-secondary,#777);font-size:10.5px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.generation-summary span button{border:0;background:transparent;padding:0;color:var(--accent-color,#576b95);font:inherit}.generation-summary>button{flex:0 0 auto;width:25px;height:25px;border:0;border-radius:50%;background:var(--sys-bg-tertiary,#eee);color:var(--text-secondary,#777);font-size:16px}
 </style>

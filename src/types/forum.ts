@@ -70,6 +70,7 @@ export interface ForumLotteryResult { id: string; lotteryId: string; winnerAccou
 
 export interface ForumPost {
   id: string; author: ForumUser; authorAccountId: string; circleId?: string; type: ForumPostType; content: string; title?: string; topics?: string[]; media?: ForumMediaItem[]; quote?: ForumQuoteContent; repostOrigin?: ForumPost
+  contentKind?: ForumContentKind; topicDomain?: string; topicSeed?: string; linkPreview?: { url: string; title?: string; description?: string }
   anonymousIdentityId?: string; pollId?: string; lotteryId?: string; visibility: 'public' | 'followers' | 'mutual' | 'circle' | 'private' | 'custom'; visibleToAccountIds?: string[]; expiresAt?: number
   likeCount: number; commentCount: number; shareCount: number; viewCount?: number; effectiveViewCount?: number; isLiked?: boolean; isBookmarked?: boolean; isReposted?: boolean; createdAt: number | string; updatedAt?: number; pinned?: boolean; source?: 'user' | 'generated' | 'resident' | 'autonomy' | 'imported'
   isKept?: boolean; keptAt?: number; generationBatchId?: string
@@ -108,7 +109,12 @@ export interface ForumGenerationConfig {
   anonymousUnavailable: 'skip' | 'existing-circle' | 'create-circle'; circleTopicUnavailable: 'skip' | 'existing-circle' | 'create-circle'; imageUnavailable: 'skip' | 'ai' | 'text'
   profileAccountId?: string; includeInitialComments: boolean
 }
-export interface ForumPostPlanSlot { id: string; authorAccountId: string; circleId?: string; postType: ForumPostType; createdAt: number; commentTarget: number; heat: 'quiet' | 'normal' | 'hot'; contentKind: ForumContentKind }
+export interface ForumPostPlanSlot {
+  id: string; authorAccountId: string; circleId?: string; postType: ForumPostType; createdAt: number; commentTarget: number
+  heat: 'quiet' | 'normal' | 'hot'; contentKind: ForumContentKind
+  /** Optional for compatibility with generation sessions saved before topic planning existed. */
+  topicDomain?: string; topicSeed?: string; topicIntent?: string
+}
 export interface ForumDistributionPlan { id: string; sessionId: string; batchId: string; slots: ForumPostPlanSlot[]; plannedAuthorIds: string[]; plannedCircleIds: string[]; plannedCommentCount: number; createdAt: number }
 export interface ForumGenerationSession { id: string; status: ForumGenerationStatus; config: ForumGenerationConfig; plan?: ForumDistributionPlan; batchId?: string; progress: number; error?: string; createdAt: number; completedAt?: number }
 export interface ForumContentBatch { id: string; sessionId: string; postIds: string[]; commentIds: string[]; authorAccountIds: string[]; circleIds: string[]; createdAt: number }
@@ -123,7 +129,7 @@ export interface ForumDmSettings {
 export interface ForumDmGenerationTask { id: string; conversationId: string; senderId: string; status: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'; timing: ForumReplyTimingMode; createdAt: number; completedAt?: number; error?: string }
 export interface ForumPostInteractionConfig { comments: boolean; replies: boolean; postLikes: boolean; commentLikes: boolean; shares: boolean; bookmarks: boolean; follows: boolean; views: boolean; countMode: 'natural' | 'custom'; commentCount: number; replyCount: number; actorCount: number; postLikeCount: number; commentLikeCount: number; shareCount: number; bookmarkCount: number; followCount: number; viewCount: number }
 
-export interface ForumSettings { initialized: boolean; activeAccountId: string; defaultSquareEnabled: boolean; generateStrangers: boolean; manualGenerationOnly: boolean; autonomousCommunity: boolean; ambientPopulationTarget: number; aiBatchSize: number; aiContextTokenBudget: number; refreshWorldBookIds?: string[]; autoImageProvider: ForumAutoImageProvider; preferredImageProvider?: string; preferredVoiceProvider?: string; lastWorldTickAt?: number; defaultReplyTiming?: ForumReplyTimingMode; dm: ForumDmSettings; avatarLibraryEnabled: boolean; allowAvatarReuse: boolean; avatarReuseProbability: number; createdAt: number; updatedAt: number }
+export interface ForumSettings { initialized: boolean; activeAccountId: string; defaultSquareEnabled: boolean; generateStrangers: boolean; manualGenerationOnly: boolean; autonomousCommunity: boolean; ambientPopulationTarget: number; aiBatchSize: number; aiContextTokenBudget: number; refreshWorldBookIds?: string[]; autoImageProvider: ForumAutoImageProvider; preferredImageProvider?: string; preferredVoiceProvider?: string; lastWorldTickAt?: number; defaultReplyTiming?: ForumReplyTimingMode; dm: ForumDmSettings; avatarLibraryEnabled: boolean; allowAvatarReuse: boolean; avatarReuseProbability: number; circleDiscoveryMisses?: number; createdAt: number; updatedAt: number }
 export interface AllowedForumContext { viewerAccount: ForumAccount; circle?: ForumCircle; worldBookEntries: Array<{ bookId: string; entryId: string; title: string; content: string; weight: number }>; eventPost?: Pick<ForumPost, 'id' | 'authorAccountId' | 'circleId' | 'type' | 'content' | 'topics'>; involvedAccounts: ForumAccount[]; involvedSubjects: Array<Pick<ForumSubject, 'id' | 'kind' | 'displayName' | 'persona'>>; involvedPersonas: Array<Pick<ForumPersona, 'accountId' | 'identity' | 'personality' | 'occupation' | 'interests' | 'boundaries' | 'postingStyle' | 'emojiStyle' | 'punctuationStyle' | 'activeHours'>>; recentPosts: Array<Pick<ForumPost, 'authorAccountId' | 'content' | 'topics' | 'createdAt'>>; reachableMemories: ForumMemory[]; anonymousActors: Array<{ anonymousIdentityId: string; label: string }> }
 
 export interface ForumSnapshot {

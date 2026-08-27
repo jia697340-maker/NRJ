@@ -23,19 +23,30 @@
 /* --- 百合花水印背景 --- */
 .lily-watermark {
   position: absolute;
-  top: 0;
-  right: -5%;
-  bottom: 0;
-  width: 75%;
-  height: 100%;
-  object-fit: contain;
-  object-position: right center;
+
+  width: 80vw;
+  height: 80vh;
+
+  right: -10vw;
+  bottom: -5vh;
+
+  background-image: url('https://img.baibai.cv/f/BpZaFX/natalie-kinnear-01o_HP0wu_E-unsplash.jpg');
+  background-size: contain;
+  background-position: bottom right;
+  background-repeat: no-repeat;
+
   pointer-events: none;
   z-index: 0;
-  /* 褪色做旧调色 */
+
   filter: grayscale(100%) contrast(120%) sepia(10%);
   opacity: 0.12;
   mix-blend-mode: multiply;
+
+  -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%), linear-gradient(to left, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to top, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%), linear-gradient(to left, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+
   transition: opacity 0.5s, filter 0.5s;
 }
 

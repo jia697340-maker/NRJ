@@ -38,6 +38,7 @@ const error = ref('')
 const activeTab = ref<ForumTab>('feed')
 const feedMode = ref<ForumFeedKind>('recommend')
 const routeStack = ref<ForumRoute[]>([{ name: 'tab' }])
+const feedScrollPositions = ref<Record<string, number>>({ recommend: 0, following: 0, latest: 0 })
 const generationBusy = computed(() => forumGenerationRuntime.status === 'running')
 const generationProgress = computed(() => forumGenerationRuntime.progress)
 const generationError = computed(() => forumGenerationRuntime.error)
@@ -161,7 +162,10 @@ export function useForum() {
   const currentCircle = computed(() => { const route = currentRoute.value; return route.name === 'circle' ? circles.value.find(circle => circle.id === route.circleId) || null : null })
   const posts = computed(() => {
     if (!currentAccount.value) return []
-    return rankForumFeed(snapshot.value, currentAccount.value.id, feedMode.value).map(hydratePost)
+    const ranked = rankForumFeed(snapshot.value, currentAccount.value.id, feedMode.value)
+    const latestIds = feedMode.value === 'following' ? [] : forumGenerationRuntime.summary?.postIds || []
+    const latest = new Set(latestIds)
+    return [...latestIds.map(id => ranked.find(post => post.id === id)).filter((post): post is ForumPost => Boolean(post)), ...ranked.filter(post => !latest.has(post.id))].map(hydratePost)
   })
   const circlePosts = computed(() => currentCircle.value && currentAccount.value ? visiblePostsFor(snapshot.value, currentAccount.value.id, currentCircle.value.id).map(hydratePost) : [])
   const commentsByPost = computed(() => {
@@ -681,7 +685,14 @@ export function useForum() {
     error.value = ''
     return runSingleForumGenerationTask(async onProgress => {
       syncForumCharacters(snapshot.value)
-      await generateForumContentBatch(snapshot.value, currentAccount.value!.id, config, onProgress)
+      const batch = await generateForumContentBatch(snapshot.value, currentAccount.value!.id, config, onProgress)
+      const generatedPosts = batch.postIds.map(id => snapshot.value.posts.find(post => post.id === id)).filter((post): post is ForumPost => Boolean(post))
+      const generatedCircles = batch.circleIds.map(id => snapshot.value.circles.find(circle => circle.id === id)).filter((circle): circle is ForumCircle => Boolean(circle))
+      forumGenerationRuntime.summary = {
+        postIds: generatedPosts.map(post => post.id), postCount: generatedPosts.length,
+        kindCounts: generatedPosts.reduce<Record<string, number>>((counts, post) => { const kind = post.contentKind || 'unknown'; counts[kind] = (counts[kind] || 0) + 1; return counts }, {}),
+        circleIds: generatedCircles.map(circle => circle.id), circleNames: generatedCircles.map(circle => circle.name)
+      }
       await saveForumSnapshot(snapshot.value)
     })
   }
@@ -861,7 +872,10 @@ export function useForum() {
   }
 
   return {
-    snapshot, ready, busy, error, generationBusy, generationProgress, generationError, interactionBusy, interactionError, friendFeedback, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications, friendRequests,
+    snapshot, ready, busy, error, generationBusy, generationProgress, generationError, generationSummary: computed(() => forumGenerationRuntime.summary), dismissGenerationSummary: () => { forumGenerationRuntime.summary = undefined }, interactionBusy, interactionError, friendFeedback, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications, friendRequests,
+    feedScrollPositions,
+    getFeedScrollPosition: (mode: string) => feedScrollPositions.value[mode] || 0,
+    setFeedScrollPosition: (mode: string, top: number) => { feedScrollPositions.value[mode] = Math.max(0, top) },
     pushRoute, popRoute, resetToTab, completeOnboarding, updateForumProfile, addForumAccount, switchAccount, listParticipantCandidates, syncParticipantCandidates, setCharacterParticipation, updateParticipantPolicy, updateBridgePolicy, createCircle, joinCircle, bindCircleWorldBooks,
     publishNewPost, addComment, toggleLikePost, toggleBookmarkPost, togglePinPost, toggleKeepPost, movePost, deletePosts, deleteCircles, toggleFollowUser, sendDirectMessage, createForumGroup, sendGroupMessage, conversationMessages, addBlock, addMute, addVisibilityRule, votePoll, enterLottery, drawLottery, importMediaFile, addAvatarFiles, addAvatarUrl, generateAvatarLibraryItem, removeAvatarLibraryItem, assignAvatarToAccount, updateNpcProfile, generateImageMedia, generateVoiceMedia, buildLightVideo, generateNewContent, generatePostComments, generatePostInteractions, generateConversationReply, isConversationGenerating, adjustPendingReply, forumFriendStatus, sendForumFriendRequest, acceptForumFriendRequest, rejectForumFriendRequest, generateForumFriendDecision,
     recordFeedShown: (posts: ForumPost[], source: ForumFeedKind | 'circle') => currentAccount.value && recordFeedExposure(snapshot.value, currentAccount.value.id, posts, source),

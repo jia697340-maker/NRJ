@@ -16,7 +16,7 @@ export const emptyForumSnapshot = (): ForumSnapshot => {
   const now = Date.now()
   return {
     version: 6,
-    settings: { initialized: false, activeAccountId: '', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: true, autonomousCommunity: false, ambientPopulationTarget: 0, aiBatchSize: 6, aiContextTokenBudget: 5000, refreshWorldBookIds: [], autoImageProvider: 'pollinations', lastWorldTickAt: now, defaultReplyTiming: 'immediate', avatarLibraryEnabled: false, allowAvatarReuse: false, avatarReuseProbability: 0.02, dm: { autoSummary: false, summaryThreshold: 80, bilingual: false, translationLanguage: '中文', timeAware: true, contextMessageCount: 30, contextTokenBudget: 5000, replyTiming: 'immediate', fixedDelayMinutes: 10, rangeDelayMin: 5, rangeDelayMax: 30, maxBubbleMode: 'natural', maxBubbles: 5, factPersistence: 'auto', context: { publicPosts: true, publicComments: true, circles: true, interactions: true, forumMemories: true, chatSummaries: false }, concurrency: 'queue', pendingVisibility: 'hidden' }, createdAt: now, updatedAt: now },
+    settings: { initialized: false, activeAccountId: '', defaultSquareEnabled: false, generateStrangers: true, manualGenerationOnly: true, autonomousCommunity: false, ambientPopulationTarget: 0, aiBatchSize: 6, aiContextTokenBudget: 5000, refreshWorldBookIds: [], autoImageProvider: 'pollinations', lastWorldTickAt: now, defaultReplyTiming: 'immediate', avatarLibraryEnabled: false, allowAvatarReuse: false, avatarReuseProbability: 0.02, circleDiscoveryMisses: 0, dm: { autoSummary: false, summaryThreshold: 80, bilingual: false, translationLanguage: '中文', timeAware: true, contextMessageCount: 30, contextTokenBudget: 5000, replyTiming: 'immediate', fixedDelayMinutes: 10, rangeDelayMin: 5, rangeDelayMax: 30, maxBubbleMode: 'natural', maxBubbles: 5, factPersistence: 'auto', context: { publicPosts: true, publicComments: true, circles: true, interactions: true, forumMemories: true, chatSummaries: false }, concurrency: 'queue', pendingVisibility: 'hidden' }, createdAt: now, updatedAt: now },
     subjects: [], accounts: [], personas: [], participantPolicies: [], accountLinks: [], recognitions: [], circles: [], memberships: [], worldBindings: [], posts: [], comments: [], topics: [], relationships: [], blocks: [], mutes: [], visibilityRules: [], anonymousIdentities: [], polls: [], lotteries: [], lotteryEntries: [], lotteryResults: [], conversations: [], messages: [], friendRequests: [], groups: [], groupMembers: [], bridgePolicies: [], memories: [], circleMemories: [], events: [], notifications: [], residentProfiles: [], relationshipEdges: [], exposures: [], scheduledActions: [], generationSessions: [], contentBatches: [], avatarLibrary: [], dmTasks: []
   }
 }
@@ -35,9 +35,18 @@ export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | unde
   })
   merged.circles.forEach(circle => {
     circle.contentScope ||= circle.description || `围绕“${circle.name}”进行自然、具体的交流。`
+    circle.source ||= circle.creatorAccountId === merged.settings.activeAccountId ? 'user' : circle.generationBatchId ? 'generated' : 'imported'
     if (previousVersion < 2 && circle.aiActivity === 'off') circle.aiActivity = 'normal'
   })
-  merged.posts.forEach(post => { post.source ||= post.authorAccountId === merged.settings.activeAccountId ? 'user' : 'imported'; post.isKept ??= false })
+  merged.posts.forEach(post => {
+    post.source ||= post.authorAccountId === merged.settings.activeAccountId ? 'user' : 'imported'; post.isKept ??= false
+    if (!post.contentKind && post.source !== 'user') {
+      if (post.type === 'single-image' || post.type === 'multi-image') post.contentKind = 'image-share'
+      else if (post.type === 'poll') post.contentKind = 'poll'
+      else if (post.type === 'anonymous') post.contentKind = 'anonymous'
+      else if (post.type === 'link') post.contentKind = 'link'
+    }
+  })
   if (previousVersion < 3) {
     merged.accounts.forEach(account => {
       const subject = merged.subjects.find(item => item.id === account.subjectId)
@@ -57,6 +66,7 @@ export const normalizeForumSnapshot = (raw: Partial<ForumSnapshot> | null | unde
   merged.settings.avatarLibraryEnabled ??= false
   merged.settings.allowAvatarReuse ??= false
   merged.settings.avatarReuseProbability = Math.max(0, Math.min(.1, Number(merged.settings.avatarReuseProbability ?? .02)))
+  merged.settings.circleDiscoveryMisses = Math.max(0, Math.floor(Number(merged.settings.circleDiscoveryMisses || 0)))
   merged.settings.dm = { ...base.settings.dm, ...(merged.settings.dm || {}), context: { ...base.settings.dm.context, ...(merged.settings.dm?.context || {}) } }
   if (!['immediate', 'presence-aware', 'fixed', 'range'].includes(merged.settings.dm.replyTiming)) merged.settings.dm.replyTiming = 'immediate'
   if (merged.settings.dm.rangeDelayMin > merged.settings.dm.rangeDelayMax) merged.settings.dm.rangeDelayMax = merged.settings.dm.rangeDelayMin

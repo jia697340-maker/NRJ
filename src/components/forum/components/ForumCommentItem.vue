@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import type { ForumComment, ForumUser } from '../../../types/forum'
 import ForumAvatar from './ForumAvatar.vue'
 import ForumUserIdentity from './ForumUserIdentity.vue'
+import { formatForumTime } from '../../../services/forumTime'
 
 withDefaults(
   defineProps<{
@@ -105,7 +106,7 @@ const delayMinutes = ref(10)
             </span>：
             <span class="sub-text">{{ sub.content }}</span>
             <div class="sub-meta">
-              <span class="sub-time">{{ sub.createdAt }}</span>
+              <span class="sub-time">{{ formatForumTime(sub.createdAt) }}</span>
               <button class="sub-reply-btn" type="button" @click="emit('reply', sub)">回复</button>
             </div>
           </div>

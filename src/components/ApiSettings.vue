@@ -542,8 +542,8 @@ const confirmTest = async () => {
 <template>
   <div class="api-modal editorial-style" :class="{ 'is-dark': globalSettings.darkMode }">
     
-    <!-- 百合花背景水印：使用原生img标签以恢复自然流式加载，不阻塞UI -->
-    <img class="lily-watermark" src="https://img.baibai.cv/f/BpZaFX/natalie-kinnear-01o_HP0wu_E-unsplash.jpg" alt="" />
+    <!-- 百合花背景水印 -->
+    <div class="lily-watermark"></div>
 
     <div class="content-scroll">
       

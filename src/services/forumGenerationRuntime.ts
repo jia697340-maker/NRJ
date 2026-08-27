@@ -8,7 +8,8 @@ export const forumGenerationRuntime = reactive({
   progress: 0,
   error: '',
   startedAt: undefined as number | undefined,
-  completedAt: undefined as number | undefined
+  completedAt: undefined as number | undefined,
+  summary: undefined as undefined | { postIds: string[]; postCount: number; kindCounts: Record<string, number>; circleIds: string[]; circleNames: string[] }
 })
 
 let activeTask: Promise<boolean> | null = null
@@ -20,6 +21,7 @@ export const runSingleForumGenerationTask = (runner: (onProgress: (value: number
   forumGenerationRuntime.error = ''
   forumGenerationRuntime.startedAt = Date.now()
   forumGenerationRuntime.completedAt = undefined
+  forumGenerationRuntime.summary = undefined
   let task!: Promise<boolean>
   task = (async () => {
     try {
@@ -33,6 +35,7 @@ export const runSingleForumGenerationTask = (runner: (onProgress: (value: number
       forumGenerationRuntime.progress = 0
       forumGenerationRuntime.error = cause instanceof Error ? cause.message : String(cause)
       forumGenerationRuntime.completedAt = Date.now()
+      forumGenerationRuntime.summary = undefined
       return false
     } finally {
       if (activeTask === task) activeTask = null
