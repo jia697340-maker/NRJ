@@ -12,6 +12,8 @@ const props = defineProps<{
   comments: ForumComment[]
   busy?: boolean
   error?: string
+  currentAccountId?: string
+  refreshingCommentId?: string
 }>()
 
 const emit = defineEmits<{
@@ -21,11 +23,13 @@ const emit = defineEmits<{
   (e: 'preview-image', index: number, media: ForumMediaItem[]): void
   (e: 'click-quote', quote: ForumQuoteContent): void
   (e: 'like', post: ForumPost): void
+  (e: 'like-comment', comment: ForumComment): void
   (e: 'bookmark', post: ForumPost): void
   (e: 'share', post: ForumPost): void
   (e: 'send-comment', content: string, replyTo?: ForumComment, options?: { generateReply: boolean; timing: ForumReplyTimingMode }): void
   (e: 'generate-comments', mode: ForumCommentGenerationMode, count: number): void
   (e: 'adjust-pending', commentId: string, minutes?: number): void
+  (e: 'refresh-response', comment: ForumComment): void
 }>()
 
 const replyInput = ref('')
@@ -45,7 +49,7 @@ const cancelReplyTarget = () => {
 const submitComment = () => {
   const text = replyInput.value.trim()
   if (!text) return
-  emit('send-comment', text, replyingTarget.value || undefined, { generateReply: Boolean(replyingTarget.value && generateTargetReply.value), timing: presenceAware.value ? 'presence-aware' : 'immediate' })
+  emit('send-comment', text, replyingTarget.value || undefined, { generateReply: replyingTarget.value ? generateTargetReply.value : true, timing: replyingTarget.value && presenceAware.value ? 'presence-aware' : 'immediate' })
   replyInput.value = ''
   replyingTarget.value = null
 }
@@ -83,11 +87,15 @@ const submitComment = () => {
           v-for="c in comments"
           :key="c.id"
           :comment="c"
+          :current-account-id="currentAccountId"
+          :busy="busy"
+          :refreshing-comment-id="refreshingCommentId"
           @click-user="u => emit('click-user', u)"
           @reply="handleReply"
           @reveal-pending="id => emit('adjust-pending', id)"
           @delay-pending="(id, minutes) => emit('adjust-pending', id, minutes)"
-          @like="() => { c.isLiked = !c.isLiked; c.likeCount += c.isLiked ? 1 : -1 }"
+          @refresh-response="comment => emit('refresh-response', comment)"
+          @like="comment => emit('like-comment', comment)"
         />
       </div>
       <ForumEmptyState

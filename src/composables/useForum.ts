@@ -12,6 +12,7 @@ import { syncForumCharacters } from '../services/forumPopulation'
 import { defaultForumGenerationConfig, generateForumContentBatch, promoteLightweightAuthor } from '../services/forumGeneration'
 import { forumGenerationRuntime, runSingleForumGenerationTask } from '../services/forumGenerationRuntime'
 import { generateForumPostInteractions } from '../services/forumPostInteraction'
+import { generateCommunityCommentResponse } from '../services/forumCommentResponse'
 import { requestForumDmXml } from '../services/forumAI'
 import { parseChatMessageXml } from '../services/chatMessageXml'
 import { optimizeImageFile } from '../services/imageOptimization'
@@ -44,6 +45,7 @@ const generationProgress = computed(() => forumGenerationRuntime.progress)
 const generationError = computed(() => forumGenerationRuntime.error)
 const interactionBusy = ref(false)
 const interactionError = ref('')
+const communityResponseBusyCommentId = ref('')
 const friendFeedback = ref('')
 let loading: Promise<void> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -170,11 +172,12 @@ export function useForum() {
   const circlePosts = computed(() => currentCircle.value && currentAccount.value ? visiblePostsFor(snapshot.value, currentAccount.value.id, currentCircle.value.id).map(hydratePost) : [])
   const commentsByPost = computed(() => {
     const now = Date.now()
+    const viewerId = snapshot.value.settings.activeAccountId
     const flat = snapshot.value.comments.reduce<Record<string, ForumComment[]>>((all, comment) => {
       const account = snapshot.value.accounts.find(item => item.id === comment.authorAccountId)
       if (!account || !canAccountAppear(snapshot.value, account)) return all
       const waiting = Boolean(comment.revealAt && comment.revealAt > now)
-      const hydrated = { ...comment, content: waiting ? (comment.availabilityText || '对方暂时没看到，晚些时候回复') : comment.content, pendingReply: waiting, author: accountToUser(account), replies: [] }
+      const hydrated = { ...comment, content: waiting ? (comment.availabilityText || '对方暂时没看到，晚些时候回复') : comment.content, pendingReply: waiting, isLiked: snapshot.value.events.some(event => event.type === 'comment-like' && event.actorAccountId === viewerId && event.entityId === comment.id), author: accountToUser(account), replies: [] }
       ;(all[comment.postId] ||= []).push(hydrated)
       return all
     }, {})
@@ -354,7 +357,18 @@ export function useForum() {
       snapshot.value.events.push({ id: eventId, type: 'user-comment', actorAccountId: currentForumUser.value.id, targetAccountIds: [post.authorAccountId], circleId: post.circleId, entityId: post.id, payload: { content: content.trim() }, createdAt: Date.now() })
       rememberForAccount(post.authorAccountId, 'comment', `${currentForumUser.value.name}在论坛回复：${content.trim()}`, eventId, 5, post.circleId)
     }
-    if (!replyTo || replyTo.authorAccountId === currentForumUser.value.id || options.generateReply === false || busy.value) return
+    if (!replyTo) {
+      if (options.generateReply === false || busy.value) return
+      busy.value = true; communityResponseBusyCommentId.value = userComment.id; error.value = ''
+      try {
+        const result = await generateCommunityCommentResponse(snapshot.value, currentForumUser.value.id, postId, userComment.id, { timing: options.timing })
+        if (result.responseComment) scheduleLocalReveal('comment', result.responseComment.id, result.responseComment.revealAt)
+        await saveForumSnapshot(snapshot.value)
+      } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+      finally { busy.value = false; communityResponseBusyCommentId.value = '' }
+      return
+    }
+    if (replyTo.authorAccountId === currentForumUser.value.id || options.generateReply === false || busy.value) return
     const target = snapshot.value.accounts.find(item => item.id === replyTo.authorAccountId)
     if (!target) return
     busy.value = true; error.value = ''
@@ -367,7 +381,7 @@ export function useForum() {
       if (!response) throw new Error('对方没有返回有效回复，请重试。')
       const delayed = timing === 'presence-aware' && generated.timing === 'delayed'
       const delayMinutes = Math.max(1, Math.min(1440, Number(generated.delayMinutes || 30)))
-      const generatedComment: ForumComment = { id: id('comment'), postId, author: accountToUser(target), authorAccountId: target.id, parentId: userComment.parentId || userComment.id, rootCommentId: userComment.rootCommentId || userComment.id, replyToCommentId: userComment.id, depth: 1, content: response, likeCount: 0, createdAt: Date.now(), replyToUser: { id: currentForumUser.value.id, name: currentForumUser.value.name }, source: 'generated', revealAt: delayed ? Date.now() + delayMinutes * 60000 : undefined, availabilityText: delayed ? `${String(generated.activity || '暂时没看论坛').slice(0, 80)}，预计约 ${Math.round(delayMinutes)} 分钟后回复` : undefined }
+      const generatedComment: ForumComment = { id: id('comment'), postId, author: accountToUser(target), authorAccountId: target.id, parentId: userComment.parentId || userComment.id, rootCommentId: userComment.rootCommentId || userComment.id, replyToCommentId: userComment.id, depth: 1, content: response, likeCount: 0, createdAt: Date.now(), replyToUser: { id: currentForumUser.value.id, name: currentForumUser.value.name }, source: 'generated', communityResponseForCommentId: userComment.id, communityResponseRequestId: id('direct_response'), revealAt: delayed ? Date.now() + delayMinutes * 60000 : undefined, availabilityText: delayed ? `${String(generated.activity || '暂时没看论坛').slice(0, 80)}，预计约 ${Math.round(delayMinutes)} 分钟后回复` : undefined }
       snapshot.value.comments.push(generatedComment); scheduleLocalReveal('comment', generatedComment.id, generatedComment.revealAt)
       if (post) post.commentCount += 1
     } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
@@ -383,6 +397,29 @@ export function useForum() {
       rememberForAccount(post.authorAccountId, 'like', `${currentAccount.value.name}赞了自己的帖子`, eventId, 2, post.circleId)
     }
   })
+  const toggleLikeComment = (commentId: string) => toggleEvent('comment-like', commentId, count => {
+    const comment = snapshot.value.comments.find(item => item.id === commentId); if (!comment) return
+    comment.likeCount = Math.max(0, comment.likeCount + count)
+    if (count > 0 && currentAccount.value) {
+      snapshot.value.events.push({ id: id('event'), type: 'user-comment-like', actorAccountId: currentAccount.value.id, targetAccountIds: [comment.authorAccountId], entityId: comment.id, payload: {}, createdAt: Date.now() })
+    }
+  })
+
+  const regenerateCommunityResponse = async (commentId: string) => {
+    if (!currentAccount.value || busy.value) return false
+    const comment = snapshot.value.comments.find(item => item.id === commentId)
+    if (!comment || comment.authorAccountId !== currentAccount.value.id) return false
+    busy.value = true; communityResponseBusyCommentId.value = commentId; error.value = ''
+    try {
+      const result = await generateCommunityCommentResponse(snapshot.value, currentAccount.value.id, comment.postId, comment.id, { mode: 'regenerate', timing: snapshot.value.settings.defaultReplyTiming })
+      if (result.responseComment) scheduleLocalReveal('comment', result.responseComment.id, result.responseComment.revealAt)
+      await saveForumSnapshot(snapshot.value)
+      return true
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : String(cause)
+      return false
+    } finally { busy.value = false; communityResponseBusyCommentId.value = '' }
+  }
   const toggleBookmarkPost = (postId: string) => {
     toggleEvent('post-bookmark', postId)
     const post = snapshot.value.posts.find(item => item.id === postId); if (post) promoteLightweightAuthor(snapshot.value, post.authorAccountId, '用户收藏其内容')
@@ -705,7 +742,7 @@ export function useForum() {
       const count = Math.max(1, Math.round(requestedCount || 3))
       if (mode === 'replace-generated') {
         const comments = snapshot.value.comments.filter(item => item.postId === postId)
-        const protectedIds = new Set(comments.filter(item => item.source === 'user').map(item => item.id))
+        const protectedIds = new Set(comments.filter(item => item.source === 'user' || item.communityResponseForCommentId).map(item => item.id))
         let changed = true
         while (changed) {
           changed = false
@@ -872,12 +909,12 @@ export function useForum() {
   }
 
   return {
-    snapshot, ready, busy, error, generationBusy, generationProgress, generationError, generationSummary: computed(() => forumGenerationRuntime.summary), dismissGenerationSummary: () => { forumGenerationRuntime.summary = undefined }, interactionBusy, interactionError, friendFeedback, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications, friendRequests,
+    snapshot, ready, busy, error, generationBusy, generationProgress, generationError, generationSummary: computed(() => forumGenerationRuntime.summary), dismissGenerationSummary: () => { forumGenerationRuntime.summary = undefined }, interactionBusy, interactionError, communityResponseBusyCommentId, friendFeedback, activeTab, feedMode, routeStack, currentRoute, currentAccount, currentForumUser, forumUsers, circles, currentCircle, posts, circlePosts, commentsByPost, conversations, notifications, friendRequests,
     feedScrollPositions,
     getFeedScrollPosition: (mode: string) => feedScrollPositions.value[mode] || 0,
     setFeedScrollPosition: (mode: string, top: number) => { feedScrollPositions.value[mode] = Math.max(0, top) },
     pushRoute, popRoute, resetToTab, completeOnboarding, updateForumProfile, addForumAccount, switchAccount, listParticipantCandidates, syncParticipantCandidates, setCharacterParticipation, updateParticipantPolicy, updateBridgePolicy, createCircle, joinCircle, bindCircleWorldBooks,
-    publishNewPost, addComment, toggleLikePost, toggleBookmarkPost, togglePinPost, toggleKeepPost, movePost, deletePosts, deleteCircles, toggleFollowUser, sendDirectMessage, createForumGroup, sendGroupMessage, conversationMessages, addBlock, addMute, addVisibilityRule, votePoll, enterLottery, drawLottery, importMediaFile, addAvatarFiles, addAvatarUrl, generateAvatarLibraryItem, removeAvatarLibraryItem, assignAvatarToAccount, updateNpcProfile, generateImageMedia, generateVoiceMedia, buildLightVideo, generateNewContent, generatePostComments, generatePostInteractions, generateConversationReply, isConversationGenerating, adjustPendingReply, forumFriendStatus, sendForumFriendRequest, acceptForumFriendRequest, rejectForumFriendRequest, generateForumFriendDecision,
+    publishNewPost, addComment, regenerateCommunityResponse, toggleLikePost, toggleLikeComment, toggleBookmarkPost, togglePinPost, toggleKeepPost, movePost, deletePosts, deleteCircles, toggleFollowUser, sendDirectMessage, createForumGroup, sendGroupMessage, conversationMessages, addBlock, addMute, addVisibilityRule, votePoll, enterLottery, drawLottery, importMediaFile, addAvatarFiles, addAvatarUrl, generateAvatarLibraryItem, removeAvatarLibraryItem, assignAvatarToAccount, updateNpcProfile, generateImageMedia, generateVoiceMedia, buildLightVideo, generateNewContent, generatePostComments, generatePostInteractions, generateConversationReply, isConversationGenerating, adjustPendingReply, forumFriendStatus, sendForumFriendRequest, acceptForumFriendRequest, rejectForumFriendRequest, generateForumFriendDecision,
     recordFeedShown: (posts: ForumPost[], source: ForumFeedKind | 'circle') => currentAccount.value && recordFeedExposure(snapshot.value, currentAccount.value.id, posts, source),
     markPostOpened: (postId: string) => currentAccount.value && markPostOpened(snapshot.value, currentAccount.value.id, postId)
   }

@@ -9,6 +9,9 @@ import { formatForumTime } from '../../../services/forumTime'
 withDefaults(
   defineProps<{
     comment: ForumComment
+    currentAccountId?: string
+    busy?: boolean
+    refreshingCommentId?: string
   }>(),
   {}
 )
@@ -19,6 +22,7 @@ const emit = defineEmits<{
   (e: 'like', comment: ForumComment): void
   (e: 'reveal-pending', commentId: string): void
   (e: 'delay-pending', commentId: string, minutes: number): void
+  (e: 'refresh-response', comment: ForumComment): void
 }>()
 const delayMinutes = ref(10)
 </script>
@@ -79,6 +83,18 @@ const delayMinutes = ref(10)
       <div class="comment-actions">
         <button class="reply-action-btn" type="button" @click="emit('reply', comment)">
           回复
+        </button>
+        <button
+          v-if="comment.authorAccountId === currentAccountId && !comment.parentId"
+          class="refresh-response-btn"
+          :class="{ spinning: refreshingCommentId === comment.id }"
+          type="button"
+          :disabled="busy"
+          title="换一个社区回应"
+          aria-label="换一个社区回应"
+          @click="emit('refresh-response', comment)"
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2.6L20 9M4 15l2.4 2.6A7 7 0 0 0 17.9 15"/></svg>
         </button>
         <template v-if="comment.pendingReply"><button class="reply-action-btn pending-action" type="button" @click="emit('reveal-pending', comment.id)">立即显示</button><label class="pending-delay"><input v-model.number="delayMinutes" type="number" min="1" max="1440"><span>分钟</span><button class="reply-action-btn pending-action" type="button" @click="emit('delay-pending', comment.id, delayMinutes)">修改</button></label></template>
       </div>
@@ -191,6 +207,7 @@ const delayMinutes = ref(10)
 .reply-action-btn:hover {
   color: var(--text-primary, #333333);
 }
+.refresh-response-btn{display:inline-flex;align-items:center;justify-content:center;width:22px;height:18px;padding:0;border:0;border-radius:999px;background:transparent;color:var(--text-tertiary,#999);cursor:pointer}.refresh-response-btn:hover{color:var(--accent-color,#576b95);background:color-mix(in srgb,var(--accent-color,#576b95) 8%,transparent)}.refresh-response-btn:disabled{opacity:.4;cursor:not-allowed}.refresh-response-btn.spinning svg{animation:response-spin .8s linear infinite}@keyframes response-spin{to{transform:rotate(360deg)}}
 .pending-action{color:var(--accent-color,#576b95)}
 .pending-delay{display:flex;align-items:center;gap:3px;color:var(--text-tertiary,#999);font-size:9px}.pending-delay input{box-sizing:border-box;width:40px;height:21px;border:1px solid var(--border-color,#ddd);border-radius:5px;background:var(--sys-bg-primary,#f5f5f7);color:var(--text-primary,#222);padding:0 3px;font-size:9px}
 
