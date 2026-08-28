@@ -5,12 +5,13 @@ import { App } from '@capacitor/app'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import VeoVideoAccessView from './video/VeoVideoAccessView.vue'
 import KlingVideoAccessView from './video/KlingVideoAccessView.vue'
+import WanVideoAccessView from './video/WanVideoAccessView.vue'
 
 const emit = defineEmits<{
   (event: 'close'): void
 }>()
 
-const currentView = ref<'platforms' | 'veo' | 'kling'>('platforms')
+const currentView = ref<'platforms' | 'veo' | 'kling' | 'wan'>('platforms')
 const activeIndex = ref(0)
 let backButtonHandle: PluginListenerHandle | null = null
 
@@ -28,6 +29,13 @@ const platforms = [
     desc: '快手原生音画与多镜头\n移动端视频生成引擎',
     action: '进入配置',
     disabled: false
+  },
+  {
+    id: 'wan',
+    name: 'Wan 3.0',
+    desc: '阿里云全模态原生音画\n最长 30 秒视频引擎',
+    action: '进入配置',
+    disabled: false
   }
 ]
 
@@ -40,14 +48,16 @@ const handleNext = () => {
 }
 
 const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && (id === 'veo' || id === 'kling')) {
+  if (!disabled && (id === 'veo' || id === 'kling' || id === 'wan')) {
     currentView.value = id as typeof currentView.value
   }
 }
 
 const platformIconStyle = (id: string) => id === 'veo'
   ? 'background: linear-gradient(135deg,#1f1c2c,#928dab); color: #fff;'
-  : 'background: linear-gradient(135deg,#111,#383838); color: #fff;'
+  : id === 'wan'
+    ? 'background: linear-gradient(135deg,#5433ff,#20bdff); color: #fff;'
+    : 'background: linear-gradient(135deg,#111,#383838); color: #fff;'
 
 onMounted(async () => {
   if (!Capacitor.isNativePlatform()) return
@@ -101,6 +111,7 @@ onUnmounted(() => { void backButtonHandle?.remove() })
               >
                 <span v-if="item.id === 'veo'" style="font-weight: 800; font-size: 14px;">VEO</span>
                 <span v-else-if="item.id === 'kling'" style="font-weight: 800; font-size: 12px; letter-spacing: -.4px;">KLING</span>
+                <span v-else-if="item.id === 'wan'" style="font-weight: 800; font-size: 13px; letter-spacing: -.2px;">WAN</span>
               </div>
 
               <div class="capsule-text">
@@ -124,6 +135,7 @@ onUnmounted(() => { void backButtonHandle?.remove() })
     <!-- 子视图 -->
     <VeoVideoAccessView v-else-if="currentView === 'veo'" @back="currentView = 'platforms'" />
     <KlingVideoAccessView v-else-if="currentView === 'kling'" @back="currentView = 'platforms'" />
+    <WanVideoAccessView v-else-if="currentView === 'wan'" @back="currentView = 'platforms'" />
   </div>
 </template>
 
