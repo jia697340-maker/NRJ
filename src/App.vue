@@ -20,6 +20,7 @@ import AppBubbleWorkshop from './components/app_BubbleWorkshop.vue'
 import AppMusic from './components/app_Music.vue'
 import AppForum from './components/app_Forum.vue'
 import AppMCP from './components/app_MCP.vue'
+import AppVideoHall from './components/app_VideoHall.vue'
 import LockScreen from './components/LockScreen.vue'
 import AppWatermarkOverlay from './components/AppWatermarkOverlay.vue'
 import McpApprovalModal from './components/McpApprovalModal.vue'
@@ -543,6 +544,13 @@ watch(activeApp, appId => {
       <AppMCP
         v-if="activeApp === 'mcp'"
         data-font-app="mcp"
+        @close="activeApp = null"
+      />
+    </Transition>
+    <Transition name="app-fade">
+      <AppVideoHall
+        v-if="activeApp === 'video_hall'"
+        data-font-app="video_hall"
         @close="activeApp = null"
       />
     </Transition>

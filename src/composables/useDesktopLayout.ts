@@ -49,7 +49,8 @@ const FOURTH_PAGE_APP_IDS = new Set([
   'game',
   'bubble',
   'mall',
-  'fate'
+  'fate',
+  'video_hall'
 ])
 
 const state = reactive<DesktopLayoutState>({
