@@ -31,26 +31,28 @@ export interface DesktopLocation {
 
 const STORAGE_KEY = 'clingy_desktop_layout_v1'
 const FIRST_PAGE_CAPACITY = 4
-const OTHER_PAGE_CAPACITY = 12
+const OTHER_PAGE_CAPACITY = 8
 const DOCK_CAPACITY = 4
+
+// 每页严格容纳 2 行（4列 × 2行 = 8个）
 const THIRD_PAGE_APP_IDS = new Set([
+  'widget_beautify',
   'character_workshop',
   'persona_workshop',
   'bubble_dressup',
   'character_phone',
   'watch_together',
   'timebox',
-  'mcp',
-  'text_game'
+  'mcp'
 ])
 const FOURTH_PAGE_APP_IDS = new Set([
+  'text_game',
   'appearance_wardrobe',
   'book_store',
   'game',
   'bubble',
   'mall',
-  'fate',
-  'video_hall'
+  'fate'
 ])
 
 const state = reactive<DesktopLayoutState>({
@@ -69,9 +71,6 @@ const cloneEntry = (entry: DesktopEntry): DesktopEntry => entry.type === 'app'
   : { type: 'folder', id: entry.id, name: entry.name, appIds: [...entry.appIds] }
 
 const createDefaultLayout = (appIds: string[]): DesktopLayoutState => {
-  // 第三、第四页的专属应用不能参与前两页和 Dock 的顺序切分。
-  // 例如“外观衣柜”虽然注册得很靠前，但原始设计位于第四页；若先 slice，
-  // 它会错误占据 Dock，并把短信、钱包等应用整体向后挤一位。
   const primaryAppIds = appIds.filter(id => !THIRD_PAGE_APP_IDS.has(id) && !FOURTH_PAGE_APP_IDS.has(id))
   return {
     version: 1,
@@ -142,10 +141,9 @@ const normalize = (raw: Partial<DesktopLayoutState>, appIds: string[]): DesktopL
     }
   }
 
-  // 确保归属于第四页的应用（如外观衣柜）若此前保存在前几页则平滑移至第四页
+  // 确保归属于第四页和第三页的应用若在旧缓存中位置错乱则平滑移至对应页
   for (const id of FOURTH_PAGE_APP_IDS) {
     if (!validIds.has(id) || hidden.has(id)) continue
-    // 如果存在于前 3 页的普通列表或 dock，将其移到第 4 页
     let foundAndRemoved = false
     for (let p = 0; p < 3; p++) {
       const idx = pages[p].findIndex(e => e.type === 'app' && e.id === id)
@@ -157,6 +155,32 @@ const normalize = (raw: Partial<DesktopLayoutState>, appIds: string[]): DesktopL
     }
     if (foundAndRemoved && !pages[3].some(e => e.type === 'app' && e.id === id)) {
       pages[3].push({ type: 'app', id })
+    }
+  }
+
+  for (const id of THIRD_PAGE_APP_IDS) {
+    if (!validIds.has(id) || hidden.has(id)) continue
+    let foundAndRemoved = false
+    for (let p = 0; p < 2; p++) {
+      const idx = pages[p].findIndex(e => e.type === 'app' && e.id === id)
+      if (idx >= 0) {
+        pages[p].splice(idx, 1)
+        foundAndRemoved = true
+        break
+      }
+    }
+    if (foundAndRemoved && !pages[2].some(e => e.type === 'app' && e.id === id)) {
+      pages[2].push({ type: 'app', id })
+    }
+  }
+
+  // 严格确保每页容量（第二页及之后最多8个，若超出顺位推入后一页）
+  for (let p = 1; p < 3; p++) {
+    while (pages[p].length > OTHER_PAGE_CAPACITY) {
+      const overflow = pages[p].pop()
+      if (overflow) {
+        pages[p + 1].unshift(overflow)
+      }
     }
   }
 
