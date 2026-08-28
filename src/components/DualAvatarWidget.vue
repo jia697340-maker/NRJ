@@ -45,53 +45,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import localforage from 'localforage'
+import { ref, computed } from 'vue'
 import AvatarUploadModal from './AvatarUploadModal.vue'
 import TextEditModal from './TextEditModal.vue'
+import { defaultWidgetConfig, useWidgetInstances, type DualAvatarWidgetConfig } from '../composables/useWidgetInstances'
 
-// 头像状态
-const leftAvatar = ref<string | null>(null)
-const rightAvatar = ref<string | null>(null)
+const props = defineProps<{ instanceId: string; editing?: boolean }>()
+const { records, updateConfig } = useWidgetInstances()
+const defaults = defaultWidgetConfig('dual-avatar') as DualAvatarWidgetConfig
+const config = computed(() => (records[props.instanceId]?.config as DualAvatarWidgetConfig | undefined) ?? defaults)
+const leftAvatar = computed(() => config.value.leftAvatar)
+const rightAvatar = computed(() => config.value.rightAvatar)
+const leftName = computed(() => config.value.leftName)
+const rightName = computed(() => config.value.rightName)
+const slogan = computed(() => config.value.slogan)
 
 // 弹窗状态
 const modalVisible = ref(false)
 const editingAvatar = ref<'left' | 'right'>('left')
 
-// 初始化 localforage
-const store = localforage.createInstance({
-  name: 'nrt-app',
-  storeName: 'avatars'
-})
-
-// 文本状态
-const leftName = ref('@UserA')
-const rightName = ref('@UserB')
-const slogan = ref('Custom   Slogan') // 使用空格占位，展示打字机感
-
 // 文本弹窗状态
 type TextEditType = 'leftName' | 'rightName' | 'slogan'
 const textModalVisible = ref(false)
 const editingTextType = ref<TextEditType>('leftName')
-
-// 加载持久化数据
-onMounted(async () => {
-  try {
-    const left = await store.getItem<string>('avatar-left')
-    const right = await store.getItem<string>('avatar-right')
-    if (left) leftAvatar.value = left
-    if (right) rightAvatar.value = right
-
-    const lName = await store.getItem<string>('text-leftName')
-    const rName = await store.getItem<string>('text-rightName')
-    const slg = await store.getItem<string>('text-slogan')
-    if (lName) leftName.value = lName
-    if (rName) rightName.value = rName
-    if (slg) slogan.value = slg
-  } catch (e) {
-    console.error('Failed to load local data', e)
-  }
-})
 
 // 文本弹窗配置
 const currentTextEditConfig = computed(() => {
@@ -105,54 +81,25 @@ const currentTextEditConfig = computed(() => {
 })
 
 const openTextModal = (type: TextEditType) => {
+  if (props.editing) return
   editingTextType.value = type
   textModalVisible.value = true
 }
 
 const handleTextSaved = async (text: string) => {
-  try {
-    if (editingTextType.value === 'leftName') {
-      leftName.value = text
-      await store.setItem('text-leftName', text)
-    } else if (editingTextType.value === 'rightName') {
-      rightName.value = text
-      await store.setItem('text-rightName', text)
-    } else {
-      slogan.value = text
-      await store.setItem('text-slogan', text)
-    }
-  } catch (e) {
-    console.error('Failed to save text', e)
-  }
+  await updateConfig<DualAvatarWidgetConfig>(props.instanceId, { [editingTextType.value]: text })
 }
 
 // 打开弹窗
 const openModal = (side: 'left' | 'right') => {
+  if (props.editing) return
   editingAvatar.value = side
   modalVisible.value = true
 }
 
 // 保存头像
 const handleAvatarSaved = async (url: string | null) => {
-  try {
-    if (editingAvatar.value === 'left') {
-      leftAvatar.value = url
-      if (url) {
-        await store.setItem('avatar-left', url)
-      } else {
-        await store.removeItem('avatar-left')
-      }
-    } else {
-      rightAvatar.value = url
-      if (url) {
-        await store.setItem('avatar-right', url)
-      } else {
-        await store.removeItem('avatar-right')
-      }
-    }
-  } catch (e) {
-    console.error('Failed to save avatar', e)
-  }
+  await updateConfig<DualAvatarWidgetConfig>(props.instanceId, editingAvatar.value === 'left' ? { leftAvatar: url } : { rightAvatar: url })
 }
 </script>
 

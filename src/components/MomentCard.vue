@@ -6,7 +6,7 @@
       class="moment-card-bg editable"
       :class="{ 'default-bg': bgMainType === 'default' }"
       :style="bgStyle"
-      @click="showBgModal = true"
+      @click="openBackgroundModal"
     ></div>
 
     <!-- 内部内容区域，设置 z-index 保证在背景之上 -->
@@ -98,12 +98,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue'
-import localforage from 'localforage'
+import { ref, computed, onUnmounted, watch } from 'vue'
 import AvatarUploadModal from './AvatarUploadModal.vue'
 import TextEditModal from './TextEditModal.vue'
 import BackgroundSettingModal from './BackgroundSettingModal.vue'
 import { globalSettings } from '../store'
+import { defaultWidgetConfig, useWidgetInstances, type MomentCardWidgetConfig } from '../composables/useWidgetInstances'
+
+const props = defineProps<{ instanceId: string; editing?: boolean }>()
+const { records, updateConfig } = useWidgetInstances()
+const defaults = defaultWidgetConfig('moment-card') as MomentCardWidgetConfig
 
 // 响应式数据状态
 const progressPercent = ref(38) // 默认 38%
@@ -123,7 +127,7 @@ const formatTime = (seconds: number) => {
 
 // 拖拽逻辑
 const handleSliderStart = (e: MouseEvent | TouchEvent) => {
-  if (!globalSettings.enableSlider) return
+  if (props.editing || !globalSettings.enableSlider) return
   isDragging.value = true
   updateProgressFromEvent(e)
 
@@ -188,8 +192,7 @@ const contentText = ref('This is a custom moment description...')
 
 // 持久化存储
 const saveData = async () => {
-  try {
-    await localforage.setItem('momentCardData', {
+  await updateConfig<MomentCardWidgetConfig>(props.instanceId, {
       bgLeftUrl: bgLeftUrl.value,
       bgRightUrl: bgRightUrl.value,
       avatarUrl: avatarUrl.value,
@@ -200,31 +203,16 @@ const saveData = async () => {
       bgMainColor: bgMainColor.value,
       bgMainBlur: bgMainBlur.value,
       progressPercent: progressPercent.value
-    })
-  } catch (err) {
-    console.error('保存数据失败:', err)
-  }
+  })
 }
 
-onMounted(async () => {
-  try {
-    const data: any = await localforage.getItem('momentCardData')
-    if (data) {
-      if (data.bgLeftUrl !== undefined) bgLeftUrl.value = data.bgLeftUrl
-      if (data.bgRightUrl !== undefined) bgRightUrl.value = data.bgRightUrl
-      if (data.avatarUrl !== undefined) avatarUrl.value = data.avatarUrl
-      if (data.username !== undefined) username.value = data.username
-      if (data.contentText !== undefined) contentText.value = data.contentText
-      if (data.bgMainType !== undefined) bgMainType.value = data.bgMainType
-      if (data.bgMainUrl !== undefined) bgMainUrl.value = data.bgMainUrl
-      if (data.bgMainColor !== undefined) bgMainColor.value = data.bgMainColor
-      if (data.bgMainBlur !== undefined) bgMainBlur.value = data.bgMainBlur
-      if (data.progressPercent !== undefined) progressPercent.value = data.progressPercent
-    }
-  } catch (err) {
-    console.error('读取数据失败:', err)
-  }
-})
+watch(() => records[props.instanceId]?.config, value => {
+  const data = { ...defaults, ...(value as Partial<MomentCardWidgetConfig> | undefined) }
+  bgLeftUrl.value = data.bgLeftUrl; bgRightUrl.value = data.bgRightUrl; avatarUrl.value = data.avatarUrl
+  username.value = data.username; contentText.value = data.contentText; bgMainType.value = data.bgMainType
+  bgMainUrl.value = data.bgMainUrl; bgMainColor.value = data.bgMainColor; bgMainBlur.value = data.bgMainBlur
+  progressPercent.value = data.progressPercent
+}, { immediate: true })
 
 // 图片弹窗状态与逻辑
 const showImageModal = ref(false)
@@ -232,6 +220,7 @@ const currentImageType = ref<'left' | 'right' | 'avatar'>('avatar')
 const currentImageUrl = ref<string | null>(null)
 
 const openImageModal = (type: 'left' | 'right' | 'avatar') => {
+  if (props.editing) return
   currentImageType.value = type
   currentImageUrl.value = type === 'left' ? bgLeftUrl.value 
                         : type === 'right' ? bgRightUrl.value 
@@ -254,6 +243,7 @@ const currentEditingText = ref('')
 const defaultText = ref('')
 
 const openTextModal = (type: 'username' | 'content') => {
+  if (props.editing) return
   currentTextType.value = type
   if (type === 'username') {
     textModalTitle.value = '修改用户名'
@@ -275,6 +265,7 @@ const saveText = (text: string) => {
 
 // 底图弹窗状态与逻辑
 const showBgModal = ref(false)
+const openBackgroundModal = () => { if (!props.editing) showBgModal.value = true }
 
 const saveMainBg = (config: { type: 'default' | 'image' | 'color', url: string | null, color: string, blur: number }) => {
   bgMainType.value = config.type
@@ -302,6 +293,7 @@ const bgStyle = computed(() => {
 
 // 处理内部空白区域点击，将其透传给底层（如果未点在具体元素上）
 const handleInnerClick = (e: MouseEvent) => {
+  if (props.editing) return
   // 如果点击的直接是 moment-card-inner 或者 content，说明点在了空白处，呼出背景设置
   const target = e.target as HTMLElement
   if (target.classList.contains('moment-card-inner') || target.classList.contains('content') || target.classList.contains('user-profile') || target.classList.contains('header-images')) {

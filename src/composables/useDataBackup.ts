@@ -55,6 +55,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'app-icons', group: '外观与系统', name: '应用图标', description: '自定义应用图标', stores: [{ dbName: 'nrt-app', storeName: 'appIcons' }] },
   { id: 'custom-fonts', group: '外观与系统', name: '自定义字体', description: '字体文件与作用范围', localKeys: ['clingy_custom_fonts'], stores: [{ dbName: 'nrt-app', storeName: 'customFonts' }] },
   { id: 'wallpapers', group: '外观与系统', name: '全局壁纸', description: '应用壁纸库', stores: [{ dbName: 'nrt-app', storeName: 'wallpapers' }] },
+  { id: 'desktop-widgets', group: '外观与系统', name: '桌面与小组件', description: '桌面页面、排列、小组件实例及图片配置', localKeys: ['clingy_desktop_layout_v1', 'clingy_desktop_layout_v2', 'momentCardData'], stores: [{ dbName: 'nrt-app', storeName: 'widgetInstances' }] },
   { id: 'compression-setting', group: '外观与系统', name: '图片压缩设置', description: '图片压缩质量', localKeys: ['compressQuality'] },
   { id: 'personas', group: '联系人与角色', name: '角色列表', description: '角色资料与头像关联', localKeys: ['app_chat_personas'] },
   { id: 'active-persona', group: '联系人与角色', name: '当前角色', description: '当前选中的角色', localKeys: ['app_chat_active_persona_index'] },

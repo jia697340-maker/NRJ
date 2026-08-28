@@ -32,6 +32,7 @@ import { useCustomFonts } from './composables/useCustomFonts'
 import { startAutonomyRuntime, stopAutonomyRuntime } from './services/autonomyRuntime'
 import FriendRequestModal from './components/chat/modals/FriendRequestModal.vue'
 import { triggerFriendRequestNotification } from './composables/useFriendRequestPrompt'
+import type { WidgetType } from './composables/useDesktopLayout'
 
 const { globalNotifications, dismissNotification, showNotification, loadCustomContacts, loadMyProfile, mockChats } = useChatState()
 const { loadData: loadAppIconsData, customIcons } = useAppIcons()
@@ -58,6 +59,7 @@ const { setFontContext, schedulePreloadEnabledFonts } = useCustomFonts()
 }
 
 const activeApp = ref<string | null>(null)
+const desktopRef = ref<{ installWidget: (widgetType: WidgetType, widthUnits: number, heightUnits: number) => Promise<void> } | null>(null)
 const isLocked = ref(globalSettings.enableLockScreen)
 const hasOpenedChatApp = ref(false)
 const chatAppRef = ref<any>(null)
@@ -367,6 +369,12 @@ const apps = computed(() => {
   })
 })
 
+const addWidgetFromStore = async (widgetType: WidgetType, widthUnits: number, heightUnits: number) => {
+  activeApp.value = null
+  await nextTick()
+  await desktopRef.value?.installWidget(widgetType, widthUnits, heightUnits)
+}
+
 watch([activeApp, isLocked], ([appId, locked]) => {
   void setFontContext(appId, locked ? 'lockscreen' : 'desktop')
 }, { immediate: true })
@@ -413,7 +421,7 @@ watch([activeApp, isLocked], ([appId, locked]) => {
 
     <!-- 状态栏：只要桌面壁纸是浅色的，状态栏就应该是深色字体。目前壁纸写死为浅色，所以 is-dark 恒为 true -->
     <StatusBar data-font-area="desktop" :is-dark="true" v-show="globalSettings.showStatusBar && activeApp === null && (!isLocked || globalSettings.lockScreenStyle !== 'classic')" />
-    <Desktop data-font-area="desktop" :apps="apps" @open-app="handleOpenApp" v-show="!isLocked" />
+    <Desktop ref="desktopRef" data-font-area="desktop" :apps="apps" @open-app="handleOpenApp" v-show="!isLocked" />
 
     <Transition name="development-notice">
       <div v-if="developmentNotice" class="development-notice" role="status">
@@ -502,6 +510,7 @@ watch([activeApp, isLocked], ([appId, locked]) => {
         v-if="activeApp === 'widget_beautify'" 
         data-font-app="widget_beautify"
         @close="activeApp = null" 
+        @add-widget="addWidgetFromStore"
       />
     </Transition>
     <Transition name="app-fade">

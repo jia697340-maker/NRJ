@@ -13,8 +13,8 @@
       <h2 class="modal-title">{{ title || '更换头像' }}</h2>
       
       <div class="avatar-preview">
-        <img v-if="previewUrl" :src="previewUrl" class="avatar-img" :class="shapeClass" />
-        <div v-else class="avatar-placeholder" :class="shapeClass">预览</div>
+        <img v-if="previewUrl" :src="previewUrl" class="avatar-img" :class="shapeClass" :style="previewStyle" />
+        <div v-else class="avatar-placeholder" :class="shapeClass" :style="previewStyle">预览</div>
       </div>
       <div v-if="optimizeHint" class="optimize-hint">{{ optimizeHint }}</div>
       
@@ -37,6 +37,8 @@
         </div>
       </div>
       
+      <slot name="extra"></slot>
+
       <div class="modal-actions">
         <button @click="resetAvatar" class="btn btn-secondary">恢复默认</button>
         <button @click="saveAvatar" class="btn btn-primary" :class="{ 'is-disabled': isOptimizing }">{{ isOptimizing ? '优化中…' : '保存' }}</button>
@@ -54,10 +56,22 @@ const props = withDefaults(defineProps<{
   currentAvatar?: string | null
   shape?: 'avatar' | 'bg-left' | 'bg-right' | 'circle' | 'portrait' | 'wallpaper' | 'square'
   title?: string
+  previewFit?: 'cover' | 'contain'
+  previewPosition?: string
+  previewRadius?: number
 }>(), {
   shape: 'circle',
-  currentAvatar: null
+  currentAvatar: null,
+  previewFit: undefined,
+  previewPosition: undefined,
+  previewRadius: undefined
 })
+
+const previewStyle = computed(() => ({
+  ...(props.previewFit ? { objectFit: props.previewFit } : {}),
+  ...(props.previewPosition ? { objectPosition: props.previewPosition } : {}),
+  ...(props.previewRadius !== undefined ? { borderRadius: `${props.previewRadius}%` } : {})
+}))
 
 const shapeClass = computed(() => {
   return `shape-${props.shape}`
