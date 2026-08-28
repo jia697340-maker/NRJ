@@ -4,6 +4,8 @@ import localforage from 'localforage'
 
 export type FontSourceType = 'local' | 'url'
 export type FontFormat = 'woff2' | 'woff' | 'ttf' | 'otf'
+export type FontSystemArea = 'desktop' | 'lockscreen'
+export type FontDownloadPhase = 'connecting' | 'downloading'
 
 export interface CustomFontRecord {
   id: string
@@ -14,14 +16,43 @@ export interface CustomFontRecord {
   size: number
   sourceType: FontSourceType
   sourceUrl?: string
+  normalizedSourceUrl?: string
+  etag?: string
+  lastModified?: string
+  downloadedAt?: number
   scopes: string[]
   enabled: boolean
   createdAt: number
   updatedAt: number
 }
 
+export interface FontDownloadProgress {
+  phase: FontDownloadPhase
+  loadedBytes: number
+  totalBytes: number | null
+  percent: number | null
+}
+
+export interface DownloadedFont {
+  blob: Blob
+  normalizedUrl: string
+  finalUrl: string
+  etag?: string
+  lastModified?: string
+}
+
+export interface ExistingUrlFont {
+  record: CustomFontRecord
+  available: boolean
+}
+
+type FontMetadata = Pick<CustomFontRecord, 'name' | 'fileName' | 'sourceType' | 'sourceUrl' | 'normalizedSourceUrl' | 'etag' | 'lastModified'>
+
 const META_KEY = 'clingy_custom_fonts'
 const STYLE_ID = 'clingy-custom-font-rules'
+const CONNECTION_TIMEOUT_MS = 20_000
+const STALL_TIMEOUT_MS = 30_000
+const PROGRESS_INTERVAL_MS = 100
 const fontStore = localforage.createInstance({ name: 'nrt-app', storeName: 'customFonts' })
 const records = reactive<CustomFontRecord[]>([])
 const loadedIds = reactive(new Set<string>())
@@ -29,7 +60,14 @@ const loadingIds = reactive(new Set<string>())
 const errors = reactive<Record<string, string>>({})
 const initialized = ref(false)
 const loadedFaces = new Map<string, FontFace>()
+const loadPromises = new Map<string, Promise<void>>()
+const loadGenerations = new Map<string, number>()
+let initializationPromise: Promise<void> | null = null
 let activeAppId: string | null = null
+let activeSystemArea: FontSystemArea = 'desktop'
+let preloadHandle: number | ReturnType<typeof setTimeout> | null = null
+let preloadUsesIdleCallback = false
+let preloadRunning = false
 
 const readMeta = () => {
   try {
@@ -62,9 +100,7 @@ const rebuildStyles = () => {
   const textDescendants = (selector: string) => `${selector}, ${selector} *:not(.text-icon):not(code):not(pre):not(kbd):not(samp)`
   const rules: string[] = []
   const globalFont = latestFor('global')
-  if (globalFont) {
-    rules.push(`${textDescendants('body')} { ${declarations(globalFont)} }`)
-  }
+  if (globalFont) rules.push(`${textDescendants('body')} { ${declarations(globalFont)} }`)
 
   const exactScopes = new Set(active.flatMap(record => record.scopes).filter(scope => scope !== 'global'))
   exactScopes.forEach(scope => {
@@ -97,65 +133,126 @@ const detectFormat = async (blob: Blob): Promise<FontFormat> => {
   throw new Error('文件内容不是受支持的字体格式')
 }
 
+const normalizeSourceUrl = (url: string) => {
+  let parsed: URL
+  try { parsed = new URL(url.trim()) } catch { throw new Error('请输入完整有效的 URL') }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('仅支持 http 或 https 字体地址')
+  parsed.hash = ''
+  return parsed.toString()
+}
+
 const makeId = () => `font_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
-const loadFont = async (record: CustomFontRecord) => {
-  if (!record.enabled || loadedIds.has(record.id) || loadingIds.has(record.id)) return
-  loadingIds.add(record.id)
-  delete errors[record.id]
-  try {
-    const blob = await fontStore.getItem<Blob>(record.id)
-    if (!blob) throw new Error('本机字体文件已丢失')
-    const url = URL.createObjectURL(blob)
-    try {
-      const face = new FontFace(record.family, `url("${url}") format("${record.format}")`, { display: 'swap' })
-      await face.load()
-      document.fonts.add(face)
-      loadedFaces.set(record.id, face)
-      loadedIds.add(record.id)
-    } finally {
-      URL.revokeObjectURL(url)
-    }
-  } catch (error) {
-    errors[record.id] = error instanceof Error ? error.message : '字体加载失败'
-  } finally {
-    loadingIds.delete(record.id)
-    rebuildStyles()
-  }
+const nextGeneration = (id: string) => {
+  const next = (loadGenerations.get(id) || 0) + 1
+  loadGenerations.set(id, next)
+  return next
+}
+
+const removeLoadedFace = (id: string) => {
+  const face = loadedFaces.get(id)
+  if (face) document.fonts.delete(face)
+  loadedFaces.delete(id)
+  loadedIds.delete(id)
 }
 
 const shouldLoadNow = (record: CustomFontRecord) => record.scopes.some(scope => {
-  if (scope === 'global' || scope.startsWith('system:')) return true
+  if (scope === 'global') return true
+  if (scope === `system:${activeSystemArea}`) return true
   return activeAppId !== null && scope === `app:${activeAppId}`
 })
 
+const loadFont = (record: CustomFontRecord, providedBlob?: Blob, retry = false): Promise<void> => {
+  if (!record.enabled || loadedIds.has(record.id)) return Promise.resolve()
+  const existingPromise = loadPromises.get(record.id)
+  if (existingPromise) return existingPromise
+  if (errors[record.id] && !retry) return Promise.resolve()
+
+  const generation = loadGenerations.get(record.id) || 0
+  loadingIds.add(record.id)
+  if (retry) delete errors[record.id]
+
+  const promise = (async () => {
+    let objectUrl: string | null = null
+    try {
+      const blob = providedBlob || await fontStore.getItem<Blob>(record.id)
+      if (!blob) throw new Error('本机字体文件已丢失')
+      objectUrl = URL.createObjectURL(blob)
+      const face = new FontFace(record.family, `url("${objectUrl}") format("${record.format}")`, { display: 'swap' })
+      await face.load()
+
+      const current = records.find(item => item.id === record.id)
+      if (!current || !current.enabled || (loadGenerations.get(record.id) || 0) !== generation) return
+      removeLoadedFace(record.id)
+      document.fonts.add(face)
+      loadedFaces.set(record.id, face)
+      loadedIds.add(record.id)
+      delete errors[record.id]
+    } catch (error) {
+      if ((loadGenerations.get(record.id) || 0) === generation && records.some(item => item.id === record.id)) {
+        errors[record.id] = error instanceof Error ? error.message : '字体加载失败'
+      }
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      loadingIds.delete(record.id)
+      loadPromises.delete(record.id)
+      rebuildStyles()
+    }
+  })()
+
+  loadPromises.set(record.id, promise)
+  return promise
+}
+
 const loadRelevantFonts = async () => {
-  await Promise.all(records.filter(record => record.enabled && shouldLoadNow(record)).map(loadFont))
+  await Promise.all(records.filter(record => record.enabled && shouldLoadNow(record)).map(record => loadFont(record)))
   rebuildStyles()
 }
 
 const initialize = async () => {
+  if (initializationPromise) return initializationPromise
   if (initialized.value) return
-  records.splice(0, records.length, ...readMeta())
-  initialized.value = true
-  await loadRelevantFonts()
+  initializationPromise = (async () => {
+    records.splice(0, records.length, ...readMeta())
+    initialized.value = true
+    await loadRelevantFonts()
+  })().finally(() => { initializationPromise = null })
+  return initializationPromise
 }
 
-const setActiveApp = async (appId: string | null) => {
+const setFontContext = async (appId: string | null, systemArea: FontSystemArea) => {
   activeAppId = appId
+  activeSystemArea = systemArea
   if (appId) document.body.dataset.activeFontApp = appId
   else delete document.body.dataset.activeFontApp
   if (!initialized.value) await initialize()
-  await loadRelevantFonts()
+  else await loadRelevantFonts()
 }
 
-const addFont = async (blob: Blob, options: { name: string; fileName: string; sourceType: FontSourceType; sourceUrl?: string; scopes: string[] }) => {
-  if (!blob.size) throw new Error('字体文件为空')
-  if (navigator.storage?.estimate) {
-    const estimate = await navigator.storage.estimate()
-    const available = Math.max(0, (estimate.quota || 0) - (estimate.usage || 0))
-    if (estimate.quota && available < blob.size * 1.15) throw new Error('本机存储空间不足，无法保存该字体')
+const setActiveApp = async (appId: string | null) => setFontContext(appId, activeSystemArea)
+
+const setActiveSystemArea = async (area: FontSystemArea) => setFontContext(activeAppId, area)
+
+const ensureStorageAvailable = async (size: number) => {
+  if (!size || !navigator.storage?.estimate) return
+  const estimate = await navigator.storage.estimate()
+  const available = Math.max(0, (estimate.quota || 0) - (estimate.usage || 0))
+  if (estimate.quota && available < size * 1.15) throw new Error('本机存储空间不足，无法保存该字体')
+}
+
+const requestPersistentStorage = async () => {
+  try {
+    if (!navigator.storage?.persist) return false
+    if (await navigator.storage.persisted?.()) return true
+    return await navigator.storage.persist()
+  } catch {
+    return false
   }
+}
+
+const addFont = async (blob: Blob, options: FontMetadata & { scopes: string[]; onPhase?: (phase: 'saving' | 'loading') => void }) => {
+  if (!blob.size) throw new Error('字体文件为空')
+  await ensureStorageAvailable(blob.size)
   const format = await detectFormat(blob)
   const id = makeId()
   const now = Date.now()
@@ -168,85 +265,328 @@ const addFont = async (blob: Blob, options: { name: string; fileName: string; so
     size: blob.size,
     sourceType: options.sourceType,
     sourceUrl: options.sourceUrl,
+    normalizedSourceUrl: options.normalizedSourceUrl,
+    etag: options.etag,
+    lastModified: options.lastModified,
+    downloadedAt: options.sourceType === 'url' ? now : undefined,
     scopes: options.scopes.length ? [...new Set(options.scopes)] : ['global'],
     enabled: true,
     createdAt: now,
     updatedAt: now
   }
+
+  options.onPhase?.('saving')
   await fontStore.setItem(id, blob)
   records.push(record)
-  saveMeta()
-  await loadFont(record)
+  try {
+    saveMeta()
+    options.onPhase?.('loading')
+    await loadFont(record, blob, true)
+    if (errors[record.id]) throw new Error(errors[record.id])
+    return record
+  } catch (error) {
+    nextGeneration(id)
+    removeLoadedFace(id)
+    const index = records.findIndex(item => item.id === id)
+    if (index >= 0) records.splice(index, 1)
+    delete errors[id]
+    await fontStore.removeItem(id).catch(() => undefined)
+    try { saveMeta() } catch { /* 原始保存错误优先返回 */ }
+    throw error
+  }
+}
+
+const replaceFont = async (id: string, blob: Blob, metadata: FontMetadata & { onPhase?: (phase: 'saving' | 'loading') => void }) => {
+  const record = records.find(item => item.id === id)
+  if (!record) throw new Error('要更新的字体记录不存在')
+  if (!blob.size) throw new Error('字体文件为空')
+  await ensureStorageAvailable(blob.size)
+  const format = await detectFormat(blob)
+  metadata.onPhase?.('loading')
+  const objectUrl = URL.createObjectURL(blob)
+  let replacementFace: FontFace
+  try {
+    replacementFace = new FontFace(record.family, `url("${objectUrl}") format("${format}")`, { display: 'swap' })
+    await replacementFace.load()
+  } catch {
+    throw new Error('远程文件无法作为字体加载，原字体已保留')
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+
+  const oldBlob = await fontStore.getItem<Blob>(id)
+  const oldRecord = { ...record, scopes: [...record.scopes] }
+  metadata.onPhase?.('saving')
+  await fontStore.setItem(id, blob)
+  try {
+    record.name = metadata.name.trim() || record.name
+    record.fileName = metadata.fileName || record.fileName
+    record.format = format
+    record.size = blob.size
+    record.sourceType = metadata.sourceType
+    record.sourceUrl = metadata.sourceUrl
+    record.normalizedSourceUrl = metadata.normalizedSourceUrl
+    record.etag = metadata.etag
+    record.lastModified = metadata.lastModified
+    record.downloadedAt = Date.now()
+    record.updatedAt = Date.now()
+    saveMeta()
+  } catch (error) {
+    Object.assign(record, oldRecord)
+    if (oldBlob) await fontStore.setItem(id, oldBlob)
+    else await fontStore.removeItem(id)
+    throw error
+  }
+
+  nextGeneration(id)
+  removeLoadedFace(id)
+  delete errors[id]
+  if (record.enabled) {
+    document.fonts.add(replacementFace)
+    loadedFaces.set(id, replacementFace)
+    loadedIds.add(id)
+  }
+  rebuildStyles()
   return record
 }
 
 const updateFont = async (id: string, changes: Partial<Pick<CustomFontRecord, 'name' | 'scopes' | 'enabled'>>) => {
   const record = records.find(item => item.id === id)
   if (!record) return
+  const previous = { ...record, scopes: [...record.scopes] }
   if (typeof changes.name === 'string') record.name = changes.name.trim() || record.name
   if (changes.scopes) record.scopes = [...new Set(changes.scopes.length ? changes.scopes : ['global'])]
   if (typeof changes.enabled === 'boolean') record.enabled = changes.enabled
   record.updatedAt = Date.now()
-  saveMeta()
-  if (!record.enabled) {
-    const face = loadedFaces.get(record.id)
-    if (face) document.fonts.delete(face)
-    loadedFaces.delete(record.id)
-    loadedIds.delete(record.id)
+  try {
+    saveMeta()
+  } catch (error) {
+    Object.assign(record, previous)
+    throw error
   }
-  if (record.enabled && shouldLoadNow(record)) await loadFont(record)
+  if (!record.enabled) {
+    nextGeneration(record.id)
+    removeLoadedFace(record.id)
+  } else if (typeof changes.enabled === 'boolean') {
+    delete errors[record.id]
+  }
+  if (record.enabled && shouldLoadNow(record)) {
+    await loadFont(record, undefined, typeof changes.enabled === 'boolean')
+    // 若字体在“停用中的旧加载任务”结束前被重新启用，继续完成一次有效加载。
+    if (record.enabled && !loadedIds.has(record.id) && !loadingIds.has(record.id) && !errors[record.id]) {
+      await loadFont(record, undefined, true)
+    }
+  } else if (record.enabled && !loadedIds.has(record.id)) {
+    // 在设置页重新启用或改到其他 App scope 时，也加入空闲预热队列。
+    void schedulePreloadEnabledFonts()
+  }
   rebuildStyles()
+}
+
+const retryFont = async (id: string) => {
+  const record = records.find(item => item.id === id)
+  if (!record || !record.enabled) return
+  delete errors[id]
+  await loadFont(record, undefined, true)
 }
 
 const removeFont = async (id: string) => {
-  await fontStore.removeItem(id)
+  const blob = await fontStore.getItem<Blob>(id)
   const index = records.findIndex(item => item.id === id)
+  const record = index >= 0 ? records[index] : undefined
+  await fontStore.removeItem(id)
+  nextGeneration(id)
   if (index >= 0) records.splice(index, 1)
-  const face = loadedFaces.get(id)
-  if (face) document.fonts.delete(face)
-  loadedFaces.delete(id)
-  loadedIds.delete(id)
+  try {
+    saveMeta()
+  } catch (error) {
+    if (record) records.splice(index, 0, record)
+    if (blob) await fontStore.setItem(id, blob)
+    throw error
+  }
+  removeLoadedFace(id)
   loadingIds.delete(id)
   delete errors[id]
-  saveMeta()
   rebuildStyles()
 }
 
-const downloadFont = async (url: string, onProgress?: (progress: number | null) => void) => {
-  let parsed: URL
-  try { parsed = new URL(url) } catch { throw new Error('请输入完整有效的 URL') }
-  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('仅支持 http 或 https 字体地址')
+const findExistingUrlFont = async (url: string): Promise<ExistingUrlFont | null> => {
+  const normalized = normalizeSourceUrl(url)
+  const record = records.find(item => {
+    if (item.sourceType !== 'url' || !item.sourceUrl) return false
+    try { return (item.normalizedSourceUrl || normalizeSourceUrl(item.sourceUrl)) === normalized } catch { return false }
+  })
+  if (!record) return null
+  const available = !!(await fontStore.getItem<Blob>(record.id))
+  if (!available) errors[record.id] = '本机字体文件已丢失'
+  return { record, available }
+}
 
-  let response: Response
+const downloadFont = async (url: string, options: {
+  signal?: AbortSignal
+  onProgress?: (progress: FontDownloadProgress) => void
+} = {}): Promise<DownloadedFont> => {
+  const normalizedUrl = normalizeSourceUrl(url)
+  const controller = new AbortController()
+  let timeoutKind: 'connection' | 'stall' | null = null
+  let connectionTimer: ReturnType<typeof setTimeout> | undefined
+  let stallTimer: ReturnType<typeof setTimeout> | undefined
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let lastProgressAt = 0
+
+  const abortFromCaller = () => controller.abort(options.signal?.reason)
+  if (options.signal?.aborted) abortFromCaller()
+  else options.signal?.addEventListener('abort', abortFromCaller, { once: true })
+
+  const abortAfter = (kind: 'connection' | 'stall') => {
+    timeoutKind = kind
+    controller.abort()
+  }
+  const resetStallTimer = () => {
+    if (stallTimer) clearTimeout(stallTimer)
+    stallTimer = setTimeout(() => abortAfter('stall'), STALL_TIMEOUT_MS)
+  }
+
+  const emitProgress = (progress: FontDownloadProgress, force = false) => {
+    const now = performance.now()
+    if (!force && now - lastProgressAt < PROGRESS_INTERVAL_MS) return
+    lastProgressAt = now
+    options.onProgress?.(progress)
+  }
+
   try {
-    response = await fetch(parsed.toString(), { mode: 'cors', credentials: 'omit' })
-  } catch {
-    throw new Error('图床禁止跨域读取，建议下载字体后使用本地上传')
+    emitProgress({ phase: 'connecting', loadedBytes: 0, totalBytes: null, percent: null }, true)
+    connectionTimer = setTimeout(() => abortAfter('connection'), CONNECTION_TIMEOUT_MS)
+    let response: Response
+    try {
+      response = await fetch(normalizedUrl, { mode: 'cors', credentials: 'omit', signal: controller.signal })
+    } catch (error) {
+      if (controller.signal.aborted) throw error
+      throw new Error('无法读取远程字体，可能是网络异常或服务器不允许跨域读取')
+    } finally {
+      if (connectionTimer) clearTimeout(connectionTimer)
+    }
+
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined)
+      throw new Error(`远程地址返回 ${response.status}，字体无法导入`)
+    }
+    const contentType = (response.headers.get('content-type') || '').toLowerCase()
+    if (contentType.includes('text/html') || contentType.includes('application/json') || contentType.startsWith('image/')) {
+      await response.body?.cancel().catch(() => undefined)
+      throw new Error('该地址返回的不是字体文件，请使用字体直链')
+    }
+
+    const rawTotal = Number(response.headers.get('content-length') || 0)
+    let total = Number.isFinite(rawTotal) && rawTotal > 0 ? rawTotal : null
+    if (total) await ensureStorageAvailable(total)
+    emitProgress({ phase: 'downloading', loadedBytes: 0, totalBytes: total, percent: total ? 0 : null }, true)
+
+    let blob: Blob
+    if (!response.body) {
+      blob = await response.blob()
+      emitProgress({ phase: 'downloading', loadedBytes: blob.size, totalBytes: total, percent: 100 }, true)
+    } else {
+      reader = response.body.getReader()
+      const chunks: BlobPart[] = []
+      let received = 0
+      resetStallTimer()
+      while (true) {
+        let result: ReadableStreamReadResult<Uint8Array>
+        try {
+          result = await reader.read()
+        } catch (error) {
+          if (controller.signal.aborted) throw error
+          throw new Error('字体下载中断，请检查网络后重试')
+        }
+        const { done, value } = result
+        if (done) break
+        resetStallTimer()
+        chunks.push(value as Uint8Array<ArrayBuffer>)
+        received += value.byteLength
+        if (total && received > total) total = null
+        const percent = total ? Math.min(99, Math.round(received / total * 100)) : null
+        emitProgress({ phase: 'downloading', loadedBytes: received, totalBytes: total, percent })
+      }
+      blob = new Blob(chunks, { type: contentType || 'application/octet-stream' })
+      emitProgress({ phase: 'downloading', loadedBytes: blob.size, totalBytes: total, percent: 100 }, true)
+    }
+
+    await ensureStorageAvailable(blob.size)
+    return {
+      blob,
+      normalizedUrl,
+      finalUrl: response.url || normalizedUrl,
+      etag: response.headers.get('etag') || undefined,
+      lastModified: response.headers.get('last-modified') || undefined
+    }
+  } catch (error) {
+    if (controller.signal.aborted) {
+      if (timeoutKind === 'connection') throw new Error('服务器长时间未响应，请稍后重试')
+      if (timeoutKind === 'stall') throw new Error('下载长时间没有进度，请检查网络后重试')
+      throw new DOMException('已取消导入', 'AbortError')
+    }
+    if (error instanceof Error) throw error
+    throw new Error('字体下载中断，请重试')
+  } finally {
+    if (connectionTimer) clearTimeout(connectionTimer)
+    if (stallTimer) clearTimeout(stallTimer)
+    options.signal?.removeEventListener('abort', abortFromCaller)
+    try { reader?.releaseLock() } catch { /* reader 已结束 */ }
   }
-  if (!response.ok) throw new Error(`远程地址返回 ${response.status}，字体无法导入`)
-  const contentType = (response.headers.get('content-type') || '').toLowerCase()
-  if (contentType.includes('text/html') || contentType.includes('application/json') || contentType.startsWith('image/')) {
-    throw new Error('该地址返回的不是字体文件，请使用字体直链')
+}
+
+const clearPreloadHandle = () => {
+  if (preloadHandle === null) return
+  if (preloadUsesIdleCallback && 'cancelIdleCallback' in window) window.cancelIdleCallback(preloadHandle as number)
+  else clearTimeout(preloadHandle as ReturnType<typeof setTimeout>)
+  preloadHandle = null
+}
+
+const preloadScore = (record: CustomFontRecord) => {
+  const formatScore = record.format === 'woff2' ? 0 : record.format === 'woff' ? 1 : 2
+  const commonAppScore = record.scopes.some(scope => ['app:chat', 'app:messages', 'app:forum'].includes(scope)) ? 0 : 1
+  return formatScore * 1_000_000_000 + commonAppScore * 100_000_000 + record.size
+}
+
+const schedulePreloadEnabledFonts = async () => {
+  await initialize()
+  clearPreloadHandle()
+
+  const runNext = async () => {
+    preloadHandle = null
+    if (preloadRunning) {
+      scheduleNext()
+      return
+    }
+    const record = records
+      .filter(item => item.enabled && !loadedIds.has(item.id) && !loadingIds.has(item.id) && !errors[item.id])
+      .sort((a, b) => preloadScore(a) - preloadScore(b))[0]
+    if (!record) return
+    preloadRunning = true
+    try {
+      await loadFont(record)
+    } finally {
+      preloadRunning = false
+      scheduleNext()
+    }
   }
 
-  const total = Number(response.headers.get('content-length') || 0)
-  if (!response.body) {
-    const blob = await response.blob()
-    onProgress?.(100)
-    return blob
+  const scheduleNext = () => {
+    if (preloadHandle !== null) return
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number
+    }
+    if (idleWindow.requestIdleCallback) {
+      preloadUsesIdleCallback = true
+      preloadHandle = idleWindow.requestIdleCallback(() => { void runNext() }, { timeout: 2500 })
+    } else {
+      preloadUsesIdleCallback = false
+      preloadHandle = setTimeout(() => { void runNext() }, 350)
+    }
   }
-  const reader = response.body.getReader()
-  const chunks: ArrayBuffer[] = []
-  let received = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    chunks.push(new Uint8Array(value).buffer as ArrayBuffer)
-    received += value.byteLength
-    onProgress?.(total > 0 ? Math.min(99, Math.round(received / total * 100)) : null)
-  }
-  onProgress?.(100)
-  return new Blob(chunks, { type: contentType || 'application/octet-stream' })
+
+  scheduleNext()
 }
 
 const formatSize = (size: number) => size >= 1024 * 1024
@@ -261,10 +601,18 @@ export const useCustomFonts = () => ({
   initialized,
   initialize,
   setActiveApp,
+  setActiveSystemArea,
+  setFontContext,
+  schedulePreloadEnabledFonts,
   addFont,
+  replaceFont,
   updateFont,
+  retryFont,
   removeFont,
+  findExistingUrlFont,
   downloadFont,
+  requestPersistentStorage,
+  normalizeSourceUrl,
   detectFormat,
   formatSize
 })

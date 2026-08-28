@@ -35,7 +35,7 @@ import { triggerFriendRequestNotification } from './composables/useFriendRequest
 
 const { globalNotifications, dismissNotification, showNotification, loadCustomContacts, loadMyProfile, mockChats } = useChatState()
 const { loadData: loadAppIconsData, customIcons } = useAppIcons()
-const { setActiveApp: setActiveFontApp } = useCustomFonts()
+const { setFontContext, schedulePreloadEnabledFonts } = useCustomFonts()
 
 // 暴露到全局，方便开发者在控制台测试 UI 动画效果与好友申请通知效果
 ;(window as any).testNotification = showNotification
@@ -194,6 +194,8 @@ onMounted(async () => {
   await loadMyProfile()
   startAutonomyRuntime()
   await loadAppIconsData()
+  // 页面核心数据就绪后再空闲预热其他已启用字体，不阻塞首次挂载。
+  void schedulePreloadEnabledFonts()
 
 })
 
@@ -365,8 +367,8 @@ const apps = computed(() => {
   })
 })
 
-watch(activeApp, appId => {
-  void setActiveFontApp(appId)
+watch([activeApp, isLocked], ([appId, locked]) => {
+  void setFontContext(appId, locked ? 'lockscreen' : 'desktop')
 }, { immediate: true })
 </script>
 

@@ -1,8 +1,14 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { appRegistry } from '../appRegistry'
-import { useCustomFonts, type CustomFontRecord } from '../composables/useCustomFonts'
+import {
+  useCustomFonts,
+  type CustomFontRecord,
+  type ExistingUrlFont,
+  type FontDownloadProgress,
+  type FontFormat
+} from '../composables/useCustomFonts'
 
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits(['update:visible'])
@@ -13,9 +19,13 @@ const {
   errors,
   initialize,
   addFont,
+  replaceFont,
   updateFont,
+  retryFont,
   removeFont,
+  findExistingUrlFont,
   downloadFont,
+  requestPersistentStorage,
   detectFormat,
   formatSize
 } = useCustomFonts()
@@ -30,9 +40,33 @@ const fontName = ref('')
 const selectedScopes = ref<string[]>(['global'])
 const editingId = ref<string | null>(null)
 const busy = ref(false)
-const progress = ref<number | null>(null)
+type ImportPhase = 'idle' | 'checking' | 'connecting' | 'downloading' | 'verifying' | 'saving' | 'loading'
+const importPhase = ref<ImportPhase>('idle')
+const downloadProgress = ref<FontDownloadProgress | null>(null)
+const duplicateFont = ref<ExistingUrlFont | null>(null)
 const message = ref('')
 const messageTone = ref<'normal' | 'error' | 'warning'>('normal')
+let importController: AbortController | null = null
+
+const LARGE_FONT_SIZE = 8 * 1024 * 1024
+const VERY_LARGE_FONT_SIZE = 20 * 1024 * 1024
+const canCancelDownload = computed(() => busy.value && ['checking', 'connecting', 'downloading'].includes(importPhase.value))
+const progressPercent = computed(() => downloadProgress.value?.percent ?? null)
+const phaseLabel = computed(() => {
+  if (importPhase.value === 'checking') return '正在检查地址…'
+  if (importPhase.value === 'connecting') return '正在连接字体服务器…'
+  if (importPhase.value === 'downloading') return '正在下载字体'
+  if (importPhase.value === 'verifying') return '正在验证字体…'
+  if (importPhase.value === 'saving') return '正在保存到本机…'
+  if (importPhase.value === 'loading') return '正在加载字体…'
+  return ''
+})
+const progressDetail = computed(() => {
+  const current = downloadProgress.value
+  if (!current || current.phase !== 'downloading') return ''
+  if (current.totalBytes) return `${formatSize(current.loadedBytes)} / ${formatSize(current.totalBytes)}`
+  return current.loadedBytes ? `已下载 ${formatSize(current.loadedBytes)}` : '正在等待数据…'
+})
 
 const systemScopes = [
   { id: 'system:desktop', name: '桌面与状态栏' },
@@ -45,11 +79,22 @@ watch(() => props.visible, async visible => {
   if (visible) {
     await initialize()
     if (viewMode.value === 'edit' && !editingRecord.value) viewMode.value = 'list'
+  } else if (importController) {
+    importController.abort()
   }
 })
 
-const close = () => {
+watch(urlInput, () => {
   if (busy.value) return
+  duplicateFont.value = null
+  message.value = ''
+})
+
+onBeforeUnmount(() => importController?.abort())
+
+const close = () => {
+  if (busy.value && !canCancelDownload.value) return
+  if (canCancelDownload.value) importController?.abort()
   emit('update:visible', false)
   viewMode.value = 'list'
 }
@@ -60,7 +105,9 @@ const resetDraft = () => {
   urlInput.value = ''
   fontName.value = ''
   selectedScopes.value = ['global']
-  progress.value = null
+  importPhase.value = 'idle'
+  downloadProgress.value = null
+  duplicateFont.value = null
   message.value = ''
   messageTone.value = 'normal'
   if (fileInputRef.value) fileInputRef.value.value = ''
@@ -81,7 +128,8 @@ const openEdit = (record: CustomFontRecord) => {
 }
 
 const goBack = () => {
-  if (busy.value) return
+  if (busy.value && !canCancelDownload.value) return
+  if (canCancelDownload.value) importController?.abort()
   viewMode.value = 'list'
   editingId.value = null
   resetDraft()
@@ -100,17 +148,24 @@ const onFileChange = async (event: Event) => {
   if (!file) return
   if (!fontName.value.trim()) fontName.value = file.name.replace(/\.[^.]+$/, '')
   try {
-    await detectFormat(file)
-    if (file.size > 20 * 1024 * 1024) {
-      message.value = `字体大小为 ${formatSize(file.size)}，首次载入可能较慢，建议优先使用 WOFF2。`
-      messageTone.value = 'warning'
-    } else {
-      message.value = `已识别 ${formatSize(file.size)} 的字体文件`
-      messageTone.value = 'normal'
-    }
+    const format = await detectFormat(file)
+    setSizeMessage(file.size, format)
   } catch (error) {
     message.value = error instanceof Error ? error.message : '无法识别该字体'
     messageTone.value = 'error'
+  }
+}
+
+const setSizeMessage = (size: number, format?: FontFormat) => {
+  if (size >= VERY_LARGE_FONT_SIZE) {
+    message.value = `字体大小为 ${formatSize(size)}，体积很大，首次导入可能需要较长时间。导入成功后将保存在本机。${format && format !== 'woff2' ? ' WOFF2 通常体积更小、网页加载更快。' : ''}`
+    messageTone.value = 'warning'
+  } else if (size >= LARGE_FONT_SIZE) {
+    message.value = `字体大小为 ${formatSize(size)}，首次导入可能稍慢，成功后后续无需重新下载。${format && format !== 'woff2' ? ' WOFF2 通常体积更小。' : ''}`
+    messageTone.value = 'warning'
+  } else {
+    message.value = `已识别 ${formatSize(size)} 的字体文件`
+    messageTone.value = 'normal'
   }
 }
 
@@ -127,14 +182,59 @@ const toggleScope = (scope: string) => {
   selectedScopes.value = next.length ? next : ['global']
 }
 
-const importFont = async () => {
+const safeFileNameFromUrl = (url: string) => {
+  const fallback = new URL(url).pathname.split('/').pop() || '网络字体'
+  try { return decodeURIComponent(fallback) } catch { return fallback }
+}
+
+const handleDownloadProgress = (value: FontDownloadProgress) => {
+  downloadProgress.value = value
+  importPhase.value = value.phase
+  if (value.totalBytes && value.totalBytes >= LARGE_FONT_SIZE && messageTone.value !== 'warning') {
+    setSizeMessage(value.totalBytes)
+  }
+}
+
+const cancelImport = () => importController?.abort()
+
+const useExistingFont = async () => {
+  const existing = duplicateFont.value
+  if (!existing?.available || busy.value) return
+  busy.value = true
+  try {
+    const scopes = [...new Set([...existing.record.scopes, ...selectedScopes.value])]
+    await updateFont(existing.record.id, { scopes, enabled: true })
+    viewMode.value = 'list'
+    duplicateFont.value = null
+    message.value = ''
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '无法使用已有字体'
+    messageTone.value = 'error'
+  } finally {
+    busy.value = false
+  }
+}
+
+const redownloadExistingFont = () => {
+  const id = duplicateFont.value?.record.id
+  if (id) void performImport(id, true)
+}
+
+const startImport = () => { void performImport() }
+
+const performImport = async (replaceId?: string, skipDuplicateCheck = false) => {
   if (busy.value) return
   message.value = ''
+  messageTone.value = 'normal'
+  duplicateFont.value = null
   let blob: Blob
   let fileName: string
+  let remoteMetadata: { normalizedUrl?: string; etag?: string; lastModified?: string } = {}
   try {
     busy.value = true
-    progress.value = sourceMode.value === 'url' ? 0 : null
+    importPhase.value = sourceMode.value === 'url' ? 'checking' : 'verifying'
+    downloadProgress.value = null
+    await requestPersistentStorage()
     if (sourceMode.value === 'local') {
       if (!selectedFile.value) throw new Error('请先选择字体文件')
       blob = selectedFile.value
@@ -142,28 +242,51 @@ const importFont = async () => {
     } else {
       const url = urlInput.value.trim()
       if (!url) throw new Error('请先填写字体直链')
-      blob = await downloadFont(url, value => { progress.value = value })
-      const parsed = new URL(url)
-      fileName = decodeURIComponent(parsed.pathname.split('/').pop() || '网络字体')
+      if (!skipDuplicateCheck) {
+        const existing = await findExistingUrlFont(url)
+        if (existing) {
+          duplicateFont.value = existing
+          message.value = existing.available
+            ? `该地址已导入为“${existing.record.name}”，可以直接使用本机字体，无需重新下载。`
+            : `“${existing.record.name}”的记录仍在，但本机字体文件已丢失，请重新下载恢复。`
+          messageTone.value = existing.available ? 'normal' : 'warning'
+          return
+        }
+      }
+      importController = new AbortController()
+      const downloaded = await downloadFont(url, { signal: importController.signal, onProgress: handleDownloadProgress })
+      blob = downloaded.blob
+      remoteMetadata = { normalizedUrl: downloaded.normalizedUrl, etag: downloaded.etag, lastModified: downloaded.lastModified }
+      fileName = safeFileNameFromUrl(url)
     }
-    const record = await addFont(blob, {
+    importPhase.value = 'verifying'
+    const format = await detectFormat(blob)
+    setSizeMessage(blob.size, format)
+    const metadata = {
       name: fontName.value,
       fileName,
       sourceType: sourceMode.value,
       sourceUrl: sourceMode.value === 'url' ? urlInput.value.trim() : undefined,
-      scopes: selectedScopes.value
-    })
-    if (errors[record.id]) throw new Error(errors[record.id])
-    message.value = '字体已导入并保存在本机'
-    messageTone.value = 'normal'
+      normalizedSourceUrl: remoteMetadata.normalizedUrl,
+      etag: remoteMetadata.etag,
+      lastModified: remoteMetadata.lastModified,
+      onPhase: (phase: 'saving' | 'loading') => { importPhase.value = phase }
+    } as const
+    if (replaceId) await replaceFont(replaceId, blob, metadata)
+    else await addFont(blob, { ...metadata, scopes: selectedScopes.value })
     viewMode.value = 'list'
-    resetDraft()
+    selectedFile.value = null
+    urlInput.value = ''
+    duplicateFont.value = null
   } catch (error) {
-    message.value = error instanceof Error ? error.message : '字体导入失败'
-    messageTone.value = 'error'
+    const cancelled = error instanceof DOMException && error.name === 'AbortError'
+    message.value = cancelled ? '已取消导入' : (error instanceof Error ? error.message : '字体导入失败')
+    messageTone.value = cancelled ? 'normal' : 'error'
   } finally {
     busy.value = false
-    progress.value = null
+    importPhase.value = 'idle'
+    downloadProgress.value = null
+    importController = null
   }
 }
 
@@ -181,6 +304,11 @@ const saveEdit = async () => {
 
 const toggleEnabled = async (record: CustomFontRecord) => {
   await updateFont(record.id, { enabled: !record.enabled })
+}
+
+const handleRetry = async (record: CustomFontRecord) => {
+  if (busy.value) return
+  await retryFont(record.id)
 }
 
 const deleteFont = async (record: CustomFontRecord) => {
@@ -221,13 +349,13 @@ const statusText = (record: CustomFontRecord) => {
       <div v-if="visible" class="soft-modal-overlay font-modal-overlay" @click.self="close">
       <section class="soft-modal-panel font-modal-panel" @click.stop>
         <div class="soft-modal-header font-modal-header">
-          <button v-if="viewMode !== 'list'" class="font-back-btn" type="button" :disabled="busy" @click="goBack">
+          <button v-if="viewMode !== 'list'" class="font-back-btn" type="button" :disabled="busy && !canCancelDownload" @click="goBack">
             <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </button>
           <span class="title">{{ viewMode === 'list' ? '自定义字体' : (viewMode === 'edit' ? '字体作用范围' : '导入字体') }}</span>
-          <button class="close-btn" type="button" :disabled="busy" @click="close">
+          <button class="close-btn" type="button" :disabled="busy && !canCancelDownload" @click="close">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -257,7 +385,10 @@ const statusText = (record: CustomFontRecord) => {
                   <div class="font-record-info">
                     <div class="font-record-name">{{ record.name }}</div>
                     <div class="font-record-meta">{{ record.format.toUpperCase() }} · {{ formatSize(record.size) }} · {{ scopeSummary(record) }}</div>
-                    <div v-if="errors[record.id]" class="font-record-error">{{ errors[record.id] }}</div>
+                    <div v-if="errors[record.id]" class="font-record-error">
+                      <span>{{ errors[record.id] }}</span>
+                      <button v-if="record.enabled" type="button" @click.stop="handleRetry(record)">重试</button>
+                    </div>
                   </div>
                   <div class="font-record-state" :class="{ error: !!errors[record.id] }">{{ statusText(record) }}</div>
                 </div>
@@ -280,12 +411,12 @@ const statusText = (record: CustomFontRecord) => {
             <template v-if="viewMode === 'import'">
               <div class="font-section-title">字体来源</div>
               <div class="font-segmented">
-                <button type="button" :class="{ active: sourceMode === 'local' }" @click="setSourceMode('local')">本地上传</button>
-                <button type="button" :class="{ active: sourceMode === 'url' }" @click="setSourceMode('url')">URL 导入</button>
+                <button type="button" :class="{ active: sourceMode === 'local' }" :disabled="busy" @click="setSourceMode('local')">本地上传</button>
+                <button type="button" :class="{ active: sourceMode === 'url' }" :disabled="busy" @click="setSourceMode('url')">URL 导入</button>
               </div>
 
               <input ref="fileInputRef" class="font-hidden-input" type="file" accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf" @change="onFileChange" />
-              <button v-if="sourceMode === 'local'" class="font-source-card" type="button" @click="fileInputRef?.click()">
+              <button v-if="sourceMode === 'local'" class="font-source-card" type="button" :disabled="busy" @click="fileInputRef?.click()">
                 <span class="font-source-icon">Aa</span>
                 <span class="font-source-copy">
                   <strong>{{ selectedFile ? selectedFile.name : '选择字体文件' }}</strong>
@@ -297,6 +428,10 @@ const statusText = (record: CustomFontRecord) => {
               <div v-else class="font-url-area">
                 <input v-model="urlInput" class="soft-input font-url-input" type="url" inputmode="url" placeholder="粘贴字体文件直链" :disabled="busy" />
                 <div class="font-url-tip">图床必须允许跨域读取；导入成功后会自动缓存到本机。</div>
+                <div v-if="duplicateFont" class="font-duplicate-actions">
+                  <button v-if="duplicateFont.available" type="button" :disabled="busy" @click="useExistingFont">使用已有字体</button>
+                  <button type="button" :disabled="busy" @click="redownloadExistingFont">重新下载</button>
+                </div>
               </div>
             </template>
 
@@ -325,15 +460,18 @@ const statusText = (record: CustomFontRecord) => {
             </div>
 
             <div v-if="message" class="font-message" :class="messageTone">{{ message }}</div>
-            <div v-if="busy && sourceMode === 'url' && progress !== null" class="font-progress">
-              <div class="font-progress-bar" :style="{ width: `${progress}%` }"></div>
-              <span>{{ progress >= 100 ? '正在验证字体…' : `正在导入 ${progress}%` }}</span>
+            <div v-if="busy && importPhase !== 'idle'" class="font-progress" :class="{ indeterminate: progressPercent === null }" role="status" aria-live="polite">
+              <div class="font-progress-bar" :style="progressPercent !== null ? { width: `${progressPercent}%` } : {}"></div>
+              <div class="font-progress-copy">
+                <span>{{ phaseLabel }}<template v-if="progressPercent !== null && importPhase === 'downloading'"> · {{ progressPercent }}%</template></span>
+                <small v-if="progressDetail">{{ progressDetail }}</small>
+              </div>
             </div>
           </div>
 
           <div class="font-bottom-action two-actions">
-            <button class="font-secondary-btn" type="button" :disabled="busy" @click="goBack">取消</button>
-            <button class="font-primary-btn" type="button" :disabled="busy" @click="viewMode === 'edit' ? saveEdit() : importFont()">
+            <button class="font-secondary-btn" type="button" :disabled="busy && !canCancelDownload" @click="canCancelDownload ? cancelImport() : goBack()">{{ canCancelDownload ? '取消下载' : '取消' }}</button>
+            <button class="font-primary-btn" type="button" :disabled="busy" @click="viewMode === 'edit' ? saveEdit() : startImport()">
               {{ busy ? '处理中…' : (viewMode === 'edit' ? '保存范围' : '导入并应用') }}
             </button>
           </div>
@@ -370,7 +508,9 @@ const statusText = (record: CustomFontRecord) => {
 .font-record-info { flex: 1; min-width: 0; }
 .font-record-name { color: var(--text-primary); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .font-record-meta { color: var(--text-tertiary); font-size: 10px; margin-top: 4px; line-height: 1.35; }
-.font-record-error { color: #c65d5d; font-size: 10px; margin-top: 3px; }
+.font-record-error { color: #c65d5d; font-size: 10px; margin-top: 3px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.font-record-error span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.font-record-error button { flex: 0 0 auto; border: none; padding: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
 .font-record-state { flex: 0 0 auto; color: var(--text-secondary); font-size: 10px; padding: 4px 7px; border-radius: 10px; background: var(--sys-bg-tertiary); }
 .font-record-state.error { color: #c65d5d; }
 .font-record-actions { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border-color); }
@@ -390,6 +530,7 @@ const statusText = (record: CustomFontRecord) => {
 .font-segmented { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 13px; background: var(--sys-bg-tertiary); }
 .font-segmented button { border: none; border-radius: 10px; padding: 9px; background: transparent; color: var(--text-tertiary); font-size: 12px; cursor: pointer; }
 .font-segmented button.active { background: var(--card-bg-solid); color: var(--text-primary); box-shadow: 0 2px 8px var(--shadow-color); }
+.font-segmented button:disabled, .font-source-card:disabled { opacity: .48; cursor: default; }
 .font-hidden-input { display: none; }
 .font-source-card { width: 100%; margin-top: 12px; border: 1px solid var(--border-color); border-radius: 15px; background: rgba(255,255,255,.34); padding: 13px; display: flex; align-items: center; gap: 11px; text-align: left; cursor: pointer; color: var(--text-primary); }
 .font-source-icon { flex: 0 0 39px; height: 39px; border-radius: 11px; display: flex; align-items: center; justify-content: center; background: var(--card-bg-solid); font-family: Georgia, serif; box-shadow: 0 2px 7px var(--shadow-color); }
@@ -400,6 +541,9 @@ const statusText = (record: CustomFontRecord) => {
 .font-url-area { margin-top: 12px; }
 .font-url-input, .font-name-input { width: 100%; background: rgba(255,255,255,.38); color: var(--text-primary); box-sizing: border-box; padding: 12px 13px; }
 .font-url-tip { color: var(--text-tertiary); font-size: 10px; line-height: 1.5; padding: 7px 2px 0; }
+.font-duplicate-actions { display: flex; gap: 8px; margin-top: 8px; }
+.font-duplicate-actions button { flex: 1; min-width: 0; height: 32px; border: 1px solid var(--border-color); border-radius: 10px; background: rgba(255,255,255,.32); color: var(--text-secondary); font-size: 10px; cursor: pointer; }
+.font-duplicate-actions button:disabled { opacity: .48; cursor: default; }
 .font-preview-card { margin-top: 12px; padding: 18px 14px; text-align: center; border: 1px solid var(--border-color); border-radius: 15px; background: rgba(255,255,255,.28); color: var(--text-primary); }
 .font-preview-main { font-size: 18px; margin-bottom: 7px; }
 .font-preview-sub { color: var(--text-secondary); font-size: 11px; letter-spacing: .5px; }
@@ -413,9 +557,13 @@ const statusText = (record: CustomFontRecord) => {
 .font-message { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--sys-bg-tertiary); color: var(--text-secondary); font-size: 10px; line-height: 1.5; }
 .font-message.error { color: #b94c4c; background: rgba(185,76,76,.09); }
 .font-message.warning { color: #9a6c2d; background: rgba(154,108,45,.09); }
-.font-progress { height: 34px; margin-top: 12px; border-radius: 11px; overflow: hidden; position: relative; background: var(--sys-bg-tertiary); display: flex; align-items: center; justify-content: center; }
+.font-progress { min-height: 38px; margin-top: 12px; padding: 5px 10px; box-sizing: border-box; border-radius: 11px; overflow: hidden; position: relative; background: var(--sys-bg-tertiary); display: flex; align-items: center; justify-content: center; }
 .font-progress-bar { position: absolute; inset: 0 auto 0 0; background: rgba(127,155,168,.25); transition: width .18s; }
-.font-progress span { position: relative; color: var(--text-secondary); font-size: 10px; }
+.font-progress.indeterminate .font-progress-bar { width: 38%; animation: font-progress-slide 1.25s ease-in-out infinite; }
+.font-progress-copy { position: relative; min-width: 0; text-align: center; display: flex; flex-direction: column; line-height: 1.35; }
+.font-progress span { color: var(--text-secondary); font-size: 10px; }
+.font-progress small { color: var(--text-tertiary); font-size: 9px; margin-top: 1px; }
+@keyframes font-progress-slide { from { transform: translateX(-110%); } to { transform: translateX(285%); } }
 
 @media (max-height: 620px) {
   .font-modal-panel { height: 94vh; }
