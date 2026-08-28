@@ -7,6 +7,7 @@ import {
   type CustomFontRecord,
   type ExistingUrlFont,
   type FontDownloadProgress,
+  type FontImportPhase,
   type FontFormat
 } from '../composables/useCustomFonts'
 
@@ -17,6 +18,8 @@ const {
   loadedIds,
   loadingIds,
   errors,
+  pendingLocalIds,
+  localImportError,
   initialize,
   addFont,
   replaceFont,
@@ -40,7 +43,7 @@ const fontName = ref('')
 const selectedScopes = ref<string[]>(['global'])
 const editingId = ref<string | null>(null)
 const busy = ref(false)
-type ImportPhase = 'idle' | 'checking' | 'connecting' | 'downloading' | 'verifying' | 'saving' | 'loading'
+type ImportPhase = 'idle' | 'checking' | 'connecting' | 'downloading' | FontImportPhase
 const importPhase = ref<ImportPhase>('idle')
 const downloadProgress = ref<FontDownloadProgress | null>(null)
 const duplicateFont = ref<ExistingUrlFont | null>(null)
@@ -51,17 +54,21 @@ let importController: AbortController | null = null
 const LARGE_FONT_SIZE = 8 * 1024 * 1024
 const VERY_LARGE_FONT_SIZE = 20 * 1024 * 1024
 const canCancelDownload = computed(() => busy.value && ['checking', 'connecting', 'downloading'].includes(importPhase.value))
+const canCloseWhileSaving = computed(() => busy.value && sourceMode.value === 'local' && importPhase.value === 'saving')
 const progressPercent = computed(() => downloadProgress.value?.percent ?? null)
 const phaseLabel = computed(() => {
   if (importPhase.value === 'checking') return '正在检查地址…'
   if (importPhase.value === 'connecting') return '正在连接字体服务器…'
   if (importPhase.value === 'downloading') return '正在下载字体'
   if (importPhase.value === 'verifying') return '正在验证字体…'
-  if (importPhase.value === 'saving') return '正在保存到本机…'
+  if (importPhase.value === 'saving') return sourceMode.value === 'local' ? '已生效，正在保存到本机…' : '正在保存到本机…'
   if (importPhase.value === 'loading') return '正在加载字体…'
+  if (importPhase.value === 'applied') return '字体已生效'
+  if (importPhase.value === 'saved') return '已保存到本机'
   return ''
 })
 const progressDetail = computed(() => {
+  if (canCloseWhileSaving.value) return '可关闭此窗口，保存会继续；完成前请勿刷新或退出页面。'
   const current = downloadProgress.value
   if (!current || current.phase !== 'downloading') return ''
   if (current.totalBytes) return `${formatSize(current.loadedBytes)} / ${formatSize(current.totalBytes)}`
@@ -93,7 +100,7 @@ watch(urlInput, () => {
 onBeforeUnmount(() => importController?.abort())
 
 const close = () => {
-  if (busy.value && !canCancelDownload.value) return
+  if (busy.value && !canCancelDownload.value && !canCloseWhileSaving.value) return
   if (canCancelDownload.value) importController?.abort()
   emit('update:visible', false)
   viewMode.value = 'list'
@@ -114,12 +121,15 @@ const resetDraft = () => {
 }
 
 const openImport = () => {
+  if (busy.value || pendingLocalIds.size) return
   resetDraft()
+  localImportError.value = ''
   editingId.value = null
   viewMode.value = 'import'
 }
 
 const openEdit = (record: CustomFontRecord) => {
+  if (busy.value || pendingLocalIds.has(record.id)) return
   editingId.value = record.id
   fontName.value = record.name
   selectedScopes.value = [...record.scopes]
@@ -234,7 +244,8 @@ const performImport = async (replaceId?: string, skipDuplicateCheck = false) => 
     busy.value = true
     importPhase.value = sourceMode.value === 'url' ? 'checking' : 'verifying'
     downloadProgress.value = null
-    await requestPersistentStorage()
+    // 本地字体先解析和应用，持久化授权由 addFont 在保存阶段申请。
+    if (sourceMode.value === 'url') await requestPersistentStorage()
     if (sourceMode.value === 'local') {
       if (!selectedFile.value) throw new Error('请先选择字体文件')
       blob = selectedFile.value
@@ -270,12 +281,13 @@ const performImport = async (replaceId?: string, skipDuplicateCheck = false) => 
       normalizedSourceUrl: remoteMetadata.normalizedUrl,
       etag: remoteMetadata.etag,
       lastModified: remoteMetadata.lastModified,
-      onPhase: (phase: 'saving' | 'loading') => { importPhase.value = phase }
+      onPhase: (phase: FontImportPhase) => { importPhase.value = phase }
     } as const
     if (replaceId) await replaceFont(replaceId, blob, metadata)
     else await addFont(blob, { ...metadata, scopes: selectedScopes.value })
     viewMode.value = 'list'
     selectedFile.value = null
+    if (fileInputRef.value) fileInputRef.value.value = ''
     urlInput.value = ''
     duplicateFont.value = null
   } catch (error) {
@@ -303,6 +315,7 @@ const saveEdit = async () => {
 }
 
 const toggleEnabled = async (record: CustomFontRecord) => {
+  if (busy.value || pendingLocalIds.has(record.id)) return
   await updateFont(record.id, { enabled: !record.enabled })
 }
 
@@ -335,6 +348,7 @@ const scopeSummary = (record: CustomFontRecord) => {
 }
 
 const statusText = (record: CustomFontRecord) => {
+  if (pendingLocalIds.has(record.id)) return loadedIds.has(record.id) ? '已生效 · 保存中' : '正在加载'
   if (!record.enabled) return '已停用'
   if (loadingIds.has(record.id)) return '加载中'
   if (errors[record.id]) return '加载失败'
@@ -355,7 +369,7 @@ const statusText = (record: CustomFontRecord) => {
             </svg>
           </button>
           <span class="title">{{ viewMode === 'list' ? '自定义字体' : (viewMode === 'edit' ? '字体作用范围' : '导入字体') }}</span>
-          <button class="close-btn" type="button" :disabled="busy && !canCancelDownload" @click="close">
+          <button class="close-btn" type="button" :disabled="busy && !canCancelDownload && !canCloseWhileSaving" @click="close">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -372,6 +386,7 @@ const statusText = (record: CustomFontRecord) => {
           </div>
 
           <div class="font-scroll-content">
+            <div v-if="localImportError" class="font-message error" role="alert">{{ localImportError }}</div>
             <div v-if="records.length === 0" class="font-empty">
               <div class="font-empty-sample">粘人精</div>
               <div class="font-empty-title">还没有导入字体</div>
@@ -393,16 +408,16 @@ const statusText = (record: CustomFontRecord) => {
                   <div class="font-record-state" :class="{ error: !!errors[record.id] }">{{ statusText(record) }}</div>
                 </div>
                 <div class="font-record-actions">
-                  <button class="font-text-btn" type="button" @click="openEdit(record)">范围</button>
-                  <button class="font-text-btn" type="button" @click="toggleEnabled(record)">{{ record.enabled ? '停用' : '启用' }}</button>
-                  <button class="font-text-btn danger" type="button" @click="deleteFont(record)">删除</button>
+                  <button class="font-text-btn" type="button" :disabled="busy || pendingLocalIds.has(record.id)" @click="openEdit(record)">范围</button>
+                  <button class="font-text-btn" type="button" :disabled="busy || pendingLocalIds.has(record.id)" @click="toggleEnabled(record)">{{ record.enabled ? '停用' : '启用' }}</button>
+                  <button class="font-text-btn danger" type="button" :disabled="busy || pendingLocalIds.has(record.id)" @click="deleteFont(record)">删除</button>
                 </div>
               </div>
             </div>
           </div>
 
           <div class="font-bottom-action">
-            <button class="font-primary-btn" type="button" @click="openImport">导入新字体</button>
+            <button class="font-primary-btn" type="button" :disabled="busy || pendingLocalIds.size > 0" @click="openImport">导入新字体</button>
           </div>
         </template>
 

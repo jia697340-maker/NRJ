@@ -6,6 +6,7 @@ export type FontSourceType = 'local' | 'url'
 export type FontFormat = 'woff2' | 'woff' | 'ttf' | 'otf'
 export type FontSystemArea = 'desktop' | 'lockscreen'
 export type FontDownloadPhase = 'connecting' | 'downloading'
+export type FontImportPhase = 'verifying' | 'loading' | 'applied' | 'saving' | 'saved'
 
 export interface CustomFontRecord {
   id: string
@@ -58,6 +59,9 @@ const records = reactive<CustomFontRecord[]>([])
 const loadedIds = reactive(new Set<string>())
 const loadingIds = reactive(new Set<string>())
 const errors = reactive<Record<string, string>>({})
+// 新本地字体在当前会话中先应用，文件落盘前不能发布到持久化元数据。
+const pendingLocalIds = reactive(new Set<string>())
+const localImportError = ref('')
 const initialized = ref(false)
 const loadedFaces = new Map<string, FontFace>()
 const loadPromises = new Map<string, Promise<void>>()
@@ -78,7 +82,7 @@ const readMeta = () => {
   }
 }
 
-const saveMeta = () => localStorage.setItem(META_KEY, JSON.stringify(records))
+const saveMeta = () => localStorage.setItem(META_KEY, JSON.stringify(records.filter(record => !pendingLocalIds.has(record.id))))
 
 const escapeCssValue = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 const escapeAttr = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -166,6 +170,7 @@ const loadFont = (record: CustomFontRecord, providedBlob?: Blob, retry = false):
   if (!record.enabled || loadedIds.has(record.id)) return Promise.resolve()
   const existingPromise = loadPromises.get(record.id)
   if (existingPromise) return existingPromise
+  if (pendingLocalIds.has(record.id) && !providedBlob) return Promise.resolve()
   if (errors[record.id] && !retry) return Promise.resolve()
 
   const generation = loadGenerations.get(record.id) || 0
@@ -250,9 +255,22 @@ const requestPersistentStorage = async () => {
   }
 }
 
-const addFont = async (blob: Blob, options: FontMetadata & { scopes: string[]; onPhase?: (phase: 'saving' | 'loading') => void }) => {
+// 给样式与状态一次绘制机会，再启动大 Blob 写入；隐藏页面也不会无限等待 rAF。
+const yieldForFontPaint = () => new Promise<void>(resolve => {
+  let frame = 0
+  const finish = () => {
+    cancelAnimationFrame(frame)
+    clearTimeout(timer)
+    resolve()
+  }
+  const timer = setTimeout(finish, 100)
+  frame = requestAnimationFrame(() => { frame = requestAnimationFrame(finish) })
+})
+
+const addFont = async (blob: Blob, options: FontMetadata & { scopes: string[]; onPhase?: (phase: FontImportPhase) => void }) => {
   if (!blob.size) throw new Error('字体文件为空')
-  await ensureStorageAvailable(blob.size)
+  if (options.sourceType === 'url') await ensureStorageAvailable(blob.size)
+  else options.onPhase?.('verifying')
   const format = await detectFormat(blob)
   const id = makeId()
   const now = Date.now()
@@ -273,6 +291,47 @@ const addFont = async (blob: Blob, options: FontMetadata & { scopes: string[]; o
     enabled: true,
     createdAt: now,
     updatedAt: now
+  }
+
+  if (options.sourceType === 'local') {
+    localImportError.value = ''
+    pendingLocalIds.add(id)
+    records.push(record)
+    let applied = false
+    let storageAttempted = false
+    try {
+      options.onPhase?.('loading')
+      await loadFont(record, blob, true)
+      if (!loadedIds.has(id)) throw new Error(errors[id] || '字体加载失败')
+      applied = true
+      options.onPhase?.('applied')
+      await yieldForFontPaint()
+      options.onPhase?.('saving')
+      await ensureStorageAvailable(blob.size)
+      await requestPersistentStorage()
+      storageAttempted = true
+      // 复用原始 File / Blob；保存后不再读取文件或重新解析 FontFace。
+      await fontStore.setItem(id, blob)
+      pendingLocalIds.delete(id)
+      saveMeta()
+      options.onPhase?.('saved')
+      return record
+    } catch (error) {
+      nextGeneration(id)
+      removeLoadedFace(id)
+      const index = records.findIndex(item => item.id === id)
+      if (index >= 0) records.splice(index, 1)
+      pendingLocalIds.delete(id)
+      delete errors[id]
+      rebuildStyles()
+      const detail = error instanceof Error ? error.message : '字体导入失败'
+      localImportError.value = applied
+        ? `字体曾临时生效，但保存到本机失败，已撤销本次导入，请重新导入。${detail}`
+        : detail
+      // 元数据提交失败也会回滚；清理失败最多留下无引用文件，不留下假成功记录。
+      if (storageAttempted) await fontStore.removeItem(id).catch(() => undefined)
+      throw new Error(localImportError.value)
+    }
   }
 
   options.onPhase?.('saving')
@@ -351,6 +410,7 @@ const replaceFont = async (id: string, blob: Blob, metadata: FontMetadata & { on
 }
 
 const updateFont = async (id: string, changes: Partial<Pick<CustomFontRecord, 'name' | 'scopes' | 'enabled'>>) => {
+  if (pendingLocalIds.has(id)) throw new Error('字体正在保存到本机，请稍后再修改')
   const record = records.find(item => item.id === id)
   if (!record) return
   const previous = { ...record, scopes: [...record.scopes] }
@@ -391,6 +451,7 @@ const retryFont = async (id: string) => {
 }
 
 const removeFont = async (id: string) => {
+  if (pendingLocalIds.has(id)) throw new Error('字体正在保存到本机，请稍后再删除')
   const blob = await fontStore.getItem<Blob>(id)
   const index = records.findIndex(item => item.id === id)
   const record = index >= 0 ? records[index] : undefined
@@ -543,26 +604,43 @@ const clearPreloadHandle = () => {
   preloadHandle = null
 }
 
-const preloadScore = (record: CustomFontRecord) => {
+const MOBILE_IDLE_FONT_SIZE = 15 * 1024 * 1024
+const MOBILE_MAX_PRELOAD_SIZE = 30 * 1024 * 1024
+const isMobileFontEnvironment = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  || !!window.matchMedia?.('(pointer: coarse)').matches
+
+const preloadScore = (record: CustomFontRecord, mobile = false) => {
+  if (shouldLoadNow(record)) return -1
   const formatScore = record.format === 'woff2' ? 0 : record.format === 'woff' ? 1 : 2
   const commonAppScore = record.scopes.some(scope => ['app:chat', 'app:messages', 'app:forum'].includes(scope)) ? 0 : 1
-  return formatScore * 1_000_000_000 + commonAppScore * 100_000_000 + record.size
+  const sizeTier = mobile && record.size > MOBILE_IDLE_FONT_SIZE ? 10_000_000_000 : 0
+  return sizeTier + formatScore * 1_000_000_000 + commonAppScore * 100_000_000 + record.size
 }
 
 const schedulePreloadEnabledFonts = async () => {
   await initialize()
   clearPreloadHandle()
+  const mobile = isMobileFontEnvironment()
+  const needsRealIdle = (record: CustomFontRecord) => mobile && !shouldLoadNow(record) && record.size > MOBILE_IDLE_FONT_SIZE
+  const nextRecord = () => records
+    .filter(item => item.enabled && !loadedIds.has(item.id) && !loadingIds.has(item.id) && !errors[item.id] && !pendingLocalIds.has(item.id))
+    .filter(item => !mobile || shouldLoadNow(item) || (item.size <= MOBILE_MAX_PRELOAD_SIZE
+      && (item.size <= MOBILE_IDLE_FONT_SIZE || typeof window.requestIdleCallback === 'function')))
+    .sort((a, b) => preloadScore(a, mobile) - preloadScore(b, mobile))[0]
 
-  const runNext = async () => {
+  const runNext = async (deadline?: IdleDeadline) => {
     preloadHandle = null
-    if (preloadRunning) {
+    if (preloadRunning || (mobile && (document.hidden || loadingIds.size > 0 || pendingLocalIds.size > 0))) {
       scheduleNext()
       return
     }
-    const record = records
-      .filter(item => item.enabled && !loadedIds.has(item.id) && !loadingIds.has(item.id) && !errors[item.id])
-      .sort((a, b) => preloadScore(a) - preloadScore(b))[0]
+    const record = nextRecord()
     if (!record) return
+    if (needsRealIdle(record) && (!deadline || deadline.didTimeout || deadline.timeRemaining() < 10)) {
+      scheduleNext()
+      return
+    }
     preloadRunning = true
     try {
       await loadFont(record)
@@ -574,12 +652,12 @@ const schedulePreloadEnabledFonts = async () => {
 
   const scheduleNext = () => {
     if (preloadHandle !== null) return
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number
-    }
-    if (idleWindow.requestIdleCallback) {
+    const record = nextRecord()
+    if (!record) return
+    if (typeof window.requestIdleCallback === 'function') {
       preloadUsesIdleCallback = true
-      preloadHandle = idleWindow.requestIdleCallback(() => { void runNext() }, { timeout: 2500 })
+      // 中等大字体不设超时强制执行；没有 idle API 的移动端只按 scope 加载。
+      preloadHandle = window.requestIdleCallback(deadline => { void runNext(deadline) }, needsRealIdle(record) ? undefined : { timeout: 2500 })
     } else {
       preloadUsesIdleCallback = false
       preloadHandle = setTimeout(() => { void runNext() }, 350)
@@ -598,6 +676,8 @@ export const useCustomFonts = () => ({
   loadedIds,
   loadingIds,
   errors,
+  pendingLocalIds,
+  localImportError,
   initialized,
   initialize,
   setActiveApp,
