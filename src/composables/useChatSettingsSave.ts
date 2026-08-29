@@ -126,7 +126,7 @@ export function useChatSettingsSave() {
         contacts[idx].enableVoiceReply = selectedChat.value.enableVoiceReply ?? false
         contacts[idx].enableVoiceCall = selectedChat.value.enableVoiceCall ?? false
         contacts[idx].enableVideoCall = selectedChat.value.enableVideoCall ?? false
-        contacts[idx].voiceProvider = selectedChat.value.voiceProvider === 'seed_audio' || selectedChat.value.voiceProvider === 'gemini' || selectedChat.value.voiceProvider === 'elevenlabs' || selectedChat.value.voiceProvider === 'microsoft_mai' || selectedChat.value.voiceProvider === 'aliyun_tts' || selectedChat.value.voiceProvider === 'doubao_tts'
+        contacts[idx].voiceProvider = selectedChat.value.voiceProvider === 'seed_audio' || selectedChat.value.voiceProvider === 'gemini' || selectedChat.value.voiceProvider === 'elevenlabs' || selectedChat.value.voiceProvider === 'microsoft_mai' || selectedChat.value.voiceProvider === 'aliyun_tts' || selectedChat.value.voiceProvider === 'doubao_tts' || selectedChat.value.voiceProvider === 'fish_audio'
           ? selectedChat.value.voiceProvider
           : 'minimax'
         contacts[idx].voiceModel = selectedChat.value.voiceModel || 'speech-2.6-turbo'
@@ -169,6 +169,16 @@ export function useChatSettingsSave() {
         contacts[idx].doubaoStylePrompt = selectedChat.value.doubaoStylePrompt || ''
         contacts[idx].doubaoFilterMarkdown = selectedChat.value.doubaoFilterMarkdown ?? true
         contacts[idx].doubaoEnableLanguageDetector = selectedChat.value.doubaoEnableLanguageDetector ?? true
+        contacts[idx].fishAudioReferenceId = selectedChat.value.fishAudioReferenceId || ''
+        contacts[idx].fishAudioModel = selectedChat.value.fishAudioModel === 's1' ? 's1' : 's2-pro'
+        contacts[idx].fishAudioSpeed = selectedChat.value.fishAudioSpeed ?? 1
+        contacts[idx].fishAudioVolume = selectedChat.value.fishAudioVolume ?? 0
+        contacts[idx].fishAudioTemperature = selectedChat.value.fishAudioTemperature ?? 0.7
+        contacts[idx].fishAudioTopP = selectedChat.value.fishAudioTopP ?? 0.7
+        contacts[idx].fishAudioStylePrompt = selectedChat.value.fishAudioStylePrompt || ''
+        contacts[idx].fishAudioNormalize = selectedChat.value.fishAudioNormalize ?? true
+        contacts[idx].fishAudioLatency = ['normal', 'balanced', 'low'].includes(selectedChat.value.fishAudioLatency) ? selectedChat.value.fishAudioLatency : 'normal'
+        contacts[idx].fishAudioConditionOnPreviousChunks = selectedChat.value.fishAudioConditionOnPreviousChunks ?? true
         contacts[idx].bilingualEnabled = selectedChat.value.bilingualEnabled ?? false
         contacts[idx].bilingualMode = selectedChat.value.bilingualMode || 'auto'
         contacts[idx].dialogueLanguage = selectedChat.value.dialogueLanguage || 'auto'

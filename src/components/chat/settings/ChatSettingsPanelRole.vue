@@ -385,7 +385,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
         <div class="glass-list-item" v-show="matchSearch('语音详细配置', '通话语音详细配置')" @click="emit('show-voice-detail-modal')">
           <div class="item-label" style="font-size: 13px; color: var(--text-secondary); padding-left: 12px;">└ 通话语音详细配置</div>
           <div class="item-value">
-            <span class="item-value-text">{{ selectedChat.voiceProvider === 'seed_audio' ? 'Seed Audio 1.0 · 独立配置' : selectedChat.voiceProvider === 'gemini' ? 'Gemini TTS · 音色与声音指令' : selectedChat.voiceProvider === 'elevenlabs' ? 'ElevenLabs · 音色与表现参数' : selectedChat.voiceProvider === 'microsoft_mai' ? 'Microsoft MAI · 音色与情绪风格' : selectedChat.voiceProvider === 'aliyun_tts' ? '阿里云 TTS · 音色与声音指令' : selectedChat.voiceProvider === 'doubao_tts' ? '豆包语音 · 音色与表达参数' : 'MiniMax · 语言、音色与参数' }}</span>
+            <span class="item-value-text">{{ selectedChat.voiceProvider === 'seed_audio' ? 'Seed Audio 1.0 · 独立配置' : selectedChat.voiceProvider === 'gemini' ? 'Gemini TTS · 音色与声音指令' : selectedChat.voiceProvider === 'elevenlabs' ? 'ElevenLabs · 音色与表现参数' : selectedChat.voiceProvider === 'microsoft_mai' ? 'Microsoft MAI · 音色与情绪风格' : selectedChat.voiceProvider === 'aliyun_tts' ? '阿里云 TTS · 音色与声音指令' : selectedChat.voiceProvider === 'doubao_tts' ? '豆包语音 · 音色与表达参数' : selectedChat.voiceProvider === 'fish_audio' ? 'Fish Audio · 克隆音色与表现参数' : 'MiniMax · 语言、音色与参数' }}</span>
             <span class="arrow">></span>
           </div>
         </div>

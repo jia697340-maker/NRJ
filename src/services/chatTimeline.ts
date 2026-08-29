@@ -122,6 +122,8 @@ const ROLE_SCOPED_FIELDS = [
   'voiceProvider', 'voiceModel', 'voiceId', 'voiceLanguage', 'voiceSpeed', 'voicePitch', 'voiceVolume',
   'doubaoVoiceType', 'doubaoResourceId', 'doubaoModel', 'doubaoSpeechRate', 'doubaoPitchRate',
   'doubaoLoudnessRate', 'doubaoSampleRate', 'doubaoStylePrompt', 'doubaoFilterMarkdown', 'doubaoEnableLanguageDetector',
+  'fishAudioReferenceId', 'fishAudioModel', 'fishAudioSpeed', 'fishAudioVolume', 'fishAudioTemperature',
+  'fishAudioTopP', 'fishAudioStylePrompt', 'fishAudioNormalize', 'fishAudioLatency', 'fishAudioConditionOnPreviousChunks',
   'voiceEmotion', 'enableVoiceReply', 'enableVoiceCall', 'enableVideoCall', 'imageGenProvider',
   'enableFileCapability', 'enableVideoMessageCapability', 'characterAssets', 'fileGenerationConfig', 'videoGenerationConfig'
 ] as const

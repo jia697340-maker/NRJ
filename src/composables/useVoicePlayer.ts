@@ -7,6 +7,7 @@ import { generateElevenLabsVoice, loadElevenLabsVoiceConfig } from './useElevenL
 import { generateMicrosoftMaiVoice, loadMicrosoftMaiVoiceConfig } from './useMicrosoftMaiVoice'
 import { generateAliyunTts, loadAliyunTtsConfig } from './useAliyunTts'
 import { DOUBAO_TTS_DEFAULT_VOICE, generateDoubaoTts, loadDoubaoTtsConfig } from './useDoubaoTts'
+import { generateFishAudio, loadFishAudioConfig } from './useFishAudio'
 
 let globalAudioInstance: HTMLAudioElement | null = null
 const isPlaying = ref(false)
@@ -15,7 +16,7 @@ const currentPlayingId = ref<number | null>(null)
 
 interface VoiceTask { msgId: number; text: string; chatSettings: any; resolve: () => void; reject: (err: any) => void }
 interface VoiceProfile {
-  provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts' | 'doubao_tts'
+  provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts' | 'doubao_tts' | 'fish_audio'
   model: string; voiceId: string; speed: number; pitch: number; volume: number
   language: string; emotion: string; format: 'mp3'; sampleRate: number; bitrate: number; channel: number
   seedAudioMode: 'speech' | 'scene'; seedAudioPromptPrefix: string; seedAudioReferenceUrls: string[]; seedAudioMultilingual: boolean
@@ -27,6 +28,9 @@ interface VoiceProfile {
   doubaoVoiceType: string; doubaoResourceId: string; doubaoModel: string; doubaoSpeechRate: number; doubaoPitchRate: number
   doubaoLoudnessRate: number; doubaoSampleRate: number; doubaoStylePrompt: string; doubaoFilterMarkdown: boolean
   doubaoEnableLanguageDetector: boolean; doubaoEndpoint: string
+  fishAudioReferenceId: string; fishAudioModel: 's2-pro' | 's1'; fishAudioSpeed: number; fishAudioVolume: number
+  fishAudioTemperature: number; fishAudioTopP: number; fishAudioStylePrompt: string; fishAudioNormalize: boolean
+  fishAudioLatency: 'normal' | 'balanced' | 'low'; fishAudioConditionOnPreviousChunks: boolean; fishAudioEndpoint: string
 }
 
 const voiceQueue: VoiceTask[] = []
@@ -62,8 +66,9 @@ const profileFor = (settings: any): VoiceProfile => {
   const microsoftMaiConfig = loadMicrosoftMaiVoiceConfig()
   const aliyunConfig = loadAliyunTtsConfig()
   const doubaoConfig = loadDoubaoTtsConfig()
+  const fishAudioConfig = loadFishAudioConfig()
   return {
-    provider: settings?.voiceProvider === 'seed_audio' || settings?.voiceProvider === 'gemini' || settings?.voiceProvider === 'elevenlabs' || settings?.voiceProvider === 'microsoft_mai' || settings?.voiceProvider === 'aliyun_tts' || settings?.voiceProvider === 'doubao_tts'
+    provider: settings?.voiceProvider === 'seed_audio' || settings?.voiceProvider === 'gemini' || settings?.voiceProvider === 'elevenlabs' || settings?.voiceProvider === 'microsoft_mai' || settings?.voiceProvider === 'aliyun_tts' || settings?.voiceProvider === 'doubao_tts' || settings?.voiceProvider === 'fish_audio'
       ? settings.voiceProvider
       : 'minimax',
     model: settings?.voiceModel || 'speech-2.6-turbo', voiceId: settings?.voiceId || 'female-yujie',
@@ -107,7 +112,18 @@ const profileFor = (settings: any): VoiceProfile => {
     doubaoStylePrompt: settings?.doubaoStylePrompt || '',
     doubaoFilterMarkdown: settings?.doubaoFilterMarkdown ?? true,
     doubaoEnableLanguageDetector: settings?.doubaoEnableLanguageDetector ?? true,
-    doubaoEndpoint: `${doubaoConfig.baseUrl}:${doubaoConfig.resourceId}`
+    doubaoEndpoint: `${doubaoConfig.baseUrl}:${doubaoConfig.resourceId}`,
+    fishAudioReferenceId: settings?.fishAudioReferenceId || '',
+    fishAudioModel: settings?.fishAudioModel === 's1' ? 's1' : fishAudioConfig.model,
+    fishAudioSpeed: settings?.fishAudioSpeed ?? 1,
+    fishAudioVolume: settings?.fishAudioVolume ?? 0,
+    fishAudioTemperature: settings?.fishAudioTemperature ?? 0.7,
+    fishAudioTopP: settings?.fishAudioTopP ?? 0.7,
+    fishAudioStylePrompt: settings?.fishAudioStylePrompt || '',
+    fishAudioNormalize: settings?.fishAudioNormalize ?? true,
+    fishAudioLatency: settings?.fishAudioLatency === 'low' || settings?.fishAudioLatency === 'balanced' ? settings.fishAudioLatency : fishAudioConfig.latency,
+    fishAudioConditionOnPreviousChunks: settings?.fishAudioConditionOnPreviousChunks ?? true,
+    fishAudioEndpoint: `${fishAudioConfig.connectionMode}:${fishAudioConfig.baseUrl}:${fishAudioConfig.model}:${fishAudioConfig.format}:${fishAudioConfig.sampleRate}:${fishAudioConfig.mp3Bitrate}:${fishAudioConfig.chunkLength}`
   }
 }
 const cacheKeyFor = (msgId: number, text: string, profile: VoiceProfile) => `voice_v2_${msgId}_${hash(JSON.stringify({ text, profile }))}`
@@ -226,6 +242,22 @@ async function synthesizeDoubaoTts(text: string, profile: VoiceProfile) {
   })
 }
 
+async function synthesizeFishAudio(text: string, profile: VoiceProfile) {
+  return generateFishAudio(loadFishAudioConfig(), {
+    text,
+    referenceId: profile.fishAudioReferenceId,
+    model: profile.fishAudioModel,
+    speed: profile.fishAudioSpeed,
+    volume: profile.fishAudioVolume,
+    temperature: profile.fishAudioTemperature,
+    topP: profile.fishAudioTopP,
+    stylePrompt: profile.fishAudioStylePrompt,
+    normalize: profile.fishAudioNormalize,
+    latency: profile.fishAudioLatency,
+    conditionOnPreviousChunks: profile.fishAudioConditionOnPreviousChunks
+  })
+}
+
 async function synthesize(text: string, profile: VoiceProfile, apiKey: string, region: string, stream: boolean) {
   const baseUrl = region === 'china' ? 'https://api.minimaxi.com' : 'https://api.minimax.io'
   const voiceSetting: Record<string, unknown> = { voice_id: profile.voiceId, speed: profile.speed, pitch: profile.pitch, vol: profile.volume }
@@ -260,6 +292,8 @@ async function getAudio(cacheKey: string, text: string, profile: VoiceProfile, s
     request = synthesizeAliyunTts(text, profile)
   } else if (profile.provider === 'doubao_tts') {
     request = synthesizeDoubaoTts(text, profile)
+  } else if (profile.provider === 'fish_audio') {
+    request = synthesizeFishAudio(text, profile)
   } else {
     const configString = localStorage.getItem('minimax_voice_config_v4')
     if (!configString) throw new Error('MISSING_API_KEY')

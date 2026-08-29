@@ -250,7 +250,8 @@ const missingVoiceKeyErrors = new Set([
   'MISSING_MICROSOFT_MAI_VOICE_API_KEY',
   'MISSING_ALIYUN_TTS_API_KEY',
   'MISSING_DOUBAO_TTS_APP_ID',
-  'MISSING_DOUBAO_TTS_ACCESS_TOKEN'
+  'MISSING_DOUBAO_TTS_ACCESS_TOKEN',
+  'MISSING_FISH_AUDIO_API_KEY'
 ])
 
 const handlePlayVoice = async (msgId: number, text: string) => {

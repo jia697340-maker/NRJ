@@ -126,6 +126,30 @@ const {
   playMicrosoftMaiTest,
   playAliyunTest,
   playDoubaoTest,
+  nativeApp,
+  fishAudioConnectionMode,
+  fishAudioRememberWebKey,
+  fishAudioApiKey,
+  fishAudioBaseUrl,
+  fishAudioModel,
+  fishAudioFormat,
+  fishAudioSampleRate,
+  fishAudioMp3Bitrate,
+  fishAudioLatency,
+  fishAudioNormalize,
+  fishAudioChunkLength,
+  fishAudioTestReferenceId,
+  fishAudioTestText,
+  fishAudioTestStylePrompt,
+  fishAudioIsLoading,
+  fishAudioErrorMsg,
+  fishAudioNotice,
+  fishAudioBalanceMsg,
+  fishAudioIsCheckingBalance,
+  selectFishAudioConnectionMode,
+  saveFishAudioConnection,
+  checkFishAudioBalance,
+  playFishAudioTest,
 } = useVoiceAccess()
 </script>
 
@@ -174,6 +198,7 @@ const {
                 <svg v-else-if="item.id === 'microsoft_mai'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M4 12h2"></path><path d="M8 8v8"></path><path d="M12 4v16"></path><path d="M16 7v10"></path><path d="M20 10v4"></path></svg>
                 <svg v-else-if="item.id === 'aliyun_tts'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M4 13v-2"></path><path d="M8 16V8"></path><path d="M12 19V5"></path><path d="M16 16V8"></path><path d="M20 13v-2"></path><path d="M6 4h12"></path></svg>
                 <svg v-else-if="item.id === 'doubao_tts'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M5 8.5c2-3 12-3 14 0v7c-2 3-12 3-14 0z"></path><path d="M8 12h.01M12 10v4M16 12h.01"></path><path d="M9 18v2M15 18v2"></path></svg>
+                <svg v-else-if="item.id === 'fish_audio'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M4 12c2.2-4.6 5.8-7 10.2-6.6 2.5.2 4.3 1.5 5.8 3.6-1.5 2.1-3.3 3.4-5.8 3.6C9.8 13 6.2 10.6 4 6v12c2.2-4.6 5.8-7 10.2-6.6 2.5.2 4.3 1.5 5.8 3.6-1.5 2.1-3.3 3.4-5.8 3.6C9.8 19 6.2 16.6 4 12Z"></path><circle cx="15.5" cy="8.9" r=".7" fill="currentColor" stroke="none"></circle></svg>
                 <svg v-else viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
               </div>
 
@@ -640,7 +665,7 @@ const {
       </div>
     </div>
 
-    <div v-else class="va-detail-view">
+    <div v-else-if="currentView === 'doubao_tts'" class="va-detail-view">
       <div class="fluid-form">
         <div class="form-row column-row seed-provider-row">
           <div class="row-header"><span class="row-label">接入方式</span></div>
@@ -731,6 +756,126 @@ const {
           <button class="fluid-action-btn" :disabled="doubaoIsLoading" @click="playDoubaoTest">
             <span v-if="doubaoIsLoading" class="spinner"></span>
             {{ doubaoIsLoading ? '正在合成...' : '合成并播放' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="va-detail-view">
+      <div class="fluid-form">
+        <div class="form-row column-row seed-provider-row">
+          <div class="row-header"><span class="row-label">直连方式</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: fishAudioConnectionMode === 'web' }" @click="selectFishAudioConnectionMode('web')">网页直连</div>
+            <div class="pill-tab" :class="{ active: fishAudioConnectionMode === 'app' }" @click="selectFishAudioConnectionMode('app')">App 直连</div>
+          </div>
+          <div class="provider-hint">{{ fishAudioConnectionMode === 'app' ? (nativeApp ? '请求由安装后的 App 直接发往 Fish Audio，API Key 存入系统安全存储。' : 'App 直连仅能在安装后的 Android 或 iOS App 中使用。') : '浏览器直接请求 Fish Audio，不经过本项目网关；能否使用取决于接口的网页跨域策略。' }}</div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">API Key</span></div>
+          <input type="password" v-model="fishAudioApiKey" placeholder="填写 Fish Audio API Key" class="fluid-input" autocomplete="off" />
+          <div v-if="fishAudioConnectionMode === 'web'" class="pill-tabs wide-tabs compact-tabs">
+            <div class="pill-tab" :class="{ active: !fishAudioRememberWebKey }" @click="fishAudioRememberWebKey = false">仅当前会话</div>
+            <div class="pill-tab" :class="{ active: fishAudioRememberWebKey }" @click="fishAudioRememberWebKey = true">记住到浏览器</div>
+          </div>
+          <div class="provider-hint">{{ fishAudioConnectionMode === 'app' ? '密钥不会写入 localStorage 或普通数据备份。' : fishAudioRememberWebKey ? '密钥会保存在当前浏览器，使用共享设备时请谨慎。' : '关闭页面后密钥失效，不写入持久化存储。' }}</div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">接口地址</span></div>
+          <input type="url" v-model="fishAudioBaseUrl" placeholder="https://api.fish.audio" class="fluid-input" />
+          <div class="provider-hint">默认使用 Fish Audio 官方地址，也可填写与 Fish TTS 协议一致且允许当前环境直连的地址。</div>
+        </div>
+
+        <div class="form-row column-row connection-actions">
+          <div class="connection-action-row">
+            <button class="ghost-btn" @click="saveFishAudioConnection">保存连接</button>
+            <button class="ghost-btn" :disabled="fishAudioIsCheckingBalance" @click="checkFishAudioBalance">{{ fishAudioIsCheckingBalance ? '查询中...' : '查询余额' }}</button>
+          </div>
+          <div v-if="fishAudioNotice" class="success-banner">{{ fishAudioNotice }}</div>
+          <div v-if="fishAudioBalanceMsg" class="provider-hint">{{ fishAudioBalanceMsg }}</div>
+          <div v-if="fishAudioErrorMsg" class="error-banner">{{ fishAudioErrorMsg }}</div>
+        </div>
+
+        <div class="form-section-title">默认合成参数</div>
+
+        <div class="form-row">
+          <span class="row-label">模型</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: fishAudioModel === 's2-pro' }" @click="fishAudioModel = 's2-pro'">S2 Pro</div>
+            <div class="pill-tab" :class="{ active: fishAudioModel === 's1' }" @click="fishAudioModel = 's1'">S1</div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <span class="row-label">音频格式</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: fishAudioFormat === 'mp3' }" @click="fishAudioFormat = 'mp3'">MP3</div>
+            <div class="pill-tab" :class="{ active: fishAudioFormat === 'opus' }" @click="fishAudioFormat = 'opus'">Opus</div>
+            <div class="pill-tab" :class="{ active: fishAudioFormat === 'wav' }" @click="fishAudioFormat = 'wav'">WAV</div>
+          </div>
+        </div>
+
+        <div v-if="fishAudioFormat !== 'opus'" class="form-row">
+          <span class="row-label">采样率</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: fishAudioSampleRate === 32000 }" @click="fishAudioSampleRate = 32000">32k</div>
+            <div class="pill-tab" :class="{ active: fishAudioSampleRate === 44100 }" @click="fishAudioSampleRate = 44100">44.1k</div>
+          </div>
+        </div>
+
+        <div v-if="fishAudioFormat === 'mp3'" class="form-row">
+          <span class="row-label">MP3 码率</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: fishAudioMp3Bitrate === 64 }" @click="fishAudioMp3Bitrate = 64">64k</div>
+            <div class="pill-tab" :class="{ active: fishAudioMp3Bitrate === 128 }" @click="fishAudioMp3Bitrate = 128">128k</div>
+            <div class="pill-tab" :class="{ active: fishAudioMp3Bitrate === 192 }" @click="fishAudioMp3Bitrate = 192">192k</div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <span class="row-label">延迟偏好</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: fishAudioLatency === 'normal' }" @click="fishAudioLatency = 'normal'">质量</div>
+            <div class="pill-tab" :class="{ active: fishAudioLatency === 'balanced' }" @click="fishAudioLatency = 'balanced'">均衡</div>
+            <div class="pill-tab" :class="{ active: fishAudioLatency === 'low' }" @click="fishAudioLatency = 'low'">低延迟</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">文本分块（{{ fishAudioChunkLength }} 字符）</span></div>
+          <input type="range" v-model.number="fishAudioChunkLength" min="100" max="300" step="10" class="provider-range" />
+          <div class="provider-hint">较小分块更快开始生成；较大分块通常有更连贯的表现。</div>
+        </div>
+
+        <div class="form-row">
+          <span class="row-label">文本规范化</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: fishAudioNormalize }" @click="fishAudioNormalize = true">开启</div>
+            <div class="pill-tab" :class="{ active: !fishAudioNormalize }" @click="fishAudioNormalize = false">关闭</div>
+          </div>
+        </div>
+
+        <div class="form-section-title">合成测试</div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">Reference ID</span></div>
+          <input type="text" v-model="fishAudioTestReferenceId" placeholder="音色 ID 或 fish.audio/m/... 链接，可留空" class="fluid-input" />
+          <div class="provider-hint">可直接粘贴 Fish Audio 音色页面链接，播放测试时会自动提取 ID。</div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">声音表达</span></div>
+          <textarea v-model="fishAudioTestStylePrompt" rows="3" maxlength="300" placeholder="例如：温柔、自然、亲密地说" class="fluid-textarea"></textarea>
+        </div>
+
+        <div class="form-row column-row">
+          <textarea v-model="fishAudioTestText" rows="4" maxlength="2048" placeholder="输入要合成的文本..." class="fluid-textarea"></textarea>
+          <div class="text-counter">{{ fishAudioTestText.length }} / 2048</div>
+          <button class="fluid-action-btn" :disabled="fishAudioIsLoading" @click="playFishAudioTest">
+            <span v-if="fishAudioIsLoading" class="spinner"></span>
+            {{ fishAudioIsLoading ? '正在合成...' : '合成并播放' }}
           </button>
         </div>
       </div>
@@ -1004,6 +1149,7 @@ const {
 }
 .wide-tabs { width: 100%; box-sizing: border-box; }
 .wide-tabs .pill-tab { flex: 1 1 0; min-width: 0; padding-left: 5px; padding-right: 5px; text-align: center; white-space: nowrap; font-size: 12px; }
+.compact-tabs { max-width: 260px; }
 .seed-provider-row { gap: 12px; }
 .provider-hint { padding: 0 4px; color: #999; font-size: 12px; line-height: 1.5; }
 .connection-badge { align-self: flex-start; padding: 7px 13px; border-radius: 100px; background: rgba(0,0,0,0.05); color: #333; font-size: 12px; font-weight: 600; }
@@ -1070,6 +1216,11 @@ const {
   border: 1px solid rgba(0,0,0,0.1); border-radius: 100px; font-size: 12px; font-weight: 600; cursor: pointer;
 }
 .ghost-btn:active { background: rgba(0,0,0,0.03); }
+.ghost-btn:disabled { color: #aaa; cursor: not-allowed; }
+
+.connection-actions { gap: 10px; }
+.connection-action-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.success-banner { background: #f0f8f1; color: #388e3c; padding: 12px 16px; border-radius: 12px; font-size: 13px; text-align: center; }
 
 .error-banner { background: #fff0f0; color: #d32f2f; padding: 12px 16px; border-radius: 12px; font-size: 13px; text-align: center; }
 

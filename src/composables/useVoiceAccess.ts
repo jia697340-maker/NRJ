@@ -7,11 +7,13 @@ import { defaultElevenLabsVoiceBaseUrl, generateElevenLabsVoice, loadElevenLabsV
 import { defaultMicrosoftMaiVoiceBaseUrl, generateMicrosoftMaiVoice, loadMicrosoftMaiVoiceConfig, MICROSOFT_MAI_VOICE_CONFIG_KEY, type MicrosoftMaiVoiceProtocol, type MicrosoftMaiVoiceTransport } from './useMicrosoftMaiVoice'
 import { defaultAliyunTtsBaseUrl, generateAliyunTts, loadAliyunTtsConfig, ALIYUN_TTS_CONFIG_KEY, type AliyunTtsProtocol, type AliyunTtsRegion, type AliyunTtsTransport } from './useAliyunTts'
 import { DOUBAO_TTS_CONFIG_KEY, DOUBAO_TTS_DEFAULT_BASE_URL, DOUBAO_TTS_DEFAULT_RESOURCE_ID, DOUBAO_TTS_DEFAULT_VOICE, generateDoubaoTts, loadDoubaoTtsConfig } from './useDoubaoTts'
+import { FISH_AUDIO_CONFIG_KEY, FISH_AUDIO_SESSION_KEY, FISH_AUDIO_SECURE_KEY, FISH_AUDIO_WEB_KEY, defaultFishAudioBaseUrl, generateFishAudio, getFishAudioCredit, loadFishAudioConfig, normalizeFishAudioReferenceId, type FishAudioConnectionMode, type FishAudioFormat, type FishAudioLatency, type FishAudioModel } from './useFishAudio'
+import { getSecureValue, isNativeMobileApp, setSecureValue } from '../services/mobileSecureStorage'
 
 export function useVoiceAccess() {
 
 
-  const currentView = ref<'platforms' | 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts' | 'doubao_tts'>('platforms')
+  const currentView = ref<'platforms' | 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts' | 'doubao_tts' | 'fish_audio'>('platforms')
 
   const activeIndex = ref(0)
   const platforms = [
@@ -22,6 +24,7 @@ export function useVoiceAccess() {
     { id: 'microsoft_mai', name: 'Microsoft MAI Voice', desc: '自然流畅、情绪丰富的\n多语言角色语音', action: '进入配置', disabled: false },
     { id: 'aliyun_tts', name: '阿里云 TTS', desc: '千问新一代自然可控的\n多语言角色语音', action: '进入配置', disabled: false },
     { id: 'doubao_tts', name: '火山引擎 / 豆包', desc: '高自然度、富有表现力的\n角色语音合成', action: '进入配置', disabled: false },
+    { id: 'fish_audio', name: 'Fish Audio', desc: '克隆音色、自然情绪与\n多语言角色语音', action: '进入配置', disabled: false },
     { id: 'more', name: '更多平台', desc: '敬请期待更多\n优秀语音引擎接入', action: '即将开放', disabled: true }
   ]
 
@@ -32,7 +35,7 @@ export function useVoiceAccess() {
     if (activeIndex.value < platforms.length - 1) activeIndex.value++
   }
   const handleSelect = (id: string, disabled: boolean) => {
-    if (!disabled && (id === 'minimax' || id === 'seed_audio' || id === 'gemini' || id === 'elevenlabs' || id === 'microsoft_mai' || id === 'aliyun_tts' || id === 'doubao_tts')) currentView.value = id
+    if (!disabled && (id === 'minimax' || id === 'seed_audio' || id === 'gemini' || id === 'elevenlabs' || id === 'microsoft_mai' || id === 'aliyun_tts' || id === 'doubao_tts' || id === 'fish_audio')) currentView.value = id
   }
 
   const viewTitle = () => {
@@ -43,6 +46,7 @@ export function useVoiceAccess() {
     if (currentView.value === 'microsoft_mai') return 'Microsoft MAI Voice 接入'
     if (currentView.value === 'aliyun_tts') return '阿里云 TTS 接入'
     if (currentView.value === 'doubao_tts') return '火山引擎 / 豆包语音接入'
+    if (currentView.value === 'fish_audio') return 'Fish Audio 接入'
     return '语音引擎'
   }
 
@@ -171,6 +175,67 @@ export function useVoiceAccess() {
   const doubaoIsLoading = ref(false)
   const doubaoErrorMsg = ref('')
 
+  const nativeApp = isNativeMobileApp()
+  const fishAudioConnectionMode = ref<FishAudioConnectionMode>(nativeApp ? 'app' : 'web')
+  const fishAudioRememberWebKey = ref(false)
+  const fishAudioApiKey = ref('')
+  const fishAudioBaseUrl = ref(defaultFishAudioBaseUrl())
+  const fishAudioModel = ref<FishAudioModel>('s2-pro')
+  const fishAudioFormat = ref<FishAudioFormat>('mp3')
+  const fishAudioSampleRate = ref(44100)
+  const fishAudioMp3Bitrate = ref<64 | 128 | 192>(128)
+  const fishAudioLatency = ref<FishAudioLatency>('normal')
+  const fishAudioNormalize = ref(true)
+  const fishAudioChunkLength = ref(200)
+  const fishAudioTestReferenceId = ref('')
+  const fishAudioTestText = ref('今天也很想你。')
+  const fishAudioTestStylePrompt = ref('温柔、自然、亲密地说')
+  const fishAudioIsLoading = ref(false)
+  const fishAudioErrorMsg = ref('')
+  const fishAudioNotice = ref('')
+  const fishAudioBalanceMsg = ref('')
+  const fishAudioIsCheckingBalance = ref(false)
+
+  const fishAudioConfig = () => ({
+    connectionMode: fishAudioConnectionMode.value,
+    rememberWebKey: fishAudioRememberWebKey.value,
+    apiKey: fishAudioApiKey.value,
+    baseUrl: fishAudioBaseUrl.value,
+    model: fishAudioModel.value,
+    format: fishAudioFormat.value,
+    sampleRate: fishAudioFormat.value === 'opus' ? 48000 : fishAudioSampleRate.value,
+    mp3Bitrate: fishAudioMp3Bitrate.value,
+    latency: fishAudioLatency.value,
+    normalize: fishAudioNormalize.value,
+    chunkLength: fishAudioChunkLength.value
+  })
+
+  const selectFishAudioConnectionMode = async (mode: FishAudioConnectionMode) => {
+    fishAudioConnectionMode.value = mode
+    fishAudioErrorMsg.value = ''
+    fishAudioNotice.value = ''
+    fishAudioApiKey.value = mode === 'app'
+      ? (nativeApp ? (await getSecureValue(FISH_AUDIO_SECURE_KEY)) || '' : '')
+      : sessionStorage.getItem(FISH_AUDIO_SESSION_KEY) || (fishAudioRememberWebKey.value ? localStorage.getItem(FISH_AUDIO_WEB_KEY) || '' : '')
+  }
+
+  const saveFishAudioConnection = async () => {
+    fishAudioErrorMsg.value = ''
+    fishAudioNotice.value = ''
+    if (!fishAudioApiKey.value.trim()) { fishAudioErrorMsg.value = '请填写 Fish Audio API Key'; return }
+    if (!fishAudioBaseUrl.value.trim()) { fishAudioErrorMsg.value = '请填写 Fish Audio 接口地址'; return }
+    if (fishAudioConnectionMode.value === 'app') {
+      if (!nativeApp) { fishAudioErrorMsg.value = 'App 直连需要在安装后的 Android 或 iOS App 中使用'; return }
+      await setSecureValue(FISH_AUDIO_SECURE_KEY, fishAudioApiKey.value.trim())
+      fishAudioNotice.value = 'API Key 已保存到系统安全存储。'
+    } else {
+      sessionStorage.setItem(FISH_AUDIO_SESSION_KEY, fishAudioApiKey.value.trim())
+      if (fishAudioRememberWebKey.value) localStorage.setItem(FISH_AUDIO_WEB_KEY, fishAudioApiKey.value.trim())
+      else localStorage.removeItem(FISH_AUDIO_WEB_KEY)
+      fishAudioNotice.value = fishAudioRememberWebKey.value ? 'API Key 已保存在当前浏览器。' : 'API Key 仅在当前页面会话中使用。'
+    }
+  }
+
   const region = ref('global')
   const apiKey = ref('')
   const testText = ref('这是一段语音合成测试文本。')
@@ -219,7 +284,7 @@ export function useVoiceAccess() {
   const keyPresets = ref<KeyPreset[]>([])
   const newPresetName = ref('')
 
-  onMounted(() => {
+  onMounted(async () => {
     const saved = localStorage.getItem('minimax_voice_config_v4')
     if (saved) {
       try {
@@ -315,6 +380,24 @@ export function useVoiceAccess() {
       if (typeof savedDoubao.testStylePrompt === 'string') doubaoTestStylePrompt.value = savedDoubao.testStylePrompt
       if (typeof savedDoubao.filterMarkdown === 'boolean') doubaoFilterMarkdown.value = savedDoubao.filterMarkdown
       if (typeof savedDoubao.enableLanguageDetector === 'boolean') doubaoEnableLanguageDetector.value = savedDoubao.enableLanguageDetector
+    } catch {}
+    const fishConfig = loadFishAudioConfig()
+    fishAudioConnectionMode.value = nativeApp && fishConfig.connectionMode === 'app' ? 'app' : fishConfig.connectionMode
+    fishAudioRememberWebKey.value = fishConfig.rememberWebKey
+    fishAudioApiKey.value = fishAudioConnectionMode.value === 'app' && nativeApp ? (await getSecureValue(FISH_AUDIO_SECURE_KEY)) || '' : fishConfig.apiKey
+    fishAudioBaseUrl.value = fishConfig.baseUrl
+    fishAudioModel.value = fishConfig.model
+    fishAudioFormat.value = fishConfig.format
+    fishAudioSampleRate.value = fishConfig.sampleRate
+    fishAudioMp3Bitrate.value = fishConfig.mp3Bitrate
+    fishAudioLatency.value = fishConfig.latency
+    fishAudioNormalize.value = fishConfig.normalize
+    fishAudioChunkLength.value = fishConfig.chunkLength
+    try {
+      const savedFish = JSON.parse(localStorage.getItem(FISH_AUDIO_CONFIG_KEY) || '{}')
+      if (typeof savedFish.testReferenceId === 'string') fishAudioTestReferenceId.value = savedFish.testReferenceId
+      if (typeof savedFish.testText === 'string') fishAudioTestText.value = savedFish.testText
+      if (typeof savedFish.testStylePrompt === 'string') fishAudioTestStylePrompt.value = savedFish.testStylePrompt
     } catch {}
   })
 
@@ -421,6 +504,24 @@ export function useVoiceAccess() {
       testStylePrompt: doubaoTestStylePrompt.value,
       filterMarkdown: doubaoFilterMarkdown.value,
       enableLanguageDetector: doubaoEnableLanguageDetector.value
+    }))
+  })
+
+  watch([fishAudioConnectionMode, fishAudioRememberWebKey, fishAudioBaseUrl, fishAudioModel, fishAudioFormat, fishAudioSampleRate, fishAudioMp3Bitrate, fishAudioLatency, fishAudioNormalize, fishAudioChunkLength, fishAudioTestReferenceId, fishAudioTestText, fishAudioTestStylePrompt], () => {
+    localStorage.setItem(FISH_AUDIO_CONFIG_KEY, JSON.stringify({
+      connectionMode: fishAudioConnectionMode.value,
+      rememberWebKey: fishAudioRememberWebKey.value,
+      baseUrl: fishAudioBaseUrl.value || defaultFishAudioBaseUrl(),
+      model: fishAudioModel.value,
+      format: fishAudioFormat.value,
+      sampleRate: fishAudioFormat.value === 'opus' ? 48000 : fishAudioSampleRate.value,
+      mp3Bitrate: fishAudioMp3Bitrate.value,
+      latency: fishAudioLatency.value,
+      normalize: fishAudioNormalize.value,
+      chunkLength: fishAudioChunkLength.value,
+      testReferenceId: fishAudioTestReferenceId.value,
+      testText: fishAudioTestText.value,
+      testStylePrompt: fishAudioTestStylePrompt.value
     }))
   })
 
@@ -829,6 +930,51 @@ export function useVoiceAccess() {
     }
   }
 
+  const checkFishAudioBalance = async () => {
+    if (!fishAudioApiKey.value.trim()) { fishAudioErrorMsg.value = '请填写 Fish Audio API Key'; return }
+    fishAudioIsCheckingBalance.value = true
+    fishAudioErrorMsg.value = ''
+    fishAudioBalanceMsg.value = ''
+    try {
+      const data = await getFishAudioCredit(fishAudioConfig())
+      fishAudioBalanceMsg.value = data?.credit === undefined ? '未读取到可用额度' : `API 余额：${data.credit}`
+    } catch (err: any) {
+      fishAudioErrorMsg.value = err?.message === 'MISSING_FISH_AUDIO_API_KEY' ? '请填写 Fish Audio API Key' : (err?.message || 'Fish Audio 余额查询失败')
+    } finally {
+      fishAudioIsCheckingBalance.value = false
+    }
+  }
+
+  const playFishAudioTest = async () => {
+    if (!fishAudioApiKey.value.trim()) { fishAudioErrorMsg.value = '请填写 Fish Audio API Key'; return }
+    if (!fishAudioBaseUrl.value.trim()) { fishAudioErrorMsg.value = '请填写 Fish Audio 接口地址'; return }
+    if (!fishAudioTestText.value.trim()) { fishAudioErrorMsg.value = '请填写测试文本'; return }
+    fishAudioTestReferenceId.value = normalizeFishAudioReferenceId(fishAudioTestReferenceId.value)
+    fishAudioIsLoading.value = true
+    fishAudioErrorMsg.value = ''
+    fishAudioNotice.value = ''
+    if (audioInstance) { audioInstance.pause(); audioInstance = null }
+    try {
+      const audio = await generateFishAudio(fishAudioConfig(), {
+        text: fishAudioTestText.value,
+        referenceId: fishAudioTestReferenceId.value,
+        stylePrompt: fishAudioTestStylePrompt.value,
+        model: fishAudioModel.value,
+        normalize: fishAudioNormalize.value,
+        latency: fishAudioLatency.value
+      })
+      const blobUrl = URL.createObjectURL(audio)
+      audioInstance = new Audio(blobUrl)
+      audioInstance.onended = () => URL.revokeObjectURL(blobUrl)
+      audioInstance.onerror = () => URL.revokeObjectURL(blobUrl)
+      await audioInstance.play()
+    } catch (err: any) {
+      fishAudioErrorMsg.value = err?.message === 'MISSING_FISH_AUDIO_API_KEY' ? '请填写 Fish Audio API Key' : (err?.message || 'Fish Audio 合成失败')
+    } finally {
+      fishAudioIsLoading.value = false
+    }
+  }
+
   return {
     currentView,
     activeIndex,
@@ -951,5 +1097,29 @@ export function useVoiceAccess() {
     playMicrosoftMaiTest,
     playAliyunTest,
     playDoubaoTest,
+    nativeApp,
+    fishAudioConnectionMode,
+    fishAudioRememberWebKey,
+    fishAudioApiKey,
+    fishAudioBaseUrl,
+    fishAudioModel,
+    fishAudioFormat,
+    fishAudioSampleRate,
+    fishAudioMp3Bitrate,
+    fishAudioLatency,
+    fishAudioNormalize,
+    fishAudioChunkLength,
+    fishAudioTestReferenceId,
+    fishAudioTestText,
+    fishAudioTestStylePrompt,
+    fishAudioIsLoading,
+    fishAudioErrorMsg,
+    fishAudioNotice,
+    fishAudioBalanceMsg,
+    fishAudioIsCheckingBalance,
+    selectFishAudioConnectionMode,
+    saveFishAudioConnection,
+    checkFishAudioBalance,
+    playFishAudioTest,
   }
 }

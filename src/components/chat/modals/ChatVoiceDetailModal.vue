@@ -1,6 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
 import { ref } from 'vue'
+import { normalizeFishAudioReferenceId } from '../../../composables/useFishAudio'
 
 const props = defineProps<{
   visible: boolean
@@ -82,7 +83,7 @@ const handleSave = () => {
   emit('save')
 }
 
-const selectProvider = (provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts' | 'doubao_tts') => {
+const selectProvider = (provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts' | 'doubao_tts' | 'fish_audio') => {
   props.selectedChat.voiceProvider = provider
   if (provider === 'elevenlabs') {
     props.selectedChat.elevenLabsStability ??= 0.5
@@ -112,6 +113,23 @@ const selectProvider = (provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenl
     props.selectedChat.doubaoFilterMarkdown ??= true
     props.selectedChat.doubaoEnableLanguageDetector ??= true
   }
+  if (provider === 'fish_audio') {
+    props.selectedChat.fishAudioReferenceId ||= ''
+    props.selectedChat.fishAudioModel ||= 's2-pro'
+    props.selectedChat.fishAudioSpeed ??= 1
+    props.selectedChat.fishAudioVolume ??= 0
+    props.selectedChat.fishAudioTemperature ??= 0.7
+    props.selectedChat.fishAudioTopP ??= 0.7
+    props.selectedChat.fishAudioStylePrompt ||= ''
+    props.selectedChat.fishAudioNormalize ??= true
+    props.selectedChat.fishAudioLatency ||= 'normal'
+    props.selectedChat.fishAudioConditionOnPreviousChunks ??= true
+  }
+  handleSave()
+}
+
+const normalizeFishReference = () => {
+  props.selectedChat.fishAudioReferenceId = normalizeFishAudioReferenceId(props.selectedChat.fishAudioReferenceId || '')
   handleSave()
 }
 
@@ -165,6 +183,10 @@ const setSeedAudioReferences = (event: Event) => {
             <div class="memory-type-item" :class="{ active: selectedChat.voiceProvider === 'doubao_tts' }" style="margin-bottom: 0;" @click="selectProvider('doubao_tts')">
               <div class="type-name" style="margin-bottom: 4px;">豆包语音</div>
               <div class="type-desc">高自然度角色语音</div>
+            </div>
+            <div class="memory-type-item" :class="{ active: selectedChat.voiceProvider === 'fish_audio' }" style="margin-bottom: 0;" @click="selectProvider('fish_audio')">
+              <div class="type-name" style="margin-bottom: 4px;">Fish Audio</div>
+              <div class="type-desc">克隆音色与自然情绪</div>
             </div>
           </div>
         </div>
@@ -432,7 +454,7 @@ const setSeedAudioReferences = (event: Event) => {
           </div>
         </div>
 
-        <div v-else style="display: flex; flex-direction: column; gap: 12px;">
+        <div v-else-if="selectedChat.voiceProvider === 'doubao_tts'" style="display: flex; flex-direction: column; gap: 12px;">
           <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">豆包语音选项</div>
 
           <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
@@ -520,6 +542,86 @@ const setSeedAudioReferences = (event: Event) => {
           </div>
         </div>
 
+        <div v-else style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">Fish Audio 选项</div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">角色音色</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">填写 Reference ID，或直接粘贴 fish.audio/m/... 音色链接；留空使用平台默认音色。</div>
+            </div>
+            <input type="text" v-model="selectedChat.fishAudioReferenceId" @change="normalizeFishReference" placeholder="Reference ID 或 Fish Audio 音色链接" class="voice-input" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">合成模型</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">S2 Pro 支持更多语言和自然语言情绪控制；S1 用于兼容已有音色。</div>
+            </div>
+            <div class="voice-mode-tabs" style="width: 100%; box-sizing: border-box;">
+              <div class="voice-mode-tab" :class="{ active: (selectedChat.fishAudioModel || 's2-pro') === 's2-pro' }" style="flex: 1; text-align: center;" @click="selectedChat.fishAudioModel = 's2-pro'; handleSave()">S2 Pro</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.fishAudioModel === 's1' }" style="flex: 1; text-align: center;" @click="selectedChat.fishAudioModel = 's1'; handleSave()">S1</div>
+            </div>
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">角色声音表达</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">描述稳定的语气、节奏或情绪；合成时作为受控提示加入，不写入聊天正文。</div>
+            </div>
+            <textarea v-model="selectedChat.fishAudioStylePrompt" @change="handleSave" rows="4" maxlength="300" class="voice-textarea" placeholder="例如：温柔地轻声说，语速舒缓，带一点亲近感。"></textarea>
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px;">
+            <div style="font-size: 14px; color: var(--text-primary);">语速（{{ (selectedChat.fishAudioSpeed ?? 1).toFixed(2) }}x）</div>
+            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">调整角色说话快慢，1.00 为音色原始语速。</div>
+            <input type="range" v-model.number="selectedChat.fishAudioSpeed" min="0.5" max="2" step="0.05" @change="handleSave" class="elegant-slider" style="margin-top: 8px;" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px;">
+            <div style="font-size: 14px; color: var(--text-primary);">音量偏移（{{ selectedChat.fishAudioVolume ?? 0 }} dB）</div>
+            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">调整生成音频的基础响度，不改变播放器音量。</div>
+            <input type="range" v-model.number="selectedChat.fishAudioVolume" min="-20" max="20" step="1" @change="handleSave" class="elegant-slider" style="margin-top: 8px;" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-size: 14px; color: var(--text-primary);">表现力（{{ (selectedChat.fishAudioTemperature ?? 0.7).toFixed(2) }}）</div>
+            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">数值越高变化越丰富，越低越稳定。</div>
+            <input type="range" v-model.number="selectedChat.fishAudioTemperature" min="0" max="1" step="0.05" @change="handleSave" class="elegant-slider" />
+            <div style="font-size: 14px; color: var(--text-primary); margin-top: 4px;">声音多样性（{{ (selectedChat.fishAudioTopP ?? 0.7).toFixed(2) }}）</div>
+            <input type="range" v-model.number="selectedChat.fishAudioTopP" min="0" max="1" step="0.05" @change="handleSave" class="elegant-slider" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">延迟偏好</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">普通消息建议质量优先；通话可选均衡或低延迟。</div>
+            </div>
+            <div class="voice-mode-tabs" style="width: 100%; box-sizing: border-box;">
+              <div class="voice-mode-tab" :class="{ active: (selectedChat.fishAudioLatency || 'normal') === 'normal' }" style="flex: 1; text-align: center;" @click="selectedChat.fishAudioLatency = 'normal'; handleSave()">质量</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.fishAudioLatency === 'balanced' }" style="flex: 1; text-align: center;" @click="selectedChat.fishAudioLatency = 'balanced'; handleSave()">均衡</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.fishAudioLatency === 'low' }" style="flex: 1; text-align: center;" @click="selectedChat.fishAudioLatency = 'low'; handleSave()">低延迟</div>
+            </div>
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+              <div style="min-width: 0;">
+                <div style="font-size: 14px; color: var(--text-primary);">文本规范化</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">提升中英文数字、日期和符号的朗读稳定性。</div>
+              </div>
+              <label class="switch" @click.stop><input type="checkbox" :checked="selectedChat.fishAudioNormalize ?? true" @change="(e) => { selectedChat.fishAudioNormalize = (e.target as HTMLInputElement).checked; handleSave(); }"><span class="slider"></span></label>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+              <div style="min-width: 0;">
+                <div style="font-size: 14px; color: var(--text-primary);">长文本声音连续</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">让后续分块参考前文声音，减少长回复中的音色跳变。</div>
+              </div>
+              <label class="switch" @click.stop><input type="checkbox" :checked="selectedChat.fishAudioConditionOnPreviousChunks ?? true" @change="(e) => { selectedChat.fishAudioConditionOnPreviousChunks = (e.target as HTMLInputElement).checked; handleSave(); }"><span class="slider"></span></label>
+            </div>
+          </div>
+        </div>
+
         <!-- 播放体验 -->
         <div v-if="(selectedChat.voiceProvider || 'minimax') === 'minimax'" style="display: flex; flex-direction: column; gap: 12px;">
           <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">播放体验</div>
@@ -539,7 +641,7 @@ const setSeedAudioReferences = (event: Event) => {
         </div>
 
         <!-- 高级调参 -->
-        <div v-if="selectedChat.voiceProvider !== 'gemini' && selectedChat.voiceProvider !== 'elevenlabs' && selectedChat.voiceProvider !== 'microsoft_mai' && selectedChat.voiceProvider !== 'aliyun_tts' && selectedChat.voiceProvider !== 'doubao_tts'" style="display: flex; flex-direction: column; gap: 12px;">
+        <div v-if="selectedChat.voiceProvider !== 'gemini' && selectedChat.voiceProvider !== 'elevenlabs' && selectedChat.voiceProvider !== 'microsoft_mai' && selectedChat.voiceProvider !== 'aliyun_tts' && selectedChat.voiceProvider !== 'doubao_tts' && selectedChat.voiceProvider !== 'fish_audio'" style="display: flex; flex-direction: column; gap: 12px;">
           <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">高级调参</div>
           
           <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px;">
