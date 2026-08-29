@@ -20,6 +20,7 @@ import AppBubbleWorkshop from './components/app_BubbleWorkshop.vue'
 import AppMusic from './components/app_Music.vue'
 import AppForum from './components/app_Forum.vue'
 import AppMCP from './components/app_MCP.vue'
+import McpConfirmationHost from './components/mcp/McpConfirmationHost.vue'
 import AppVideoHall from './components/app_VideoHall.vue'
 import LockScreen from './components/LockScreen.vue'
 import AppWatermarkOverlay from './components/AppWatermarkOverlay.vue'
@@ -561,6 +562,8 @@ watch([activeApp, isLocked], ([appId, locked]) => {
         @close="activeApp = null"
       />
     </Transition>
+
+    <McpConfirmationHost />
 
     <!-- 语音通话手机级悬浮窗：桌面和其他 App 中也保持通话 -->
     <Transition name="app-fade">

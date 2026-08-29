@@ -105,7 +105,6 @@ defineExpose({
         @open-character-profile="emit('open-character-profile', $event)"
         @view-recalled-message="emit('view-recalled-message', $event)"
         @cancel-image-generation="emit('cancel-image-generation', $event)"
-        @capability-action="emit('capability-action', $event)"
       />
       <div v-if="variantControls.get(String(msg.id))" class="reply-variant-row" @click.stop>
         <button

@@ -21,7 +21,6 @@ import { buildForumToChatBridgeContext } from '../../services/forumMemoryBridge'
 import { useChatAuth } from '../useChatAuth'
 import { buildChatModelRulesPrompt } from '../../services/modelCommunication'
 import { formatIdentityDateTime, getConversationAdjustedTimestamp } from '../../services/conversationTime'
-import { buildDoubanCharacterDecisionHint, buildDoubanContextForChat } from '../../services/doubanCapability'
 
 // 将 Blob 转为 Base64
 const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -512,11 +511,6 @@ export const buildChatMessages = async (
   }
 
   if (!callMode) {
-    const doubanContext = buildDoubanContextForChat(chat, options.currentTurnId)
-    const doubanDecisionHint = buildDoubanCharacterDecisionHint(chat)
-    if (doubanContext) messages.push({ role: 'system', content: doubanContext })
-    if (doubanDecisionHint) messages.push({ role: 'system', content: doubanDecisionHint })
-    pushContextTrace(options.trace, { id: 'runtime:douban', category: 'system', group: '豆瓣能力', label: '本轮豆瓣公开内容', text: doubanContext || doubanDecisionHint, reason: doubanContext ? '当前消息关联的豆瓣内容已实际读取' : '当前消息含可由角色决定是否读取的豆瓣链接' })
   }
 
   return messages

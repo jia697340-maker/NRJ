@@ -6,6 +6,7 @@ import type { ModelAdapterProfile } from './modelAdapters'
 import { extractEmbeddedReasoning, isGeminiPrefillUnsupported, mergeProviderReasoningState, type ProviderReasoningState, type ReasoningPolicy, type ReasoningSource } from './reasoning'
 import { executeMcpModelTool, getEnabledMcpTools } from './mcpRuntime'
 import type { McpModelToolCall } from '../types/mcp'
+import { mcpSettings } from '../store/mcp'
 import { saveTokenUsageSnapshot } from './tokenUsageSnapshot'
 import { commitDiagnosticTrace, createDiagnosticDraft, type DiagnosticContextMeta } from './diagnosticTrace'
 import { isRawApiConsoleLoggingEnabled, logApiFallback, logApiRequest, logApiResponse } from './apiDebug'
@@ -150,7 +151,8 @@ export async function sendChatMessage(
   payloadReady: boolean = false,
   webSearch?: WebSearchRequestOptions,
   mcpDepth: number = 0,
-  capabilityOverride?: ApiCapabilityId
+  capabilityOverride?: ApiCapabilityId,
+  mcpState: { startedAt: number; calls: number; signatures: string[] } = { startedAt: Date.now(), calls: 0, signatures: [] }
 ) {
   // 定义一个包含所有可能属性的接口，包括各个设置独有的属性
   interface MergedApiSettings {
@@ -218,7 +220,12 @@ export async function sendChatMessage(
   })
 
   const mcpTools = purpose === 'default' && !isSummary && !isVision && Boolean(diagnosticContext?.chatId)
-    ? getEnabledMcpTools()
+    ? getEnabledMcpTools({
+      chatId: String(diagnosticContext?.chatId || ''),
+      characterIds: diagnosticContext?.characterIds,
+      characterName: diagnosticContext?.characterName,
+      signal
+    })
     : []
 
   let webSearchTrace: WebSearchTrace | undefined
@@ -591,7 +598,8 @@ export async function sendChatMessage(
   }
 
   if (mcpToolCalls.length) {
-    if (mcpDepth >= 4) {
+    const elapsed = Date.now() - mcpState.startedAt
+    if (mcpDepth >= mcpSettings.limits.maxCallsPerTurn || mcpState.calls + mcpToolCalls.length > mcpSettings.limits.maxCallsPerTurn || elapsed >= mcpSettings.limits.maxTotalTimeMs) {
       return {
         content: 'MCP 工具连续调用次数过多，已安全停止。',
         thinking: '',
@@ -611,25 +619,39 @@ export async function sendChatMessage(
       _providerState: providerState
     })
 
-    for (const call of mcpToolCalls) {
+    const runCall = async (call: McpModelToolCall) => {
+      const signature = `${call.name}:${JSON.stringify(call.arguments || {})}`
+      if (mcpState.signatures.filter(item => item === signature).length >= 2) return {
+        role: 'tool', name: call.name, tool_call_id: call.id,
+        content: JSON.stringify({ errorCode: 'tool_call_failed', reason: '检测到重复工具调用循环，已阻止再次执行。' }), is_error: true
+      }
+      mcpState.signatures.push(signature); mcpState.calls++
       try {
-        const result = await executeMcpModelTool(call.name, call.arguments, signal)
-        followupMessages.push({
+        const result = await executeMcpModelTool(call.name, call.arguments, {
+          chatId: String(diagnosticContext?.chatId || ''), characterIds: diagnosticContext?.characterIds,
+          characterName: diagnosticContext?.characterName, signal
+        })
+        return {
           role: 'tool',
           name: call.name,
           tool_call_id: call.id,
           content: result.content,
           is_error: Boolean(result.isError)
-        })
+        }
       } catch (error) {
-        followupMessages.push({
+        return {
           role: 'tool',
           name: call.name,
           tool_call_id: call.id,
           content: JSON.stringify({ error: error instanceof Error ? error.message : '工具执行失败' }),
           is_error: true
-        })
+        }
       }
+    }
+    const concurrency = Math.max(1, mcpSettings.limits.maxConcurrentCalls)
+    for (let index = 0; index < mcpToolCalls.length; index += concurrency) {
+      const results = await Promise.all(mcpToolCalls.slice(index, index + concurrency).map(runCall))
+      followupMessages.push(...results)
     }
 
     return sendChatMessage(
@@ -643,7 +665,8 @@ export async function sendChatMessage(
       true,
       webSearch ? { ...webSearch, enabled: false } : undefined,
       mcpDepth + 1,
-      capability
+      capability,
+      mcpState
     )
   }
 

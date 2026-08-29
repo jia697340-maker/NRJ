@@ -38,7 +38,6 @@ import { useChatRoomVision } from './useChatRoomVision'
 import { useChatRoomImageGen } from './useChatRoomImageGen'
 import { processMomentTags } from './useChatRoomMessage'
 import { executeCharacterAssetAction, toCharacterAssetAction } from '../services/chatAssetActions'
-import { finalizeCharacterDecisions, hasPendingDoubanConfirmations, markDoubanContextConsumed, waitForDoubanCapabilities } from '../services/doubanCapability'
 
 // 通话中禁止的动作
 const CALL_BLOCKED_ACTIONS = new Set([
@@ -246,7 +245,6 @@ export function useChatRoomAPI(
   ) => {
     if (!selectedChat.value || selectedChat.value.id === 1) return
     if (isGenerating.value) return
-    if (!callMode && apiPurpose === 'default' && hasPendingDoubanConfirmations(selectedChat.value)) return
     
     isGenerating.value = true
     abortController = new AbortController()
@@ -293,7 +291,6 @@ export function useChatRoomAPI(
     }
 
     // 自动读取在模型请求前完成或超时；聊天界面本身始终保持可操作。
-    if (!callMode && apiPurpose === 'default') await waitForDoubanCapabilities(targetChat)
 
     // 组装 Prompt (此时变为异步)，传入当前是否是语音通话状态
     const apiMessages = await buildChatMessages(selectedChat.value, callMode, offlineMeetMode, {
@@ -333,6 +330,8 @@ export function useChatRoomAPI(
     const diagnosticContext = {
       chatId: selectedChat.value.id,
       chatName: selectedChat.value.name,
+      characterIds: [String(selectedChat.value.characterEntityId || selectedChat.value.id)],
+      characterName: selectedChat.value.name,
       worldBookEntries: worldBooks
         .filter((book: any) => book.enabled && boundBookIds.includes(book.id))
         .flatMap((book: any) => (book.entries || [])
@@ -386,10 +385,6 @@ export function useChatRoomAPI(
           false,
           { ...webSearchOptions, enabled: false }
         )
-      }
-      if (!callMode && apiPurpose === 'default' && targetChat) {
-        markDoubanContextConsumed(targetChat, turnId)
-        finalizeCharacterDecisions(targetChat, () => saveCustomContacts(targetChat))
       }
       if (!requestTimelineIsActive()) throw new DOMException('时间线已经切换', 'AbortError')
       const costSeconds = ((Date.now() - startTime) / 1000).toFixed(1)

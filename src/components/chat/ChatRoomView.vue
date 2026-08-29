@@ -46,7 +46,6 @@ import { getIdentityCalendarParts, isConversationTimePaused, resumeConversationT
 import { ensureChatTimelineState, persistActiveTimeline } from '../../services/chatTimeline'
 import { createTimeline } from '../../services/chatTimeline'
 import { adjacentReplyVariantId, getReplyVariant, restoreReplyVariant } from '../../services/replyVariants'
-import { handleDoubanCapabilityAction, prepareDoubanCapabilitiesForMessage, reconcileDoubanCapabilityMessages, registerDoubanExecutions, shouldTriggerReplyAfterConfirmation } from '../../services/doubanCapability'
 import ChatReplyVariantForkModal from './modals/ChatReplyVariantForkModal.vue'
 
 useBubbleBeautify()
@@ -106,7 +105,6 @@ const handleAppViewportChange = () => {
 
 function saveCustomContacts(targetChat: any = selectedChat.value) {
   if (!targetChat) return
-  reconcileDoubanCapabilityMessages(targetChat)
   if (targetChat.id === 1) {
     localStorage.setItem('clingy_system_messages', JSON.stringify(targetChat.messages))
     localStorage.setItem('clingy_system_notice_read', targetChat.unread > 0 ? '0' : '1')
@@ -632,7 +630,6 @@ const handleAddMessage = async (text: string) => {
     attachActiveOfflineSession(selectedChat.value, newMessage)
   }
   selectedChat.value.messages.push(newMessage)
-  prepareDoubanCapabilitiesForMessage(selectedChat.value, newMessage, () => saveCustomContacts(selectedChat.value))
   
   if (isCallPanelActive.value) {
      checkAndGenerateTempSummary(voiceCallMessages.value)
@@ -701,13 +698,6 @@ const {
     return false
   }
 )
-
-const handleCapabilityAction = (payload: { executionId: string; action: 'allow' | 'cancel' | 'retry' }) => {
-  if (!selectedChat.value) return
-  void handleDoubanCapabilityAction(selectedChat.value, payload.executionId, payload.action, () => saveCustomContacts(selectedChat.value)).then(() => {
-    if (payload.action !== 'retry' && !isGenerating.value && shouldTriggerReplyAfterConfirmation(selectedChat.value)) void triggerAPI()
-  })
-}
 
 watch(() => selectedChat.value?.id, () => {
   void syncPresenceLifecycle(selectedChat.value)
@@ -1168,7 +1158,6 @@ watch(isGenerating, (newVal) => {
 })
 
 onMounted(() => {
-  registerDoubanExecutions(selectedChat.value)
   handleDocumentVisibilityChange()
   document.addEventListener('visibilitychange', handleDocumentVisibilityChange)
   loadEmojis()
@@ -1246,7 +1235,6 @@ onUnmounted(() => {
         @handle-emoji-click="handleEmojiClick"
         @view-recalled-message="viewRecalledMessage"
         @cancel-image-generation="handleCancelImageGeneration"
-        @capability-action="handleCapabilityAction"
         @open-gallery="handleOpenGallery"
       @open-character-profile="emit('open-character-profile')"
         @switch-reply-variant="handleReplyVariantSwitch"

@@ -17,8 +17,7 @@ export interface BackupCatalogItem {
 }
 
 export const BACKUP_CATALOG: BackupCatalogItem[] = [
-  { id: 'mcp-settings', group: '账号与安全', name: 'MCP 与豆瓣设置', description: 'MCP 总开关、豆瓣读取范围、读取方式与深度', localKeys: ['clingy_mcp_settings'] },
-  { id: 'mcp-jina-api-key', group: '账号与安全', name: 'Jina Reader API 密钥', description: '豆瓣公开网页读取的可选访问密钥', sensitive: true, localKeys: ['clingy_mcp_jina_api_key'] },
+  { id: 'mcp-settings', group: '账号与安全', name: 'MCP 连接设置', description: 'MCP 总开关、Remote MCP 连接、工具权限与运行限制', localKeys: ['clingy_mcp_settings', 'clingy_mcp_activity_v3'], localKeyPrefixes: ['clingy_mcp_secret_v3_'] },
   { id: 'api-nodes', group: '账号与安全', name: 'API 节点配置', description: '默认节点、自定义节点、功能绑定与模型参数', sensitive: true, localKeys: ['clingy_api_settings', 'clingy_api_nodes_v1'] },
   { id: 'forum-data', group: '论坛', name: '论坛结构化数据', description: '论坛账号、角色准入、圈子、帖子、关系、消息与记忆', stores: [{ dbName: 'nrt-forum', storeName: 'forumData' }] },
   { id: 'forum-media', group: '论坛', name: '论坛媒体', description: '论坛图片、语音、轻短视频素材及媒体元数据', stores: [{ dbName: 'nrt-forum', storeName: 'forumMedia' }, { dbName: 'nrt-forum', storeName: 'forumMediaMeta' }] },

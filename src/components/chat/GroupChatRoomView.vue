@@ -62,8 +62,6 @@ import ChatReplyVariantForkModal from './modals/ChatReplyVariantForkModal.vue'
 import { executeCharacterAssetAction } from '../../services/chatAssetActions'
 import { persistCharacterAssetMetadata } from '../../services/characterAssetRepository'
 import type { CharacterAssetAction, GeneratedFileFormat } from '../../types/chatAssets'
-import { finalizeCharacterDecisions, handleDoubanCapabilityAction, hasPendingDoubanConfirmations, markDoubanContextConsumed, prepareDoubanCapabilitiesForMessage, reconcileDoubanCapabilityMessages, registerDoubanExecutions, shouldTriggerReplyAfterConfirmation } from '../../services/doubanCapability'
-import { mcpSettings } from '../../store/mcp'
 
 const props = defineProps<{ group: any; isVisible?: boolean }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'open-settings'): void; (e: 'open-character-profile', memberId: string): void }>()
@@ -158,7 +156,7 @@ const resolveSender = (message: any) => {
   const senderId = String(message.senderId || '')
   return { ...member, name: message.senderNameSnapshot || memberName(senderId), avatarUrl: groupMemberAvatarUrls.value[senderId] || message.senderAvatarSnapshot || member.avatarUrl || '', avatarText: member.avatarText || memberName(senderId).charAt(0) || '伴' }
 }
-const displayMessages = computed(() => (props.group.messages || []).filter((message: any) => !message.isVoiceCallProcessMsg && !message.isVideoCallProcessMsg && (props.group.offlineMeetMode === 'mixed' || !message.isOfflineMeetMsg) && (message.type !== 'capability' || mcpSettings.douban.showCapabilityCard)))
+const displayMessages = computed(() => (props.group.messages || []).filter((message: any) => !message.isVoiceCallProcessMsg && !message.isVideoCallProcessMsg && (props.group.offlineMeetMode === 'mixed' || !message.isOfflineMeetMsg) && message.type !== 'capability'))
 const activeCallType = computed<'voice' | 'video' | null>(() => props.group.activeCallType || null)
 const activeCallMessages = computed(() => (props.group.messages || [])
   .filter((message: any) => activeCallType.value === 'voice' ? message.isVoiceCallProcessMsg : message.isVideoCallProcessMsg)
@@ -176,7 +174,7 @@ watch(() => groupMgmt.errorMessage.value, value => { if (value) showToast(value)
 watch(() => groupMgmt.toastMessage.value, value => { if (value) showToast(value) })
 const openEmojiSettings = () => { props.group.openEmojiManagerRequested = true; emit('open-settings') }
 const updatePreviewAndTime = (content: string) => { props.group.preview = content || '暂无消息'; props.group.time = formatIdentityClockTime(groupUserProfile.value) }
-const persist = (record = props.group) => { reconcileDoubanCapabilityMessages(record); const last = [...(record.messages || [])].reverse().find((message: any) => message?.content); const pauseState = normalizeConversationTimeState(record); const lastTimestamp = Number(last?.timestamp || last?.id || 0); if (pauseState.paused && last?.type === 'right' && lastTimestamp >= pauseState.pausedAt) resumeConversationTime(record, lastTimestamp); record.preview = last?.content || '群聊已创建'; record.time = formatIdentityClockTime(groupUserProfile.value); ensureChatTimelineState(record); saveGroupChat(currentChatUserId.value, record); void persistActiveTimeline(record, currentChatUserId.value) }
+const persist = (record = props.group) => { const last = [...(record.messages || [])].reverse().find((message: any) => message?.content); const pauseState = normalizeConversationTimeState(record); const lastTimestamp = Number(last?.timestamp || last?.id || 0); if (pauseState.paused && last?.type === 'right' && lastTimestamp >= pauseState.pausedAt) resumeConversationTime(record, lastTimestamp); record.preview = last?.content || '群聊已创建'; record.time = formatIdentityClockTime(groupUserProfile.value); ensureChatTimelineState(record); saveGroupChat(currentChatUserId.value, record); void persistActiveTimeline(record, currentChatUserId.value) }
 const conversationTimePaused = computed(() => isConversationTimePaused(props.group))
 const resumePausedConversation = () => { resumeConversationTime(props.group); persist() }
 const handleSaveWebSearch = (enabled: boolean) => {
@@ -266,7 +264,6 @@ const reviewManagementProposal = (accepted: boolean) => {
 
 const runReply = async (regenerationSession?: ReplyRegenerationSession) => {
   const targetGroup = props.group
-  if (hasPendingDoubanConfirmations(targetGroup)) return
   const autonomousRun = Boolean(targetGroup.pendingAutonomyDirective)
   const targetId = String(targetGroup.id)
   const requestTimelineId = String(targetGroup.timelineState?.activeTimelineId || targetGroup.activeTimelineId || 'main')
@@ -280,8 +277,6 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession) => {
   try {
     const worldText = worldBooks.filter((book: any) => book.enabled && (targetGroup.boundWorldBooks?.includes(book.id) || (book.groupIds || []).some((groupId: string) => targetGroup.boundWorldBookGroups?.includes(groupId)))).flatMap((book: any) => (book.entries || []).filter((entry: any) => entry.enabled).map((entry: any) => `${entry.title}: ${entry.content}`)).join('\n')
     const result = await requestGroupReply(targetGroup, mockChats.value, groupUserProfile.value, requestController.signal, worldText)
-    markDoubanContextConsumed(targetGroup, String([...targetGroup.messages].reverse().find((message: any) => message.type === 'right')?.turnId || ''))
-    finalizeCharacterDecisions(targetGroup, () => persist(targetGroup))
     if (String(targetGroup.timelineState?.activeTimelineId || targetGroup.activeTimelineId || 'main') !== requestTimelineId) return
     const offlineActive = targetGroup.offlineMeetEnabled && (targetGroup.offlineMeetMode === 'separate' || targetGroup.isMixedOfflineActive)
     const disableMedia = (targetGroup.activeCallType && targetGroup.disableMediaDuringCall) || (offlineActive && targetGroup.disableMediaDuringOffline)
@@ -465,13 +460,7 @@ const mentionsFromText = (text: string) => {
   if (/(^|\s)@全体成员(?=\s|$|[，。！？、,!?])/.test(text)) mentions.unshift({ type: 'all', id: 'all' })
   return mentions
 }
-const handleAddMessage = async (raw: string) => { if (isGroupMemberMuted(props.group, 'user')) return showToast('当前处于禁言状态，无法发送消息'); const content = raw.trim(); if (!content) return; if (/(^|\s)@全体成员(?=\s|$|[，。！？、,!?])/.test(content)) { try { consumeAtAll(props.group, 'user') } catch (error: any) { return showToast(error?.message || '@全体成员失败') } } const now = Date.now(); const turnId = `user_group_turn_${now}`; const quote = media.replyTargetMessage.value ? { ...media.replyTargetMessage.value } : undefined; const message = { id: now, timestamp: now, type: 'right', senderType: 'user', senderId: 'user', content, quote, mentions: mentionsFromText(content), replyToMessageId: quote?.id || '', turnId }; props.group.messages.push(message); prepareDoubanCapabilitiesForMessage(props.group, message, () => persist()); awardGroupActivity(props.group, 'user', turnId, now); media.replyTargetId.value = undefined; persist(); await scrollBottom() }
-
-const handleCapabilityAction = (payload: { executionId: string; action: 'allow' | 'cancel' | 'retry' }) => {
-  void handleDoubanCapabilityAction(props.group, payload.executionId, payload.action, () => persist()).then(() => {
-    if (payload.action !== 'retry' && !isGenerating.value && shouldTriggerReplyAfterConfirmation(props.group)) void runReply()
-  })
-}
+const handleAddMessage = async (raw: string) => { if (isGroupMemberMuted(props.group, 'user')) return showToast('当前处于禁言状态，无法发送消息'); const content = raw.trim(); if (!content) return; if (/(^|\s)@全体成员(?=\s|$|[，。！？、,!?])/.test(content)) { try { consumeAtAll(props.group, 'user') } catch (error: any) { return showToast(error?.message || '@全体成员失败') } } const now = Date.now(); const turnId = `user_group_turn_${now}`; const quote = media.replyTargetMessage.value ? { ...media.replyTargetMessage.value } : undefined; const message = { id: now, timestamp: now, type: 'right', senderType: 'user', senderId: 'user', content, quote, mentions: mentionsFromText(content), replyToMessageId: quote?.id || '', turnId }; props.group.messages.push(message); awardGroupActivity(props.group, 'user', turnId, now); media.replyTargetId.value = undefined; persist(); await scrollBottom() }
 const regenerate = async () => {
   if (isGenerating.value) return
   if (![...props.group.messages].some((message: any) => message.type === 'right')) return showToast('还没有可重新生成的用户消息')
@@ -684,7 +673,7 @@ watch(() => props.group.id, async id => {
   groupMemberAvatarUrls.value = loaded
   exitMultiSelectMode(); await scrollBottom()
 }, { immediate: true })
-onMounted(async () => { registerDoubanExecutions(props.group); await loadEmojis(); updateTimeStr(); timeInterval = setInterval(() => { updateTimeStr(); callClock.value = Date.now() }, 1000); await scrollBottom() })
+onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setInterval(() => { updateTimeStr(); callClock.value = Date.now() }, 1000); await scrollBottom() })
 </script>
 
 <template>
@@ -715,7 +704,7 @@ onMounted(async () => { registerDoubanExecutions(props.group); await loadEmojis(
       @click="handleBannerClick"
     />
 
-    <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :is-generating="isGenerating" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @open-character-profile="emit('open-character-profile', $event)" @switch-reply-variant="handleReplyVariantSwitch" @regenerate-reply="regenerate" @capability-action="handleCapabilityAction" />
+    <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :is-generating="isGenerating" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @open-character-profile="emit('open-character-profile', $event)" @switch-reply-variant="handleReplyVariantSwitch" @regenerate-reply="regenerate" />
 
     <ChatReplyVariantForkModal :visible="Boolean(pendingVariantSwitch)" :preview-messages="pendingVariantSwitch?.previewMessages || []" @close="pendingVariantSwitch = null" @fork="forkFromReplyVariant" />
 

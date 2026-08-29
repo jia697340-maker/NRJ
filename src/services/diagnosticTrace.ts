@@ -15,6 +15,8 @@ export interface DiagnosticSettings {
 export interface DiagnosticContextMeta {
   chatId?: string | number
   chatName?: string
+  characterIds?: string[]
+  characterName?: string
   worldBookEntries?: string[]
   memoryEntries?: string[]
 }

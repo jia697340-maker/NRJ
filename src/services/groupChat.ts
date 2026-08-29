@@ -1,7 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { getActiveGroupPrompt, webSearchSettings } from '../store'
 import { sendChatMessage } from './api'
-import { buildDoubanCharacterDecisionHint, buildDoubanContextForChat, waitForDoubanCapabilities } from './doubanCapability'
 import { buildSystemPrompt } from '../composables/chatState/prompt'
 import { buildBilingualPrompt, parseBilingualMessage } from './bilingualChat'
 import { buildInnerThoughtContext } from './innerThoughtContext'
@@ -448,10 +447,6 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   if ((group as any).pendingAutonomyDirective) system += `\n\n【本轮群成员自主活动】\n${escapeXml((group as any).pendingAutonomyDirective)}\n本轮由群成员自行决定是否发言；不得假装用户刚刚发送了新消息。${group.autonomyAllowMentions ? '允许自然提及用户或其他成员。' : '禁止使用 mentions 主动提及任何人。'}`
   if (sharedMemory) system += `\n\n【群内共同记忆】${sharedMemory}`
   if (worldBookText.trim()) system += `\n\n【群世界设定】\n${worldBookText.trim()}`
-  const doubanContext = buildDoubanContextForChat(group, turnId)
-  const doubanDecisionHint = buildDoubanCharacterDecisionHint(group)
-  if (doubanContext) system += `\n\n${doubanContext}`
-  if (doubanDecisionHint) system += `\n\n${doubanDecisionHint}`
   const valid = group.messages.filter(message => {
     if (!['left', 'right', 'system', 'narration'].includes(message.type) || message.isRecalled || message.isUndelivered) return false
     // 过滤掉等级提升系统通知，确保 AI 角色完全不感知群等级变化
@@ -587,7 +582,6 @@ export const parseGroupResponse = (raw: string, allowedIds: string[], formerIds:
 }
 
 export const requestGroupReply = async (group: GroupChatRecord, allChats: any[], userProfile: any, signal?: AbortSignal, worldBookText = '') => {
-  if (!group.activeCallType) await waitForDoubanCapabilities(group)
   const payload = await buildGroupChatMessages(group, allChats, userProfile, worldBookText)
   const offlineActive = group.offlineMeetEnabled && (group.offlineMeetMode === 'separate' || group.isMixedOfflineActive)
   const activeMemories = await getMemoryExportItems(group)
@@ -599,7 +593,7 @@ export const requestGroupReply = async (group: GroupChatRecord, allChats: any[],
     false,
     'default',
     offlineActive ? (group.offlineModelProfile || 'auto') : 'auto',
-    { chatId: group.id, chatName: group.name, memoryEntries: activeMemories.map((item: any) => item.text) },
+    { chatId: group.id, chatName: group.name, characterIds: group.memberIds.map(String), characterName: '群聊角色', memoryEntries: activeMemories.map((item: any) => item.text) },
     false,
     {
       enabled: group.webSearchEnabled === true && !group.activeCallType,
