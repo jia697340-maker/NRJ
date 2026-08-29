@@ -10,12 +10,13 @@ import SeedanceVideoAccessView from './video/SeedanceVideoAccessView.vue'
 import MinimaxH3VideoAccessView from './video/MinimaxH3VideoAccessView.vue'
 import GeminiOmniAccessView from './video/GeminiOmniAccessView.vue'
 import AgnesVideoAccessView from './video/AgnesVideoAccessView.vue'
+import AtlasCloudVideoAccessView from './video/AtlasCloudVideoAccessView.vue'
 
 const emit = defineEmits<{
   (event: 'close'): void
 }>()
 
-const currentView = ref<'platforms' | 'veo' | 'kling' | 'wan' | 'seedance' | 'h3' | 'omni' | 'agnes'>('platforms')
+const currentView = ref<'platforms' | 'veo' | 'kling' | 'wan' | 'seedance' | 'h3' | 'omni' | 'agnes' | 'atlas'>('platforms')
 const activeIndex = ref(0)
 let backButtonHandle: PluginListenerHandle | null = null
 
@@ -68,6 +69,13 @@ const platforms = [
     desc: '短视频与关键帧动画\nSeed 复现与负向控制',
     action: '开始创作',
     disabled: false
+  },
+  {
+    id: 'atlas',
+    name: 'Atlas Cloud',
+    desc: '一把密钥访问多家模型\n统一费用与任务中心',
+    action: '进入模型中心',
+    disabled: false
   }
 ]
 
@@ -80,7 +88,7 @@ const handleNext = () => {
 }
 
 const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && (id === 'veo' || id === 'kling' || id === 'wan' || id === 'seedance' || id === 'h3' || id === 'omni' || id === 'agnes')) {
+  if (!disabled && (id === 'veo' || id === 'kling' || id === 'wan' || id === 'seedance' || id === 'h3' || id === 'omni' || id === 'agnes' || id === 'atlas')) {
     currentView.value = id as typeof currentView.value
   }
 }
@@ -97,6 +105,8 @@ const platformIconStyle = (id: string) => id === 'omni'
         ? 'background: linear-gradient(135deg,#042f2e,#14b8a6); color: #fff;'
         : id === 'agnes'
           ? 'background: linear-gradient(135deg,#f1d7b5,#b98f68 55%,#75513b); color: #fff;'
+        : id === 'atlas'
+          ? 'background: linear-gradient(135deg,#172033,#3e587d 55%,#8aa7cf); color: #fff;'
       : 'background: linear-gradient(135deg,#111,#383838); color: #fff;'
 
 onMounted(async () => {
@@ -156,6 +166,7 @@ onUnmounted(() => { void backButtonHandle?.remove() })
                 <span v-else-if="item.id === 'seedance'" style="font-weight: 800; font-size: 10px; letter-spacing: -.45px;">SEED</span>
                 <span v-else-if="item.id === 'h3'" style="font-weight: 800; font-size: 13px; letter-spacing: -.2px;">H3</span>
                 <span v-else-if="item.id === 'agnes'" style="font-weight: 800; font-size: 9px; letter-spacing: -.35px;">AGNES</span>
+                <span v-else-if="item.id === 'atlas'" style="font-weight: 800; font-size: 9px; letter-spacing: -.35px;">ATLAS</span>
               </div>
 
               <div class="capsule-text">
@@ -184,6 +195,7 @@ onUnmounted(() => { void backButtonHandle?.remove() })
     <SeedanceVideoAccessView v-else-if="currentView === 'seedance'" @back="currentView = 'platforms'" />
     <MinimaxH3VideoAccessView v-else-if="currentView === 'h3'" @back="currentView = 'platforms'" />
     <AgnesVideoAccessView v-else-if="currentView === 'agnes'" @back="currentView = 'platforms'" />
+    <AtlasCloudVideoAccessView v-else-if="currentView === 'atlas'" @back="currentView = 'platforms'" />
   </div>
 </template>
 
