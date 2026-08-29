@@ -8,16 +8,24 @@ import KlingVideoAccessView from './video/KlingVideoAccessView.vue'
 import WanVideoAccessView from './video/WanVideoAccessView.vue'
 import SeedanceVideoAccessView from './video/SeedanceVideoAccessView.vue'
 import MinimaxH3VideoAccessView from './video/MinimaxH3VideoAccessView.vue'
+import GeminiOmniAccessView from './video/GeminiOmniAccessView.vue'
 
 const emit = defineEmits<{
   (event: 'close'): void
 }>()
 
-const currentView = ref<'platforms' | 'veo' | 'kling' | 'wan' | 'seedance' | 'h3'>('platforms')
+const currentView = ref<'platforms' | 'veo' | 'kling' | 'wan' | 'seedance' | 'h3' | 'omni'>('platforms')
 const activeIndex = ref(0)
 let backButtonHandle: PluginListenerHandle | null = null
 
 const platforms = [
+  {
+    id: 'omni',
+    name: 'Gemini Omni',
+    desc: 'Google 对话生成与修改\n全模态原生音画引擎',
+    action: '进入创作',
+    disabled: false
+  },
   {
     id: 'veo',
     name: 'Veo 3.1',
@@ -64,12 +72,14 @@ const handleNext = () => {
 }
 
 const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && (id === 'veo' || id === 'kling' || id === 'wan' || id === 'seedance' || id === 'h3')) {
+  if (!disabled && (id === 'veo' || id === 'kling' || id === 'wan' || id === 'seedance' || id === 'h3' || id === 'omni')) {
     currentView.value = id as typeof currentView.value
   }
 }
 
-const platformIconStyle = (id: string) => id === 'veo'
+const platformIconStyle = (id: string) => id === 'omni'
+  ? 'background: linear-gradient(135deg,#4285f4,#a142f4 48%,#fbbc04); color: #fff;'
+  : id === 'veo'
   ? 'background: linear-gradient(135deg,#1f1c2c,#928dab); color: #fff;'
   : id === 'wan'
     ? 'background: linear-gradient(135deg,#5433ff,#20bdff); color: #fff;'
@@ -129,7 +139,8 @@ onUnmounted(() => { void backButtonHandle?.remove() })
                 class="capsule-icon"
                 :style="platformIconStyle(item.id)"
               >
-                <span v-if="item.id === 'veo'" style="font-weight: 800; font-size: 14px;">VEO</span>
+                <span v-if="item.id === 'omni'" style="font-weight: 800; font-size: 10px; letter-spacing: -.35px;">OMNI</span>
+                <span v-else-if="item.id === 'veo'" style="font-weight: 800; font-size: 14px;">VEO</span>
                 <span v-else-if="item.id === 'kling'" style="font-weight: 800; font-size: 12px; letter-spacing: -.4px;">KLING</span>
                 <span v-else-if="item.id === 'wan'" style="font-weight: 800; font-size: 13px; letter-spacing: -.2px;">WAN</span>
                 <span v-else-if="item.id === 'seedance'" style="font-weight: 800; font-size: 10px; letter-spacing: -.45px;">SEED</span>
@@ -155,6 +166,7 @@ onUnmounted(() => { void backButtonHandle?.remove() })
     </div>
 
     <!-- 子视图 -->
+    <GeminiOmniAccessView v-else-if="currentView === 'omni'" @back="currentView = 'platforms'" />
     <VeoVideoAccessView v-else-if="currentView === 'veo'" @back="currentView = 'platforms'" />
     <KlingVideoAccessView v-else-if="currentView === 'kling'" @back="currentView = 'platforms'" />
     <WanVideoAccessView v-else-if="currentView === 'wan'" @back="currentView = 'platforms'" />
