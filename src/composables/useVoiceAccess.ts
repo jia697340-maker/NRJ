@@ -6,11 +6,12 @@ import { defaultGeminiVoiceBaseUrl, generateGeminiVoice, loadGeminiVoiceConfig, 
 import { defaultElevenLabsVoiceBaseUrl, generateElevenLabsVoice, loadElevenLabsVoiceConfig, ELEVENLABS_VOICE_CONFIG_KEY, type ElevenLabsVoiceOutputFormat, type ElevenLabsVoiceProtocol, type ElevenLabsVoiceTransport } from './useElevenLabsVoice'
 import { defaultMicrosoftMaiVoiceBaseUrl, generateMicrosoftMaiVoice, loadMicrosoftMaiVoiceConfig, MICROSOFT_MAI_VOICE_CONFIG_KEY, type MicrosoftMaiVoiceProtocol, type MicrosoftMaiVoiceTransport } from './useMicrosoftMaiVoice'
 import { defaultAliyunTtsBaseUrl, generateAliyunTts, loadAliyunTtsConfig, ALIYUN_TTS_CONFIG_KEY, type AliyunTtsProtocol, type AliyunTtsRegion, type AliyunTtsTransport } from './useAliyunTts'
+import { DOUBAO_TTS_CONFIG_KEY, DOUBAO_TTS_DEFAULT_BASE_URL, DOUBAO_TTS_DEFAULT_RESOURCE_ID, DOUBAO_TTS_DEFAULT_VOICE, generateDoubaoTts, loadDoubaoTtsConfig } from './useDoubaoTts'
 
 export function useVoiceAccess() {
 
 
-  const currentView = ref<'platforms' | 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts'>('platforms')
+  const currentView = ref<'platforms' | 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts' | 'doubao_tts'>('platforms')
 
   const activeIndex = ref(0)
   const platforms = [
@@ -20,6 +21,7 @@ export function useVoiceAccess() {
     { id: 'elevenlabs', name: 'ElevenLabs', desc: '自然细腻、支持多语种的\n高表现力角色语音', action: '进入配置', disabled: false },
     { id: 'microsoft_mai', name: 'Microsoft MAI Voice', desc: '自然流畅、情绪丰富的\n多语言角色语音', action: '进入配置', disabled: false },
     { id: 'aliyun_tts', name: '阿里云 TTS', desc: '千问新一代自然可控的\n多语言角色语音', action: '进入配置', disabled: false },
+    { id: 'doubao_tts', name: '火山引擎 / 豆包', desc: '高自然度、富有表现力的\n角色语音合成', action: '进入配置', disabled: false },
     { id: 'more', name: '更多平台', desc: '敬请期待更多\n优秀语音引擎接入', action: '即将开放', disabled: true }
   ]
 
@@ -30,7 +32,7 @@ export function useVoiceAccess() {
     if (activeIndex.value < platforms.length - 1) activeIndex.value++
   }
   const handleSelect = (id: string, disabled: boolean) => {
-    if (!disabled && (id === 'minimax' || id === 'seed_audio' || id === 'gemini' || id === 'elevenlabs' || id === 'microsoft_mai' || id === 'aliyun_tts')) currentView.value = id
+    if (!disabled && (id === 'minimax' || id === 'seed_audio' || id === 'gemini' || id === 'elevenlabs' || id === 'microsoft_mai' || id === 'aliyun_tts' || id === 'doubao_tts')) currentView.value = id
   }
 
   const viewTitle = () => {
@@ -40,6 +42,7 @@ export function useVoiceAccess() {
     if (currentView.value === 'elevenlabs') return 'ElevenLabs 接入'
     if (currentView.value === 'microsoft_mai') return 'Microsoft MAI Voice 接入'
     if (currentView.value === 'aliyun_tts') return '阿里云 TTS 接入'
+    if (currentView.value === 'doubao_tts') return '火山引擎 / 豆包语音接入'
     return '语音引擎'
   }
 
@@ -150,6 +153,23 @@ export function useVoiceAccess() {
       aliyunBaseUrl.value = defaultAliyunTtsBaseUrl(regionValue)
     }
   }
+
+  const doubaoAppId = ref('')
+  const doubaoAccessToken = ref('')
+  const doubaoBaseUrl = ref(DOUBAO_TTS_DEFAULT_BASE_URL)
+  const doubaoResourceId = ref(DOUBAO_TTS_DEFAULT_RESOURCE_ID)
+  const doubaoTestVoice = ref(DOUBAO_TTS_DEFAULT_VOICE)
+  const doubaoTestModel = ref('')
+  const doubaoTestText = ref('今天也很想你。')
+  const doubaoTestSpeechRate = ref(0)
+  const doubaoTestPitchRate = ref(0)
+  const doubaoTestLoudnessRate = ref(0)
+  const doubaoTestSampleRate = ref(24000)
+  const doubaoTestStylePrompt = ref('温柔、自然、亲密，语速舒缓。')
+  const doubaoFilterMarkdown = ref(true)
+  const doubaoEnableLanguageDetector = ref(true)
+  const doubaoIsLoading = ref(false)
+  const doubaoErrorMsg = ref('')
 
   const region = ref('global')
   const apiKey = ref('')
@@ -278,6 +298,24 @@ export function useVoiceAccess() {
       if (typeof savedAliyun.optimizeInstructions === 'boolean') aliyunOptimizeInstructions.value = savedAliyun.optimizeInstructions
       if (savedAliyun.testText) aliyunTestText.value = savedAliyun.testText
     } catch {}
+    const doubaoConfig = loadDoubaoTtsConfig()
+    doubaoAppId.value = doubaoConfig.appId
+    doubaoAccessToken.value = doubaoConfig.accessToken
+    doubaoBaseUrl.value = doubaoConfig.baseUrl
+    doubaoResourceId.value = doubaoConfig.resourceId
+    try {
+      const savedDoubao = JSON.parse(localStorage.getItem(DOUBAO_TTS_CONFIG_KEY) || '{}')
+      if (savedDoubao.testVoice) doubaoTestVoice.value = savedDoubao.testVoice
+      if (typeof savedDoubao.testModel === 'string') doubaoTestModel.value = savedDoubao.testModel
+      if (savedDoubao.testText) doubaoTestText.value = savedDoubao.testText
+      if (Number.isFinite(savedDoubao.testSpeechRate)) doubaoTestSpeechRate.value = savedDoubao.testSpeechRate
+      if (Number.isFinite(savedDoubao.testPitchRate)) doubaoTestPitchRate.value = savedDoubao.testPitchRate
+      if (Number.isFinite(savedDoubao.testLoudnessRate)) doubaoTestLoudnessRate.value = savedDoubao.testLoudnessRate
+      if ([16000, 24000, 32000, 48000].includes(savedDoubao.testSampleRate)) doubaoTestSampleRate.value = savedDoubao.testSampleRate
+      if (typeof savedDoubao.testStylePrompt === 'string') doubaoTestStylePrompt.value = savedDoubao.testStylePrompt
+      if (typeof savedDoubao.filterMarkdown === 'boolean') doubaoFilterMarkdown.value = savedDoubao.filterMarkdown
+      if (typeof savedDoubao.enableLanguageDetector === 'boolean') doubaoEnableLanguageDetector.value = savedDoubao.enableLanguageDetector
+    } catch {}
   })
 
   watch([region, apiKey, testText, testModel, testVoiceId, keyPresets], () => {
@@ -364,6 +402,25 @@ export function useVoiceAccess() {
       testInstructions: aliyunTestInstructions.value,
       optimizeInstructions: aliyunOptimizeInstructions.value,
       testText: aliyunTestText.value
+    }))
+  })
+
+  watch([doubaoAppId, doubaoAccessToken, doubaoBaseUrl, doubaoResourceId, doubaoTestVoice, doubaoTestModel, doubaoTestText, doubaoTestSpeechRate, doubaoTestPitchRate, doubaoTestLoudnessRate, doubaoTestSampleRate, doubaoTestStylePrompt, doubaoFilterMarkdown, doubaoEnableLanguageDetector], () => {
+    localStorage.setItem(DOUBAO_TTS_CONFIG_KEY, JSON.stringify({
+      appId: doubaoAppId.value,
+      accessToken: doubaoAccessToken.value,
+      baseUrl: doubaoBaseUrl.value || DOUBAO_TTS_DEFAULT_BASE_URL,
+      resourceId: doubaoResourceId.value || DOUBAO_TTS_DEFAULT_RESOURCE_ID,
+      testVoice: doubaoTestVoice.value,
+      testModel: doubaoTestModel.value,
+      testText: doubaoTestText.value,
+      testSpeechRate: doubaoTestSpeechRate.value,
+      testPitchRate: doubaoTestPitchRate.value,
+      testLoudnessRate: doubaoTestLoudnessRate.value,
+      testSampleRate: doubaoTestSampleRate.value,
+      testStylePrompt: doubaoTestStylePrompt.value,
+      filterMarkdown: doubaoFilterMarkdown.value,
+      enableLanguageDetector: doubaoEnableLanguageDetector.value
     }))
   })
 
@@ -728,6 +785,50 @@ export function useVoiceAccess() {
     }
   }
 
+  const playDoubaoTest = async () => {
+    if (!doubaoAppId.value.trim()) { doubaoErrorMsg.value = '请填写火山引擎 App ID'; return }
+    if (!doubaoAccessToken.value.trim()) { doubaoErrorMsg.value = '请填写火山引擎 Access Token'; return }
+    if (!doubaoResourceId.value.trim()) { doubaoErrorMsg.value = '请填写豆包语音 Resource ID'; return }
+    if (!doubaoTestVoice.value.trim()) { doubaoErrorMsg.value = '请填写豆包语音音色 ID'; return }
+    if (!doubaoTestText.value.trim()) { doubaoErrorMsg.value = '请填写测试文本'; return }
+    doubaoIsLoading.value = true
+    doubaoErrorMsg.value = ''
+    if (audioInstance) { audioInstance.pause(); audioInstance = null }
+    try {
+      const audio = await generateDoubaoTts({
+        appId: doubaoAppId.value,
+        accessToken: doubaoAccessToken.value,
+        baseUrl: doubaoBaseUrl.value || DOUBAO_TTS_DEFAULT_BASE_URL,
+        resourceId: doubaoResourceId.value || DOUBAO_TTS_DEFAULT_RESOURCE_ID
+      }, {
+        text: doubaoTestText.value,
+        voiceType: doubaoTestVoice.value,
+        resourceId: doubaoResourceId.value,
+        model: doubaoTestModel.value,
+        speechRate: doubaoTestSpeechRate.value,
+        pitchRate: doubaoTestPitchRate.value,
+        loudnessRate: doubaoTestLoudnessRate.value,
+        sampleRate: doubaoTestSampleRate.value,
+        stylePrompt: doubaoTestStylePrompt.value,
+        filterMarkdown: doubaoFilterMarkdown.value,
+        enableLanguageDetector: doubaoEnableLanguageDetector.value
+      })
+      const blobUrl = URL.createObjectURL(audio)
+      audioInstance = new Audio(blobUrl)
+      audioInstance.onended = () => URL.revokeObjectURL(blobUrl)
+      audioInstance.onerror = () => URL.revokeObjectURL(blobUrl)
+      await audioInstance.play()
+    } catch (err: any) {
+      doubaoErrorMsg.value = err?.message === 'MISSING_DOUBAO_TTS_APP_ID'
+        ? '请填写火山引擎 App ID'
+        : err?.message === 'MISSING_DOUBAO_TTS_ACCESS_TOKEN'
+          ? '请填写火山引擎 Access Token'
+          : (err?.message || '豆包语音合成失败')
+    } finally {
+      doubaoIsLoading.value = false
+    }
+  }
+
   return {
     currentView,
     activeIndex,
@@ -798,6 +899,22 @@ export function useVoiceAccess() {
     aliyunErrorMsg,
     selectAliyunTransport,
     selectAliyunRegion,
+    doubaoAppId,
+    doubaoAccessToken,
+    doubaoBaseUrl,
+    doubaoResourceId,
+    doubaoTestVoice,
+    doubaoTestModel,
+    doubaoTestText,
+    doubaoTestSpeechRate,
+    doubaoTestPitchRate,
+    doubaoTestLoudnessRate,
+    doubaoTestSampleRate,
+    doubaoTestStylePrompt,
+    doubaoFilterMarkdown,
+    doubaoEnableLanguageDetector,
+    doubaoIsLoading,
+    doubaoErrorMsg,
     region,
     apiKey,
     testText,
@@ -833,5 +950,6 @@ export function useVoiceAccess() {
     playElevenLabsTest,
     playMicrosoftMaiTest,
     playAliyunTest,
+    playDoubaoTest,
   }
 }

@@ -82,7 +82,7 @@ const handleSave = () => {
   emit('save')
 }
 
-const selectProvider = (provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts') => {
+const selectProvider = (provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts' | 'doubao_tts') => {
   props.selectedChat.voiceProvider = provider
   if (provider === 'elevenlabs') {
     props.selectedChat.elevenLabsStability ??= 0.5
@@ -99,6 +99,18 @@ const selectProvider = (provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenl
     props.selectedChat.aliyunVoice ||= 'Cherry'
     props.selectedChat.aliyunLanguage ||= 'Auto'
     props.selectedChat.aliyunOptimizeInstructions ??= true
+  }
+  if (provider === 'doubao_tts') {
+    props.selectedChat.doubaoVoiceType ||= 'zh_female_vv_uranus_bigtts'
+    props.selectedChat.doubaoResourceId ||= ''
+    props.selectedChat.doubaoModel ||= ''
+    props.selectedChat.doubaoSpeechRate ??= 0
+    props.selectedChat.doubaoPitchRate ??= 0
+    props.selectedChat.doubaoLoudnessRate ??= 0
+    props.selectedChat.doubaoSampleRate ??= 24000
+    props.selectedChat.doubaoStylePrompt ||= ''
+    props.selectedChat.doubaoFilterMarkdown ??= true
+    props.selectedChat.doubaoEnableLanguageDetector ??= true
   }
   handleSave()
 }
@@ -149,6 +161,10 @@ const setSeedAudioReferences = (event: Event) => {
             <div class="memory-type-item" :class="{ active: selectedChat.voiceProvider === 'aliyun_tts' }" style="margin-bottom: 0;" @click="selectProvider('aliyun_tts')">
               <div class="type-name" style="margin-bottom: 4px;">阿里云 TTS</div>
               <div class="type-desc">自然可控的角色语音</div>
+            </div>
+            <div class="memory-type-item" :class="{ active: selectedChat.voiceProvider === 'doubao_tts' }" style="margin-bottom: 0;" @click="selectProvider('doubao_tts')">
+              <div class="type-name" style="margin-bottom: 4px;">豆包语音</div>
+              <div class="type-desc">高自然度角色语音</div>
             </div>
           </div>
         </div>
@@ -358,7 +374,7 @@ const setSeedAudioReferences = (event: Event) => {
           </div>
         </div>
 
-        <div v-else style="display: flex; flex-direction: column; gap: 12px;">
+        <div v-else-if="selectedChat.voiceProvider === 'aliyun_tts'" style="display: flex; flex-direction: column; gap: 12px;">
           <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">阿里云 TTS 选项</div>
 
           <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
@@ -416,6 +432,94 @@ const setSeedAudioReferences = (event: Event) => {
           </div>
         </div>
 
+        <div v-else style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">豆包语音选项</div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">角色音色</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">选择常用音色，或填写已开通的系统音色、复刻音色 ID。</div>
+            </div>
+            <div class="voice-mode-tabs" style="margin-bottom: 8px; width: 100%; box-sizing: border-box;">
+              <div class="voice-mode-tab" :class="{ active: (selectedChat.doubaoVoiceType || 'zh_female_vv_uranus_bigtts') === 'zh_female_vv_uranus_bigtts' }" style="flex: 1; text-align: center;" @click="selectedChat.doubaoVoiceType = 'zh_female_vv_uranus_bigtts'; handleSave()">Vivi</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.doubaoVoiceType === 'zh_female_xiaohe_uranus_bigtts' }" style="flex: 1; text-align: center;" @click="selectedChat.doubaoVoiceType = 'zh_female_xiaohe_uranus_bigtts'; handleSave()">小何</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.doubaoVoiceType === 'zh_male_m191_uranus_bigtts' }" style="flex: 1; text-align: center;" @click="selectedChat.doubaoVoiceType = 'zh_male_m191_uranus_bigtts'; handleSave()">云舟</div>
+            </div>
+            <input type="text" v-model="selectedChat.doubaoVoiceType" @change="handleSave" placeholder="填写豆包语音音色 ID" class="voice-input" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">Resource ID</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">留空使用语音接入页的默认资源；复刻音色可单独指定对应资源。</div>
+            </div>
+            <input type="text" v-model="selectedChat.doubaoResourceId" @change="handleSave" placeholder="留空使用默认 Resource ID" class="voice-input" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">模型名称</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">留空使用当前 Resource ID 对应的默认模型。</div>
+            </div>
+            <input type="text" v-model="selectedChat.doubaoModel" @change="handleSave" placeholder="留空使用默认模型" class="voice-input" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">角色声音表达</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">描述角色稳定的语气、情绪与说话节奏。</div>
+            </div>
+            <textarea v-model="selectedChat.doubaoStylePrompt" @change="handleSave" rows="4" maxlength="500" class="voice-textarea" placeholder="例如：温柔自然，语速舒缓，亲近但不过分甜腻。"></textarea>
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px;">
+            <div style="font-size: 14px; color: var(--text-primary);">语速偏移（{{ selectedChat.doubaoSpeechRate ?? 0 }}）</div>
+            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">-50 为约 0.5 倍速，0 为正常，100 为约 2 倍速。</div>
+            <input type="range" v-model.number="selectedChat.doubaoSpeechRate" min="-50" max="100" step="5" @change="handleSave" class="elegant-slider" style="margin-top: 8px;" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px;">
+            <div style="font-size: 14px; color: var(--text-primary);">音调偏移（{{ selectedChat.doubaoPitchRate ?? 0 }}）</div>
+            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">在音色默认音调上进行细微调整。</div>
+            <input type="range" v-model.number="selectedChat.doubaoPitchRate" min="-12" max="12" step="1" @change="handleSave" class="elegant-slider" style="margin-top: 8px;" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px;">
+            <div style="font-size: 14px; color: var(--text-primary);">响度偏移（{{ selectedChat.doubaoLoudnessRate ?? 0 }}）</div>
+            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">调整生成音频的基础响度，不改变播放器音量。</div>
+            <input type="range" v-model.number="selectedChat.doubaoLoudnessRate" min="-50" max="100" step="5" @change="handleSave" class="elegant-slider" style="margin-top: 8px;" />
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 14px; color: var(--text-primary);">采样率</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">24k 兼顾语音质量与体积，可按需要切换。</div>
+            </div>
+            <div class="voice-mode-tabs" style="width: 100%; box-sizing: border-box;">
+              <div class="voice-mode-tab" :class="{ active: selectedChat.doubaoSampleRate === 16000 }" style="flex: 1; text-align: center;" @click="selectedChat.doubaoSampleRate = 16000; handleSave()">16k</div>
+              <div class="voice-mode-tab" :class="{ active: (selectedChat.doubaoSampleRate ?? 24000) === 24000 }" style="flex: 1; text-align: center;" @click="selectedChat.doubaoSampleRate = 24000; handleSave()">24k</div>
+              <div class="voice-mode-tab" :class="{ active: selectedChat.doubaoSampleRate === 48000 }" style="flex: 1; text-align: center;" @click="selectedChat.doubaoSampleRate = 48000; handleSave()">48k</div>
+            </div>
+          </div>
+
+          <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+              <div style="min-width: 0;">
+                <div style="font-size: 14px; color: var(--text-primary);">过滤 Markdown</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">朗读时忽略星号等 Markdown 标记。</div>
+              </div>
+              <label class="switch" @click.stop><input type="checkbox" :checked="selectedChat.doubaoFilterMarkdown ?? true" @change="(e) => { selectedChat.doubaoFilterMarkdown = (e.target as HTMLInputElement).checked; handleSave(); }"><span class="slider"></span></label>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+              <div style="min-width: 0;">
+                <div style="font-size: 14px; color: var(--text-primary);">自动识别语种</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">帮助处理中英混合及音色支持的其他语种。</div>
+              </div>
+              <label class="switch" @click.stop><input type="checkbox" :checked="selectedChat.doubaoEnableLanguageDetector ?? true" @change="(e) => { selectedChat.doubaoEnableLanguageDetector = (e.target as HTMLInputElement).checked; handleSave(); }"><span class="slider"></span></label>
+            </div>
+          </div>
+        </div>
+
         <!-- 播放体验 -->
         <div v-if="(selectedChat.voiceProvider || 'minimax') === 'minimax'" style="display: flex; flex-direction: column; gap: 12px;">
           <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">播放体验</div>
@@ -435,7 +539,7 @@ const setSeedAudioReferences = (event: Event) => {
         </div>
 
         <!-- 高级调参 -->
-        <div v-if="selectedChat.voiceProvider !== 'gemini' && selectedChat.voiceProvider !== 'elevenlabs' && selectedChat.voiceProvider !== 'microsoft_mai' && selectedChat.voiceProvider !== 'aliyun_tts'" style="display: flex; flex-direction: column; gap: 12px;">
+        <div v-if="selectedChat.voiceProvider !== 'gemini' && selectedChat.voiceProvider !== 'elevenlabs' && selectedChat.voiceProvider !== 'microsoft_mai' && selectedChat.voiceProvider !== 'aliyun_tts' && selectedChat.voiceProvider !== 'doubao_tts'" style="display: flex; flex-direction: column; gap: 12px;">
           <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); border-left: 3px solid var(--text-primary); padding-left: 8px; line-height: 1;">高级调参</div>
           
           <div style="padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 6px;">

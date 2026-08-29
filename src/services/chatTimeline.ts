@@ -120,6 +120,8 @@ const STATE_FIELDS = [
 const ROLE_SCOPED_FIELDS = [
   'realName', 'remark', 'persona', 'avatarUrl', 'boundWorldBooks', 'boundWorldBookGroups',
   'voiceProvider', 'voiceModel', 'voiceId', 'voiceLanguage', 'voiceSpeed', 'voicePitch', 'voiceVolume',
+  'doubaoVoiceType', 'doubaoResourceId', 'doubaoModel', 'doubaoSpeechRate', 'doubaoPitchRate',
+  'doubaoLoudnessRate', 'doubaoSampleRate', 'doubaoStylePrompt', 'doubaoFilterMarkdown', 'doubaoEnableLanguageDetector',
   'voiceEmotion', 'enableVoiceReply', 'enableVoiceCall', 'enableVideoCall', 'imageGenProvider',
   'enableFileCapability', 'enableVideoMessageCapability', 'characterAssets', 'fileGenerationConfig', 'videoGenerationConfig'
 ] as const

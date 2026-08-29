@@ -74,6 +74,22 @@ const {
   aliyunErrorMsg,
   selectAliyunTransport,
   selectAliyunRegion,
+  doubaoAppId,
+  doubaoAccessToken,
+  doubaoBaseUrl,
+  doubaoResourceId,
+  doubaoTestVoice,
+  doubaoTestModel,
+  doubaoTestText,
+  doubaoTestSpeechRate,
+  doubaoTestPitchRate,
+  doubaoTestLoudnessRate,
+  doubaoTestSampleRate,
+  doubaoTestStylePrompt,
+  doubaoFilterMarkdown,
+  doubaoEnableLanguageDetector,
+  doubaoIsLoading,
+  doubaoErrorMsg,
   region,
   apiKey,
   testText,
@@ -109,6 +125,7 @@ const {
   playElevenLabsTest,
   playMicrosoftMaiTest,
   playAliyunTest,
+  playDoubaoTest,
 } = useVoiceAccess()
 </script>
 
@@ -156,6 +173,7 @@ const {
                 <svg v-else-if="item.id === 'elevenlabs'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M6 5v14"></path><path d="M10 5v14"></path><path d="M14 8v8"></path><path d="M18 5v14"></path></svg>
                 <svg v-else-if="item.id === 'microsoft_mai'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M4 12h2"></path><path d="M8 8v8"></path><path d="M12 4v16"></path><path d="M16 7v10"></path><path d="M20 10v4"></path></svg>
                 <svg v-else-if="item.id === 'aliyun_tts'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M4 13v-2"></path><path d="M8 16V8"></path><path d="M12 19V5"></path><path d="M16 16V8"></path><path d="M20 13v-2"></path><path d="M6 4h12"></path></svg>
+                <svg v-else-if="item.id === 'doubao_tts'" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><path d="M5 8.5c2-3 12-3 14 0v7c-2 3-12 3-14 0z"></path><path d="M8 12h.01M12 10v4M16 12h.01"></path><path d="M9 18v2M15 18v2"></path></svg>
                 <svg v-else viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.2" fill="none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
               </div>
 
@@ -526,7 +544,7 @@ const {
       </div>
     </div>
 
-    <div v-else class="va-detail-view">
+    <div v-else-if="currentView === 'aliyun_tts'" class="va-detail-view">
       <div class="fluid-form">
         <div class="form-row column-row seed-provider-row">
           <div class="row-header"><span class="row-label">接入渠道</span></div>
@@ -617,6 +635,102 @@ const {
           <button class="fluid-action-btn" :disabled="aliyunIsLoading" @click="playAliyunTest">
             <span v-if="aliyunIsLoading" class="spinner"></span>
             {{ aliyunIsLoading ? '正在合成...' : '合成并播放' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="va-detail-view">
+      <div class="fluid-form">
+        <div class="form-row column-row seed-provider-row">
+          <div class="row-header"><span class="row-label">接入方式</span></div>
+          <div class="connection-badge">浏览器直连</div>
+          <div class="provider-hint">使用用户自己的火山引擎 App ID 与 Access Token，从当前网页直接调用豆包语音，不依赖后端或安装 App。</div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">App ID</span></div>
+          <input type="text" v-model="doubaoAppId" placeholder="填写火山引擎语音应用 App ID" class="fluid-input" autocomplete="off" />
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">Access Token</span></div>
+          <input type="password" v-model="doubaoAccessToken" placeholder="填写该语音应用的 Access Token" class="fluid-input" autocomplete="off" />
+          <div class="provider-hint">凭据仅保存在当前浏览器。请使用自己的账号凭据，不要在公开页面内置共享 Token。</div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">Resource ID</span></div>
+          <input type="text" v-model="doubaoResourceId" placeholder="seed-tts-2.0" class="fluid-input" />
+          <div class="provider-hint">Resource ID 必须与已开通的模型及所选音色匹配。</div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">官方接口地址</span></div>
+          <input type="url" v-model="doubaoBaseUrl" placeholder="https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse" class="fluid-input" />
+        </div>
+
+        <div class="form-section-title">合成测试</div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">音色 ID</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: doubaoTestVoice === 'zh_female_vv_uranus_bigtts' }" @click="doubaoTestVoice = 'zh_female_vv_uranus_bigtts'">Vivi 2.0</div>
+            <div class="pill-tab" :class="{ active: doubaoTestVoice === 'zh_female_xiaohe_uranus_bigtts' }" @click="doubaoTestVoice = 'zh_female_xiaohe_uranus_bigtts'">小何</div>
+            <div class="pill-tab" :class="{ active: doubaoTestVoice === 'zh_male_m191_uranus_bigtts' }" @click="doubaoTestVoice = 'zh_male_m191_uranus_bigtts'">云舟</div>
+          </div>
+          <input type="text" v-model="doubaoTestVoice" placeholder="填写系统或复刻音色 ID" class="fluid-input" />
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">模型名称</span></div>
+          <input type="text" v-model="doubaoTestModel" placeholder="留空使用 Resource ID 默认模型" class="fluid-input" />
+        </div>
+
+        <div class="form-row">
+          <span class="row-label">采样率</span>
+          <div class="pill-tabs">
+            <div class="pill-tab" :class="{ active: doubaoTestSampleRate === 16000 }" @click="doubaoTestSampleRate = 16000">16k</div>
+            <div class="pill-tab" :class="{ active: doubaoTestSampleRate === 24000 }" @click="doubaoTestSampleRate = 24000">24k</div>
+            <div class="pill-tab" :class="{ active: doubaoTestSampleRate === 48000 }" @click="doubaoTestSampleRate = 48000">48k</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">语速偏移（{{ doubaoTestSpeechRate }}）</span></div>
+          <input type="range" v-model.number="doubaoTestSpeechRate" min="-50" max="100" step="5" class="provider-range" />
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">音调偏移（{{ doubaoTestPitchRate }}）</span></div>
+          <input type="range" v-model.number="doubaoTestPitchRate" min="-12" max="12" step="1" class="provider-range" />
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">响度偏移（{{ doubaoTestLoudnessRate }}）</span></div>
+          <input type="range" v-model.number="doubaoTestLoudnessRate" min="-50" max="100" step="5" class="provider-range" />
+        </div>
+
+        <div class="form-row column-row">
+          <div class="row-header"><span class="row-label">声音表达</span></div>
+          <textarea v-model="doubaoTestStylePrompt" rows="3" maxlength="500" placeholder="描述语气、情绪和节奏..." class="fluid-textarea"></textarea>
+        </div>
+
+        <div class="form-row column-row seed-provider-row">
+          <div class="row-header"><span class="row-label">文本处理</span></div>
+          <div class="pill-tabs wide-tabs">
+            <div class="pill-tab" :class="{ active: doubaoFilterMarkdown }" @click="doubaoFilterMarkdown = !doubaoFilterMarkdown">过滤 Markdown</div>
+            <div class="pill-tab" :class="{ active: doubaoEnableLanguageDetector }" @click="doubaoEnableLanguageDetector = !doubaoEnableLanguageDetector">自动识别语种</div>
+          </div>
+        </div>
+
+        <div class="form-row column-row">
+          <textarea v-model="doubaoTestText" rows="4" maxlength="1200" placeholder="输入要合成的文本..." class="fluid-textarea"></textarea>
+          <div class="text-counter">{{ doubaoTestText.length }} / 1200</div>
+          <div v-if="doubaoErrorMsg" class="error-banner">{{ doubaoErrorMsg }}</div>
+          <button class="fluid-action-btn" :disabled="doubaoIsLoading" @click="playDoubaoTest">
+            <span v-if="doubaoIsLoading" class="spinner"></span>
+            {{ doubaoIsLoading ? '正在合成...' : '合成并播放' }}
           </button>
         </div>
       </div>
@@ -892,6 +1006,7 @@ const {
 .wide-tabs .pill-tab { flex: 1 1 0; min-width: 0; padding-left: 5px; padding-right: 5px; text-align: center; white-space: nowrap; font-size: 12px; }
 .seed-provider-row { gap: 12px; }
 .provider-hint { padding: 0 4px; color: #999; font-size: 12px; line-height: 1.5; }
+.connection-badge { align-self: flex-start; padding: 7px 13px; border-radius: 100px; background: rgba(0,0,0,0.05); color: #333; font-size: 12px; font-weight: 600; }
 .text-counter { margin-top: -10px; padding-right: 4px; color: #aaa; font-size: 11px; text-align: right; }
 
 .row-header {
@@ -914,6 +1029,22 @@ const {
 }
 .fluid-textarea {
   resize: none; line-height: 1.6;
+}
+
+.provider-range {
+  width: 100%; height: 20px; margin: 0; appearance: none; background: transparent; cursor: pointer;
+}
+.provider-range::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 100px; background: rgba(0,0,0,0.1);
+}
+.provider-range::-webkit-slider-thumb {
+  width: 18px; height: 18px; margin-top: -7px; appearance: none; border: 4px solid #000; border-radius: 50%; background: #fff;
+}
+.provider-range::-moz-range-track {
+  height: 4px; border: 0; border-radius: 100px; background: rgba(0,0,0,0.1);
+}
+.provider-range::-moz-range-thumb {
+  width: 10px; height: 10px; border: 4px solid #000; border-radius: 50%; background: #fff;
 }
 
 .form-section-title {
@@ -985,4 +1116,11 @@ const {
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+@media (max-width: 360px) {
+  .va-detail-view { padding-left: 18px; padding-right: 18px; }
+  .fluid-form { gap: 30px; }
+  .pill-tab { padding-left: 10px; padding-right: 10px; }
+  .fluid-input, .fluid-select, .fluid-textarea { padding-left: 16px; padding-right: 16px; }
+}
 </style>

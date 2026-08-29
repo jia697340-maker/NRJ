@@ -6,6 +6,7 @@ import { generateGeminiVoice, loadGeminiVoiceConfig } from './useGeminiVoice'
 import { generateElevenLabsVoice, loadElevenLabsVoiceConfig } from './useElevenLabsVoice'
 import { generateMicrosoftMaiVoice, loadMicrosoftMaiVoiceConfig } from './useMicrosoftMaiVoice'
 import { generateAliyunTts, loadAliyunTtsConfig } from './useAliyunTts'
+import { DOUBAO_TTS_DEFAULT_VOICE, generateDoubaoTts, loadDoubaoTtsConfig } from './useDoubaoTts'
 
 let globalAudioInstance: HTMLAudioElement | null = null
 const isPlaying = ref(false)
@@ -14,7 +15,7 @@ const currentPlayingId = ref<number | null>(null)
 
 interface VoiceTask { msgId: number; text: string; chatSettings: any; resolve: () => void; reject: (err: any) => void }
 interface VoiceProfile {
-  provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts'
+  provider: 'minimax' | 'seed_audio' | 'gemini' | 'elevenlabs' | 'microsoft_mai' | 'aliyun_tts' | 'doubao_tts'
   model: string; voiceId: string; speed: number; pitch: number; volume: number
   language: string; emotion: string; format: 'mp3'; sampleRate: number; bitrate: number; channel: number
   seedAudioMode: 'speech' | 'scene'; seedAudioPromptPrefix: string; seedAudioReferenceUrls: string[]; seedAudioMultilingual: boolean
@@ -23,6 +24,9 @@ interface VoiceProfile {
   elevenLabsSimilarity: number; elevenLabsStyle: number; elevenLabsSpeakerBoost: boolean; elevenLabsSpeed: number; elevenLabsEndpoint: string
   microsoftMaiVoiceName: string; microsoftMaiVoiceStyle: string; microsoftMaiStyleDegree: number; microsoftMaiEndpoint: string
   aliyunVoice: string; aliyunModel: string; aliyunLanguage: string; aliyunInstructions: string; aliyunOptimizeInstructions: boolean; aliyunEndpoint: string
+  doubaoVoiceType: string; doubaoResourceId: string; doubaoModel: string; doubaoSpeechRate: number; doubaoPitchRate: number
+  doubaoLoudnessRate: number; doubaoSampleRate: number; doubaoStylePrompt: string; doubaoFilterMarkdown: boolean
+  doubaoEnableLanguageDetector: boolean; doubaoEndpoint: string
 }
 
 const voiceQueue: VoiceTask[] = []
@@ -57,8 +61,9 @@ const profileFor = (settings: any): VoiceProfile => {
   const elevenLabsConfig = loadElevenLabsVoiceConfig()
   const microsoftMaiConfig = loadMicrosoftMaiVoiceConfig()
   const aliyunConfig = loadAliyunTtsConfig()
+  const doubaoConfig = loadDoubaoTtsConfig()
   return {
-    provider: settings?.voiceProvider === 'seed_audio' || settings?.voiceProvider === 'gemini' || settings?.voiceProvider === 'elevenlabs' || settings?.voiceProvider === 'microsoft_mai' || settings?.voiceProvider === 'aliyun_tts'
+    provider: settings?.voiceProvider === 'seed_audio' || settings?.voiceProvider === 'gemini' || settings?.voiceProvider === 'elevenlabs' || settings?.voiceProvider === 'microsoft_mai' || settings?.voiceProvider === 'aliyun_tts' || settings?.voiceProvider === 'doubao_tts'
       ? settings.voiceProvider
       : 'minimax',
     model: settings?.voiceModel || 'speech-2.6-turbo', voiceId: settings?.voiceId || 'female-yujie',
@@ -91,7 +96,18 @@ const profileFor = (settings: any): VoiceProfile => {
     aliyunLanguage: settings?.aliyunLanguage || 'Auto',
     aliyunInstructions: settings?.aliyunInstructions || '',
     aliyunOptimizeInstructions: settings?.aliyunOptimizeInstructions ?? true,
-    aliyunEndpoint: `${aliyunConfig.transport}:${aliyunConfig.protocol}:${aliyunConfig.region}:${aliyunConfig.baseUrl}:${aliyunConfig.model}`
+    aliyunEndpoint: `${aliyunConfig.transport}:${aliyunConfig.protocol}:${aliyunConfig.region}:${aliyunConfig.baseUrl}:${aliyunConfig.model}`,
+    doubaoVoiceType: settings?.doubaoVoiceType || DOUBAO_TTS_DEFAULT_VOICE,
+    doubaoResourceId: settings?.doubaoResourceId || doubaoConfig.resourceId,
+    doubaoModel: settings?.doubaoModel || '',
+    doubaoSpeechRate: settings?.doubaoSpeechRate ?? 0,
+    doubaoPitchRate: settings?.doubaoPitchRate ?? 0,
+    doubaoLoudnessRate: settings?.doubaoLoudnessRate ?? 0,
+    doubaoSampleRate: settings?.doubaoSampleRate ?? 24000,
+    doubaoStylePrompt: settings?.doubaoStylePrompt || '',
+    doubaoFilterMarkdown: settings?.doubaoFilterMarkdown ?? true,
+    doubaoEnableLanguageDetector: settings?.doubaoEnableLanguageDetector ?? true,
+    doubaoEndpoint: `${doubaoConfig.baseUrl}:${doubaoConfig.resourceId}`
   }
 }
 const cacheKeyFor = (msgId: number, text: string, profile: VoiceProfile) => `voice_v2_${msgId}_${hash(JSON.stringify({ text, profile }))}`
@@ -194,6 +210,22 @@ async function synthesizeAliyunTts(text: string, profile: VoiceProfile) {
   })
 }
 
+async function synthesizeDoubaoTts(text: string, profile: VoiceProfile) {
+  return generateDoubaoTts(loadDoubaoTtsConfig(), {
+    text,
+    voiceType: profile.doubaoVoiceType,
+    resourceId: profile.doubaoResourceId,
+    model: profile.doubaoModel,
+    speechRate: profile.doubaoSpeechRate,
+    pitchRate: profile.doubaoPitchRate,
+    loudnessRate: profile.doubaoLoudnessRate,
+    sampleRate: profile.doubaoSampleRate,
+    stylePrompt: profile.doubaoStylePrompt,
+    filterMarkdown: profile.doubaoFilterMarkdown,
+    enableLanguageDetector: profile.doubaoEnableLanguageDetector
+  })
+}
+
 async function synthesize(text: string, profile: VoiceProfile, apiKey: string, region: string, stream: boolean) {
   const baseUrl = region === 'china' ? 'https://api.minimaxi.com' : 'https://api.minimax.io'
   const voiceSetting: Record<string, unknown> = { voice_id: profile.voiceId, speed: profile.speed, pitch: profile.pitch, vol: profile.volume }
@@ -226,6 +258,8 @@ async function getAudio(cacheKey: string, text: string, profile: VoiceProfile, s
     request = synthesizeMicrosoftMaiVoice(text, profile)
   } else if (profile.provider === 'aliyun_tts') {
     request = synthesizeAliyunTts(text, profile)
+  } else if (profile.provider === 'doubao_tts') {
+    request = synthesizeDoubaoTts(text, profile)
   } else {
     const configString = localStorage.getItem('minimax_voice_config_v4')
     if (!configString) throw new Error('MISSING_API_KEY')

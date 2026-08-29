@@ -126,7 +126,7 @@ export function useChatSettingsSave() {
         contacts[idx].enableVoiceReply = selectedChat.value.enableVoiceReply ?? false
         contacts[idx].enableVoiceCall = selectedChat.value.enableVoiceCall ?? false
         contacts[idx].enableVideoCall = selectedChat.value.enableVideoCall ?? false
-        contacts[idx].voiceProvider = selectedChat.value.voiceProvider === 'seed_audio' || selectedChat.value.voiceProvider === 'gemini' || selectedChat.value.voiceProvider === 'elevenlabs' || selectedChat.value.voiceProvider === 'microsoft_mai' || selectedChat.value.voiceProvider === 'aliyun_tts'
+        contacts[idx].voiceProvider = selectedChat.value.voiceProvider === 'seed_audio' || selectedChat.value.voiceProvider === 'gemini' || selectedChat.value.voiceProvider === 'elevenlabs' || selectedChat.value.voiceProvider === 'microsoft_mai' || selectedChat.value.voiceProvider === 'aliyun_tts' || selectedChat.value.voiceProvider === 'doubao_tts'
           ? selectedChat.value.voiceProvider
           : 'minimax'
         contacts[idx].voiceModel = selectedChat.value.voiceModel || 'speech-2.6-turbo'
@@ -159,6 +159,16 @@ export function useChatSettingsSave() {
         contacts[idx].aliyunLanguage = selectedChat.value.aliyunLanguage || 'Auto'
         contacts[idx].aliyunInstructions = selectedChat.value.aliyunInstructions || ''
         contacts[idx].aliyunOptimizeInstructions = selectedChat.value.aliyunOptimizeInstructions ?? true
+        contacts[idx].doubaoVoiceType = selectedChat.value.doubaoVoiceType || 'zh_female_vv_uranus_bigtts'
+        contacts[idx].doubaoResourceId = selectedChat.value.doubaoResourceId || ''
+        contacts[idx].doubaoModel = selectedChat.value.doubaoModel || ''
+        contacts[idx].doubaoSpeechRate = selectedChat.value.doubaoSpeechRate ?? 0
+        contacts[idx].doubaoPitchRate = selectedChat.value.doubaoPitchRate ?? 0
+        contacts[idx].doubaoLoudnessRate = selectedChat.value.doubaoLoudnessRate ?? 0
+        contacts[idx].doubaoSampleRate = selectedChat.value.doubaoSampleRate ?? 24000
+        contacts[idx].doubaoStylePrompt = selectedChat.value.doubaoStylePrompt || ''
+        contacts[idx].doubaoFilterMarkdown = selectedChat.value.doubaoFilterMarkdown ?? true
+        contacts[idx].doubaoEnableLanguageDetector = selectedChat.value.doubaoEnableLanguageDetector ?? true
         contacts[idx].bilingualEnabled = selectedChat.value.bilingualEnabled ?? false
         contacts[idx].bilingualMode = selectedChat.value.bilingualMode || 'auto'
         contacts[idx].dialogueLanguage = selectedChat.value.dialogueLanguage || 'auto'

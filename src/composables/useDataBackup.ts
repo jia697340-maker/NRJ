@@ -37,6 +37,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'elevenlabs-voice', group: '账号与安全', name: 'ElevenLabs 语音配置', description: '独立的官方与中转服务配置', sensitive: true, localKeys: ['elevenlabs_voice_config_v1'] },
   { id: 'microsoft-mai-voice', group: '账号与安全', name: 'Microsoft MAI Voice 配置', description: '独立的 Azure Speech 官方与中转服务配置', sensitive: true, localKeys: ['microsoft_mai_voice_config_v1'] },
   { id: 'aliyun-tts', group: '账号与安全', name: '阿里云 TTS 配置', description: '独立的阿里云百炼官方与中转服务配置', sensitive: true, localKeys: ['aliyun_tts_config_v1'] },
+  { id: 'doubao-tts', group: '账号与安全', name: '豆包语音配置', description: '独立的火山引擎豆包语音浏览器直连配置', sensitive: true, localKeys: ['doubao_tts_config_v1'] },
   { id: 'llm-presets', group: 'AI 与生成设置', name: 'LLM 预设列表', description: '模型预设与参数', localKeys: ['app_llm_presets'] },
   { id: 'system-prompt-schemes', group: 'AI 与生成设置', name: '系统提示词方案', description: '常规聊天、群聊、线下预设与特殊任务提示词', localKeys: ['clingy_global_prompt_settings', 'clingy_group_prompt_settings_v1', 'clingy_group_prompt_settings_v2', 'clingy_offline_prompt_presets', 'clingy_task_prompt_settings'] },
   { id: 'novelai-presets', group: 'AI 与生成设置', name: 'NovelAI 预设列表', description: '图像生成预设', localKeys: ['app_novelai_presets'] },
@@ -165,7 +166,7 @@ const BACKUP_INTERNAL_KEYS = new Set([
   'webdav_config',
   'email_backup_password'
 ])
-const SENSITIVE_KEY_PATTERN = /(api[_-]?key|apikey|token|secret|password|credential|clingy_(api|api_nodes|vision_api|summary_api|moment_api|embedding_api|character_api|forum_api)(?:_nodes)?(?:_v\d+)?_settings|clingy_api_nodes_v\d+|minimax_voice_config|seed_audio_config|gemini_voice_config|elevenlabs_voice_config)/i
+const SENSITIVE_KEY_PATTERN = /(api[_-]?key|apikey|token|secret|password|credential|clingy_(api|api_nodes|vision_api|summary_api|moment_api|embedding_api|character_api|forum_api)(?:_nodes)?(?:_v\d+)?_settings|clingy_api_nodes_v\d+|minimax_voice_config|seed_audio_config|gemini_voice_config|elevenlabs_voice_config|microsoft_mai_voice_config|aliyun_tts_config|doubao_tts_config)/i
 const NESTED_SENSITIVE_PROPERTY_PATTERN = /^(api[_-]?key|apikey|token|secret|password|credential)$/i
 
 const isInfrastructureCredentialKey = (key: string) => BACKUP_INTERNAL_KEYS.has(key) || /github.*config|webdav.*config/i.test(key)
