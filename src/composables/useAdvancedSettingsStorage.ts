@@ -178,6 +178,8 @@ const knownStores = [
     { name: 'nrt-forum', storeName: 'forumMediaMeta', label: '论坛媒体索引', category: 'chat_data' },
       { name: 'nrt-app', storeName: 'chatEmojis', label: '聊天表情包', category: 'chat_emojis' },
       { name: 'nrt-app', storeName: 'chatImages', label: '聊天配图', category: 'chat_images' },
+      { name: 'nrt-app', storeName: 'chatFileBlobs', label: '角色真实文件', category: 'chat_data' },
+      { name: 'nrt-app', storeName: 'chatVideoBlobs', label: '角色真实视频', category: 'chat_images' },
       { name: 'nrt-app', storeName: 'avatars', label: '角色头像', category: 'avatars' },
       { name: 'nrt-app', storeName: 'worldbook-covers', label: '世界书封面', category: 'worldbook_covers' },
       { name: 'nrt-app', storeName: 'wallpapers', label: '全局壁纸', category: 'wallpapers' },

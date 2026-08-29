@@ -20,6 +20,7 @@ import {
   getIdentityClockLabel,
   normalizeConversationTimeState
 } from './conversationTime'
+import { getEffectiveCharacterAssets } from './characterCapabilities'
 
 export const activeGroupReplyIds = reactive(new Set<string>())
 export const groupReplyControllers = new Map<string, AbortController>()
@@ -308,6 +309,8 @@ const escapeXml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;')
 
 const describeMessage = (message: any) => {
   if (message.isRecalled || message.type === 'system') return String(message.content || '')
+  if (message.fileData || message.messageType === 'file') return `[文件：${message.fileData?.name || message.content || '未命名文件'}，${message.fileData?.size || 0}字节]`
+  if (message.videoData || message.messageType === 'video') return `[视频：${message.videoData?.name || message.content || '视频'}${message.videoData?.duration ? `，${Math.round(message.videoData.duration)}秒` : ''}]`
   if (message.imageData || message.messageType === 'image') return `[图片${message.imageData?.text || message.imageData?.summary || message.imageData?.description ? `：${message.imageData?.text || message.imageData?.summary || message.imageData?.description}` : ''}]`
   if (message.voiceData || message.messageType === 'voice') return `[语音 ${message.voiceData?.seconds || message.voiceData?.duration || ''}秒：${message.voiceData?.text || message.content || ''}]`
   if (message.isEmoji || message.messageType === 'emoji') return `[表情包：${message.emojiData?.name || message.emojiSummary || message.content || ''}]`
@@ -383,7 +386,8 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
       customTranslationLanguage: group.customTranslationLanguage,
       translationDisplay: group.translationDisplay,
       bubbleNarrationEnabled: false,
-      enableMsgCountLimit: false
+      enableMsgCountLimit: false,
+      messages: group.messages
     }
     const offlineMode = group.offlineMeetEnabled && (group.offlineMeetMode === 'separate' || group.isMixedOfflineActive) ? group.offlineMeetMode : false
     const includePrivateRoleLibrary = group.referenceMemberEmojiLibraries && group.memberEmojiLibraryEnabled[id] !== false
@@ -391,7 +395,7 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
     const roleEmojiNames = isolatedMember.enableRoleEmojiVision
       ? roleEmojiItems.map(item => `${item.name}（emoji_id=${item.id}）`).filter(Boolean).join('、')
       : ''
-    const basePrompt = buildSystemPrompt(isolatedMember, roleEmojiNames || '无', false, offlineMode as any, undefined, 'group')
+    const basePrompt = buildSystemPrompt(isolatedMember, roleEmojiNames || '无', false, offlineMode as any, undefined, 'group', memoryQuery)
     const bilingualPrompt = buildBilingualPrompt(isolatedMember)
     const thoughtContext = buildInnerThoughtContext(isolatedMember, group.pendingUserThought || '', turnId)
     const boundTimelineId = String(group.memberTimelineBindings?.[id] || member.timelineState?.activeTimelineId || 'main')
@@ -410,7 +414,16 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   }))
   const roster = members.map(member => `${group.memberNicknames[memberIdentity(member)] || member.name}（ID：${memberIdentity(member)}）`).join('\n')
   const sharedMemory = await buildMemoryPacket(group, memoryQuery, group.memoryTokenBudget)
-  let system = `【群聊场景】\n以下内容共同构成一个正在持续发生的真实多人群聊。只呈现群内实际发生的消息与动作，不额外解释生成过程。每位成员都有独立、完整且持续一致的人格、经历、认知和表达方式；每名成员只依据本人亲历、看见、听见或被明确告知的信息行动，不共享其他成员的私密认知，也不使用同一种声音。\n\n【成员边界】\n每个 <member_context> 只属于其 id 对应的成员，其中的人设、行为规则、记忆、状态和心声均不得移给其他成员或用户。\n\n${memberContexts.join('\n\n')}\n\n${getActiveGroupPrompt()}\n\n【当前群聊】\n群名：${group.name}\n用户：${groupUserProfile?.name || '我'}（ID：user）${groupUserProfile?.persona ? `\n用户在本群的身份：${groupUserProfile.persona}` : ''}\n\n【可用成员清单】\n${roster}`
+  const groupKinds = members.reduce((kinds, member) => {
+    const id = memberIdentity(member)
+    const effective = { ...member, ...(group.memberSettings[id] || {}) }
+    const capabilities = getEffectiveCharacterAssets(effective, 'group')
+    if (capabilities.file.enabled && (capabilities.files.length || capabilities.file.canGenerate)) kinds.add('file')
+    if (capabilities.video.enabled && (capabilities.videos.length || capabilities.video.canGenerate)) kinds.add('video')
+    return kinds
+  }, new Set<string>())
+  const groupProtocol = getActiveGroupPrompt().replace('kind="text|voice|image|emoji|transfer|red_packet|narration|call"', `kind="text|voice|image|emoji|transfer|red_packet|narration|call${groupKinds.has('file') ? '|file' : ''}${groupKinds.has('video') ? '|video' : ''}"`)
+  let system = `【群聊场景】\n以下内容共同构成一个正在持续发生的真实多人群聊。只呈现群内实际发生的消息与动作，不额外解释生成过程。每位成员都有独立、完整且持续一致的人格、经历、认知和表达方式；每名成员只依据本人亲历、看见、听见或被明确告知的信息行动，不共享其他成员的私密认知，也不使用同一种声音。\n\n【成员边界】\n每个 <member_context> 只属于其 id 对应的成员，其中的人设、行为规则、记忆、状态和心声均不得移给其他成员或用户。\n\n${memberContexts.join('\n\n')}\n\n${groupProtocol}\n\n【当前群聊】\n群名：${group.name}\n用户：${groupUserProfile?.name || '我'}（ID：user）${groupUserProfile?.persona ? `\n用户在本群的身份：${groupUserProfile.persona}` : ''}\n\n【可用成员清单】\n${roster}`
   system += `\n\n${buildGroupManagementPrompt(group)}`
   if (group.timePerception) {
     const now = Date.now()
@@ -426,7 +439,7 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   if (group.activeCallType) system += `\n\n【当前群通话】\n用户正与已开启群内${group.activeCallType === 'video' ? '视频' : '语音'}通话接入的成员进行实时群通话。只能由上方当前成员清单中的成员参与；表达应符合口语实时对话，不要把通话内容写成普通文字聊天。`
   if (group.activeCallType && group.activeCallTemporarySummary) system += `\n\n【本次群通话较早内容的临时摘要】\n${group.activeCallTemporarySummary}`
   const offlineActive = group.offlineMeetEnabled && (group.offlineMeetMode === 'separate' || group.isMixedOfflineActive)
-  if ((group.activeCallType && group.disableMediaDuringCall) || (offlineActive && group.disableMediaDuringOffline)) system += `\n\n【当前场景功能限制】\n本轮禁止发送 image、voice、emoji、transfer、red_packet 或 call 类型，只能输出文字或叙事。`
+  if ((group.activeCallType && group.disableMediaDuringCall) || (offlineActive && group.disableMediaDuringOffline)) system += `\n\n【当前场景功能限制】\n本轮禁止发送 image、voice、emoji、transfer、red_packet、file、video 或 call 类型，只能输出文字或叙事。`
   if ((group.activeCallType && group.disableThoughtDuringCall) || (offlineActive && group.disableThoughtDuringOffline)) system += `\n\n【当前场景心声限制】\n本轮禁止输出 group_inner_thought。`
   system += `\n\n【群表情精确协议】\n发送表情时必须使用 <group_msg sender="成员ID" kind="emoji" emoji_id="表情ID">表情名称</group_msg>。只能使用该成员上下文中列出的表情；同名时必须依 emoji_id 区分。`
   if (group.emojiVisionScope === 'enabled_members') system += `\n表情图像按成员授权隔离；标注为某成员专属视觉的图片，其他成员不得据此形成认知或反应。`
@@ -528,7 +541,7 @@ export const parseGroupResponse = (raw: string, allowedIds: string[], formerIds:
     const parsed = parseBilingualMessage(match[2].trim(), attrs)
     const content = parsed.content
     if (!content) continue
-    messages.push({ senderId, key: attrs.match(/\bkey=["']([^"']*)["']/i)?.[1] || '', emojiId: attrs.match(/\bemoji_id=["']([^"']*)["']/i)?.[1] || '', content, translation: parsed.translation, contentLanguage: parsed.contentLanguage, translationLanguage: parsed.translationLanguage, messageType: attrs.match(/\bkind=["']([^"']*)["']/i)?.[1] || 'text', amount: Number(attrs.match(/\bamount=["']([^"']*)["']/i)?.[1] || 0), remark: attrs.match(/\bremark=["']([^"']*)["']/i)?.[1] || '', replyToMessageId: attrs.match(/\breply_to=["']([^"']*)["']/i)?.[1] || '', mentions: (attrs.match(/\bmentions=["']([^"']*)["']/i)?.[1] || '').split(',').map(item => item.trim()).filter(id => allowedIds.includes(id) || id === 'user' || id === 'all') })
+    messages.push({ senderId, key: attrs.match(/\bkey=["']([^"']*)["']/i)?.[1] || '', emojiId: attrs.match(/\bemoji_id=["']([^"']*)["']/i)?.[1] || '', content, translation: parsed.translation, contentLanguage: parsed.contentLanguage, translationLanguage: parsed.translationLanguage, messageType: attrs.match(/\bkind=["']([^"']*)["']/i)?.[1] || 'text', assetAction: attrs.match(/\baction=["'](existing|generate)["']/i)?.[1] || '', assetRef: attrs.match(/\bref=["']([^"']*)["']/i)?.[1] || '', assetFormat: attrs.match(/\bformat=["']([^"']*)["']/i)?.[1] || '', assetTitle: attrs.match(/\btitle=["']([^"']*)["']/i)?.[1] || '', assetMode: attrs.match(/\bmode=["']([^"']*)["']/i)?.[1] || '', assetReferenceRef: attrs.match(/\breference_ref=["']([^"']*)["']/i)?.[1] || '', amount: Number(attrs.match(/\bamount=["']([^"']*)["']/i)?.[1] || 0), remark: attrs.match(/\bremark=["']([^"']*)["']/i)?.[1] || '', replyToMessageId: attrs.match(/\breply_to=["']([^"']*)["']/i)?.[1] || '', mentions: (attrs.match(/\bmentions=["']([^"']*)["']/i)?.[1] || '').split(',').map(item => item.trim()).filter(id => allowedIds.includes(id) || id === 'user' || id === 'all') })
   }
   const thoughts: any[] = []
   const thoughtRegex = /<group_inner_thought\s+sender=["']([^"']+)["']>([\s\S]*?)<\/group_inner_thought>/gi

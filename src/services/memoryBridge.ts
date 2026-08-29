@@ -46,6 +46,8 @@ const escapeXml = (value: unknown) => String(value ?? '')
   .replace(/'/g, '&apos;')
 
 const describeMessage = (message: any) => {
+  if (message.fileData || message.messageType === 'file') return `[文件：${message.fileData?.name || message.content || '未命名文件'}]`
+  if (message.videoData || message.messageType === 'video') return `[视频：${message.videoData?.name || message.content || '视频'}]`
   if (message.imageData || message.messageType === 'image') return `[图片：${message.imageData?.text || message.imageData?.summary || message.imageData?.description || message.content || '无描述'}]`
   if (message.voiceData || message.messageType === 'voice') return `[语音：${message.voiceData?.text || message.content || '无转写'}]`
   if (message.isEmoji || message.messageType === 'emoji') return `[表情包：${message.emojiData?.name || message.emojiSummary || message.content || '未命名'}]`

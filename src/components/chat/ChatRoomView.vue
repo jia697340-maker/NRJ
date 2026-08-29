@@ -143,6 +143,7 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
       contacts[index].modelCommunicationMessages = targetChat.modelCommunicationMessages || []
       contacts[index].replyVariantSets = targetChat.replyVariantSets || []
       contacts[index].pendingReplyVariantSetId = targetChat.pendingReplyVariantSetId || ''
+      contacts[index].characterAssets = JSON.parse(JSON.stringify(targetChat.characterAssets || []))
       contacts[index].timelineState = JSON.parse(JSON.stringify(ensureChatTimelineState(targetChat)))
       contacts[index].activeTimelineId = targetChat.timelineState.activeTimelineId
       localStorage.setItem(contactsKey, JSON.stringify(contacts))
@@ -392,7 +393,7 @@ const onModalEdit = (msgId?: number) => {
     editTargetId.value = targetId
     editInitialContent.value = targetMsg.content || ''
     editInitialType.value = targetMsg.type || 'left'
-    editHasMedia.value = !!(targetMsg.imageData || targetMsg.voiceData || targetMsg.isEmoji || targetMsg.transferData)
+    editHasMedia.value = !!(targetMsg.imageData || targetMsg.voiceData || targetMsg.fileData || targetMsg.videoData || targetMsg.isEmoji || targetMsg.transferData)
     showEditModal.value = true
   }
 }
@@ -417,6 +418,8 @@ const handleEditSave = (payload: { messageId?: number, content: string, type: st
       delete targetMsg.imageData
       delete targetMsg.voiceData
       delete targetMsg.transferData
+      delete targetMsg.fileData
+      delete targetMsg.videoData
       targetMsg.isEmoji = false
       delete targetMsg.emojiUrl
       delete targetMsg.emojiId

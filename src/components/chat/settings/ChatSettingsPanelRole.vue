@@ -10,6 +10,10 @@ import { useChatAuth } from '../../../composables/useChatAuth'
 import { ensureRelationship } from '../../../composables/useChatRelationship'
 import { getImageProviderName } from '../../../services/imageProviderRegistry'
 import { getIdentityClockLabel } from '../../../services/conversationTime'
+import { DEFAULT_FILE_FORMATS } from '../../../services/characterCapabilities'
+import { deleteCharacterAssetIfUnreferenced, saveCharacterAsset, updateCharacterAssetMeta } from '../../../services/characterAssetRepository'
+import { CHARACTER_VIDEO_PROVIDERS, canUseCharacterVideoAdapter, getCharacterVideoProvider, getCharacterVideoProviderDefaults, readVideoMetadata } from '../../../services/videoGenerationService'
+import type { CharacterAssetMeta, GeneratedFileFormat } from '../../../types/chatAssets'
 
 const props = defineProps<{
   selectedChat: any
@@ -60,6 +64,115 @@ const memoryBridgeSummary = computed(() => {
 const handleSave = () => {
   emit('save')
 }
+
+const fileInput = ref<HTMLInputElement | null>(null)
+const videoInput = ref<HTMLInputElement | null>(null)
+const assetBusy = ref(false)
+const assetNotice = ref('')
+const pendingDeleteAssetId = ref('')
+const characterAssets = computed<CharacterAssetMeta[]>(() => Array.isArray(props.selectedChat?.characterAssets) ? props.selectedChat.characterAssets : [])
+const characterFiles = computed(() => characterAssets.value.filter(asset => asset.kind === 'file'))
+const characterVideos = computed(() => characterAssets.value.filter(asset => asset.kind === 'video'))
+const characterOwnerId = () => String(props.selectedChat?.characterEntityId || props.selectedChat?.id || '')
+const ensureFileConfig = () => {
+  props.selectedChat.fileGenerationConfig ||= { enabled: true, allowedFormats: [...DEFAULT_FILE_FORMATS], maxSizeMb: 30 }
+  if (!Array.isArray(props.selectedChat.fileGenerationConfig.allowedFormats)) props.selectedChat.fileGenerationConfig.allowedFormats = [...DEFAULT_FILE_FORMATS]
+}
+const ensureVideoConfig = () => {
+  props.selectedChat.videoGenerationConfig ||= { ...getCharacterVideoProviderDefaults('veo'), enabled: false, baseUrl: '', maxDailyGenerations: 3, maxEstimatedCost: 1 }
+}
+const selectedVideoProvider = computed(() => getCharacterVideoProvider(String(props.selectedChat?.videoGenerationConfig?.provider || 'veo')) || CHARACTER_VIDEO_PROVIDERS[0])
+const selectedVideoProviderReady = computed(() => canUseCharacterVideoAdapter(props.selectedChat?.videoGenerationConfig))
+const toggleFileCapability = (event: Event) => {
+  props.selectedChat.enableFileCapability = (event.target as HTMLInputElement).checked
+  ensureFileConfig(); handleSave()
+}
+const toggleVideoMessageCapability = (event: Event) => {
+  props.selectedChat.enableVideoMessageCapability = (event.target as HTMLInputElement).checked
+  ensureVideoConfig(); handleSave()
+}
+const toggleFileFormat = (format: GeneratedFileFormat) => {
+  ensureFileConfig()
+  const selected = new Set<GeneratedFileFormat>(props.selectedChat.fileGenerationConfig.allowedFormats)
+  selected.has(format) ? selected.delete(format) : selected.add(format)
+  props.selectedChat.fileGenerationConfig.allowedFormats = DEFAULT_FILE_FORMATS.filter(item => selected.has(item))
+  handleSave()
+}
+const addConfiguredAssets = async (files: FileList | null, kind: 'file' | 'video') => {
+  if (!files?.length || assetBusy.value) return
+  assetBusy.value = true; assetNotice.value = ''
+  try {
+    const maxBytes = kind === 'video' ? 500 * 1024 * 1024 : Math.max(1, Number(props.selectedChat.fileGenerationConfig?.maxSizeMb || 30)) * 1024 * 1024
+    for (const file of Array.from(files)) {
+      if (!file.size) throw new Error(`${file.name} 是空文件`)
+      if (file.size > maxBytes) throw new Error(`${file.name} 超过 ${kind === 'video' ? '500 MB' : `${props.selectedChat.fileGenerationConfig?.maxSizeMb || 30} MB`} 限制`)
+      if (kind === 'video' && !file.type.startsWith('video/')) throw new Error(`${file.name} 不是可识别的视频文件`)
+      const metadata = kind === 'video' ? await readVideoMetadata(file) : {}
+      const asset = await saveCharacterAsset({ ownerCharacterId: characterOwnerId(), kind, source: 'configured', blob: file, name: file.name, summary: file.name.replace(/\.[^.]+$/, ''), groupVisibility: 'allowed', ...metadata })
+      props.selectedChat.characterAssets = [...characterAssets.value, asset]
+    }
+    assetNotice.value = kind === 'video' ? '真实视频已加入角色资源' : '真实文件已加入角色资源'
+    await handleSave()
+  } catch (reason) { assetNotice.value = reason instanceof Error ? reason.message : '资源保存失败' }
+  finally {
+    assetBusy.value = false
+    if (fileInput.value) fileInput.value.value = ''
+    if (videoInput.value) videoInput.value.value = ''
+  }
+}
+const requestDeleteAsset = async (asset: CharacterAssetMeta) => {
+  if (pendingDeleteAssetId.value !== asset.id) { pendingDeleteAssetId.value = asset.id; return }
+  try {
+    const removedBlob = await deleteCharacterAssetIfUnreferenced(asset, currentChatUserId.value)
+    props.selectedChat.characterAssets = characterAssets.value.filter(item => item.id !== asset.id)
+    pendingDeleteAssetId.value = ''
+    assetNotice.value = removedBlob ? '角色资源已删除' : '已从角色资源中移除；聊天历史仍在引用，真实文件已保留'
+    await handleSave()
+  } catch (reason) { assetNotice.value = reason instanceof Error ? reason.message : '删除失败' }
+}
+const setAssetGroupVisibility = async (asset: CharacterAssetMeta) => {
+  props.selectedChat.characterAssets = updateCharacterAssetMeta(characterAssets.value, asset.id, { groupVisibility: asset.groupVisibility === 'allowed' ? 'private_only' : 'allowed' })
+  await handleSave()
+}
+const setAssetSummary = async (asset: CharacterAssetMeta, summary: string) => {
+  props.selectedChat.characterAssets = updateCharacterAssetMeta(characterAssets.value, asset.id, { summary: summary.trim().slice(0, 500) })
+  await handleSave()
+}
+const setVideoOption = (key: 'aspectRatio' | 'resolution' | 'durationSeconds', value: string | number) => {
+  ensureVideoConfig()
+  props.selectedChat.videoGenerationConfig[key] = value
+  if (selectedVideoProvider.value.id === 'veo') {
+    if (key === 'resolution' && value !== '720p') props.selectedChat.videoGenerationConfig.durationSeconds = 8
+    if (key === 'durationSeconds' && value !== 8 && props.selectedChat.videoGenerationConfig.resolution !== '720p') props.selectedChat.videoGenerationConfig.resolution = '720p'
+  }
+  handleSave()
+}
+const setVideoProvider = (providerId: string) => {
+  ensureVideoConfig()
+  const previous = props.selectedChat.videoGenerationConfig
+  props.selectedChat.videoGenerationConfig = { ...previous, ...getCharacterVideoProviderDefaults(providerId), enabled: previous.enabled, maxDailyGenerations: previous.maxDailyGenerations, maxEstimatedCost: previous.maxEstimatedCost, baseUrl: '' }
+  handleSave()
+}
+const setVideoModel = (event: Event) => {
+  ensureVideoConfig()
+  props.selectedChat.videoGenerationConfig.model = (event.target as HTMLSelectElement).value
+  if (selectedVideoProvider.value.id === 'veo' && props.selectedChat.videoGenerationConfig.model === 'veo-3.1-lite-generate-preview' && props.selectedChat.videoGenerationConfig.resolution === '4k') props.selectedChat.videoGenerationConfig.resolution = '720p'
+  handleSave()
+}
+const normalizeVideoDuration = () => {
+  ensureVideoConfig()
+  const provider = selectedVideoProvider.value
+  props.selectedChat.videoGenerationConfig.durationSeconds = Math.max(provider.durationMin, Math.min(provider.durationMax, Math.round(Number(props.selectedChat.videoGenerationConfig.durationSeconds) || provider.defaultDuration)))
+  if (provider.id === 'veo' && props.selectedChat.videoGenerationConfig.resolution !== '720p') props.selectedChat.videoGenerationConfig.durationSeconds = 8
+  handleSave()
+}
+const normalizeAssetNumber = (target: 'fileSize' | 'daily' | 'cost') => {
+  if (target === 'fileSize') props.selectedChat.fileGenerationConfig.maxSizeMb = Math.max(1, Math.min(200, Number(props.selectedChat.fileGenerationConfig.maxSizeMb) || 30))
+  else if (target === 'daily') props.selectedChat.videoGenerationConfig.maxDailyGenerations = Math.max(1, Math.min(50, Number(props.selectedChat.videoGenerationConfig.maxDailyGenerations) || 3))
+  else props.selectedChat.videoGenerationConfig.maxEstimatedCost = Math.max(0, Number(props.selectedChat.videoGenerationConfig.maxEstimatedCost) || 0)
+  handleSave()
+}
+const formatAssetSize = (size: number) => size < 1024 * 1024 ? `${Math.max(1, size / 1024).toFixed(0)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`
 
 const toggleImmersiveStatus = (event: Event) => {
   const enabled = (event.target as HTMLInputElement).checked
@@ -348,6 +461,68 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </template>
     </div>
 
+    <div class="glass-panel asset-capability-panel" v-show="matchSearch('文件与视频能力', '角色文件能力', '角色视频能力', '已有文件', '已有视频', 'PPTX', 'Veo')">
+      <input ref="fileInput" class="asset-hidden-input" type="file" multiple @change="addConfiguredAssets(($event.target as HTMLInputElement).files, 'file')">
+      <input ref="videoInput" class="asset-hidden-input" type="file" accept="video/mp4,video/webm,video/quicktime" multiple @change="addConfiguredAssets(($event.target as HTMLInputElement).files, 'video')">
+      <div class="glass-list-item asset-heading-row">
+        <div class="item-label">角色文件能力</div>
+        <div class="item-value"><label class="switch" @click.stop><input type="checkbox" :checked="!!selectedChat.enableFileCapability" @change="toggleFileCapability"><span class="slider"></span></label></div>
+      </div>
+      <template v-if="selectedChat.enableFileCapability">
+        <div class="asset-subsection">
+          <div class="asset-subtitle"><span>角色已有文件</span><button type="button" :disabled="assetBusy" @click="fileInput?.click()">添加文件</button></div>
+          <div v-if="!characterFiles.length" class="asset-empty">尚未添加文件</div>
+          <div v-for="asset in characterFiles" :key="asset.id" class="asset-row">
+            <div class="asset-row-main"><strong :title="asset.name">{{ asset.name }}</strong><small>{{ formatAssetSize(asset.size) }} · {{ asset.groupVisibility === 'allowed' ? '可用于群聊' : '仅私聊' }}</small><input class="asset-summary-input" :value="asset.summary" maxlength="500" placeholder="资源描述，帮助角色准确选择" @change="setAssetSummary(asset, ($event.target as HTMLInputElement).value)"></div>
+            <button type="button" class="asset-quiet-btn" @click="setAssetGroupVisibility(asset)">{{ asset.groupVisibility === 'allowed' ? '设为私聊' : '允许群聊' }}</button>
+            <button type="button" class="asset-delete-btn" :class="{ confirming: pendingDeleteAssetId === asset.id }" @click="requestDeleteAsset(asset)">{{ pendingDeleteAssetId === asset.id ? '确认' : '删除' }}</button>
+          </div>
+        </div>
+        <div class="asset-subsection">
+          <div class="asset-toggle-row"><span>实时生成文件</span><label class="switch" @click.stop><input type="checkbox" :checked="selectedChat.fileGenerationConfig?.enabled !== false" @change="ensureFileConfig(); selectedChat.fileGenerationConfig.enabled = ($event.target as HTMLInputElement).checked; handleSave()"><span class="slider"></span></label></div>
+          <div v-if="selectedChat.fileGenerationConfig?.enabled !== false" class="asset-format-list">
+            <button v-for="format in DEFAULT_FILE_FORMATS" :key="format" type="button" :class="{ active: selectedChat.fileGenerationConfig?.allowedFormats?.includes(format) }" @click="toggleFileFormat(format)">{{ format.toUpperCase() }}</button>
+          </div>
+          <div v-if="selectedChat.fileGenerationConfig?.enabled !== false" class="asset-config-grid"><label><span>文件上限 (MB)</span><input v-model.number="selectedChat.fileGenerationConfig.maxSizeMb" type="number" min="1" max="200" @change="normalizeAssetNumber('fileSize')"></label></div>
+        </div>
+      </template>
+
+      <div class="asset-divider"></div>
+      <div class="glass-list-item asset-heading-row">
+        <div class="item-label">角色视频能力</div>
+        <div class="item-value"><label class="switch" @click.stop><input type="checkbox" :checked="!!selectedChat.enableVideoMessageCapability" @change="toggleVideoMessageCapability"><span class="slider"></span></label></div>
+      </div>
+      <template v-if="selectedChat.enableVideoMessageCapability">
+        <div class="asset-subsection">
+          <div class="asset-subtitle"><span>角色已有视频</span><button type="button" :disabled="assetBusy" @click="videoInput?.click()">添加视频</button></div>
+          <div v-if="!characterVideos.length" class="asset-empty">尚未添加视频</div>
+          <div v-for="asset in characterVideos" :key="asset.id" class="asset-row">
+            <div class="asset-row-main"><strong :title="asset.name">{{ asset.name }}</strong><small>{{ formatAssetSize(asset.size) }} · {{ asset.groupVisibility === 'allowed' ? '可用于群聊' : '仅私聊' }}</small><input class="asset-summary-input" :value="asset.summary" maxlength="500" placeholder="资源描述，帮助角色准确选择" @change="setAssetSummary(asset, ($event.target as HTMLInputElement).value)"></div>
+            <button type="button" class="asset-quiet-btn" @click="setAssetGroupVisibility(asset)">{{ asset.groupVisibility === 'allowed' ? '设为私聊' : '允许群聊' }}</button>
+            <button type="button" class="asset-delete-btn" :class="{ confirming: pendingDeleteAssetId === asset.id }" @click="requestDeleteAsset(asset)">{{ pendingDeleteAssetId === asset.id ? '确认' : '删除' }}</button>
+          </div>
+        </div>
+        <div class="asset-subsection">
+          <div class="asset-toggle-row"><span>实时生成</span><label class="switch" @click.stop><input type="checkbox" :checked="!!selectedChat.videoGenerationConfig?.enabled" @change="ensureVideoConfig(); selectedChat.videoGenerationConfig.enabled = ($event.target as HTMLInputElement).checked; handleSave()"><span class="slider"></span></label></div>
+          <template v-if="selectedChat.videoGenerationConfig?.enabled">
+            <div class="asset-provider-list" aria-label="视频节点">
+              <button v-for="provider in CHARACTER_VIDEO_PROVIDERS" :key="provider.id" type="button" :class="{ active: selectedVideoProvider.id === provider.id }" @click="setVideoProvider(provider.id)">{{ provider.shortLabel }}</button>
+            </div>
+            <label class="asset-select-row"><span>模型</span><select :value="selectedChat.videoGenerationConfig.model" @change="setVideoModel"><option v-for="item in selectedVideoProvider.models" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+            <div class="asset-config-grid">
+              <label><span>单日上限</span><input v-model.number="selectedChat.videoGenerationConfig.maxDailyGenerations" type="number" min="1" max="50" @change="normalizeAssetNumber('daily')"></label>
+              <label><span>单次费用上限</span><input v-model.number="selectedChat.videoGenerationConfig.maxEstimatedCost" type="number" min="0" step="0.1" @change="normalizeAssetNumber('cost')"></label>
+            </div>
+            <div class="asset-option-row"><span>比例</span><div class="asset-option-values"><button v-for="value in selectedVideoProvider.ratios" :key="value" type="button" :class="{ active: selectedChat.videoGenerationConfig.aspectRatio === value }" @click="setVideoOption('aspectRatio', value)">{{ value === 'adaptive' ? '自适应' : value }}</button></div></div>
+            <div class="asset-option-row"><span>清晰度</span><div class="asset-option-values"><button v-for="value in selectedVideoProvider.resolutions" :key="value" type="button" :class="{ active: selectedChat.videoGenerationConfig.resolution === value }" @click="setVideoOption('resolution', value)">{{ value }}</button></div></div>
+            <label class="asset-duration-row"><span>时长</span><input v-model.number="selectedChat.videoGenerationConfig.durationSeconds" type="number" :min="selectedVideoProvider.durationMin" :max="selectedVideoProvider.durationMax" step="1" @change="normalizeVideoDuration"><small>秒（{{ selectedVideoProvider.durationMin }}–{{ selectedVideoProvider.durationMax }}）</small></label>
+            <div class="asset-help" :class="{ warning: !selectedVideoProviderReady }">复用{{ selectedVideoProvider.credentialHint }}中保存的凭据，角色配置不会复制 API Key。{{ selectedVideoProvider.supportsImage ? '支持文字生成和聊天图片生成。' : '当前仅支持文字生成。' }}{{ selectedVideoProviderReady ? '' : ' 当前尚未检测到可复用凭据。' }}</div>
+          </template>
+        </div>
+      </template>
+      <div v-if="assetNotice" class="asset-notice">{{ assetNotice }}</div>
+    </div>
+
     <div class="glass-panel" v-show="matchSearch('沉浸模式与状态', '启用沉浸式状态与时间流逝')">
       <div class="glass-list-item" v-show="matchSearch('启用沉浸式状态与时间流逝')">
         <div style="display: flex; flex-direction: column; width: 100%;">
@@ -470,6 +645,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
   color: var(--text-secondary);
   font-size: 13px;
 }
+.asset-hidden-input{display:none}.asset-capability-panel{overflow:hidden}.asset-heading-row{min-height:46px}.asset-subsection{padding:10px 14px 12px;border-top:1px solid var(--border-color)}.asset-subtitle,.asset-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--text-secondary)}.asset-subtitle button,.asset-quiet-btn,.asset-delete-btn{border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-secondary);font-size:10px;line-height:1;padding:5px 7px;cursor:pointer}.asset-subtitle button:disabled{opacity:.5}.asset-empty{padding:10px 0 2px;font-size:11px;color:var(--text-tertiary)}.asset-row{display:flex;align-items:center;gap:6px;min-width:0;padding:8px 0;border-bottom:1px dashed var(--border-color)}.asset-row:last-child{border-bottom:0}.asset-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}.asset-row-main strong{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.asset-row-main small{font-size:10px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.asset-summary-input{min-width:0;width:100%;box-sizing:border-box;border:0;border-bottom:1px solid transparent;background:transparent;color:var(--text-secondary);font-size:10px;padding:2px 0;outline:none}.asset-summary-input:focus{border-bottom-color:var(--border-color)}.asset-delete-btn.confirming{color:#c65555;border-color:rgba(198,85,85,.45)}.asset-format-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}.asset-format-list button,.asset-option-row button,.asset-provider-list button{border:1px solid var(--border-color);border-radius:5px;background:transparent;color:var(--text-tertiary);font-size:9px;padding:4px 6px;cursor:pointer}.asset-format-list button.active,.asset-option-row button.active,.asset-provider-list button.active{color:var(--text-primary);background:var(--bg-secondary)}.asset-divider{height:8px;background:var(--bg-secondary);border-top:1px solid var(--border-color);border-bottom:1px solid var(--border-color)}.asset-provider-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin-top:9px}.asset-provider-list button{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.asset-config-grid{display:grid;grid-template-columns:1fr;gap:7px;margin-top:9px}.asset-config-grid label,.asset-select-row,.asset-duration-row{display:flex;align-items:center;gap:8px;min-width:0}.asset-config-grid label span,.asset-select-row>span,.asset-duration-row>span{width:92px;flex:0 0 92px;font-size:10px;color:var(--text-tertiary)}.asset-config-grid input,.asset-select-row select,.asset-duration-row input{flex:1;min-width:0;box-sizing:border-box;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:11px;padding:6px 7px;outline:none}.asset-select-row{margin-top:7px}.asset-option-row{display:flex;align-items:flex-start;gap:5px;margin-top:7px}.asset-option-row>span{width:56px;flex:0 0 56px;padding-top:4px;font-size:10px;color:var(--text-tertiary)}.asset-option-values{display:flex;flex:1;min-width:0;flex-wrap:wrap;gap:5px}.asset-duration-row{margin-top:7px}.asset-duration-row input{max-width:74px}.asset-duration-row small{min-width:0;font-size:9px;color:var(--text-tertiary);white-space:nowrap}.asset-help,.asset-notice{font-size:10px;line-height:1.45;color:var(--text-tertiary);margin-top:8px}.asset-help.warning{color:#b17434}.asset-notice{padding:0 14px 12px;color:var(--text-secondary)}@media(max-width:340px){.asset-subsection{padding-left:10px;padding-right:10px}.asset-row{gap:4px;align-items:flex-start}.asset-quiet-btn,.asset-delete-btn{padding:5px;font-size:9px}.asset-provider-list{grid-template-columns:repeat(3,minmax(0,1fr))}.asset-config-grid label span,.asset-select-row>span,.asset-duration-row>span{width:78px;flex-basis:78px}.asset-duration-row small{white-space:normal}}
 </style>
 
 <style scoped>

@@ -37,6 +37,7 @@ import { useChatRoomError } from './useChatRoomError'
 import { useChatRoomVision } from './useChatRoomVision'
 import { useChatRoomImageGen } from './useChatRoomImageGen'
 import { processMomentTags } from './useChatRoomMessage'
+import { executeCharacterAssetAction, toCharacterAssetAction } from '../services/chatAssetActions'
 
 // 通话中禁止的动作
 const CALL_BLOCKED_ACTIONS = new Set([
@@ -449,8 +450,8 @@ export function useChatRoomAPI(
       }
 
       // 修改解析逻辑：按原文顺序提取标签
-      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|voice_call_user|video_call_user|offline|status|narration|block_user|delete_friend|relationship_plan|send_friend_request|propose_user_relation)(\s+[^>]*)?>([\s\S]*?)<\/\1>/g
-      const extractedActions: { type: string, content: string, amount?: number, quote?: { sender: string, content: string }, contentLanguage?: string, translation?: string, translationLanguage?: string, narrationKind?: 'action' | 'scene' | 'thought' }[] = []
+      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|send_existing_file|generate_file|send_existing_video|generate_video|voice_call_user|video_call_user|offline|status|narration|block_user|delete_friend|relationship_plan|send_friend_request|propose_user_relation)(\s+[^>]*)?>([\s\S]*?)<\/\1>/g
+      const extractedActions: { type: string, content: string, attrs?: string, amount?: number, quote?: { sender: string, content: string }, contentLanguage?: string, translation?: string, translationLanguage?: string, narrationKind?: 'action' | 'scene' | 'thought' }[] = []
       let match
       
       while ((match = tokenRegex.exec(replyText)) !== null) {
@@ -486,9 +487,9 @@ export function useChatRoomAPI(
           narrationKind = requestedKind === 'scene' || requestedKind === 'thought' ? requestedKind : 'action'
         }
 
-        if (content || quote || type === 'send_transfer' || type === 'send_red_packet' || type === 'send_voice' || type === 'send_image' || type === 'send_emoji' || type === 'voice_call_user' || type === 'video_call_user' || type === 'offline' || type === 'status' || type === 'narration') {
+        if (content || quote || type === 'send_transfer' || type === 'send_red_packet' || type === 'send_voice' || type === 'send_image' || type === 'send_emoji' || type === 'send_existing_file' || type === 'send_existing_video' || type === 'voice_call_user' || type === 'video_call_user' || type === 'offline' || type === 'status' || type === 'narration') {
           const amount = amountStr ? parseFloat(amountStr) : undefined
-          extractedActions.push({ type, content, amount, quote, contentLanguage, translation, translationLanguage, narrationKind })
+          extractedActions.push({ type, content, attrs, amount, quote, contentLanguage, translation, translationLanguage, narrationKind })
         }
       }
       
@@ -766,6 +767,44 @@ export function useChatRoomAPI(
             processNextAction(index + 1)
             return
           }
+
+          if (['send_existing_file', 'generate_file', 'send_existing_video', 'generate_video'].includes(action.type)) {
+            if (chatToUpdate) {
+              try {
+                const latestUserText = [...(chatToUpdate.messages || [])].reverse().find((message: any) => message.type === 'right')?.content || ''
+                const result = await executeCharacterAssetAction({
+                  chat: chatToUpdate,
+                  action: toCharacterAssetAction(action.type as any, action.content, action.attrs),
+                  query: latestUserText,
+                  signal: abortController?.signal
+                })
+                const id = Date.now() + index
+                pushMsg(chatToUpdate, result.kind === 'file'
+                  ? { id, timestamp: id, type: 'left', messageType: 'file', content: `[文件：${result.fileData.name}]`, fileData: result.fileData, turnId, sequence: index }
+                  : { id, timestamp: id, type: 'left', messageType: 'video', content: `[视频：${result.videoData.name}]`, videoData: result.videoData, turnId, sequence: index })
+                const preview = result.kind === 'file' ? '[发来一个文件]' : '[发来一段视频]'
+                chatToUpdate.preview = preview
+                chatToUpdate.time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+                saveCustomContacts(chatToUpdate)
+                if (isRoomActive.value && selectedChat.value?.id === currentChatId) {
+                  await scrollToBottom()
+                  if (chatSettings.enableNotificationInChat && chatSettings.enableGlobalNotification !== false) showNotification(chatToUpdate.name, chatToUpdate.avatarUrl, chatToUpdate.avatarText, preview)
+                } else {
+                  chatToUpdate.unread = Number(chatToUpdate.unread || 0) + 1
+                  if (chatSettings.enableGlobalNotification !== false) showNotification(chatToUpdate.name, chatToUpdate.avatarUrl, chatToUpdate.avatarText, preview)
+                }
+              } catch (reason) {
+                if ((reason as Error)?.name !== 'AbortError') {
+                  const label = action.type.includes('video') ? '视频生成失败' : '文件生成失败'
+                  pushMsg(chatToUpdate, { id: Date.now() + index, timestamp: Date.now(), type: 'system', messageType: 'asset_error', content: `⚠ ${label}\n${reason instanceof Error ? reason.message : '未创建任何附件消息'}`, turnId })
+                  saveCustomContacts(chatToUpdate)
+                  if (isRoomActive.value && selectedChat.value?.id === currentChatId) await scrollToBottom()
+                }
+              }
+            }
+            processNextAction(index + 1)
+            return
+          }
           
           if (action.type === 'claim' || action.type === 'reject') {
              const transferIdStr = action.content.trim()
@@ -799,7 +838,7 @@ export function useChatRoomAPI(
           if (action.type === 'send_image') {
             if (chatToUpdate) {
               const baseMessageId = Date.now() + index
-              if (selectedChat.value?.enableNAIImageGen) {
+              if (chatToUpdate.enableNAIImageGen) {
                 // 委托给 ImageGen 模块去异步处理所有逻辑
                 handleAIImageGen(
                   chatToUpdate,
@@ -808,28 +847,6 @@ export function useChatRoomAPI(
                   action.content,
                   isRoomActive.value
                 )
-              } else {
-                // 普通情况，仅保存文本
-                pushMsg(chatToUpdate,{
-                  id: baseMessageId,
-                  type: 'left',
-                  content: '[图片]',
-                  imageData: { text: action.content }
-                })
-                chatToUpdate.preview = '[发来图片/视频]'
-                const now = new Date()
-                chatToUpdate.time = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-                if (isRoomActive.value && selectedChat.value && selectedChat.value.id === currentChatId) {
-                  await scrollToBottom()
-                  if (chatSettings.enableNotificationInChat && chatSettings.enableGlobalNotification !== false) {
-                    showNotification(chatToUpdate.name, chatToUpdate.avatarUrl, chatToUpdate.avatarText, '[发来图片/视频]')
-                  }
-                } else {
-                  chatToUpdate.unread = (chatToUpdate.unread || 0) + 1
-                  if (chatSettings.enableGlobalNotification !== false) {
-                    showNotification(chatToUpdate.name, chatToUpdate.avatarUrl, chatToUpdate.avatarText, '[发来图片/视频]')
-                  }
-                }
               }
             }
             const timer2 = setTimeout(() => {
@@ -841,6 +858,10 @@ export function useChatRoomAPI(
 
           // 处理 AI 主动发送语音
           if (action.type === 'send_voice') {
+            if (!chatToUpdate?.enableVoiceReply) {
+              processNextAction(index + 1)
+              return
+            }
             if (chatToUpdate) {
               const voiceSeconds = action.amount || Math.max(1, Math.ceil(action.content.length / 4))
               pushMsg(chatToUpdate,{

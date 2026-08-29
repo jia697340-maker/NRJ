@@ -5,6 +5,8 @@ import ChatImageBubble from '../bubbles/ChatImageBubble.vue'
 import ChatVoiceBubble from '../bubbles/ChatVoiceBubble.vue'
 import ChatTransferBubble from '../bubbles/ChatTransferBubble.vue'
 import ChatCallRecordBubble from '../bubbles/ChatCallRecordBubble.vue'
+import ChatFileBubble from '../bubbles/ChatFileBubble.vue'
+import ChatVideoBubble from '../bubbles/ChatVideoBubble.vue'
 import { chatSettings, cotSettings } from '../../../store'
 import { shouldDisplayThinking } from '../../../services/reasoning'
 import GroupMemberBadge from '../group/GroupMemberBadge.vue'
@@ -53,6 +55,19 @@ const emit = defineEmits([
 ])
 const translationExpanded = ref(false)
 const messageSender = computed(() => props.resolveSender?.(props.msg) || props.selectedChat || {})
+const messageAsset = computed(() => {
+  const data = props.msg?.fileData || props.msg?.videoData
+  if (!data?.assetId) return null
+  return {
+    id: data.assetId,
+    ownerCharacterId: String(props.msg?.senderId || props.selectedChat?.characterEntityId || props.selectedChat?.id || ''),
+    kind: props.msg?.videoData ? 'video' : 'file', source: data.source || 'configured',
+    name: data.name || (props.msg?.videoData ? '视频.mp4' : '文件'), mimeType: data.mimeType || 'application/octet-stream',
+    size: Number(data.size || 0), summary: '', tags: [], contentHash: data.contentHash || '', groupVisibility: 'allowed',
+    createdAt: Number(props.msg?.timestamp || props.msg?.id || Date.now()), updatedAt: Number(props.msg?.timestamp || props.msg?.id || Date.now()),
+    duration: data.duration, width: data.width, height: data.height
+  } as any
+})
 const translationDisplay = computed(() => props.selectedChat?.translationDisplay || 'tap')
 const hasTranslation = computed(() => typeof props.msg?.translation === 'string' && props.msg.translation.trim().length > 0)
 const showOriginal = computed(() => translationDisplay.value !== 'translated_only' || !hasTranslation.value)
@@ -259,8 +274,16 @@ const groupBadge = (memberId: string) => {
             </span>
           </div>
           
+          <template v-if="msg.fileData">
+            <ChatFileBubble :msg="msg" :asset="messageAsset" />
+          </template>
+
+          <template v-else-if="msg.videoData">
+            <ChatVideoBubble :msg="msg" :asset="messageAsset" />
+          </template>
+
           <!-- AI 发来的图片 -->
-          <template v-if="msg.imageData">
+          <template v-else-if="msg.imageData">
             <div v-if="msg.isGeneratingImage" class="bubble bubble-left chat-message-image-generating">
               <div class="generating-spinner-container">
                 <div class="generating-spinner"></div>
@@ -339,7 +362,7 @@ const groupBadge = (memberId: string) => {
           </template>
 
           <div style="display: flex; align-items: flex-end;">
-            <div v-if="!msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-left" data-chat-bubble="other" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+            <div v-if="!msg.fileData && !msg.videoData && !msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-left" data-chat-bubble="other" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
               <img v-for="item in bubbleOrnaments('other')" :key="item.id" class="bubble-ornament" :src="bubbleAssetUrls[item.assetId]" :alt="item.name" :style="ornamentStyle(item)">
               <!-- 同气泡模式下的思考过程 -->
               <div v-if="showThinkingContent && chatSettings.cotInSameBubble" class="thinking-block">
@@ -401,8 +424,16 @@ const groupBadge = (memberId: string) => {
             </span>
           </div>
           
+          <template v-if="msg.fileData">
+            <ChatFileBubble :msg="msg" :asset="messageAsset" />
+          </template>
+
+          <template v-else-if="msg.videoData">
+            <ChatVideoBubble :msg="msg" :asset="messageAsset" />
+          </template>
+
           <!-- 新版转账/红包 UI -->
-          <template v-if="msg.transferData">
+          <template v-else-if="msg.transferData">
             <ChatTransferBubble
               :msg="msg"
               direction="right"
@@ -476,7 +507,7 @@ const groupBadge = (memberId: string) => {
           <div v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'bubble_outer'" class="msg-time-inline-outer right">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
             </div>
-            <div v-if="!msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-right" data-chat-bubble="self" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+            <div v-if="!msg.fileData && !msg.videoData && !msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-right" data-chat-bubble="self" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
               <img v-for="item in bubbleOrnaments('self')" :key="item.id" class="bubble-ornament" :src="bubbleAssetUrls[item.assetId]" :alt="item.name" :style="ornamentStyle(item)">
               <div v-if="msg.quote" class="msg-quote-block" data-bubble-part="quote">
                 <div class="msg-quote-sender">{{ msg.quote.sender }}</div>

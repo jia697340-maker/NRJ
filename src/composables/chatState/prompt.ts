@@ -25,6 +25,7 @@ import {
   englishEmojiWarning,
   englishOfflineFormatRules
 } from '../../services/promptRuntimeEnglish'
+import { buildCharacterAssetPrompt } from '../../services/characterCapabilities'
 
 export const buildSystemPrompt = (
   chat: any,
@@ -32,7 +33,8 @@ export const buildSystemPrompt = (
   callMode: false | 'voice' | 'video' = false,
   offlineMeetMode: false | 'mixed' | 'separate' = false,
   trace?: ContextTraceCollector,
-  runtimeMode: 'single' | 'group' = 'single'
+  runtimeMode: 'single' | 'group' = 'single',
+  assetQuery = ''
 ) => {
   const charName = chat.name || '角色'
   const userProfile = getEffectiveUserProfile(chat, myProfile.value)
@@ -209,6 +211,10 @@ ${usesNaturalPromptV2
     if (i.id === 'prompt_video_call_user_rules' && chatSettings.enableCharVideoCall === false) {
       return false
     }
+    if (i.id === 'prompt_send_voice_rules' && chat.enableVoiceReply !== true) return false
+    if (i.id === 'prompt_send_media_rules' && chat.enableNAIImageGen !== true) return false
+    if (i.id === 'prompt_voice_call_user_rules' && chat.enableVoiceCall !== true) return false
+    if (i.id === 'prompt_video_call_user_rules' && chat.enableVideoCall !== true) return false
     return i.enabled
   })
   if (runtimeMode === 'group') {
@@ -298,6 +304,15 @@ ${usesNaturalPromptV2
   if (!chat.enableImmersiveStatus) {
     activePromptItems = activePromptItems.filter((i: any) => i.id !== 'prompt_immersive_status')
   }
+
+  if (!chat.enableNAIImageGen && !callMode && !offlineMeetMode && runtimeMode === 'single') {
+    formatRules = formatRules
+      .replace(/\n- 角色[^\n]*主动向用户[^\n]*<send_image>[^\n]*/g, '')
+      .replace(/\n示例格式：\n<msg>我刚忙完<\/msg>\n<send_image>[\s\S]*?<\/send_image>\n<msg>你看这晚霞好漂亮<\/msg>/g, '')
+      .replace(/\n- To send any visual media[^\n]*/g, '')
+      .replace(/\nExample:\n<msg>I just finished[\s\S]*?<msg>Look at that sunset\. It's beautiful\.<\/msg>/g, '')
+    placeholders['{{format_rules}}'] = formatRules
+  }
   
   // 【强制语音输出规则控制】
   const voiceRules = usesEnglishPrompt ? buildEnglishVoiceRules(usesNaturalPromptV2) : usesNaturalPromptV2 ? `【语音输出规则】
@@ -337,9 +352,10 @@ ${usesNaturalPromptV2
 
   // 如果没有任何启用的设定，返回一个兜底
   if (activePromptItems.length === 0) {
+    const fallbackAssetPrompt = !callMode && !offlineMeetMode ? buildCharacterAssetPrompt(chat, runtimeMode, assetQuery) : ''
     return usesEnglishPrompt
-      ? `The current character is ${charName}; the current user is ${userName}.${memoryBookContext}${presenceContext}${transferStateGuard}${englishDialogueLanguageGuard}`
-      : `当前角色是${charName}，用户是${userName}。${memoryBookContext}${presenceContext}${transferStateGuard}`
+      ? `The current character is ${charName}; the current user is ${userName}.${memoryBookContext}${presenceContext}${fallbackAssetPrompt}${transferStateGuard}${englishDialogueLanguageGuard}`
+      : `当前角色是${charName}，用户是${userName}。${memoryBookContext}${presenceContext}${fallbackAssetPrompt}${transferStateGuard}`
   }
 
   // 拼接 UI 上所有的有效条目，并解析占位符
@@ -443,7 +459,10 @@ ${usesNaturalPromptV2
   })
 
   const offlinePrompt = offlineMeetMode ? buildOfflineMeetPrompt(chat, offlineMeetMode, userProfile) : ''
+  const latestUserText = assetQuery || [...(chat.messages || [])].reverse().find((message: any) => message.type === 'right')?.content || ''
+  const assetPrompt = !callMode && !offlineMeetMode ? buildCharacterAssetPrompt(chat, runtimeMode, latestUserText) : ''
   pushContextTrace(trace, { id: 'runtime:voice', category: 'system', group: '语音能力', label: '语音回复附加规则', text: finalVoiceRules, reason: '当前角色开启了语音回复' })
+  pushContextTrace(trace, { id: 'runtime:character-assets', category: 'system', group: '文件与视频能力', label: '本轮有效文件与视频协议', text: assetPrompt, reason: assetPrompt ? '角色当前确有可执行的文件或视频能力' : '角色当前没有可执行的文件或视频能力' })
   pushContextTrace(trace, { id: 'runtime:relationship', category: 'system', group: '关系规则', label: '好友关系附加规则', text: relationshipRules, reason: '依据当前好友与拉黑状态生成' })
   pushContextTrace(trace, { id: 'runtime:offline', category: 'system', group: '线下模式', label: '线下互动规则', text: offlinePrompt, reason: '当前处于线下互动模式' })
   pushContextTrace(trace, { id: 'runtime:language', category: 'system', group: '输出格式与协议', label: '对白语言保护规则', text: usesEnglishPrompt ? englishDialogueLanguageGuard : '', reason: '当前使用英文底层提示词' })
@@ -454,5 +473,5 @@ ${usesNaturalPromptV2
       ? `\n\n[Friend request permission]\nIf ${charName} genuinely decides to add the user as a friend now, output <send_friend_request>the sincere request message</send_friend_request> once. Do not use it mechanically or when a request is already pending.`
       : `\n\n【好友申请权限】\n如果角色${charName}此刻确实自主决定添加用户为好友，可以输出一次 <send_friend_request>真诚的申请文案</send_friend_request>。不要机械使用，也不要在已有待处理申请时重复申请。`
     : ''
-  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + relationshipRules + offlinePrompt + transferStateGuard + buildSocialProfilePrompt(chat, usesEnglishPrompt) + buildSocialCirclePrompt(chat, usesEnglishPrompt) + userSocialContext + friendRequestRule + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
+  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + assetPrompt + relationshipRules + offlinePrompt + transferStateGuard + buildSocialProfilePrompt(chat, usesEnglishPrompt) + buildSocialCirclePrompt(chat, usesEnglishPrompt) + userSocialContext + friendRequestRule + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
 }

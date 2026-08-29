@@ -120,7 +120,8 @@ const STATE_FIELDS = [
 const ROLE_SCOPED_FIELDS = [
   'realName', 'remark', 'persona', 'avatarUrl', 'boundWorldBooks', 'boundWorldBookGroups',
   'voiceProvider', 'voiceModel', 'voiceId', 'voiceLanguage', 'voiceSpeed', 'voicePitch', 'voiceVolume',
-  'voiceEmotion', 'enableVoiceReply', 'enableVoiceCall', 'enableVideoCall', 'imageGenProvider'
+  'voiceEmotion', 'enableVoiceReply', 'enableVoiceCall', 'enableVideoCall', 'imageGenProvider',
+  'enableFileCapability', 'enableVideoMessageCapability', 'characterAssets', 'fileGenerationConfig', 'videoGenerationConfig'
 ] as const
 
 const RUNTIME_FIELDS = STATE_FIELDS.filter(field => ![

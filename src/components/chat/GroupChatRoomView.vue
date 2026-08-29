@@ -59,6 +59,9 @@ import {
   type ReplyRegenerationSession
 } from '../../services/replyVariants'
 import ChatReplyVariantForkModal from './modals/ChatReplyVariantForkModal.vue'
+import { executeCharacterAssetAction } from '../../services/chatAssetActions'
+import { persistCharacterAssetMetadata } from '../../services/characterAssetRepository'
+import type { CharacterAssetAction, GeneratedFileFormat } from '../../types/chatAssets'
 
 const props = defineProps<{ group: any; isVisible?: boolean }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'open-settings'): void; (e: 'open-character-profile', memberId: string): void }>()
@@ -278,7 +281,7 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession) => {
     const offlineActive = targetGroup.offlineMeetEnabled && (targetGroup.offlineMeetMode === 'separate' || targetGroup.isMixedOfflineActive)
     const disableMedia = (targetGroup.activeCallType && targetGroup.disableMediaDuringCall) || (offlineActive && targetGroup.disableMediaDuringOffline)
     const disableThought = (targetGroup.activeCallType && targetGroup.disableThoughtDuringCall) || (offlineActive && targetGroup.disableThoughtDuringOffline)
-    if (disableMedia) result.messages = result.messages.filter((message: any) => !['image', 'voice', 'emoji', 'transfer', 'red_packet', 'call'].includes(message.messageType))
+    if (disableMedia) result.messages = result.messages.filter((message: any) => !['image', 'voice', 'emoji', 'transfer', 'red_packet', 'file', 'video', 'call'].includes(message.messageType))
     if (disableThought) result.thoughts = []
     let managementActionCount = 0
     const deferredLeaveActions: any[] = []
@@ -326,8 +329,10 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession) => {
       }
     }
     const turnId = regenerationSession?.turnId || `group_turn_${Date.now()}`
+    const turnMessageStart = targetGroup.messages.length
     const localIds = new Map<string, number>(); result.messages.forEach((message: any, index: number) => { if (message.key) localIds.set(message.key, Date.now() + index) })
     const imageJobs: { item: any; member: any }[] = []
+    const assetJobs: { item: any; message: any; member: any; originalMember: any }[] = []
     result.messages.forEach((message: any, index: number) => {
       if (message.mentions.includes('all')) {
         try { consumeAtAll(targetGroup, message.senderId) }
@@ -367,6 +372,10 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession) => {
       if (index === result.messages.length - 1) item.costTime = ((Date.now() - requestStartedAt) / 1000).toFixed(1)
       const imageMember = memberMap.value.get(String(message.senderId))
       if (message.messageType === 'image' && imageMember?.enableNAIImageGen) imageJobs.push({ item, member: imageMember })
+      else if (message.messageType === 'file' || message.messageType === 'video') {
+        const originalMember = members.value.find((member: any) => String(member.characterEntityId || member.id) === String(message.senderId))
+        if (imageMember && originalMember) assetJobs.push({ item, message, member: imageMember, originalMember })
+      }
       else targetGroup.messages.push(item)
     })
     for (const job of imageJobs) {
@@ -375,6 +384,41 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession) => {
       const generated = targetGroup.messages.find((entry: any) => entry.id === job.item.id)
       if (generated) Object.assign(generated, { messageType: 'image', senderType: 'character', senderId: job.item.senderId, senderNameSnapshot: job.item.senderNameSnapshot, senderAvatarSnapshot: job.item.senderAvatarSnapshot, turnId: job.item.turnId, sequence: job.item.sequence, costTime: job.item.costTime })
     }
+    for (const job of assetJobs) {
+      try {
+        const actionType = job.message.messageType === 'file'
+          ? (job.message.assetAction === 'existing' ? 'send_existing_file' : 'generate_file')
+          : (job.message.assetAction === 'existing' ? 'send_existing_video' : 'generate_video')
+        if (!['existing', 'generate'].includes(job.message.assetAction)) throw new Error('附件动作缺少有效 action')
+        const action: CharacterAssetAction = {
+          type: actionType,
+          content: job.message.content,
+          ref: job.message.assetRef || '',
+          format: job.message.assetFormat as GeneratedFileFormat,
+          title: job.message.assetTitle || '',
+          mode: job.message.assetMode || 'text_to_video',
+          referenceRef: job.message.assetReferenceRef || ''
+        }
+        const latestUserText = [...targetGroup.messages].reverse().find((message: any) => message.type === 'right')?.content || ''
+        const executionChat = { ...job.member, messages: targetGroup.messages }
+        const generated = await executeCharacterAssetAction({ chat: executionChat, action, runtimeMode: 'group', query: latestUserText, signal: requestController.signal })
+        job.originalMember.characterAssets = executionChat.characterAssets || job.originalMember.characterAssets || []
+        persistCharacterAssetMetadata(currentChatUserId.value, job.originalMember)
+        const finalItem = generated.kind === 'file'
+          ? { ...job.item, messageType: 'file', content: `[文件：${generated.fileData.name}]`, fileData: generated.fileData }
+          : { ...job.item, messageType: 'video', content: `[视频：${generated.videoData.name}]`, videoData: generated.videoData }
+        targetGroup.messages.push(finalItem)
+      } catch (reason) {
+        if ((reason as Error)?.name !== 'AbortError') targetGroup.messages.push({ id: Date.now() + targetGroup.messages.length, timestamp: Date.now(), type: 'system', messageType: 'asset_error', content: `⚠ ${job.message.messageType === 'file' ? '文件' : '视频'}处理失败\n${reason instanceof Error ? reason.message : '未创建任何附件消息'}`, turnId, sequence: job.item.sequence })
+      }
+    }
+    const turnMessageIndexes = targetGroup.messages
+      .map((entry: any, index: number) => ({ entry, index }))
+      .filter(({ entry, index }: any) => index >= turnMessageStart && entry.turnId === turnId)
+    const turnMessages = turnMessageIndexes.map(({ entry }: any) => entry)
+    for (let index = turnMessageIndexes.length - 1; index >= 0; index--) targetGroup.messages.splice(turnMessageIndexes[index].index, 1)
+    turnMessages.sort((a: any, b: any) => Number(a.sequence ?? Number.MAX_SAFE_INTEGER) - Number(b.sequence ?? Number.MAX_SAFE_INTEGER))
+    targetGroup.messages.splice(turnMessageStart, 0, ...turnMessages)
     for (const action of deferredLeaveActions) {
       try { executeExtendedAdminAction(targetGroup, action) }
       catch (error: any) { showToast(error?.message || '退群操作未通过校验') }
@@ -466,7 +510,7 @@ const handleSendEmoji = async (item: any) => { if (!canUserSend()) return; if (s
 const handleSendImage = (data: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); awardGroupActivity(props.group, 'user', `user_group_media_${Date.now()}`); return media.handleSendImage(data, showExtensionPanel) }
 const handleSendVoice = (data: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); awardGroupActivity(props.group, 'user', `user_group_media_${Date.now()}`); return media.handleSendVoice(data, showExtensionPanel) }
 const handleSendTransfer = (data: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); awardGroupActivity(props.group, 'user', `user_group_media_${Date.now()}`); return media.handleSendTransfer(data, showExtensionPanel) }
-const onModalEdit = (id?: number) => { const message = props.group.messages.find((item: any) => item.id === (id || multi.targetMessageId.value)); if (!message) return; editTargetId.value = message.id; editInitialContent.value = message.content || ''; editInitialType.value = message.type; editHasMedia.value = Boolean(message.imageData || message.voiceData || message.transferData || message.isEmoji); showEditModal.value = true }
+const onModalEdit = (id?: number) => { const message = props.group.messages.find((item: any) => item.id === (id || multi.targetMessageId.value)); if (!message) return; editTargetId.value = message.id; editInitialContent.value = message.content || ''; editInitialType.value = message.type; editHasMedia.value = Boolean(message.imageData || message.voiceData || message.fileData || message.videoData || message.transferData || message.isEmoji); showEditModal.value = true }
 const handleEditSave = (payload: any) => {
   const index = props.group.messages.findIndex((item: any) => item.id === payload.messageId);
   if (index === -1) return;
@@ -477,7 +521,7 @@ const handleEditSave = (payload: any) => {
     message.content = payload.content;
     message.type = payload.type;
     if (payload.clearMedia) {
-      delete message.imageData; delete message.voiceData; delete message.transferData; delete message.emojiUrl; message.isEmoji = false;
+      delete message.imageData; delete message.voiceData; delete message.fileData; delete message.videoData; delete message.transferData; delete message.emojiUrl; message.isEmoji = false;
     }
   } else {
     // 插入逻辑

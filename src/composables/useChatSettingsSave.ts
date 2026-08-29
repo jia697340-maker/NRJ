@@ -116,6 +116,12 @@ export function useChatSettingsSave() {
           ? JSON.parse(JSON.stringify(selectedChat.value.aiHordeImageConfig))
           : null
 
+        contacts[idx].enableFileCapability = selectedChat.value.enableFileCapability === true
+        contacts[idx].enableVideoMessageCapability = selectedChat.value.enableVideoMessageCapability === true
+        contacts[idx].characterAssets = JSON.parse(JSON.stringify(selectedChat.value.characterAssets || []))
+        contacts[idx].fileGenerationConfig = JSON.parse(JSON.stringify(selectedChat.value.fileGenerationConfig || null))
+        contacts[idx].videoGenerationConfig = JSON.parse(JSON.stringify(selectedChat.value.videoGenerationConfig || null))
+
         // 语音设置持久化
         contacts[idx].enableVoiceReply = selectedChat.value.enableVoiceReply ?? false
         contacts[idx].enableVoiceCall = selectedChat.value.enableVoiceCall ?? false

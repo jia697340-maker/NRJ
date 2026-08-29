@@ -298,6 +298,8 @@ export const buildChatMessages = async (
       let isVoice = false
       let isImage = false
       let isTransferMessage = false
+      let isFileMessage = false
+      let isVideoMessage = false
       let voiceSeconds = 0
       let imageDescription = ''
 
@@ -306,7 +308,13 @@ export const buildChatMessages = async (
       let mediaBase64 = '' // 统一用作表情包或真实图片的 Base64 容器
       let isSummaryReplaced = false
 
-      if (msg.isEmoji) {
+      if (msg.fileData) {
+        isFileMessage = true
+        formattedContent = `[${msg.type === 'left' ? '角色过去发送了' : '用户过去发送了'}真实文件：${msg.fileData.name}，类型：${msg.fileData.mimeType || '未知'}，大小：${msg.fileData.size || 0}字节]`
+      } else if (msg.videoData) {
+        isVideoMessage = true
+        formattedContent = `[${msg.type === 'left' ? '角色过去发送了' : '用户过去发送了'}真实视频：${msg.videoData.name || '视频'}${msg.videoData.duration ? `，时长：${Math.round(msg.videoData.duration)}秒` : ''}]`
+      } else if (msg.isEmoji) {
         isEmojiMessage = true
         emojiName = msg.content === '[表情]' ? '未知名称' : msg.content
         
@@ -398,6 +406,10 @@ export const buildChatMessages = async (
           formattedContent = formattedContent.replace('<narration ', `<narration ${timeAttrs} `)
         } else if (isSystemNotice) {
           formattedContent = `<system_notice ${timeAttrs}>${formattedContent}</system_notice>`
+        } else if (isFileMessage) {
+          formattedContent = `<file_history ${timeAttrs}>${formattedContent}</file_history>`
+        } else if (isVideoMessage) {
+          formattedContent = `<video_history ${timeAttrs}>${formattedContent}</video_history>`
         } else if (isEmojiMessage) {
           formattedContent = msg.type === 'right'
             ? `<user_emoji_msg ${timeAttrs} name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`
@@ -424,6 +436,10 @@ export const buildChatMessages = async (
           // 已在上方恢复为结构化叙述标签，保持原样进入上下文。
         } else if (isSystemNotice) {
           formattedContent = `<system_notice>${formattedContent}</system_notice>`
+        } else if (isFileMessage) {
+          formattedContent = `<file_history>${formattedContent}</file_history>`
+        } else if (isVideoMessage) {
+          formattedContent = `<video_history>${formattedContent}</video_history>`
         } else if (isEmojiMessage) {
           formattedContent = msg.type === 'right'
             ? `<user_emoji_msg name="${emojiName}">${quotePrefix}${formattedContent}</user_emoji_msg>`

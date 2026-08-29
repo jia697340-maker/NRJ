@@ -14,6 +14,27 @@ import { normalizeChatModelRules, normalizeModelCommunicationMessages } from '..
 import localforage from 'localforage'
 import { deleteAllChatTimelineData, initializeChatTimeline, persistActiveTimeline } from '../../services/chatTimeline'
 import { recoverInterruptedReplyRegeneration } from '../../services/replyVariants'
+import { normalizeCharacterAssets } from '../../services/characterAssetRepository'
+import { DEFAULT_FILE_FORMATS } from '../../services/characterCapabilities'
+import { getCharacterVideoProvider, getCharacterVideoProviderDefaults } from '../../services/videoGenerationService'
+
+const normalizeCharacterVideoConfig = (value: any) => {
+  const provider = getCharacterVideoProvider(String(value?.provider || 'veo')) || getCharacterVideoProvider('veo')!
+  const defaults = getCharacterVideoProviderDefaults(provider.id)
+  const duration = Number(value?.durationSeconds)
+  return {
+    ...defaults,
+    enabled: value?.enabled === true,
+    credentialRef: String(value?.credentialRef || defaults.credentialRef),
+    model: provider.models.some(item => item.value === value?.model) ? String(value.model) : defaults.model,
+    baseUrl: String(value?.baseUrl || ''),
+    aspectRatio: provider.ratios.includes(String(value?.aspectRatio)) ? String(value.aspectRatio) : defaults.aspectRatio,
+    resolution: provider.resolutions.includes(String(value?.resolution)) ? String(value.resolution) : defaults.resolution,
+    durationSeconds: Number.isFinite(duration) ? Math.max(provider.durationMin, Math.min(provider.durationMax, Math.round(duration))) : defaults.durationSeconds,
+    maxDailyGenerations: Math.max(1, Math.min(50, Number(value?.maxDailyGenerations || 3))),
+    maxEstimatedCost: Math.max(0, Number(value?.maxEstimatedCost ?? 1))
+  }
+}
 
 export const sortChats = () => {
   mockChats.value.sort((a, b) => {
@@ -168,6 +189,15 @@ export const loadCustomContacts = async () => {
       seedreamImageConfig: c.seedreamImageConfig || null,
       pollinationsImageConfig: c.pollinationsImageConfig || null,
       aiHordeImageConfig: c.aiHordeImageConfig || null,
+      enableFileCapability: c.enableFileCapability === true,
+      enableVideoMessageCapability: c.enableVideoMessageCapability === true,
+      characterAssets: normalizeCharacterAssets(c.characterAssets, String(c.characterEntityId || c.id)),
+      fileGenerationConfig: {
+        enabled: c.fileGenerationConfig?.enabled !== false,
+        allowedFormats: Array.isArray(c.fileGenerationConfig?.allowedFormats) ? c.fileGenerationConfig.allowedFormats.filter((format: any) => DEFAULT_FILE_FORMATS.includes(format)) : [...DEFAULT_FILE_FORMATS],
+        maxSizeMb: Math.max(1, Math.min(200, Number(c.fileGenerationConfig?.maxSizeMb || 30)))
+      },
+      videoGenerationConfig: normalizeCharacterVideoConfig(c.videoGenerationConfig),
       naiImagePrompt: c.naiImagePrompt || '',
       naiImageNegativePrompt: c.naiImageNegativePrompt || '',
       naiImageResolution: c.naiImageResolution || '1024x1024',
