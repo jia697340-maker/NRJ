@@ -1,8 +1,9 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { FileTransfer } from '@capacitor/file-transfer'
 import { Share } from '@capacitor/share'
+import { requestVideoApi, type VideoConnectionMode } from './videoHttp'
 
 export type SeedanceModel = 'doubao-seedance-2-5-260628'
 export type SeedanceMode = 'text' | 'image' | 'interpolation' | 'references' | 'audio' | 'edit' | 'extension'
@@ -33,6 +34,7 @@ export interface SeedanceGenerationInput {
 export interface SeedanceClientConfig {
   apiKey: string
   baseUrl?: string
+  connectionMode?: VideoConnectionMode
 }
 
 export interface SeedanceUsage {
@@ -175,11 +177,11 @@ const apiError = (status: number, payload: any, fallback: string) => {
 const headers = (apiKey: string) => ({ Authorization: `Bearer ${apiKey.trim()}`, 'Content-Type': 'application/json' })
 
 export const submitSeedanceGeneration = async (config: SeedanceClientConfig, input: SeedanceGenerationInput) => {
-  if (!Capacitor.isNativePlatform()) throw new Error('请在安装后的 Android 或 iOS App 中使用 Seedance 官方接入')
+  if (config.connectionMode !== 'web' && !Capacitor.isNativePlatform()) throw new Error('App 直连需要在安装后的 Android 或 iOS App 中使用')
   if (!config.apiKey.trim()) throw new Error('请填写火山方舟 API Key')
-  const response = await CapacitorHttp.request({
+  const response = await requestVideoApi({
     url: `${cleanBaseUrl(config.baseUrl)}/api/v3/contents/generations/tasks`,
-    method: 'POST',
+    method: 'POST', connectionMode: config.connectionMode,
     headers: headers(config.apiKey),
     data: buildSeedanceRequestBody(input),
     connectTimeout: 30000,
@@ -192,11 +194,11 @@ export const submitSeedanceGeneration = async (config: SeedanceClientConfig, inp
 }
 
 export const querySeedanceTask = async (config: SeedanceClientConfig, taskId: string): Promise<SeedanceRemoteTask> => {
-  if (!Capacitor.isNativePlatform()) throw new Error('请在安装后的 Android 或 iOS App 中使用 Seedance 官方接入')
+  if (config.connectionMode !== 'web' && !Capacitor.isNativePlatform()) throw new Error('App 直连需要在安装后的 Android 或 iOS App 中使用')
   if (!config.apiKey.trim()) throw new Error('恢复任务需要原火山方舟 API Key')
-  const response = await CapacitorHttp.request({
+  const response = await requestVideoApi({
     url: `${cleanBaseUrl(config.baseUrl)}/api/v3/contents/generations/tasks/${encodeURIComponent(taskId)}`,
-    method: 'GET',
+    method: 'GET', connectionMode: config.connectionMode,
     headers: headers(config.apiKey),
     connectTimeout: 30000,
     readTimeout: 60000

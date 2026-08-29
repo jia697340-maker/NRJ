@@ -42,6 +42,7 @@ defineEmits<{ (event: "back"): void }>();
 const storage = (key: string, fallback: string) =>
   localStorage.getItem(key) || fallback;
 const nativeApp = isNativeMobileApp();
+const connectionMode = ref<'web' | 'app'>((nativeApp ? storage('app_kling_connection_mode', 'app') : 'web') as 'web' | 'app');
 const savedDuration = Number(storage("app_kling_video_duration", "5"));
 const durationValues = Array.from(
   { length: 13 },
@@ -119,6 +120,13 @@ watch(
   { deep: true },
 );
 watch(prompt, (value) => localStorage.setItem("app_kling_video_prompt", value));
+watch(connectionMode, async (value) => {
+  localStorage.setItem('app_kling_connection_mode', value);
+  try {
+    apiKey.value = value === 'web' ? localStorage.getItem('app_kling_web_api_key') || '' : nativeApp ? (await getSecureValue('kling_api_key')) || '' : '';
+    savedApiKey.value = apiKey.value;
+  } catch (error) { pageError.value = error instanceof Error ? error.message : '无法读取 API Key'; }
+});
 
 const modeOptions: Array<{
   value: KlingMode;
@@ -166,7 +174,7 @@ const estimatedCostText = computed(() =>
 );
 const canGenerate = computed(
   () =>
-    nativeApp &&
+    (connectionMode.value === 'web' || nativeApp) &&
     keyReady.value &&
     Boolean(apiKey.value.trim()) &&
     !isSubmitting.value,
@@ -248,7 +256,8 @@ const chooseAudio = (value: KlingAudio) => {
 };
 
 const saveApiKey = async () => {
-  if (!nativeApp) return;
+  if (connectionMode.value === 'web') { localStorage.setItem('app_kling_web_api_key',apiKey.value.trim()); savedApiKey.value=apiKey.value.trim(); pageMessage.value='网页密钥已保存在当前浏览器。'; return; }
+  if (!nativeApp) { pageError.value='App 直连需要在安装后的 App 中使用'; return; }
   keySaving.value = true;
   pageError.value = "";
   try {
@@ -408,8 +417,9 @@ const formatTime = (value: number) =>
     hour: "2-digit",
     minute: "2-digit",
   }).format(value);
-const videoUrl = (task: KlingVideoTask) =>
-  resolveKlingVideoUrl(task.localFileUri);
+const videoUrl = (task: KlingVideoTask) => task.localFileUri
+  ? resolveKlingVideoUrl(task.localFileUri)
+  : (task.outputs?.find(item => item.type === 'video')?.url || '');
 const billingText = (task: KlingVideoTask) => {
   const item = task.billing?.[0];
   if (!item?.amount) return "";
@@ -448,6 +458,11 @@ const finishTask = async (
   });
   if (controller.signal.aborted)
     throw new DOMException("Aborted", "AbortError");
+  if (connectionMode.value === 'web') {
+    await patchKlingTask(task.id, { status:'completed', outputs:remote.outputs, billing:remote.billing, error:'' });
+    pageMessage.value='视频已生成，可在作品中播放和下载。';
+    return;
+  }
   const local = await downloadKlingVideo(task.id, remoteUrl);
   await patchKlingTask(task.id, {
     status: "completed",
@@ -461,7 +476,7 @@ const finishTask = async (
 };
 
 const pollTask = async (id: string) => {
-  if (!nativeApp || pollingControllers.has(id)) return;
+  if ((connectionMode.value === 'app' && !nativeApp) || pollingControllers.has(id)) return;
   const controller = new AbortController();
   pollingControllers.set(id, controller);
   let transientFailures = 0;
@@ -478,7 +493,7 @@ const pollTask = async (id: string) => {
     while (!controller.signal.aborted) {
       try {
         const remote = await queryKlingTask(
-          { apiKey: apiKey.value },
+          { apiKey: apiKey.value, connectionMode: connectionMode.value },
           task.remoteTaskId
             ? { taskId: task.remoteTaskId }
             : { externalTaskId: task.externalTaskId },
@@ -532,7 +547,7 @@ const pollTask = async (id: string) => {
 };
 
 const buildInput = (): KlingGenerationInput => {
-  if (!nativeApp) throw new Error("请安装 Android 或 iOS App 后使用 Kling");
+  if (connectionMode.value === 'app' && !nativeApp) throw new Error("请安装 App 或切换网页直连");
   if (!apiKey.value.trim()) throw new Error("请先填写 Kling API Key");
   const externalTaskId = `nrj_kling_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   const input: KlingGenerationInput = {
@@ -609,7 +624,7 @@ const generateVideo = async () => {
       },
     };
     await saveKlingTask(task);
-    const remote = await submitKlingGeneration({ apiKey: apiKey.value }, input);
+    const remote = await submitKlingGeneration({ apiKey: apiKey.value, connectionMode: connectionMode.value }, input);
     const submittedStatus =
       remote.status === "submitted"
         ? "submitted"
@@ -710,7 +725,7 @@ const confirmDelete = async () => {
 
 const recoverTasks = async () => {
   await loadKlingTasks();
-  if (!nativeApp || !apiKey.value.trim()) return;
+  if ((connectionMode.value === 'app' && !nativeApp) || !apiKey.value.trim()) return;
   for (const task of tasks.value.filter((item) =>
     ["submitting", "submitted", "processing", "downloading"].includes(
       item.status,
@@ -721,7 +736,8 @@ const recoverTasks = async () => {
 
 onMounted(async () => {
   await loadKlingTasks();
-  if (nativeApp) {
+  if (connectionMode.value === 'web') { apiKey.value=localStorage.getItem('app_kling_web_api_key')||''; savedApiKey.value=apiKey.value; }
+  if (nativeApp && connectionMode.value === 'app') {
     try {
       apiKey.value = (await getSecureValue("kling_api_key")) || "";
       savedApiKey.value = apiKey.value;
@@ -734,7 +750,7 @@ onMounted(async () => {
     });
   }
   keyReady.value = true;
-  showSettings.value = nativeApp && !apiKey.value;
+  showSettings.value = !apiKey.value;
   await recoverTasks();
 });
 
@@ -761,10 +777,10 @@ onUnmounted(() => {
       </button>
       <div class="header-copy">
         <h1>Kling 3.0</h1>
-        <p>快手可灵 · 移动端原生视频生成</p>
+        <p>快手可灵 · 网页与 App 双通道视频生成</p>
       </div>
-      <span class="native-badge" :class="{ ready: nativeApp }">{{
-        nativeApp ? "APP" : "需安装"
+      <span class="native-badge" :class="{ ready: connectionMode === 'web' || nativeApp }">{{
+        connectionMode === 'web' ? "网页直连" : nativeApp ? "App 直连" : "需安装"
       }}</span>
     </header>
 
@@ -795,16 +811,15 @@ onUnmounted(() => {
         ><p v-if="pageError" class="page-error">{{ pageError }}</p></Transition
       >
 
-      <section v-if="!nativeApp" class="install-note">
+      <section v-if="connectionMode === 'app' && !nativeApp" class="install-note">
         <svg viewBox="0 0 24 24">
           <rect x="6" y="2.5" width="12" height="19" rx="2" />
           <path d="M10 18h4" />
         </svg>
         <div>
-          <strong>请在安装后的 App 中使用</strong>
+          <strong>App 直连需要安装应用</strong>
           <p>
-            网页版保留视频大厅入口，但 Kling 官方接口只能通过 Android 或 iOS
-            原生网络调用。
+            也可以在连接设置中切换为网页直连。
           </p>
         </div>
       </section>
@@ -829,18 +844,17 @@ onUnmounted(() => {
             <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
           </button>
           <div v-if="showSettings" class="settings-body">
+            <div class="mode-tabs"><button type="button" :class="{ active: connectionMode === 'web' }" @click="connectionMode = 'web'">网页直连</button><button type="button" :class="{ active: connectionMode === 'app' }" @click="connectionMode = 'app'">App 直连</button></div>
             <label class="field"
               ><span>API Key</span>
               <div class="input-action">
                 <input
                   v-model="apiKey"
                   :type="showApiKey ? 'text' : 'password'"
-                  :disabled="!nativeApp"
                   autocomplete="off"
-                  :placeholder="nativeApp ? '仅保存在这台设备' : '请先安装 App'"
+                  :placeholder="connectionMode === 'web' ? '保存在当前浏览器' : '保存在这台设备'"
                 /><button
                   type="button"
-                  :disabled="!nativeApp"
                   @click="showApiKey = !showApiKey"
                 >
                   {{ showApiKey ? "隐藏" : "显示" }}
@@ -854,7 +868,7 @@ onUnmounted(() => {
             <button
               class="save-key"
               type="button"
-              :disabled="!nativeApp || keySaving"
+              :disabled="keySaving || (connectionMode === 'app' && !nativeApp)"
               @click="saveApiKey"
             >
               {{ keySaving ? "保存中…" : "保存到本机" }}
@@ -1233,8 +1247,8 @@ onUnmounted(() => {
         >
           <span v-if="isSubmitting" class="spinner"></span
           >{{
-            !nativeApp
-              ? "请安装 App 后使用"
+            connectionMode === 'app' && !nativeApp
+              ? "请安装 App 或切换网页直连"
               : isSubmitting
                 ? "正在提交…"
                 : !apiKey.trim()
@@ -1291,7 +1305,7 @@ onUnmounted(() => {
               "
             >
               <video
-                v-if="task.localFileUri"
+                v-if="videoUrl(task)"
                 :src="videoUrl(task)"
                 controls
                 playsinline
@@ -1331,6 +1345,7 @@ onUnmounted(() => {
                 <p v-if="task.error" class="task-error">{{ task.error }}</p>
               </div>
               <div class="work-actions">
+                <a v-if="!task.localFileUri && videoUrl(task)" :href="videoUrl(task)" :download="`${task.id}.mp4`" target="_blank" rel="noopener">下载</a>
                 <button
                   v-if="task.localFileUri"
                   type="button"

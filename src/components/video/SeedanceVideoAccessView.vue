@@ -49,6 +49,7 @@ interface UrlAsset {
 
 const storage = (key: string, fallback: string) => localStorage.getItem(key) || fallback
 const nativeApp = isNativeMobileApp()
+const connectionMode = ref<'web' | 'app'>((nativeApp ? storage('app_seedance_connection_mode', 'app') : 'web') as 'web' | 'app')
 const storedDuration = Number(storage('app_seedance_video_duration', '10'))
 const config = reactive({
   baseUrl: storage('app_seedance_video_base_url', SEEDANCE_DEFAULT_BASE_URL),
@@ -96,11 +97,18 @@ watch(config, value => {
   localStorage.setItem('app_seedance_video_last_frame', String(value.returnLastFrame))
   localStorage.setItem('app_seedance_video_seed', value.seed)
 }, { deep: true })
+watch(connectionMode, async value => {
+  localStorage.setItem('app_seedance_connection_mode', value)
+  try {
+    apiKey.value = value === 'web' ? localStorage.getItem('app_seedance_web_api_key') || '' : nativeApp ? (await getSecureValue('seedance_ark_api_key')) || '' : ''
+    savedApiKey.value = apiKey.value
+  } catch (error) { pageError.value = error instanceof Error ? error.message : '无法读取 API Key' }
+})
 watch(prompt, value => localStorage.setItem('app_seedance_video_prompt', value))
 
 const activeTasks = computed(() => tasks.value.filter(task => ['submitting', 'queued', 'running', 'downloading'].includes(task.status)))
 const apiKeyStored = computed(() => Boolean(savedApiKey.value) && apiKey.value.trim() === savedApiKey.value)
-const canGenerate = computed(() => nativeApp && keyReady.value && Boolean(apiKey.value.trim()) && !isSubmitting.value)
+const canGenerate = computed(() => (connectionMode.value === 'web' || nativeApp) && keyReady.value && Boolean(apiKey.value.trim()) && !isSubmitting.value)
 const promptCount = computed(() => prompt.value.length)
 const isRatioLocked = computed(() => mode.value === 'edit' || mode.value === 'extension')
 const selectedMode = computed(() => SEEDANCE_MODES.find(item => item.value === mode.value)!)
@@ -126,7 +134,8 @@ const chooseMode = (value: SeedanceMode) => {
 }
 
 const saveApiKey = async () => {
-  if (!nativeApp) return
+  if (connectionMode.value === 'web') { localStorage.setItem('app_seedance_web_api_key', apiKey.value.trim()); savedApiKey.value = apiKey.value.trim(); pageMessage.value = '网页密钥已保存在当前浏览器。'; return }
+  if (!nativeApp) { pageError.value = 'App 直连需要在安装后的 App 中使用'; return }
   keySaving.value = true
   clearNotice()
   try {
@@ -297,7 +306,7 @@ const buildMedia = (): SeedanceMedia[] => {
 }
 
 const buildInput = (): SeedanceGenerationInput => {
-  if (!nativeApp) throw new Error('请安装 Android 或 iOS App 后使用 Seedance 官方接入')
+  if (connectionMode.value === 'app' && !nativeApp) throw new Error('请安装 App 或切换网页直连')
   if (!apiKey.value.trim()) throw new Error('请先填写火山方舟 API Key')
   const seed = config.seed.trim() === '' ? undefined : Number(config.seed)
   const input: SeedanceGenerationInput = {
@@ -339,6 +348,7 @@ const completeTask = async (task: SeedanceVideoTask, remote: Awaited<ReturnType<
     error: ''
   })
   try {
+    if (connectionMode.value === 'web') { await patchSeedanceTask(task.id, { status: 'completed', error: '' }); return }
     const local = await downloadSeedanceVideo(task.remoteTaskId || task.id, remote.videoUrl)
     await patchSeedanceTask(task.id, { status: 'completed', localFilePath: local.path, localFileUri: local.uri, error: '' })
   } catch (error) {
@@ -347,7 +357,7 @@ const completeTask = async (task: SeedanceVideoTask, remote: Awaited<ReturnType<
 }
 
 const pollTask = async (id: string) => {
-  if (!nativeApp || pollingControllers.has(id)) return
+  if ((connectionMode.value === 'app' && !nativeApp) || pollingControllers.has(id)) return
   const controller = new AbortController()
   pollingControllers.set(id, controller)
   let transientFailures = 0
@@ -359,7 +369,7 @@ const pollTask = async (id: string) => {
     if (!apiKey.value.trim()) { await patchSeedanceTask(id, { status: 'paused', error: '填写原火山方舟 API Key 后可继续查询' }); return }
     while (!controller.signal.aborted) {
       try {
-        const remote = await querySeedanceTask({ apiKey: apiKey.value, baseUrl: task.baseUrl }, remoteTaskId)
+        const remote = await querySeedanceTask({ apiKey: apiKey.value, baseUrl: task.baseUrl, connectionMode: connectionMode.value }, remoteTaskId)
         transientFailures = 0
         if (remote.status === 'succeeded') { await completeTask(task, remote); return }
         if (remote.status === 'failed') { await patchSeedanceTask(id, { status: 'failed', errorCode: remote.errorCode, error: remote.errorMessage || 'Seedance 视频生成失败' }); return }
@@ -408,7 +418,7 @@ const generateVideo = async () => {
         seed: input.seed, media: input.media.map(item => ({ role: item.role, label: item.label }))
       }
     })
-    const remoteTaskId = await submitSeedanceGeneration({ apiKey: apiKey.value, baseUrl: config.baseUrl }, input)
+    const remoteTaskId = await submitSeedanceGeneration({ apiKey: apiKey.value, baseUrl: config.baseUrl, connectionMode: connectionMode.value }, input)
     await patchSeedanceTask(localId, { status: 'queued', remoteTaskId, error: '' })
     pageMessage.value = '任务已提交。可以离开页面，回来后会继续查询。'
     void pollTask(localId)
@@ -496,21 +506,19 @@ const confirmDelete = async () => {
 
 const resumeActiveTasks = async () => {
   await loadSeedanceTasks()
-  if (!nativeApp || !apiKey.value.trim()) return
+  if ((connectionMode.value === 'app' && !nativeApp) || !apiKey.value.trim()) return
   for (const task of tasks.value.filter(item => ['queued', 'running', 'downloading'].includes(item.status))) void pollTask(task.id)
 }
 
 onMounted(async () => {
   await loadSeedanceTasks()
-  if (nativeApp) {
-    try { apiKey.value = (await getSecureValue('seedance_ark_api_key')) || ''; savedApiKey.value = apiKey.value } catch (error) { pageError.value = error instanceof Error ? error.message : '无法读取安全存储' }
-  }
+  try { apiKey.value = connectionMode.value === 'web' ? localStorage.getItem('app_seedance_web_api_key') || '' : nativeApp ? (await getSecureValue('seedance_ark_api_key')) || '' : ''; savedApiKey.value = apiKey.value } catch (error) { pageError.value = error instanceof Error ? error.message : '无法读取安全存储' }
   keyReady.value = true
   for (const task of tasks.value.filter(item => item.status === 'submitting' && !item.remoteTaskId)) {
     await patchSeedanceTask(task.id, { status: 'failed', error: '页面在任务编号返回前中断，请确认方舟控制台后再决定是否重新提交' })
   }
   await resumeActiveTasks()
-  showSettings.value = nativeApp && !apiKey.value
+  showSettings.value = !apiKey.value
   if (nativeApp) appStateHandle = await App.addListener('appStateChange', state => { if (state.isActive) void resumeActiveTasks() })
 })
 
@@ -528,7 +536,7 @@ onUnmounted(() => {
   <div class="seedance-hall" :class="{ dark: globalSettings.darkMode }">
     <header class="hall-header">
       <button class="icon-button" type="button" aria-label="返回视频引擎" @click="$emit('back')"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
-      <div class="header-copy"><h1>Seedance 2.5</h1><p>字节跳动长叙事与全模态音画创作</p><span class="app-badge" :class="{ ready: nativeApp }">{{ nativeApp ? 'App 官方直连' : '需安装移动端 App' }}</span></div>
+      <div class="header-copy"><h1>Seedance 2.5</h1><p>字节跳动长叙事与全模态音画创作</p><span class="app-badge ready">{{ connectionMode === 'web' ? '网页直连' : 'App 直连' }}</span></div>
       <button class="icon-button" type="button" aria-label="连接设置" @click="showSettings = !showSettings"><svg viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg></button>
     </header>
 
@@ -540,15 +548,16 @@ onUnmounted(() => {
     <main class="hall-scroll">
       <div v-if="pageMessage" class="page-message">{{ pageMessage }}</div>
       <div v-if="pageError" class="page-error">{{ pageError }}</div>
-      <div v-if="!nativeApp" class="install-note"><strong>网页中不开放密钥直连</strong><p>请安装 Android 或 iOS App。这样可使用系统安全存储和原生网络请求，不会把 API Key 写入网页存储。</p></div>
+      <div v-if="connectionMode === 'app' && !nativeApp" class="install-note"><strong>App 直连需要安装应用</strong><p>也可以在连接设置中切换为网页直连。</p></div>
 
       <template v-if="activeTab === 'create'">
         <section class="settings-panel" :class="{ open: showSettings }">
           <button class="section-toggle" type="button" @click="showSettings = !showSettings"><span><small>连接设置</small><strong>{{ apiKeyStored ? '火山方舟已连接' : '填写自己的方舟 API Key' }}</strong></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
           <div v-if="showSettings" class="settings-body">
+            <div class="mode-tabs"><button type="button" :class="{ active: connectionMode === 'web' }" @click="connectionMode = 'web'">网页直连</button><button type="button" :class="{ active: connectionMode === 'app' }" @click="connectionMode = 'app'">App 直连</button></div>
             <label class="field key-field"><span>火山方舟 API Key</span><div class="input-action"><input v-model="apiKey" :type="showApiKey ? 'text' : 'password'" autocomplete="off" placeholder="填写方舟 API Key"><button type="button" @click="showApiKey = !showApiKey">{{ showApiKey ? '隐藏' : '显示' }}</button></div><small>仅写入 Android/iOS 系统安全存储，不进入网页存储或数据备份。</small></label>
             <label class="field"><span>Base URL</span><input v-model="config.baseUrl" inputmode="url" placeholder="https://ark.cn-beijing.volces.com"><small>国内火山方舟默认地址；代理地址须完整兼容官方 API。</small></label>
-            <button class="save-key" type="button" :disabled="!nativeApp || keySaving || apiKeyStored" @click="saveApiKey">{{ keySaving ? '保存中…' : apiKeyStored ? '已安全保存' : '保存 API Key' }}</button>
+            <button class="save-key" type="button" :disabled="keySaving || apiKeyStored || (connectionMode === 'app' && !nativeApp)" @click="saveApiKey">{{ keySaving ? '保存中…' : apiKeyStored ? '已保存' : '保存 API Key' }}</button>
           </div>
         </section>
 
@@ -613,7 +622,7 @@ onUnmounted(() => {
           <div class="generation-note"><span>模型：{{ SEEDANCE_MODEL }}</span><span>24 FPS</span><span>任务记录约保留 7 天</span><span>云端视频地址约 24 小时有效</span></div>
         </section>
 
-        <button class="generate-button" type="button" :disabled="!canGenerate" @click="generateVideo"><span v-if="isSubmitting" class="spinner"></span>{{ isSubmitting ? '正在提交…' : !nativeApp ? '请安装 App 使用' : !apiKey.trim() ? '请完成连接设置' : '生成 Seedance 视频' }}</button>
+        <button class="generate-button" type="button" :disabled="!canGenerate" @click="generateVideo"><span v-if="isSubmitting" class="spinner"></span>{{ isSubmitting ? '正在提交…' : connectionMode === 'app' && !nativeApp ? '请安装 App 或切换网页直连' : !apiKey.trim() ? '请完成连接设置' : '生成 Seedance 视频' }}</button>
 
         <section v-if="activeTasks.length" class="running-section"><div class="section-heading"><div><small>正在处理</small><h2>{{ activeTasks.length }} 项任务</h2></div></div><div v-for="task in activeTasks" :key="task.id" class="running-card"><div class="running-indicator"><span></span></div><div class="task-copy"><strong>{{ statusLabel(task.status) }}</strong><p>{{ task.params.prompt || modeLabel(task.params.mode) }}</p><small>{{ task.remoteTaskId || '正在获取任务编号' }}</small></div><button v-if="['queued','running'].includes(task.status) && task.remoteTaskId" type="button" @click="pauseTask(task)">暂停查询</button></div></section>
       </template>
@@ -623,12 +632,12 @@ onUnmounted(() => {
         <div v-else class="works-list">
           <article v-for="task in tasks" :key="task.id" class="work-card">
             <div class="work-media" :class="isPortrait(task.actualRatio || task.params.ratio) ? 'portrait' : 'landscape'">
-              <video v-if="task.localFileUri" :src="videoUrl(task)" controls playsinline preload="metadata"></video>
+              <video v-if="task.localFileUri || task.remoteVideoUrl" :src="task.localFileUri ? videoUrl(task) : task.remoteVideoUrl" controls playsinline preload="metadata"></video>
               <div v-else class="work-placeholder"><span v-if="['submitting','queued','running','downloading'].includes(task.status)" class="spinner"></span><svg v-else viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></svg><strong>{{ statusLabel(task.status) }}</strong></div>
               <span class="status-badge" :class="task.status">{{ statusLabel(task.status) }}</span>
             </div>
             <div class="work-info"><div><strong>{{ task.params.prompt || task.params.media.map(item => item.label).filter(Boolean).join('、') || '素材生成' }}</strong><p>{{ modeLabel(task.params.mode) }} · {{ task.actualResolution || task.params.resolution }} · {{ task.actualRatio || task.params.ratio }} · {{ task.actualDuration || task.params.duration }} 秒 · {{ formatTime(task.createdAt) }}</p><p v-if="task.remoteTaskId">任务：{{ task.remoteTaskId }}</p><p v-if="task.usage?.completion_tokens">用量：{{ task.usage.completion_tokens.toLocaleString() }} tokens</p><p v-if="task.error" class="task-error">{{ task.error }}</p></div>
-              <div class="work-actions"><button v-if="['queued','running'].includes(task.status) && task.remoteTaskId" type="button" @click="pauseTask(task)">暂停查询</button><button v-else-if="task.status === 'paused' && remoteUrlUsable(task)" type="button" @click="retryDownload(task)">重试保存</button><button v-else-if="task.status === 'paused' && task.remoteTaskId" type="button" @click="resumeTask(task)">继续查询</button><button v-if="task.localFileUri" type="button" @click="shareTask(task)">分享/保存</button><button v-if="task.status === 'completed' && remoteUrlUsable(task)" type="button" @click="useRemoteVideo(task, 'extension')">延长</button><button v-if="task.status === 'completed' && remoteUrlUsable(task)" type="button" @click="useRemoteVideo(task, 'edit')">编辑</button><button type="button" @click="reuseTask(task)">复用参数</button><button class="danger" type="button" @click="pendingDelete = task">删除</button></div>
+              <div class="work-actions"><a v-if="!task.localFileUri && remoteUrlUsable(task)" :href="task.remoteVideoUrl" :download="`${task.id}.mp4`" target="_blank" rel="noopener">下载</a><button v-if="['queued','running'].includes(task.status) && task.remoteTaskId" type="button" @click="pauseTask(task)">暂停查询</button><button v-else-if="task.status === 'paused' && remoteUrlUsable(task) && connectionMode === 'app'" type="button" @click="retryDownload(task)">重试保存</button><button v-else-if="task.status === 'paused' && task.remoteTaskId" type="button" @click="resumeTask(task)">继续查询</button><button v-if="task.localFileUri" type="button" @click="shareTask(task)">分享/保存</button><button v-if="task.status === 'completed' && remoteUrlUsable(task)" type="button" @click="useRemoteVideo(task, 'extension')">延长</button><button v-if="task.status === 'completed' && remoteUrlUsable(task)" type="button" @click="useRemoteVideo(task, 'edit')">编辑</button><button type="button" @click="reuseTask(task)">复用参数</button><button class="danger" type="button" @click="pendingDelete = task">删除</button></div>
             </div>
           </article>
         </div>

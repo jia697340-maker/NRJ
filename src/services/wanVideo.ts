@@ -3,6 +3,7 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { FileTransfer } from '@capacitor/file-transfer'
 import { Share } from '@capacitor/share'
+import { requestVideoApi, type VideoConnectionMode } from './videoHttp'
 
 export type WanModel = 'wan3.0-video' | 'wan3.0-video-prime'
 export type WanMode = 'text' | 'image' | 'interpolation' | 'references' | 'file' | 'link' | 'edit' | 'extension'
@@ -34,6 +35,7 @@ export interface WanGenerationInput {
 export interface WanClientConfig {
   apiKey: string
   baseUrl: string
+  connectionMode?: VideoConnectionMode
 }
 
 export interface WanUsage {
@@ -187,9 +189,12 @@ const makeHeaders = (apiKey: string, media: WanMedia[] = []) => ({
 })
 
 export const uploadWanFile = async (config: WanClientConfig, model: WanModel, file: File) => {
-  if (!Capacitor.isNativePlatform()) throw new Error('请在安装后的 Android 或 iOS App 中上传素材')
+  if (config.connectionMode !== 'web' && !Capacitor.isNativePlatform()) throw new Error('App 直连需要在安装后的 Android 或 iOS App 中上传素材')
   if (!config.apiKey.trim()) throw new Error('上传素材需要阿里云百炼 API Key')
-  const policyResponse = await CapacitorHttp.request({
+  const policyResponse = config.connectionMode === 'web' ? await (async()=>{
+    const response=await fetch(`${cleanBaseUrl(config.baseUrl)}/api/v1/uploads?action=getPolicy&model=${encodeURIComponent(model)}`,{headers:{Authorization:`Bearer ${config.apiKey.trim()}`}})
+    const text=await response.text();let data:any=text;try{data=JSON.parse(text)}catch{}return {status:response.status,data}
+  })() : await CapacitorHttp.request({
     url: `${cleanBaseUrl(config.baseUrl)}/api/v1/uploads`,
     method: 'GET',
     headers: { Authorization: `Bearer ${config.apiKey.trim()}` },
@@ -213,6 +218,12 @@ export const uploadWanFile = async (config: WanClientConfig, model: WanModel, fi
     ['key', key],
     ['success_action_status', '200']
   ].filter(([, value]) => value !== undefined && value !== null).map(([fieldKey, value]) => ({ type: 'string', key: String(fieldKey), value: String(value) }))
+  if (config.connectionMode === 'web') {
+    const body=new FormData();for(const field of fields)body.append(field.key,field.value);body.append('file',file,safeUploadName(file.name))
+    const response=await fetch(String(policy.upload_host),{method:'POST',body})
+    if(!response.ok)throw new Error(`素材上传失败 (${response.status})`)
+    return `oss://${key}`
+  }
   const fileData = bytesToBase64(new Uint8Array(await file.arrayBuffer()))
   const uploadResponse = await CapacitorHttp.request({
     url: String(policy.upload_host),
@@ -228,12 +239,12 @@ export const uploadWanFile = async (config: WanClientConfig, model: WanModel, fi
 }
 
 export const submitWanGeneration = async (config: WanClientConfig, input: WanGenerationInput) => {
-  if (!Capacitor.isNativePlatform()) throw new Error('请在安装后的 Android 或 iOS App 中使用 Wan 官方接入')
+  if (config.connectionMode !== 'web' && !Capacitor.isNativePlatform()) throw new Error('App 直连需要在安装后的 Android 或 iOS App 中使用')
   if (!config.apiKey.trim()) throw new Error('请填写阿里云百炼 API Key')
   if (!cleanBaseUrl(config.baseUrl)) throw new Error('请填写正确的业务空间 ID 和地域')
-  const response = await CapacitorHttp.request({
+  const response = await requestVideoApi({
     url: `${cleanBaseUrl(config.baseUrl)}/api/v1/services/aigc/video-generation/video-synthesis`,
-    method: 'POST',
+    method: 'POST', connectionMode: config.connectionMode,
     headers: { ...makeHeaders(config.apiKey, input.media), 'X-DashScope-Async': 'enable' },
     data: buildWanRequestBody(input),
     connectTimeout: 30000,
@@ -247,11 +258,11 @@ export const submitWanGeneration = async (config: WanClientConfig, input: WanGen
 }
 
 export const queryWanTask = async (config: WanClientConfig, taskId: string): Promise<WanRemoteTask> => {
-  if (!Capacitor.isNativePlatform()) throw new Error('请在安装后的 Android 或 iOS App 中使用 Wan 官方接入')
+  if (config.connectionMode !== 'web' && !Capacitor.isNativePlatform()) throw new Error('App 直连需要在安装后的 Android 或 iOS App 中使用')
   if (!config.apiKey.trim()) throw new Error('恢复任务需要原阿里云百炼 API Key')
-  const response = await CapacitorHttp.request({
+  const response = await requestVideoApi({
     url: `${cleanBaseUrl(config.baseUrl)}/api/v1/tasks/${encodeURIComponent(taskId)}`,
-    method: 'GET',
+    method: 'GET', connectionMode: config.connectionMode,
     headers: makeHeaders(config.apiKey),
     connectTimeout: 30000,
     readTimeout: 60000

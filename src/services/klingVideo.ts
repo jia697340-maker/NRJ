@@ -1,8 +1,9 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { FileTransfer } from '@capacitor/file-transfer'
 import { Share } from '@capacitor/share'
+import { requestVideoApi, type VideoConnectionMode } from './videoHttp'
 
 export type KlingModel = 'kling-3.0' | 'kling-3.0-omni'
 export type KlingMode = 'text' | 'image' | 'interpolation' | 'references' | 'feature_video' | 'edit_video'
@@ -46,6 +47,7 @@ export interface KlingGenerationInput {
 export interface KlingClientConfig {
   apiKey: string
   baseUrl?: string
+  connectionMode?: VideoConnectionMode
 }
 
 export interface KlingOutput {
@@ -237,12 +239,12 @@ const requestHeaders = (apiKey: string) => ({
 })
 
 export const submitKlingGeneration = async (config: KlingClientConfig, input: KlingGenerationInput) => {
-  if (!Capacitor.isNativePlatform()) throw new Error('请在安装后的 Android 或 iOS App 中使用 Kling')
+  if (config.connectionMode !== 'web' && !Capacitor.isNativePlatform()) throw new Error('App 直连需要在安装后的 Android 或 iOS App 中使用')
   if (!config.apiKey.trim()) throw new Error('请填写 Kling API Key')
   const request = await buildKlingRequest(input)
-  const response = await CapacitorHttp.request({
+  const response = await requestVideoApi({
     url: `${(config.baseUrl || KLING_DEFAULT_BASE_URL).replace(/\/+$/, '')}${request.endpoint}`,
-    method: 'POST',
+    method: 'POST', connectionMode: config.connectionMode,
     headers: requestHeaders(config.apiKey),
     data: request.body,
     connectTimeout: 30000,
@@ -255,12 +257,12 @@ export const submitKlingGeneration = async (config: KlingClientConfig, input: Kl
 }
 
 export const getKlingTask = async (config: KlingClientConfig, query: { taskId?: string; externalTaskId?: string }) => {
-  if (!Capacitor.isNativePlatform()) throw new Error('请在安装后的 Android 或 iOS App 中使用 Kling')
+  if (config.connectionMode !== 'web' && !Capacitor.isNativePlatform()) throw new Error('App 直连需要在安装后的 Android 或 iOS App 中使用')
   if (!config.apiKey.trim()) throw new Error('恢复任务需要原 Kling API Key')
   const params = query.taskId ? `task_ids=${encodeURIComponent(query.taskId)}` : `external_task_ids=${encodeURIComponent(query.externalTaskId || '')}`
-  const response = await CapacitorHttp.request({
+  const response = await requestVideoApi({
     url: `${(config.baseUrl || KLING_DEFAULT_BASE_URL).replace(/\/+$/, '')}/tasks?${params}`,
-    method: 'GET',
+    method: 'GET', connectionMode: config.connectionMode,
     headers: requestHeaders(config.apiKey),
     connectTimeout: 30000,
     readTimeout: 60000

@@ -53,6 +53,7 @@ interface LocalAsset {
 
 const storage = (key: string, fallback: string) => localStorage.getItem(key) || fallback
 const appInstalled = isNativeMobileApp()
+const connectionMode = ref<'web' | 'app'>((appInstalled ? storage('app_wan_connection_mode', 'app') : 'web') as 'web' | 'app')
 const savedDuration = Number(storage('app_wan_video_duration', '5'))
 const config = reactive({
   workspaceId: storage('app_wan_video_workspace', ''),
@@ -110,13 +111,20 @@ watch(config, value => {
   localStorage.setItem('app_wan_video_watermark', String(value.watermark))
 }, { deep: true })
 watch(prompt, value => localStorage.setItem('app_wan_video_prompt', value))
+watch(connectionMode, async value => {
+  localStorage.setItem('app_wan_connection_mode', value)
+  try {
+    apiKey.value = value === 'web' ? localStorage.getItem('app_wan_web_api_key') || '' : appInstalled ? (await getSecureValue('wan_api_key')) || '' : ''
+    savedApiKey.value = apiKey.value
+  } catch (error) { pageError.value = error instanceof Error ? error.message : '无法读取 API Key' }
+})
 
 const baseUrl = computed(() => buildWanBaseUrl(config.workspaceId, config.region))
 const estimatedCost = computed(() => estimateWanCost(config.model, config.resolution, config.duration, config.region))
 const estimatedCostText = computed(() => estimatedCost.value === null ? '智能时长 · 按实际计费' : `预计 ¥${estimatedCost.value.toFixed(2)}`)
 const activeTasks = computed(() => tasks.value.filter(task => ['submitting', 'pending', 'running', 'downloading'].includes(task.status)))
 const apiKeyStored = computed(() => Boolean(savedApiKey.value) && apiKey.value === savedApiKey.value)
-const canGenerate = computed(() => appInstalled && keyReady.value && Boolean(apiKey.value.trim()) && Boolean(config.workspaceId.trim()) && !isSubmitting.value)
+const canGenerate = computed(() => (connectionMode.value === 'web' || appInstalled) && keyReady.value && Boolean(apiKey.value.trim()) && Boolean(config.workspaceId.trim()) && !isSubmitting.value)
 
 const modeOptions: Array<{ value: WanMode; label: string; description: string }> = [
   { value: 'text', label: '文字', description: '最长 30 秒原生音画与多镜头叙事' },
@@ -147,7 +155,8 @@ const chooseMode = (value: WanMode) => {
 }
 
 const saveApiKey = async () => {
-  if (!appInstalled) return
+  if (connectionMode.value === 'web') { localStorage.setItem('app_wan_web_api_key', apiKey.value.trim()); savedApiKey.value = apiKey.value.trim(); pageMessage.value = '网页密钥已保存在当前浏览器。'; return }
+  if (!appInstalled) { pageError.value = 'App 直连需要在安装后的 App 中使用'; return }
   keySaving.value = true
   pageError.value = ''
   try {
@@ -376,7 +385,7 @@ const makeMediaDraft = (): Array<WanMedia & { localAsset?: LocalAsset }> => {
 }
 
 const buildInput = async (): Promise<WanGenerationInput> => {
-  if (!appInstalled) throw new Error('请安装 Android 或 iOS App 后使用 Wan 官方接入')
+  if (connectionMode.value === 'app' && !appInstalled) throw new Error('请安装 App 或切换网页直连')
   if (!apiKey.value.trim()) throw new Error('请先填写阿里云百炼 API Key')
   if (!config.workspaceId.trim()) throw new Error('请填写业务空间 ID')
   const seed = config.seed.trim() === '' ? undefined : Number(config.seed)
@@ -398,11 +407,11 @@ const buildInput = async (): Promise<WanGenerationInput> => {
   }
   validateWanInput(input)
   if (draftMedia.some(item => item.localAsset)) {
-    pageMessage.value = '正在把本机素材上传到百炼临时存储，请保持 App 在前台。'
+    pageMessage.value = '正在把本机素材上传到百炼临时存储，请保持页面打开。'
     input.media = []
     for (const item of draftMedia) {
       const url = item.localAsset
-        ? await uploadWanFile({ apiKey: apiKey.value, baseUrl: baseUrl.value }, config.model, item.localAsset.file)
+        ? await uploadWanFile({ apiKey: apiKey.value, baseUrl: baseUrl.value, connectionMode: connectionMode.value }, config.model, item.localAsset.file)
         : item.url
       input.media.push({ type: item.type, url, label: item.label })
     }
@@ -423,6 +432,7 @@ const finishTask = async (task: WanVideoTask, remote: Awaited<ReturnType<typeof 
     usage: remote.usage, remoteVideoUrl: remote.videoUrl, remoteVideoExpiresAt: expiresAt, error: ''
   })
   if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  if (connectionMode.value === 'web') { await patchWanTask(task.id, { status: 'completed', error: '' }); pageMessage.value = '视频已生成，可在作品中播放和下载。'; return }
   try {
     const local = await downloadWanVideo(task.remoteTaskId!, remote.videoUrl)
     await patchWanTask(task.id, { status: 'completed', localFilePath: local.path, localFileUri: local.uri, error: '' })
@@ -434,7 +444,7 @@ const finishTask = async (task: WanVideoTask, remote: Awaited<ReturnType<typeof 
 }
 
 const pollTask = async (id: string) => {
-  if (!appInstalled || pollingControllers.has(id)) return
+  if ((connectionMode.value === 'app' && !appInstalled) || pollingControllers.has(id)) return
   const controller = new AbortController()
   pollingControllers.set(id, controller)
   let failures = 0
@@ -446,7 +456,7 @@ const pollTask = async (id: string) => {
     if (!apiKey.value.trim()) { await patchWanTask(id, { status: 'paused', error: '填写原 API Key 后可继续查询' }); return }
     while (!controller.signal.aborted) {
       try {
-        const remote = await queryWanTask({ apiKey: apiKey.value, baseUrl: task.baseUrl }, remoteTaskId)
+        const remote = await queryWanTask({ apiKey: apiKey.value, baseUrl: task.baseUrl, connectionMode: connectionMode.value }, remoteTaskId)
         failures = 0
         if (remote.status === 'SUCCEEDED') { await finishTask(task, remote, controller); return }
         if (remote.status === 'FAILED') { await patchWanTask(id, { status: 'failed', requestId: remote.requestId, errorCode: remote.code, error: remote.message || 'Wan 视频生成失败' }); return }
@@ -494,7 +504,7 @@ const generateVideo = async () => {
       }
     }
     await saveWanTask(task)
-    const remote = await submitWanGeneration({ apiKey: apiKey.value, baseUrl: baseUrl.value }, input)
+    const remote = await submitWanGeneration({ apiKey: apiKey.value, baseUrl: baseUrl.value, connectionMode: connectionMode.value }, input)
     await patchWanTask(localId, { status: 'pending', remoteTaskId: remote.taskId, requestId: remote.requestId, error: '' })
     pageMessage.value = '任务已提交，可以离开页面；回来后会自动继续查询。'
     void pollTask(localId)
@@ -574,13 +584,14 @@ const confirmDelete = async () => {
 
 const recoverTasks = async () => {
   await loadWanTasks()
-  if (!appInstalled || !apiKey.value.trim()) return
+  if ((connectionMode.value === 'app' && !appInstalled) || !apiKey.value.trim()) return
   for (const task of tasks.value.filter(item => ['pending', 'running', 'downloading'].includes(item.status))) void pollTask(task.id)
 }
 
 onMounted(async () => {
   await loadWanTasks()
-  if (appInstalled) {
+  if (connectionMode.value === 'web') { apiKey.value = localStorage.getItem('app_wan_web_api_key') || ''; savedApiKey.value = apiKey.value }
+  if (appInstalled && connectionMode.value === 'app') {
     try {
       apiKey.value = (await getSecureValue('wan_api_key')) || ''
       savedApiKey.value = apiKey.value
@@ -590,7 +601,7 @@ onMounted(async () => {
     appStateHandle = await App.addListener('appStateChange', ({ isActive }) => { if (isActive) void recoverTasks() })
   }
   keyReady.value = true
-  showSettings.value = appInstalled && (!apiKey.value || !config.workspaceId)
+  showSettings.value = !apiKey.value || !config.workspaceId
   await recoverTasks()
 })
 
@@ -623,9 +634,9 @@ onUnmounted(() => {
       <Transition name="message"><p v-if="pageMessage" class="page-message" role="status">{{ pageMessage }}</p></Transition>
       <Transition name="message"><p v-if="pageError" class="page-error" role="alert">{{ pageError }}</p></Transition>
 
-      <section v-if="!appInstalled" class="install-note">
-        <strong>官方接入需要安装 App</strong>
-        <p>普通网页会被阿里云接口的跨域策略阻止。页面配置与作品记录保持独立，不会影响 Veo 或 Kling。</p>
+      <section v-if="connectionMode === 'app' && !appInstalled" class="install-note">
+        <strong>App 直连需要安装应用</strong>
+        <p>也可以在连接设置中切换为网页直连。</p>
       </section>
 
       <template v-if="activeTab === 'create'">
@@ -635,10 +646,11 @@ onUnmounted(() => {
             <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
           </button>
           <div v-if="showSettings" class="settings-body">
+            <div class="mode-tabs"><button type="button" :class="{ active: connectionMode === 'web' }" @click="connectionMode = 'web'">网页直连</button><button type="button" :class="{ active: connectionMode === 'app' }" @click="connectionMode = 'app'">App 直连</button></div>
             <label class="field"><span>地域</span><select v-model="config.region"><option v-for="item in WAN_REGIONS" :key="item.value" :value="item.value">{{ item.label }}</option></select><small>地域必须与 API Key、模型和业务空间一致。</small></label>
             <label class="field"><span>业务空间 ID</span><input v-model.trim="config.workspaceId" autocomplete="off" placeholder="例如 llm-xxxxxxxx"><small>从百炼控制台的 API Host 中复制域名前缀。</small></label>
             <label class="field key-field"><span>API Key</span><div class="input-action"><input v-model="apiKey" :type="showApiKey ? 'text' : 'password'" autocomplete="off" placeholder="sk-..."><button type="button" @click="showApiKey = !showApiKey">{{ showApiKey ? '隐藏' : '显示' }}</button></div><small>仅写入 Android/iOS 系统安全存储，不进入网页存储或备份。</small></label>
-            <button class="save-key" type="button" :disabled="!appInstalled || keySaving || apiKeyStored" @click="saveApiKey">{{ keySaving ? '保存中…' : apiKeyStored ? '已安全保存' : '保存 API Key' }}</button>
+            <button class="save-key" type="button" :disabled="keySaving || apiKeyStored || (connectionMode === 'app' && !appInstalled)" @click="saveApiKey">{{ keySaving ? '保存中…' : apiKeyStored ? '已保存' : '保存 API Key' }}</button>
           </div>
         </section>
 
@@ -723,7 +735,7 @@ onUnmounted(() => {
           <div class="generation-note"><span>30 fps</span><span>MP4</span><span>结果地址保留 24 小时</span><span>最多 5 个并发任务</span></div>
         </section>
 
-        <button class="generate-button" type="button" :disabled="!canGenerate" @click="generateVideo"><span v-if="isSubmitting" class="spinner"></span>{{ isSubmitting ? '正在提交…' : !appInstalled ? '请安装 App 使用' : !apiKey.trim() || !config.workspaceId.trim() ? '请完成连接设置' : `生成视频 · ${estimatedCostText}` }}</button>
+        <button class="generate-button" type="button" :disabled="!canGenerate" @click="generateVideo"><span v-if="isSubmitting" class="spinner"></span>{{ isSubmitting ? '正在提交…' : connectionMode === 'app' && !appInstalled ? '请安装 App 或切换网页直连' : !apiKey.trim() || !config.workspaceId.trim() ? '请完成连接设置' : `生成视频 · ${estimatedCostText}` }}</button>
 
         <section v-if="activeTasks.length" class="running-section">
           <div class="section-heading"><div><small>进行中的任务</small><h2>{{ activeTasks.length }} 项正在处理</h2></div></div>
@@ -736,12 +748,12 @@ onUnmounted(() => {
         <div v-else class="works-list">
           <article v-for="task in tasks" :key="task.id" class="work-card">
             <div class="work-media" :class="task.params.ratio === '9:16' || task.params.ratio === '3:4' ? 'portrait' : 'landscape'">
-              <video v-if="task.localFileUri" :src="videoUrl(task)" controls playsinline preload="metadata"></video>
+              <video v-if="task.localFileUri || task.remoteVideoUrl" :src="task.localFileUri ? videoUrl(task) : task.remoteVideoUrl" controls playsinline preload="metadata"></video>
               <div v-else class="work-placeholder"><span v-if="['submitting','pending','running','downloading'].includes(task.status)" class="spinner"></span><svg v-else viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></svg><strong>{{ statusLabel(task.status) }}</strong></div>
               <span class="status-badge" :class="task.status">{{ statusLabel(task.status) }}</span>
             </div>
             <div class="work-info"><div><strong>{{ task.params.prompt || task.params.media.map(item => item.label).filter(Boolean).join('、') || '素材生成' }}</strong><p>{{ modelLabel(task.params.model) }} · {{ modeLabel(task.params.mode) }} · {{ task.params.resolution }} · {{ task.usage?.output_video_duration || (task.params.duration === -1 ? '智能' : task.params.duration) }} 秒 · {{ formatTime(task.createdAt) }}</p><p v-if="task.requestId">Request ID：{{ task.requestId }}</p><p v-if="task.error" class="task-error">{{ task.error }}</p></div>
-              <div class="work-actions"><button v-if="task.status === 'paused' && task.remoteVideoUrl" type="button" @click="retryDownload(task)">重试保存</button><button v-else-if="task.status === 'paused' && task.remoteTaskId" type="button" @click="resumeTask(task)">继续查询</button><button v-if="task.localFileUri" type="button" @click="shareTask(task)">分享/保存</button><button type="button" @click="reuseTask(task)">复用参数</button><button class="danger" type="button" @click="pendingDelete = task">删除</button></div>
+              <div class="work-actions"><a v-if="!task.localFileUri && task.remoteVideoUrl" :href="task.remoteVideoUrl" :download="`${task.id}.mp4`" target="_blank" rel="noopener">下载</a><button v-if="task.status === 'paused' && task.remoteVideoUrl && connectionMode === 'app'" type="button" @click="retryDownload(task)">重试保存</button><button v-else-if="task.status === 'paused' && task.remoteTaskId" type="button" @click="resumeTask(task)">继续查询</button><button v-if="task.localFileUri" type="button" @click="shareTask(task)">分享/保存</button><button type="button" @click="reuseTask(task)">复用参数</button><button class="danger" type="button" @click="pendingDelete = task">删除</button></div>
             </div>
           </article>
         </div>
