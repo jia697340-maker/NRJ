@@ -23,7 +23,6 @@ import AppMCP from './components/app_MCP.vue'
 import AppVideoHall from './components/app_VideoHall.vue'
 import LockScreen from './components/LockScreen.vue'
 import AppWatermarkOverlay from './components/AppWatermarkOverlay.vue'
-import McpApprovalModal from './components/McpApprovalModal.vue'
 import { globalSettings, appStats } from './store'
 import { useChatState } from './composables/useChatState'
 import { useAppIcons } from './composables/useAppIcons'
@@ -410,9 +409,6 @@ watch([activeApp, isLocked], ([appId, locked]) => {
 
     <!-- 好友申请居中美化弹窗 -->
     <FriendRequestModal />
-
-    <!-- MCP 写入与外部操作逐次确认 -->
-    <McpApprovalModal />
 
     <!-- 锁屏界面 -->
     <Transition name="lock-fade">

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import localforage from 'localforage'
 import { chatSettings } from '../store'
+import { mcpSettings } from '../store/mcp'
 import { myProfile } from './chatState/state'
 import {
   formatIdentityClockTime,
@@ -59,6 +60,7 @@ export function useChatRoomDisplay(selectedChat: any) {
     
     for (const msg of msgs) {
       if (msg.type === 'time') continue
+      if (msg.type === 'capability' && !mcpSettings.douban.showCapabilityCard) continue
       // 转账事件在视觉上固定跟随原卡片，避免被角色连发消息拆散。
       // 数据数组仍保留真实发生顺序，供上下文和持久化使用。
       if (msg.systemKind === 'transfer_event' && msg.transferMessageId !== undefined) continue

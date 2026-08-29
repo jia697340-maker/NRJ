@@ -12,6 +12,7 @@ import { shouldDisplayThinking } from '../../../services/reasoning'
 import GroupMemberBadge from '../group/GroupMemberBadge.vue'
 import { getGroupLevelInfo, getGroupMemberRole } from '../../../services/groupManagementService'
 import type { GroupBadgeType } from '../../../types/groupManagement'
+import CapabilityCard from '../capabilities/CapabilityCard.vue'
 import { formatIdentityDateTime, getConversationAdjustedTimestamp } from '../../../services/conversationTime'
 import {
   bubbleAssetUrls,
@@ -51,7 +52,8 @@ const emit = defineEmits([
   'handle-emoji-click',
   'open-character-profile',
   'view-recalled-message',
-  'cancel-image-generation'
+  'cancel-image-generation',
+  'capability-action'
 ])
 const translationExpanded = ref(false)
 const messageSender = computed(() => props.resolveSender?.(props.msg) || props.selectedChat || {})
@@ -187,7 +189,7 @@ const groupBadge = (memberId: string) => {
     </div>
   </div>
 
-  <div class="message-row" :class="[msg.type, { 'is-multi-select': selectionMode !== null, 'is-marked': msg.isMarked }]" :style="msg.costTime ? { marginBottom: '4px' } : {}" @click="msg.type !== 'time' ? emit('click-message', msg.id) : null">
+  <div class="message-row" :class="[msg.type, { 'is-multi-select': selectionMode !== null, 'is-marked': msg.isMarked }]" :style="msg.costTime ? { marginBottom: '4px' } : {}" @click="['left','right','system','narration'].includes(msg.type) ? emit('click-message', msg.id) : null">
     
     <!-- 闪烁的小星星动画 -->
     <transition name="star-pop">
@@ -208,6 +210,10 @@ const groupBadge = (memberId: string) => {
     </transition>
 
     <div v-if="msg.type === 'time'" class="msg-time">{{ msg.content }}</div>
+
+    <template v-else-if="msg.type === 'capability' && msg.capabilityExecution">
+      <CapabilityCard :execution="msg.capabilityExecution" @action="emit('capability-action', $event)" />
+    </template>
 
     <template v-else-if="msg.type === 'narration'">
       <div

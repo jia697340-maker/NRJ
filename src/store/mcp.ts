@@ -1,51 +1,62 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { reactive, watch } from 'vue'
-import type { McpActivityRecord, McpConnectionRecord } from '../types/mcp'
+import type { DoubanCapabilitySettings, McpSettings } from '../types/mcp'
 import { readStoredJSON } from './utils'
+import { getSecureValue, isNativeMobileApp, setSecureValue } from '../services/mobileSecureStorage'
 
 const SETTINGS_KEY = 'clingy_mcp_settings'
-const CONNECTIONS_KEY = 'clingy_mcp_connections'
-const ACTIVITY_KEY = 'clingy_mcp_activity'
+const JINA_KEY = 'clingy_mcp_jina_api_key'
+const LEGACY_KEYS = ['clingy_mcp_connections', 'clingy_mcp_activity', 'clingy_mcp_shared_life']
 
-const storedSettings = readStoredJSON<{ enabled?: boolean }>(SETTINGS_KEY, {})
-const storedConnections = readStoredJSON<McpConnectionRecord[]>(CONNECTIONS_KEY, [])
-const storedActivity = readStoredJSON<McpActivityRecord[]>(ACTIVITY_KEY, [])
-
-export const mcpSettings = reactive({
-  // MCP 永远由用户主动开启；没有历史设置时必须保持关闭。
-  enabled: storedSettings.enabled === true
+export const defaultDoubanSettings = (): DoubanCapabilitySettings => ({
+  enabled: false,
+  readPostBody: true,
+  readSubjectInfo: true,
+  readComments: true,
+  readShortReviews: true,
+  readLongReviews: false,
+  readRatingAndTags: true,
+  readAuthorPublicInfo: false,
+  readRelatedItems: false,
+  triggerMode: 'auto',
+  depth: 'standard',
+  showCapabilityCard: true
 })
 
-export const mcpConnections = reactive<McpConnectionRecord[]>(Array.isArray(storedConnections) ? storedConnections.map(item => ({
-  ...item,
-  enabled: item.enabled === true,
-  status: 'idle',
-  statusText: item.enabled ? '等待连接' : '未启用',
-  token: String(item.token || ''),
-  tools: Array.isArray(item.tools) ? item.tools.map(tool => ({ ...tool, enabled: tool.enabled === true })) : []
-})) : [])
+const defaults = (): McpSettings => ({
+  schemaVersion: 2,
+  enabled: false,
+  jinaApiKey: '',
+  douban: defaultDoubanSettings()
+})
 
-export const mcpActivity = reactive<McpActivityRecord[]>(Array.isArray(storedActivity) ? storedActivity.slice(0, 80) : [])
+// 用户已明确要求清空旧 MCP。旧结构不迁移，避免旧授权在新能力中被意外继承。
+for (const key of LEGACY_KEYS) localStorage.removeItem(key)
+const stored = readStoredJSON<Partial<McpSettings>>(SETTINGS_KEY, {})
+const storedWebKey = isNativeMobileApp() ? '' : String(localStorage.getItem(JINA_KEY) || stored.jinaApiKey || '')
+const initial = stored.schemaVersion === 2
+  ? { ...defaults(), ...stored, douban: { ...defaultDoubanSettings(), ...(stored.douban || {}) } }
+  : defaults()
+initial.jinaApiKey = storedWebKey
+if (initial.douban.triggerMode === 'confirm') initial.douban.showCapabilityCard = true
 
-watch(mcpSettings, value => localStorage.setItem(SETTINGS_KEY, JSON.stringify(value)), { deep: true })
-watch(mcpConnections, value => localStorage.setItem(CONNECTIONS_KEY, JSON.stringify(value)), { deep: true })
-watch(mcpActivity, value => localStorage.setItem(ACTIVITY_KEY, JSON.stringify(value.slice(0, 80))), { deep: true })
+export const mcpSettings = reactive<McpSettings>(initial)
 
-export const upsertMcpConnection = (connection: McpConnectionRecord) => {
-  const index = mcpConnections.findIndex(item => item.id === connection.id)
-  if (index >= 0) mcpConnections.splice(index, 1, connection)
-  else mcpConnections.unshift(connection)
-}
+watch(mcpSettings, value => {
+  const { jinaApiKey: _secret, ...safeSettings } = value
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(safeSettings))
+}, { deep: true })
 
-export const removeMcpConnection = (id: string) => {
-  const index = mcpConnections.findIndex(item => item.id === id)
-  if (index >= 0) mcpConnections.splice(index, 1)
-}
+let nativeSecretReady = !isNativeMobileApp()
+if (isNativeMobileApp()) void getSecureValue(JINA_KEY).then(value => {
+  mcpSettings.jinaApiKey = value || ''
+  nativeSecretReady = true
+})
+watch(() => mcpSettings.jinaApiKey, value => {
+  if (!nativeSecretReady) return
+  if (isNativeMobileApp()) void setSecureValue(JINA_KEY, value)
+  else if (value) localStorage.setItem(JINA_KEY, value)
+  else localStorage.removeItem(JINA_KEY)
+})
 
-export const addMcpActivity = (activity: Omit<McpActivityRecord, 'id' | 'createdAt'>) => {
-  mcpActivity.unshift({ ...activity, id: `mcp_activity_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, createdAt: Date.now() })
-  if (mcpActivity.length > 80) mcpActivity.splice(80)
-}
-
-export const clearMcpActivity = () => mcpActivity.splice(0)
-
+export const resetMcpSettings = () => Object.assign(mcpSettings, defaults())
