@@ -4,6 +4,7 @@ import { computed, ref, watchEffect } from 'vue'
 import ChatImageBubble from '../bubbles/ChatImageBubble.vue'
 import ChatVoiceBubble from '../bubbles/ChatVoiceBubble.vue'
 import ChatTransferBubble from '../bubbles/ChatTransferBubble.vue'
+import GroupFinanceCard from '../bubbles/GroupFinanceCard.vue'
 import ChatCallRecordBubble from '../bubbles/ChatCallRecordBubble.vue'
 import ChatFileBubble from '../bubbles/ChatFileBubble.vue'
 import ChatVideoBubble from '../bubbles/ChatVideoBubble.vue'
@@ -48,6 +49,7 @@ const emit = defineEmits([
   'toggle-voice-text',
   'play-voice',
   'handle-left-transfer-click',
+  'handle-group-finance-action',
   'handle-emoji-click',
   'open-character-profile',
   'view-recalled-message',
@@ -55,6 +57,9 @@ const emit = defineEmits([
 ])
 const translationExpanded = ref(false)
 const messageSender = computed(() => props.resolveSender?.(props.msg) || props.selectedChat || {})
+const groupFinanceInteraction = computed(() => props.msg?.financialRef?.interactionId
+  ? props.selectedChat?.groupFinanceState?.interactions?.find((item: any) => String(item.id) === String(props.msg.financialRef.interactionId))
+  : null)
 const messageAsset = computed(() => {
   const data = props.msg?.fileData || props.msg?.videoData
   if (!data?.assetId) return null
@@ -336,6 +341,10 @@ const groupBadge = (memberId: string) => {
             />
           </template>
 
+          <template v-else-if="groupFinanceInteraction">
+            <GroupFinanceCard :interaction="groupFinanceInteraction" direction="left" :group="selectedChat" actor-id="user" @act="emit('handle-group-finance-action', $event)" @touch-start="emit('touch-start', msg.id)" @touch-end="emit('touch-end')" />
+          </template>
+
           <!-- AI 发来的转账/红包 UI -->
           <template v-else-if="msg.transferData">
             <ChatTransferBubble
@@ -362,7 +371,7 @@ const groupBadge = (memberId: string) => {
           </template>
 
           <div style="display: flex; align-items: flex-end;">
-            <div v-if="!msg.fileData && !msg.videoData && !msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-left" data-chat-bubble="other" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+            <div v-if="!msg.fileData && !msg.videoData && !msg.imageData && !msg.voiceData && !msg.transferData && !groupFinanceInteraction && !msg.isEmoji && !msg.callData" class="bubble bubble-left" data-chat-bubble="other" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
               <img v-for="item in bubbleOrnaments('other')" :key="item.id" class="bubble-ornament" :src="bubbleAssetUrls[item.assetId]" :alt="item.name" :style="ornamentStyle(item)">
               <!-- 同气泡模式下的思考过程 -->
               <div v-if="showThinkingContent && chatSettings.cotInSameBubble" class="thinking-block">
@@ -430,6 +439,10 @@ const groupBadge = (memberId: string) => {
 
           <template v-else-if="msg.videoData">
             <ChatVideoBubble :msg="msg" :asset="messageAsset" />
+          </template>
+
+          <template v-else-if="groupFinanceInteraction">
+            <GroupFinanceCard :interaction="groupFinanceInteraction" direction="right" :group="selectedChat" actor-id="user" @act="emit('handle-group-finance-action', $event)" @touch-start="emit('touch-start', msg.id)" @touch-end="emit('touch-end')" />
           </template>
 
           <!-- 新版转账/红包 UI -->
@@ -507,7 +520,7 @@ const groupBadge = (memberId: string) => {
           <div v-if="shouldShowTime && chatSettings.timeDisplayPosition === 'bubble_outer'" class="msg-time-inline-outer right">
               {{ formatMsgTime(msg.timestamp || msg.id) }}
             </div>
-            <div v-if="!msg.fileData && !msg.videoData && !msg.imageData && !msg.voiceData && !msg.transferData && !msg.isEmoji && !msg.callData" class="bubble bubble-right" data-chat-bubble="self" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
+            <div v-if="!msg.fileData && !msg.videoData && !msg.imageData && !msg.voiceData && !msg.transferData && !groupFinanceInteraction && !msg.isEmoji && !msg.callData" class="bubble bubble-right" data-chat-bubble="self" @touchstart="emit('touch-start', msg.id)" @touchend="emit('touch-end')" @touchmove="emit('touch-move', $event)" @contextmenu.prevent>
               <img v-for="item in bubbleOrnaments('self')" :key="item.id" class="bubble-ornament" :src="bubbleAssetUrls[item.assetId]" :alt="item.name" :style="ornamentStyle(item)">
               <div v-if="msg.quote" class="msg-quote-block" data-bubble-part="quote">
                 <div class="msg-quote-sender">{{ msg.quote.sender }}</div>

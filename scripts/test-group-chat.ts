@@ -17,6 +17,7 @@ const { applyMemoryExtraction, buildExtractionPrompt, formatMessagesForMemory, g
 const { findRoleEmojiByResponse, normalizeEmojiScope, selectRoleAvailableEmojis, selectUserSendableEmojis } = await import('../src/services/chatEmojiScope.ts')
 const { awardGroupActivity, consumeAtAll, ensureGroupManagementState, getAtAllUsage, getGroupPermissions, getSpeakableCharacterIds, groupManagementService, isGroupMemberMuted } = await import('../src/services/groupManagementService.ts')
 const { buildGroupToSingleBridgeContext, normalizeMemoryBridgeConfig } = await import('../src/services/memoryBridge.ts')
+const { actOnGroupFinance, createGroupFinanceInteraction } = await import('../src/services/groupFinance.ts')
 
 const scopedEmojis = [
   { id: 'user-1', name: '用户笑', category: 'user' as const },
@@ -50,6 +51,19 @@ assert.doesNotMatch(payload[0].content, /你是(?:阿岚|白露)/)
 assert.doesNotMatch(payload[0].content, /单聊全局提示词|单聊设置|应用组合/)
 assert.doesNotMatch(payload[0].content, /<\/?msg(?:\s|>)/)
 assert.doesNotMatch(payload[0].content, /<\/?send_(?:image|voice|emoji|transfer|red_packet)/)
+assert.match(payload[0].content, /已启用的群资金互动/)
+assert.match(payload[0].content, /拼手气红包/)
+assert.match(payload[0].content, /指定成员转账/)
+assert.doesNotMatch(payload[0].content, /【答题红包】/)
+
+group.groupFinanceSettings.enabled = false
+payload = await buildGroupChatMessages(group, contacts, { name: '小满' })
+assert.doesNotMatch(payload[0].content, /已启用的群资金互动/)
+group.groupFinanceSettings.enabled = true
+group.groupFinanceSettings.features.packet_quiz = true
+payload = await buildGroupChatMessages(group, contacts, { name: '小满' })
+assert.match(payload[0].content, /【答题红包】/)
+group.groupFinanceSettings.features.packet_quiz = false
 
 group.groupContext = '这是一起旅行前临时建的群。'
 payload = await buildGroupChatMessages(group, contacts, { name: '小满' })
@@ -69,6 +83,13 @@ assert.deepEqual(parseGroupResponse('<group_announcement_ack sender="b" announce
 assert.deepEqual(parseGroupResponse('<group_msg sender="a" mentions="all,user">集合</group_msg>', ['a']).messages[0].mentions, ['all', 'user'])
 assert.equal(parseGroupResponse('<group_admin_action sender="a" action="announcement" title="集合" pinned="true">今晚八点</group_admin_action>', ['a']).adminActions[0].action, 'announcement')
 assert.equal(parseGroupResponse('<group_membership_action sender="c" action="apply">想重新回来</group_membership_action>', ['a'], ['c']).membershipActions[0].senderId, 'c')
+const parsedFinance = parseGroupResponse('<group_msg sender="a">我把晚饭钱转给你们。</group_msg><group_finance sender="a" action="create" feature="transfer_batch_custom" targets="b,user" amounts="b:12.34,user:5">晚饭</group_finance>', ['a', 'b'])
+assert.equal(parsedFinance.messages.length, 1)
+assert.equal(parsedFinance.financeActions.length, 1)
+assert.equal(parsedFinance.financeActions[0].customAmounts.b, 1234)
+assert.equal(parsedFinance.financeActions[0].customAmounts.user, 500)
+assert.ok(parsedFinance.messages[0].sourceIndex < parsedFinance.financeActions[0].sourceIndex)
+assert.equal(parseGroupResponse('<group_finance sender="unknown" action="create" feature="packet_lucky" amount="10" count="2" targets="all" />', ['a', 'b']).financeActions.length, 0)
 
 const configured = normalizeGroupChat({ ...group, autoSummaryEnabled: true, autoSummaryThreshold: 137, autoSummaryTokenThreshold: 4321, autoSummaryTrigger: 'token', memoryBatchSize: 87, memoryTokenBudget: 777, memorySummaryRetryCount: 3 })
 assert.equal(configured.autoSummaryThreshold, 137)
@@ -83,6 +104,11 @@ assert.equal(configured.imageRecognitionMode, 'visual')
 assert.equal(configured.voiceCallMemoryValue, 24)
 assert.equal(configured.autonomyEnabled, false)
 assert.equal(configured.incomingCallEnabled, false)
+const financeInteraction = createGroupFinanceInteraction(configured, { feature: 'transfer_single', creatorId: 'a', creatorName: '阿岚', targetIds: ['user'], amountCents: 880, count: 1, remark: '测试转账' })
+assert.equal(financeInteraction.allocations[0].amountCents, 880)
+assert.equal(actOnGroupFinance(configured, { interactionId: financeInteraction.id, actorId: 'user', action: 'pay' }).reason, 'invalid_action')
+assert.equal(actOnGroupFinance(configured, { interactionId: financeInteraction.id, actorId: 'user', action: 'claim' }).ok, true)
+assert.equal(financeInteraction.status, 'completed')
 assert.equal(normalizeMemoryBridgeConfig(null).groupToSingle.shortTermValue, 20)
 assert.equal(normalizeMemoryBridgeConfig(null).singleToGroup.shortTermValue, 10)
 assert.equal(normalizeMemoryBridgeConfig({ groupToSingle: { shortTermValue: 999, longTermTokenBudget: 1 } }).groupToSingle.shortTermValue, 200)

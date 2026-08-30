@@ -21,6 +21,7 @@ import {
   normalizeConversationTimeState
 } from './conversationTime'
 import { getEffectiveCharacterAssets } from './characterCapabilities'
+import { buildGroupFinancePrompt, normalizeGroupFinanceSettings, normalizeGroupFinanceState, settleExpiredGroupFinance, type GroupFinanceSettings, type GroupFinanceState } from './groupFinance'
 
 export const activeGroupReplyIds = reactive(new Set<string>())
 export const groupReplyControllers = new Map<string, AbortController>()
@@ -163,6 +164,8 @@ export interface GroupChatRecord {
   membershipRequests?: GroupMembershipRequest[]
   atAllDaily?: Record<string, { date: string; count: number }>
   managementSchemaVersion?: number
+  groupFinanceSettings: GroupFinanceSettings
+  groupFinanceState: GroupFinanceState
 }
 
 export const getGroupChatsKey = (accountId?: string | null) => accountId ? `clingy_group_chats_${accountId}` : 'clingy_group_chats'
@@ -283,7 +286,9 @@ export const normalizeGroupChat = (raw: any): GroupChatRecord => ensureGroupMana
   memberSpecialTitles: raw.memberSpecialTitles, announcements: raw.announcements, adminLogs: raw.adminLogs,
   memberActivityDaily: raw.memberActivityDaily, removedMembers: raw.removedMembers,
   membershipRequests: raw.membershipRequests, atAllDaily: raw.atAllDaily,
-  managementSchemaVersion: Number(raw.managementSchemaVersion || 0)
+  managementSchemaVersion: Number(raw.managementSchemaVersion || 0),
+  groupFinanceSettings: normalizeGroupFinanceSettings(raw.groupFinanceSettings),
+  groupFinanceState: normalizeGroupFinanceState(raw.groupFinanceState)
 }) as GroupChatRecord
 
 export const createGroupChat = (input: Pick<GroupChatRecord, 'name' | 'groupContext' | 'memberIds'>, userProfile?: any): GroupChatRecord => normalizeGroupChat({
@@ -292,6 +297,7 @@ export const createGroupChat = (input: Pick<GroupChatRecord, 'name' | 'groupCont
 })
 
 export const saveGroupChat = (accountId: string | null | undefined, group: GroupChatRecord) => {
+  settleExpiredGroupFinance(group)
   const groups = readGroupChats(accountId)
   const index = groups.findIndex(item => item.id === group.id)
   const record = normalizeGroupChat({ ...group, updatedAt: Date.now(), isTyping: false })
@@ -422,7 +428,9 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
     if (capabilities.video.enabled && (capabilities.videos.length || capabilities.video.canGenerate)) kinds.add('video')
     return kinds
   }, new Set<string>())
-  const groupProtocol = getActiveGroupPrompt().replace('kind="text|voice|image|emoji|transfer|red_packet|narration|call"', `kind="text|voice|image|emoji|transfer|red_packet|narration|call${groupKinds.has('file') ? '|file' : ''}${groupKinds.has('video') ? '|video' : ''}"`)
+  const protocolKinds = `text|voice|image|emoji|narration|call${groupKinds.has('file') ? '|file' : ''}${groupKinds.has('video') ? '|video' : ''}`
+  let groupProtocol = getActiveGroupPrompt().replace('kind="text|voice|image|emoji|transfer|red_packet|narration|call"', `kind="${protocolKinds}"`)
+  groupProtocol = groupProtocol.replace(/\nkind 为 transfer 或 red_packet 时再填写 amount="金额" 与 remark="备注"；/g, '\n')
   let system = `【群聊场景】\n以下内容共同构成一个正在持续发生的真实多人群聊。只呈现群内实际发生的消息与动作，不额外解释生成过程。每位成员都有独立、完整且持续一致的人格、经历、认知和表达方式；每名成员只依据本人亲历、看见、听见或被明确告知的信息行动，不共享其他成员的私密认知，也不使用同一种声音。\n\n【成员边界】\n每个 <member_context> 只属于其 id 对应的成员，其中的人设、行为规则、记忆、状态和心声均不得移给其他成员或用户。\n\n${memberContexts.join('\n\n')}\n\n${groupProtocol}\n\n【当前群聊】\n群名：${group.name}\n用户：${groupUserProfile?.name || '我'}（ID：user）${groupUserProfile?.persona ? `\n用户在本群的身份：${groupUserProfile.persona}` : ''}\n\n【可用成员清单】\n${roster}`
   system += `\n\n${buildGroupManagementPrompt(group)}`
   if (group.timePerception) {
@@ -445,6 +453,8 @@ export const buildGroupChatMessages = async (group: GroupChatRecord, allChats: a
   if (group.emojiVisionScope === 'enabled_members') system += `\n表情图像按成员授权隔离；标注为某成员专属视觉的图片，其他成员不得据此形成认知或反应。`
   if (group.groupContext.trim()) system += `\n\n【可选群背景】\n${group.groupContext.trim()}`
   if ((group as any).pendingAutonomyDirective) system += `\n\n【本轮群成员自主活动】\n${escapeXml((group as any).pendingAutonomyDirective)}\n本轮由群成员自行决定是否发言；不得假装用户刚刚发送了新消息。${group.autonomyAllowMentions ? '允许自然提及用户或其他成员。' : '禁止使用 mentions 主动提及任何人。'}`
+  const financePrompt = buildGroupFinancePrompt(group)
+  if (financePrompt && !((group.activeCallType && group.disableMediaDuringCall) || (offlineActive && group.disableMediaDuringOffline))) system += `\n\n${financePrompt}`
   if (sharedMemory) system += `\n\n【群内共同记忆】${sharedMemory}`
   if (worldBookText.trim()) system += `\n\n【群世界设定】\n${worldBookText.trim()}`
   const valid = group.messages.filter(message => {
@@ -541,11 +551,23 @@ export const parseGroupResponse = (raw: string, allowedIds: string[], formerIds:
     const parsed = parseBilingualMessage(match[2].trim(), attrs)
     const content = parsed.content
     if (!content) continue
-    messages.push({ senderId, key: attrs.match(/\bkey=["']([^"']*)["']/i)?.[1] || '', emojiId: attrs.match(/\bemoji_id=["']([^"']*)["']/i)?.[1] || '', content, translation: parsed.translation, contentLanguage: parsed.contentLanguage, translationLanguage: parsed.translationLanguage, messageType: attrs.match(/\bkind=["']([^"']*)["']/i)?.[1] || 'text', assetAction: attrs.match(/\baction=["'](existing|generate)["']/i)?.[1] || '', assetRef: attrs.match(/\bref=["']([^"']*)["']/i)?.[1] || '', assetFormat: attrs.match(/\bformat=["']([^"']*)["']/i)?.[1] || '', assetTitle: attrs.match(/\btitle=["']([^"']*)["']/i)?.[1] || '', assetMode: attrs.match(/\bmode=["']([^"']*)["']/i)?.[1] || '', assetReferenceRef: attrs.match(/\breference_ref=["']([^"']*)["']/i)?.[1] || '', amount: Number(attrs.match(/\bamount=["']([^"']*)["']/i)?.[1] || 0), remark: attrs.match(/\bremark=["']([^"']*)["']/i)?.[1] || '', replyToMessageId: attrs.match(/\breply_to=["']([^"']*)["']/i)?.[1] || '', mentions: (attrs.match(/\bmentions=["']([^"']*)["']/i)?.[1] || '').split(',').map(item => item.trim()).filter(id => allowedIds.includes(id) || id === 'user' || id === 'all') })
+    messages.push({ sourceIndex: match.index, senderId, key: attrs.match(/\bkey=["']([^"']*)["']/i)?.[1] || '', emojiId: attrs.match(/\bemoji_id=["']([^"']*)["']/i)?.[1] || '', content, translation: parsed.translation, contentLanguage: parsed.contentLanguage, translationLanguage: parsed.translationLanguage, messageType: attrs.match(/\bkind=["']([^"']*)["']/i)?.[1] || 'text', assetAction: attrs.match(/\baction=["'](existing|generate)["']/i)?.[1] || '', assetRef: attrs.match(/\bref=["']([^"']*)["']/i)?.[1] || '', assetFormat: attrs.match(/\bformat=["']([^"']*)["']/i)?.[1] || '', assetTitle: attrs.match(/\btitle=["']([^"']*)["']/i)?.[1] || '', assetMode: attrs.match(/\bmode=["']([^"']*)["']/i)?.[1] || '', assetReferenceRef: attrs.match(/\breference_ref=["']([^"']*)["']/i)?.[1] || '', amount: Number(attrs.match(/\bamount=["']([^"']*)["']/i)?.[1] || 0), remark: attrs.match(/\bremark=["']([^"']*)["']/i)?.[1] || '', replyToMessageId: attrs.match(/\breply_to=["']([^"']*)["']/i)?.[1] || '', mentions: (attrs.match(/\bmentions=["']([^"']*)["']/i)?.[1] || '').split(',').map(item => item.trim()).filter(id => allowedIds.includes(id) || id === 'user' || id === 'all') })
   }
   const thoughts: any[] = []
   const thoughtRegex = /<group_inner_thought\s+sender=["']([^"']+)["']>([\s\S]*?)<\/group_inner_thought>/gi
   while ((match = thoughtRegex.exec(raw)) !== null) if (allowedIds.includes(match[1]) && match[2].trim()) thoughts.push({ senderId: match[1], content: match[2].trim() })
+  const financeActions: any[] = []
+  const financeRegex = /<group_finance\s+([^>]*?)(?:\/\s*>|>([\s\S]*?)<\/group_finance>)/gi
+  while ((match = financeRegex.exec(raw)) !== null) {
+    const attrs = match[1]
+    const attr = (name: string) => attrs.match(new RegExp(`\\b${name}=["']([^"']*)["']`, 'i'))?.[1] || ''
+    const senderId = attr('sender')
+    const action = attr('action').toLowerCase()
+    if (!allowedIds.includes(senderId) || !['create', 'claim', 'pay', 'reject', 'join'].includes(action)) continue
+    const targets = attr('targets').split(',').map(item => item.trim()).filter(id => id === 'all' || id === 'user' || allowedIds.includes(id))
+    const customAmounts = Object.fromEntries(attr('amounts').split(',').map(item => item.trim().split(':')).filter(([id, amount]) => targets.includes(id) && Number(amount) > 0).map(([id, amount]) => [id, Math.round(Number(amount) * 100)]))
+    financeActions.push({ sourceIndex: match.index, senderId, action, feature: attr('feature'), eventId: attr('event'), targets, customAmounts, amount: Number(attr('amount') || 0), count: Number(attr('count') || 0), answer: attr('answer'), min: Number(attr('min') || 0), max: Number(attr('max') || 0), delayMinutes: Number(attr('delay_minutes') || 0), content: String(match[2] || '').trim().slice(0, 240) })
+  }
   const managementActions: any[] = []
   const managementRegex = /<group_management\s+([^>]*)>([\s\S]*?)<\/group_management>/gi
   while ((match = managementRegex.exec(raw)) !== null) {
@@ -578,7 +600,7 @@ export const parseGroupResponse = (raw: string, allowedIds: string[], formerIds:
     if (!formerIds.includes(senderId) || !action) continue
     membershipActions.push({ senderId, action, requestId: attrs.match(/\brequest_id=["']([^"']*)["']/i)?.[1] || '', message: match[2].trim().slice(0, 240) })
   }
-  return { messages, thoughts, managementActions, adminActions, membershipActions, announcementAcks, idle: /<group_idle\s*\/>/i.test(raw) }
+  return { messages, thoughts, financeActions, managementActions, adminActions, membershipActions, announcementAcks, idle: /<group_idle\s*\/>/i.test(raw) }
 }
 
 export const requestGroupReply = async (group: GroupChatRecord, allChats: any[], userProfile: any, signal?: AbortSignal, worldBookText = '') => {

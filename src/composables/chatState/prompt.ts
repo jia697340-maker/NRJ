@@ -219,7 +219,7 @@ ${usesNaturalPromptV2
   })
   if (runtimeMode === 'group') {
     const unsupportedGroupItems = new Set([
-      'prompt_recall_mechanism', 'prompt_quote_mechanism', 'prompt_transfer_mechanism',
+      'prompt_recall_mechanism', 'prompt_quote_mechanism', 'prompt_transfer_mechanism', 'prompt_send_transfer_rules',
       'prompt_voice_call_user_rules', 'prompt_video_call_user_rules', 'prompt_moment_rules',
       'prompt_immersive_status'
     ])

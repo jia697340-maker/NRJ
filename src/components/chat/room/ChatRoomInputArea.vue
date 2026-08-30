@@ -15,6 +15,7 @@ const props = defineProps<{
   selectedChat: any
   isMixedOfflineActive: boolean
   mentionOptions?: Array<{ id: string; name: string; avatarUrl?: string; avatarText?: string; description?: string; disabled?: boolean }>
+  showTransferFeature?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -305,7 +306,7 @@ const handleEnter = () => { const option = filteredMentionOptions.value.find(ite
             </div>
 
             <!-- 功能 3: 转账/红包 -->
-            <div class="extension-item is-active" @click="emit('show-transfer-modal')">
+            <div v-if="showTransferFeature !== false" class="extension-item is-active" @click="emit('show-transfer-modal')">
               <div class="extension-icon-box">
                 <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="2" y="5" width="20" height="14" rx="2"></rect>

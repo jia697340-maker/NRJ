@@ -3,12 +3,19 @@
 import { computed, ref } from 'vue'
 import type { GroupChatRecord } from '../../services/groupChat'
 import ChatBilingualOptionModal from './modals/ChatBilingualOptionModal.vue'
+import GroupFinanceSettingsModal from './modals/GroupFinanceSettingsModal.vue'
 
 const props = defineProps<{ group: GroupChatRecord; match: (...keywords: string[]) => boolean }>()
 const emit = defineEmits<{ (e: 'save'): void }>()
 const save = () => emit('save')
 
 const showImageRecognitionModal = ref(false)
+const showFinanceSettings = ref(false)
+const financeSummary = computed(() => {
+  if (!props.group.groupFinanceSettings?.enabled) return '已关闭'
+  const count = Object.values(props.group.groupFinanceSettings.features || {}).filter(Boolean).length
+  return `已开启 ${count} 项`
+})
 
 const imageRecognitionOptions = [
   { value: 'description_only', label: '省 Token', description: '只携带图片文字描述，不重复发送原图' },
@@ -50,6 +57,12 @@ const selectImageRecognitionMode = (val: string) => {
         </div>
       </div>
     </div>
+
+    <div v-show="match('群资金互动', '红包', '转账', '收款', '群账本', '提示词')" class="glass-panel">
+      <div class="glass-list-item" @click="showFinanceSettings = true"><div><div class="item-label">群红包与资金互动</div><div class="group-item-desc">按玩法独立控制用户入口与 AI 完整提示模块；群聊仍保持每轮一次调用</div></div><div class="item-value"><span class="item-value-text">{{ financeSummary }}</span><span class="arrow">›</span></div></div>
+    </div>
+
+    <GroupFinanceSettingsModal :visible="showFinanceSettings" :group="group" @close="showFinanceSettings = false" @save="save" />
 
     <ChatBilingualOptionModal
       v-model:visible="showImageRecognitionModal"

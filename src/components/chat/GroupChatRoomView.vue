@@ -29,6 +29,7 @@ import ChatMessageActionModal from './modals/ChatMessageActionModal.vue'
 import ChatMessageEditModal from './modals/ChatMessageEditModal.vue'
 import ChatTimelineManagerModal from './modals/ChatTimelineManagerModal.vue'
 import ChatTransferModal from './modals/ChatTransferModal.vue'
+import GroupFinanceModal from './modals/GroupFinanceModal.vue'
 import ChatVoiceModal from './modals/ChatVoiceModal.vue'
 import ChatImageModal from './modals/ChatImageModal.vue'
 import ChatUserThoughtModal from './modals/ChatUserThoughtModal.vue'
@@ -42,6 +43,7 @@ import ChatVoiceCallWidget from './room/ChatVoiceCallWidget.vue'
 import ChatOfflineMeetView from './ChatOfflineMeetView.vue'
 import { createTransferData } from '../../services/transferLifecycle'
 import { createIncomingWalletPayment } from '../../services/walletService'
+import { actOnGroupFinance, createGroupFinanceInteraction, groupFinanceSummary, GROUP_FINANCE_FEATURES, settleExpiredGroupFinance, type GroupFinanceFeature } from '../../services/groupFinance'
 import { findRoleEmojiByResponse, selectUserSendableEmojis } from '../../services/chatEmojiScope'
 import { useGroupManagement } from '../../composables/useGroupManagement'
 import GroupChatAnnouncementBanner from './group/GroupChatAnnouncementBanner.vue'
@@ -87,6 +89,7 @@ const showWebSearchModal = ref(false)
 const showInnerThoughtModal = ref(false)
 const showMemoryModal = ref(false)
 const showTimelineManagerModal = ref(false)
+const showGroupFinanceModal = ref(false)
 const timelineForkMessageId = ref<number | string | null>(null)
 const timelineForkKind = ref<'timeline' | 'checkpoint'>('timeline')
 const ensureMemberTimelineBindings = () => {
@@ -144,6 +147,7 @@ const groupMemberAvatarsStore = localforage.createInstance({ name: 'nrt-app', st
 const groupMemberAvatarUrls = ref<Record<string, string>>({})
 
 const members = computed<any[]>(() => props.group.memberIds.map((id: string) => mockChats.value.find(chat => chat.chatType !== 'group' && String(chat.characterEntityId || chat.id) === id)).filter(Boolean))
+const groupFinanceAvailable = computed(() => props.group.groupFinanceSettings?.enabled === true && Object.values(props.group.groupFinanceSettings?.features || {}).some(Boolean))
 const memberMap = computed(() => new Map(members.value.map(member => {
   const id = String(member.characterEntityId || member.id)
   return [id, { ...member, ...(props.group.memberSettings?.[id] || {}) }]
@@ -290,8 +294,37 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession | ReplyRe
     const disableMedia = (targetGroup.activeCallType && targetGroup.disableMediaDuringCall) || (offlineActive && targetGroup.disableMediaDuringOffline)
     const disableThought = (targetGroup.activeCallType && targetGroup.disableThoughtDuringCall) || (offlineActive && targetGroup.disableThoughtDuringOffline)
     if (disableMedia) result.messages = result.messages.filter((message: any) => !['image', 'voice', 'emoji', 'transfer', 'red_packet', 'file', 'video', 'call'].includes(message.messageType))
+    if (disableMedia) result.financeActions = []
+    const enabledFinanceFeatures = targetGroup.groupFinanceSettings?.features || {}
+    const legacyTransferAllowed = groupFinanceAvailable.value && (enabledFinanceFeatures.transfer_single || enabledFinanceFeatures.transfer_batch_equal || enabledFinanceFeatures.transfer_batch_custom)
+    const legacyPacketAllowed = groupFinanceAvailable.value && Object.entries(enabledFinanceFeatures).some(([id, enabled]) => id.startsWith('packet_') && enabled)
+    result.messages = result.messages.filter((message: any) => message.messageType !== 'transfer' ? message.messageType !== 'red_packet' || legacyPacketAllowed : legacyTransferAllowed)
     if (disableThought) result.thoughts = []
     let managementActionCount = 0
+    const financeMessages: any[] = []
+    if (groupFinanceAvailable.value) for (const action of result.financeActions || []) {
+      try {
+        if (action.action === 'create') {
+          const feature = action.feature as GroupFinanceFeature
+          if (!GROUP_FINANCE_FEATURES.some(item => item.id === feature) || !targetGroup.groupFinanceSettings.features[feature]) continue
+          const targetIds = action.targets.includes('all') ? [] : action.targets
+          const min = Math.floor(action.min || 1); const max = Math.max(min + 1, Math.floor(action.max || 100))
+          const interaction = createGroupFinanceInteraction(targetGroup, {
+            feature, creatorId: action.senderId, creatorName: targetMemberName(action.senderId), targetIds,
+            amountCents: Object.values(action.customAmounts || {}).reduce((sum: number, value: any) => sum + Number(value || 0), 0) || Math.round(Math.max(0, action.amount) * 100), customAmounts: action.customAmounts, count: Math.max(1, action.count || targetIds.length || 1), remark: action.content,
+            expireHours: action.delayMinutes ? Math.max(1 / 60, action.delayMinutes / 60) : 24,
+            scheduledAt: feature === 'packet_lottery' ? Date.now() + Math.max(1, action.delayMinutes || 10) * 60000 : undefined,
+            challenge: feature === 'packet_password' || feature === 'packet_quiz' ? { prompt: action.content, answer: action.answer } : feature === 'packet_number' ? { prompt: action.content || `猜一个 ${min} 到 ${max} 之间的数字`, min, max, secretNumber: Math.floor(Math.random() * (max - min + 1)) + min } : undefined,
+            walletAccountId: currentChatUserId.value || 'guest'
+          })
+          const financeId = Date.now() + financeMessages.length
+          financeMessages.push({ id: financeId, timestamp: financeId, type: 'left', messageType: 'group_finance', senderType: 'character', senderId: action.senderId, senderNameSnapshot: targetMemberName(action.senderId), senderAvatarSnapshot: targetMemberAvatar(action.senderId), content: groupFinanceSummary(interaction), financialRef: { interactionId: interaction.id }, mentions: [], sourceIndex: action.sourceIndex })
+        } else {
+          actOnGroupFinance(targetGroup, { interactionId: action.eventId, actorId: action.senderId, action: action.action, answer: action.answer, walletAccountId: currentChatUserId.value || 'guest' })
+        }
+      } catch { /* 非法资金动作只被忽略，不重试模型，也不影响同轮正常对话。 */ }
+    }
+    if (financeMessages.length) result.messages = [...result.messages, ...financeMessages].sort((a: any, b: any) => Number(a.sourceIndex ?? 1e12) - Number(b.sourceIndex ?? 1e12))
     const deferredLeaveActions: any[] = []
     for (const ack of result.announcementAcks || []) {
       try {
@@ -350,7 +383,7 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession | ReplyRe
       const replyToMessageId = localIds.get(message.replyToMessageId) || message.replyToMessageId || ''
       const quoted = targetGroup.messages.find((entry: any) => String(entry.id) === String(replyToMessageId))
       const quote = quoted ? { id: quoted.id, content: quoted.content, sender: quoted.type === 'right' ? (groupUserProfile.value.name || '我') : targetMemberName(quoted.senderId) } : undefined
-      const item: any = { id, timestamp: id, type: message.messageType === 'narration' ? 'narration' : 'left', messageType: message.messageType, senderType: 'character', senderId: message.senderId, senderNameSnapshot: targetMemberName(message.senderId), senderAvatarSnapshot: targetMemberAvatar(message.senderId), content: message.content, translation: message.translation, translationStatus: message.translation ? 'ready' : undefined, contentLanguage: message.contentLanguage, translationLanguage: message.translationLanguage, replyToMessageId, quote, mentions: message.mentions.map((memberId: string) => ({ type: memberId === 'all' ? 'all' : memberId === 'user' ? 'user' : 'character', id: memberId })), turnId, sequence: index, isAutonomous: autonomousRun, isVoiceCallProcessMsg: targetGroup.activeCallType === 'voice', isVideoCallProcessMsg: targetGroup.activeCallType === 'video', isOfflineMeetMsg: Boolean(targetGroup.isMixedOfflineActive) }
+      const item: any = { id, timestamp: id, type: message.messageType === 'narration' ? 'narration' : 'left', messageType: message.messageType, senderType: 'character', senderId: message.senderId, senderNameSnapshot: targetMemberName(message.senderId), senderAvatarSnapshot: targetMemberAvatar(message.senderId), content: message.content, translation: message.translation, translationStatus: message.translation ? 'ready' : undefined, contentLanguage: message.contentLanguage, translationLanguage: message.translationLanguage, replyToMessageId, quote, mentions: (message.mentions || []).map((memberId: string) => ({ type: memberId === 'all' ? 'all' : memberId === 'user' ? 'user' : 'character', id: memberId })), turnId, sequence: index, isAutonomous: autonomousRun, isVoiceCallProcessMsg: targetGroup.activeCallType === 'voice', isVideoCallProcessMsg: targetGroup.activeCallType === 'video', isOfflineMeetMsg: Boolean(targetGroup.isMixedOfflineActive) }
       if (message.messageType === 'voice') item.voiceData = { text: message.content, seconds: Math.max(1, Math.ceil(message.content.length / 4)) }
       if (message.messageType === 'image') item.imageData = { text: message.content, summary: message.content }
       if (message.messageType === 'emoji') {
@@ -371,6 +404,7 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession | ReplyRe
         item.transferData = { ...createTransferData({ type: message.messageType, amount: message.amount || 0, remark: message.remark || message.content, expireHours: 24, sender: 'character', walletPaymentId: walletPayment.id, walletAccountId }), senderId: message.senderId }
       }
       if (message.messageType === 'call') item.callData = { callType: 'voice', status: 'ended' }
+      if (message.financialRef) item.financialRef = message.financialRef
       if (index === 0 && result.thinking) {
         item.thinking = result.thinking
         item.thinkingSource = result.reasoningSource
@@ -546,6 +580,25 @@ const handleSendEmoji = async (item: any) => { if (!canUserSend()) return; if (s
 const handleSendImage = (data: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); awardGroupActivity(props.group, 'user', `user_group_media_${Date.now()}`); return media.handleSendImage(data, showExtensionPanel) }
 const handleSendVoice = (data: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); awardGroupActivity(props.group, 'user', `user_group_media_${Date.now()}`); return media.handleSendVoice(data, showExtensionPanel) }
 const handleSendTransfer = (data: any) => { if (!canUserSend()) return; if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能'); awardGroupActivity(props.group, 'user', `user_group_media_${Date.now()}`); return media.handleSendTransfer(data, showExtensionPanel) }
+const handleCreateGroupFinance = async (data: any) => {
+  if (!canUserSend()) return
+  if (sceneDisablesMedia()) return showToast('当前场景已禁用多媒体与互动功能')
+  try {
+    const interaction = createGroupFinanceInteraction(props.group, { ...data, creatorId: 'user', creatorName: groupUserProfile.value.name || '我', walletAccountId: currentChatUserId.value || 'guest' })
+    const now = Date.now()
+    props.group.messages.push({ id: now, timestamp: now, type: 'right', senderId: 'user', senderType: 'user', messageType: 'group_finance', content: groupFinanceSummary(interaction), financialRef: { interactionId: interaction.id } })
+    showGroupFinanceModal.value = false; showExtensionPanel.value = false
+    awardGroupActivity(props.group, 'user', `user_group_finance_${now}`); persist(); await scrollBottom()
+  } catch (error) { showToast(error instanceof Error ? error.message : '资金互动创建失败') }
+}
+const handleGroupFinanceAction = async (payload: any) => {
+  try {
+    const result = actOnGroupFinance(props.group, { ...payload, actorId: 'user', walletAccountId: currentChatUserId.value || 'guest' })
+    if (!result.ok) return showToast(({ wrong_answer: '答案不正确', duplicate: '你已经参与过了', ineligible: '你不在参与范围内', closed: '活动已经结束', no_allocation: '已没有可领取份额' } as any)[result.reason] || '当前无法完成操作')
+    showToast(payload.action === 'pay' ? '付款成功' : payload.action === 'join' ? '已参与抽奖' : payload.action === 'reject' ? '已退还' : `领取成功${result.allocation ? ` · ¥${(result.allocation.amountCents / 100).toFixed(2)}` : ''}`)
+    persist(); await scrollBottom()
+  } catch (error) { showToast(error instanceof Error ? error.message : '操作失败') }
+}
 const onModalEdit = (id?: number) => { const message = props.group.messages.find((item: any) => item.id === (id || multi.targetMessageId.value)); if (!message) return; editTargetId.value = message.id; editInitialContent.value = message.content || ''; editInitialType.value = message.type; editHasMedia.value = Boolean(message.imageData || message.voiceData || message.fileData || message.videoData || message.transferData || message.isEmoji); showEditModal.value = true }
 const handleEditSave = (payload: any) => {
   const index = props.group.messages.findIndex((item: any) => item.id === payload.messageId);
@@ -709,7 +762,7 @@ watch(() => props.group.id, async id => {
   groupMemberAvatarUrls.value = loaded
   exitMultiSelectMode(); await scrollBottom()
 }, { immediate: true })
-onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setInterval(() => { updateTimeStr(); callClock.value = Date.now() }, 1000); await scrollBottom() })
+onMounted(async () => { await loadEmojis(); updateTimeStr(); if (settleExpiredGroupFinance(props.group)) persist(); timeInterval = setInterval(() => { updateTimeStr(); callClock.value = Date.now(); if (settleExpiredGroupFinance(props.group)) persist() }, 1000); await scrollBottom() })
 </script>
 
 <template>
@@ -740,7 +793,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @click="handleBannerClick"
     />
 
-    <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :is-generating="isGenerating" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @open-character-profile="emit('open-character-profile', $event)" @switch-reply-variant="handleReplyVariantSwitch" @regenerate-reply="regenerate" @open-reply-variant-actions="openReplyVariantActions" />
+    <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :is-generating="isGenerating" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @handle-group-finance-action="handleGroupFinanceAction" @open-character-profile="emit('open-character-profile', $event)" @switch-reply-variant="handleReplyVariantSwitch" @regenerate-reply="regenerate" @open-reply-variant-actions="openReplyVariantActions" />
 
     <ChatReplyVariantForkModal :visible="Boolean(pendingVariantSwitch)" :preview-messages="pendingVariantSwitch?.previewMessages || []" @close="pendingVariantSwitch = null" @fork="forkFromReplyVariant" />
     <ChatReplyVariantActionsModal :visible="Boolean(replyVariantActions)" :count="replyVariantActions?.count || 0" @close="replyVariantActions = null" @delete-current="deleteCurrentReplyVariant" @keep-current="keepCurrentReplyVariantOnly" />
@@ -777,6 +830,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       :selectedChat="group"
       :isMixedOfflineActive="Boolean(group.isMixedOfflineActive)"
       :mention-options="mentionOptions"
+      :show-transfer-feature="groupFinanceAvailable"
       @exit-multi-select-mode="exitMultiSelectMode"
       @select-all="selectAll"
       @recall-selected-messages="multi.recallSelectedMessages"
@@ -791,7 +845,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @handle-send-emoji="handleSendEmoji"
       @handle-stop-call="stopReply"
       @handle-regenerate="regenerate"
-      @show-transfer-modal="media.showTransferModal.value = true"
+      @show-transfer-modal="showGroupFinanceModal = true"
       @show-voice-modal="media.showVoiceModal.value = true"
       @show-image-modal="media.showImageModal.value = true"
       @show-voice-call-modal="addCallEvent('voice')"
@@ -803,7 +857,7 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @update:showExtensionPanel="showExtensionPanel = $event"
       @update:showEmojiPanel="showEmojiPanel = $event"
     />
-    <ChatTransferModal :visible="media.showTransferModal.value" :target-name="group.name" @close="media.showTransferModal.value = false" @send="handleSendTransfer" />
+    <GroupFinanceModal :visible="showGroupFinanceModal" :group="group" :members="members" @close="showGroupFinanceModal = false" @send="handleCreateGroupFinance" />
     <ChatVoiceModal :visible="media.showVoiceModal.value" @close="media.showVoiceModal.value = false" @send="handleSendVoice" />
     <ChatImageModal :visible="media.showImageModal.value" @close="media.showImageModal.value = false" @send="handleSendImage" />
     <ChatUserThoughtModal :visible="showUserThoughtModal" :initial-text="group.pendingUserThought || ''" @close="showUserThoughtModal = false" @save="handleSaveUserThought" />
