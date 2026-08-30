@@ -4,6 +4,7 @@ import JSZip from 'jszip'
 import { buildCharacterAssetPrompt, getEffectiveCharacterAssets } from '../src/services/characterCapabilities'
 import { generateFileBlob } from '../src/services/fileGenerationService'
 import { CHARACTER_VIDEO_PROVIDERS, getCharacterVideoProviderDefaults, listCharacterVideoAdapters } from '../src/services/videoGenerationService'
+import { getChatFilePreviewCapability, parseCsvRows } from '../src/services/chatFilePreview'
 
 const memory = new Map<string, string>()
 Object.defineProperty(globalThis, 'localStorage', { value: { getItem: (key: string) => memory.get(key) ?? null, setItem: (key: string, value: string) => memory.set(key, String(value)), removeItem: (key: string) => memory.delete(key), clear: () => memory.clear(), key: (index: number) => [...memory.keys()][index] ?? null, get length() { return memory.size } } })
@@ -61,6 +62,13 @@ const safeCsv = await generateFileBlob({ format: 'csv', title: '安全表格', r
 assert.match(await safeCsv.blob.text(), /"'=HYPERLINK/)
 const safeXml = await generateFileBlob({ format: 'xml', title: 'XML', content: `有效${String.fromCharCode(1)}内容` })
 assert.doesNotMatch(await safeXml.blob.text(), /\u0001/)
+
+assert.deepEqual(getChatFilePreviewCapability({ name: '测试文档.txt', mimeType: 'text/plain' }), { supported: true, kind: 'text', label: '文本' })
+assert.equal(getChatFilePreviewCapability({ name: '课程表.xlsx', mimeType: 'application/octet-stream' }).kind, 'xlsx', '扩展名应作为 MIME 缺失时的预览回退')
+assert.equal(getChatFilePreviewCapability({ name: '演示.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }).supported, false, '无法可靠还原的格式不得伪装成可预览')
+assert.deepEqual(getChatFilePreviewCapability({ name: '矢量图', mimeType: 'image/svg+xml' }), { supported: true, kind: 'text', label: 'SVG 源码' }, 'SVG 必须按源码安全预览，不能作为可执行文档嵌入')
+const parsedCsv = parseCsvRows('\uFEFF姓名,备注\r\n小林,"包含,逗号"\r\n小周,"他说""你好"""')
+assert.deepEqual(parsedCsv.rows, [['姓名', '备注'], ['小林', '包含,逗号'], ['小周', '他说"你好"']])
 
 const { parseGroupResponse } = await import('../src/services/groupChat')
 const parsed = parseGroupResponse('<group_msg sender="char-a" kind="file" action="existing" ref="file_0">课程表</group_msg>', ['char-a'])

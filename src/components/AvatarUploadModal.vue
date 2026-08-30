@@ -9,39 +9,41 @@
           <line x1="6" y1="6" x2="18" y2="18"></line>
         </svg>
       </button>
-      
-      <h2 class="modal-title">{{ title || '更换头像' }}</h2>
-      
-      <div class="avatar-preview">
-        <img v-if="previewUrl" :src="previewUrl" class="avatar-img" :class="shapeClass" :style="previewStyle" />
-        <div v-else class="avatar-placeholder" :class="shapeClass" :style="previewStyle">预览</div>
-      </div>
-      <div v-if="optimizeHint" class="optimize-hint">{{ optimizeHint }}</div>
-      
-      <div class="upload-options">
-        <div class="option-group">
-          <label class="custom-file-upload">
-            <input type="file" accept="image/*" @change="handleFileChange" class="hidden-file-input" />
-            <span class="upload-btn-text">选择本地图片</span>
-          </label>
+
+      <div class="modal-scroll-area">
+        <h2 class="modal-title">{{ title || '更换头像' }}</h2>
+        
+        <div class="avatar-preview">
+          <img v-if="previewUrl" :src="previewUrl" class="avatar-img" :class="shapeClass" :style="previewStyle" />
+          <div v-else class="avatar-placeholder" :class="shapeClass" :style="previewStyle">预览</div>
         </div>
+        <div v-if="optimizeHint" class="optimize-hint">{{ optimizeHint }}</div>
         
-        <div class="option-divider">或</div>
-        
-        <div class="option-group url-group">
-          <label>网络图片地址</label>
-          <div class="url-input-wrap">
-            <input type="text" v-model="inputUrl" placeholder="输入图片链接..." />
-            <button @click="applyUrl" class="btn btn-small">应用</button>
+        <div class="upload-options">
+          <div class="option-group">
+            <label class="custom-file-upload">
+              <input type="file" accept="image/*" @change="handleFileChange" class="hidden-file-input" />
+              <span class="upload-btn-text">选择本地图片</span>
+            </label>
+          </div>
+          
+          <div class="option-divider">或</div>
+          
+          <div class="option-group url-group">
+            <label>网络图片地址</label>
+            <div class="url-input-wrap">
+              <input type="text" v-model="inputUrl" placeholder="输入图片链接..." />
+              <button @click="applyUrl" class="btn btn-small">应用</button>
+            </div>
           </div>
         </div>
-      </div>
-      
-      <slot name="extra"></slot>
+        
+        <slot name="extra"></slot>
 
-      <div class="modal-actions">
-        <button @click="resetAvatar" class="btn btn-secondary">恢复默认</button>
-        <button @click="saveAvatar" class="btn btn-primary" :class="{ 'is-disabled': isOptimizing }">{{ isOptimizing ? '优化中…' : '保存' }}</button>
+        <div class="modal-actions">
+          <button @click="resetAvatar" class="btn btn-secondary">恢复默认</button>
+          <button @click="saveAvatar" class="btn btn-primary" :class="{ 'is-disabled': isOptimizing }">{{ isOptimizing ? '优化中…' : '保存' }}</button>
+        </div>
       </div>
     </div>
   </div>
@@ -197,33 +199,42 @@ const saveAvatar = () => {
 .modal-content {
   background: var(--sys-bg-secondary);
   border-radius: 24px;
-  padding: 24px;
+  padding: 0;
   width: 85%;
   max-width: 320px;
   max-height: 80vh;
-  overflow-y: auto;
+  overflow: hidden;
   box-shadow: 0 10px 30px rgba(0,0,0,0.1);
   display: flex;
   flex-direction: column;
-  gap: 20px;
   animation: slideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   position: relative;
 }
 
-/* 隐藏滚动条但保留滚动功能 */
-.modal-content::-webkit-scrollbar {
-  display: none;
-}
-.modal-content {
+.modal-scroll-area {
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  box-sizing: border-box;
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* 隐藏滚动条但保留滚动功能 */
+.modal-scroll-area::-webkit-scrollbar {
+  display: none;
 }
 
 .close-btn {
   position: absolute;
   top: 16px;
   right: 16px;
-  background: none;
+  z-index: 10;
+  background: color-mix(in srgb, var(--sys-bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
   border: none;
   color: var(--text-tertiary);
   cursor: pointer;
