@@ -3,7 +3,7 @@
 import { computed, ref } from 'vue'
 import { groupFinanceFeatureLabel, type GroupFinanceInteraction } from '../../../services/groupFinance'
 
-const props = defineProps<{ interaction: GroupFinanceInteraction; direction: 'left' | 'right'; group: any; actorId?: string }>()
+const props = defineProps<{ interaction: GroupFinanceInteraction; direction: 'left' | 'right'; group: any; actorId?: string; resolveMemberName?: (id: string) => string }>()
 const emit = defineEmits<{ (e: 'act', payload: { interactionId: string; action: 'claim' | 'pay' | 'reject' | 'join'; answer?: string }): void; (e: 'touch-start', id: string): void; (e: 'touch-end'): void }>()
 const showDetail = ref(false)
 const answer = ref('')
@@ -31,7 +31,15 @@ const submit = () => {
   emit('act', { interactionId: props.interaction.id, action, answer: answer.value.trim() || undefined })
   answer.value = ''
 }
-const name = (id?: string) => id === 'user' ? (props.group.userProfile?.name || '我') : props.group.memberNicknames?.[String(id || '')] || id || '群成员'
+const name = (id?: string) => {
+  const memberId = String(id || '')
+  if (memberId === 'user') return props.group.userProfile?.name || '我'
+  return props.group.memberNicknames?.[memberId]
+    || props.group.memoryMemberNames?.[memberId]
+    || props.group.removedMembers?.[memberId]?.name
+    || props.resolveMemberName?.(memberId)
+    || '群成员'
+}
 const money = (cents: number) => `¥${(cents / 100).toFixed(2)}`
 </script>
 

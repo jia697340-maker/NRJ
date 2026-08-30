@@ -68,6 +68,21 @@ export interface GroupFinanceState {
   ledger: GroupFinanceLedgerEntry[]
 }
 
+export interface GroupFinanceEvent {
+  eventId: string
+  interactionId: string
+  feature: GroupFinanceFeature
+  category: GroupFinanceCategory
+  action: 'claim' | 'pay' | 'reject' | 'join'
+  actorId: string
+  actorName: string
+  creatorId: string
+  creatorName: string
+  allocationId?: string
+  amountCents?: number
+  createdAt: number
+}
+
 export const GROUP_FINANCE_FEATURES: Array<{ id: GroupFinanceFeature; label: string; category: GroupFinanceCategory }> = [
   { id: 'packet_lucky', label: '拼手气红包', category: 'packet' },
   { id: 'packet_equal', label: '等额红包', category: 'packet' },
@@ -331,6 +346,38 @@ export const groupFinanceSummary = (interaction: GroupFinanceInteraction) => {
   if (interaction.category === 'packet') return `[${groupFinanceFeatureLabel(interaction.feature)}] ${interaction.remark} · ${done}/${interaction.count}`
   if (interaction.category === 'transfer') return `[群转账] ¥${(interaction.amountCents / 100).toFixed(2)} · ${done}/${interaction.count}`
   return `[群收款] ¥${(interaction.amountCents / 100).toFixed(2)} · ${done}/${interaction.count}`
+}
+
+export const createGroupFinanceEventNotice = (input: {
+  interaction: GroupFinanceInteraction
+  allocation?: GroupFinanceAllocation
+  action: GroupFinanceEvent['action']
+  actorId: string
+  actorName: string
+  createdAt?: number
+}) => {
+  const createdAt = Number(input.createdAt || Date.now())
+  const actorName = String(input.actorName || '群成员')
+  const creatorName = String(input.interaction.creatorName || '群成员')
+  const actionText = input.action === 'join'
+    ? `${actorName}参与了${creatorName}发起的定时抽奖`
+    : input.action === 'reject'
+      ? `${actorName}拒绝了${creatorName}发起的${input.interaction.category === 'collection' ? '群收款' : '群转账'}`
+      : input.action === 'pay'
+        ? `${actorName}完成了${creatorName}发起的群收款`
+        : input.interaction.category === 'packet'
+          ? `${actorName}领取了${creatorName}发出的红包`
+          : `${actorName}收下了${creatorName}发出的群转账`
+  const event: GroupFinanceEvent = {
+    eventId: uid('gf_event'), interactionId: input.interaction.id,
+    feature: input.interaction.feature, category: input.interaction.category,
+    action: input.action, actorId: input.actorId, actorName,
+    creatorId: input.interaction.creatorId, creatorName,
+    allocationId: input.allocation?.id,
+    amountCents: input.allocation?.amountCents,
+    createdAt
+  }
+  return { content: actionText, event }
 }
 
 const modulePrompts: Record<GroupFinanceFeature, string> = {

@@ -9,7 +9,11 @@ const categories: Array<{ id: GroupFinanceCategory; label: string }> = [{ id: 'p
 const enabledCount = computed(() => Object.values(props.group.groupFinanceSettings?.features || {}).filter(Boolean).length)
 const toggleFeature = (id: string) => { props.group.groupFinanceSettings.features[id] = !props.group.groupFinanceSettings.features[id]; emit('save') }
 const setAll = (value: boolean) => { for (const item of GROUP_FINANCE_FEATURES) props.group.groupFinanceSettings.features[item.id] = value; emit('save') }
-const name = (id: string) => id === 'user' ? (props.group.userProfile?.name || '我') : props.group.memberNicknames?.[id] || id || '系统'
+const name = (id: string) => id === 'system'
+  ? '系统'
+  : id === 'user'
+    ? (props.group.userProfile?.name || '我')
+    : props.group.memberNicknames?.[id] || props.group.memoryMemberNames?.[id] || props.group.removedMembers?.[id]?.name || '群成员'
 const money = (cents: number) => `${cents >= 0 ? '' : '-'}¥${(Math.abs(cents) / 100).toFixed(2)}`
 </script>
 <template>

@@ -43,7 +43,7 @@ import ChatVoiceCallWidget from './room/ChatVoiceCallWidget.vue'
 import ChatOfflineMeetView from './ChatOfflineMeetView.vue'
 import { createTransferData } from '../../services/transferLifecycle'
 import { createIncomingWalletPayment } from '../../services/walletService'
-import { actOnGroupFinance, createGroupFinanceInteraction, groupFinanceSummary, GROUP_FINANCE_FEATURES, settleExpiredGroupFinance, type GroupFinanceFeature } from '../../services/groupFinance'
+import { actOnGroupFinance, createGroupFinanceEventNotice, createGroupFinanceInteraction, groupFinanceSummary, GROUP_FINANCE_FEATURES, settleExpiredGroupFinance, type GroupFinanceFeature } from '../../services/groupFinance'
 import { findRoleEmojiByResponse, selectUserSendableEmojis } from '../../services/chatEmojiScope'
 import { useGroupManagement } from '../../composables/useGroupManagement'
 import GroupChatAnnouncementBanner from './group/GroupChatAnnouncementBanner.vue'
@@ -320,7 +320,11 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession | ReplyRe
           const financeId = Date.now() + financeMessages.length
           financeMessages.push({ id: financeId, timestamp: financeId, type: 'left', messageType: 'group_finance', senderType: 'character', senderId: action.senderId, senderNameSnapshot: targetMemberName(action.senderId), senderAvatarSnapshot: targetMemberAvatar(action.senderId), content: groupFinanceSummary(interaction), financialRef: { interactionId: interaction.id }, mentions: [], sourceIndex: action.sourceIndex })
         } else {
-          actOnGroupFinance(targetGroup, { interactionId: action.eventId, actorId: action.senderId, action: action.action, answer: action.answer, walletAccountId: currentChatUserId.value || 'guest' })
+          const financeResult = actOnGroupFinance(targetGroup, { interactionId: action.eventId, actorId: action.senderId, action: action.action, answer: action.answer, walletAccountId: currentChatUserId.value || 'guest' })
+          if (financeResult.ok) {
+            const notice = createGroupFinanceEventNotice({ interaction: financeResult.interaction, allocation: financeResult.allocation, action: action.action, actorId: action.senderId, actorName: targetMemberName(action.senderId) })
+            financeMessages.push({ type: 'system', messageType: 'group_finance_event', senderId: '', content: notice.content, financeEvent: notice.event, financialRef: { interactionId: financeResult.interaction.id }, mentions: [], sourceIndex: action.sourceIndex })
+          }
         }
       } catch { /* 非法资金动作只被忽略，不重试模型，也不影响同轮正常对话。 */ }
     }
@@ -383,7 +387,8 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession | ReplyRe
       const replyToMessageId = localIds.get(message.replyToMessageId) || message.replyToMessageId || ''
       const quoted = targetGroup.messages.find((entry: any) => String(entry.id) === String(replyToMessageId))
       const quote = quoted ? { id: quoted.id, content: quoted.content, sender: quoted.type === 'right' ? (groupUserProfile.value.name || '我') : targetMemberName(quoted.senderId) } : undefined
-      const item: any = { id, timestamp: id, type: message.messageType === 'narration' ? 'narration' : 'left', messageType: message.messageType, senderType: 'character', senderId: message.senderId, senderNameSnapshot: targetMemberName(message.senderId), senderAvatarSnapshot: targetMemberAvatar(message.senderId), content: message.content, translation: message.translation, translationStatus: message.translation ? 'ready' : undefined, contentLanguage: message.contentLanguage, translationLanguage: message.translationLanguage, replyToMessageId, quote, mentions: (message.mentions || []).map((memberId: string) => ({ type: memberId === 'all' ? 'all' : memberId === 'user' ? 'user' : 'character', id: memberId })), turnId, sequence: index, isAutonomous: autonomousRun, isVoiceCallProcessMsg: targetGroup.activeCallType === 'voice', isVideoCallProcessMsg: targetGroup.activeCallType === 'video', isOfflineMeetMsg: Boolean(targetGroup.isMixedOfflineActive) }
+      const isSystemMessage = message.type === 'system'
+      const item: any = { id, timestamp: id, type: isSystemMessage ? 'system' : message.messageType === 'narration' ? 'narration' : 'left', messageType: message.messageType, senderType: isSystemMessage ? 'system' : 'character', senderId: isSystemMessage ? '' : message.senderId, senderNameSnapshot: isSystemMessage ? undefined : targetMemberName(message.senderId), senderAvatarSnapshot: isSystemMessage ? undefined : targetMemberAvatar(message.senderId), content: message.content, translation: message.translation, translationStatus: message.translation ? 'ready' : undefined, contentLanguage: message.contentLanguage, translationLanguage: message.translationLanguage, replyToMessageId, quote, mentions: (message.mentions || []).map((memberId: string) => ({ type: memberId === 'all' ? 'all' : memberId === 'user' ? 'user' : 'character', id: memberId })), turnId, sequence: index, isAutonomous: autonomousRun, isVoiceCallProcessMsg: targetGroup.activeCallType === 'voice', isVideoCallProcessMsg: targetGroup.activeCallType === 'video', isOfflineMeetMsg: Boolean(targetGroup.isMixedOfflineActive) }
       if (message.messageType === 'voice') item.voiceData = { text: message.content, seconds: Math.max(1, Math.ceil(message.content.length / 4)) }
       if (message.messageType === 'image') item.imageData = { text: message.content, summary: message.content }
       if (message.messageType === 'emoji') {
@@ -405,6 +410,7 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession | ReplyRe
       }
       if (message.messageType === 'call') item.callData = { callType: 'voice', status: 'ended' }
       if (message.financialRef) item.financialRef = message.financialRef
+      if (message.financeEvent) item.financeEvent = message.financeEvent
       if (index === 0 && result.thinking) {
         item.thinking = result.thinking
         item.thinkingSource = result.reasoningSource
@@ -595,6 +601,9 @@ const handleGroupFinanceAction = async (payload: any) => {
   try {
     const result = actOnGroupFinance(props.group, { ...payload, actorId: 'user', walletAccountId: currentChatUserId.value || 'guest' })
     if (!result.ok) return showToast(({ wrong_answer: '答案不正确', duplicate: '你已经参与过了', ineligible: '你不在参与范围内', closed: '活动已经结束', no_allocation: '已没有可领取份额' } as any)[result.reason] || '当前无法完成操作')
+    const now = Date.now()
+    const notice = createGroupFinanceEventNotice({ interaction: result.interaction, allocation: result.allocation, action: payload.action, actorId: 'user', actorName: groupUserProfile.value.name || '我', createdAt: now })
+    props.group.messages.push({ id: now, timestamp: now, type: 'system', senderType: 'system', senderId: '', messageType: 'group_finance_event', content: notice.content, financeEvent: notice.event, financialRef: { interactionId: result.interaction.id } })
     showToast(payload.action === 'pay' ? '付款成功' : payload.action === 'join' ? '已参与抽奖' : payload.action === 'reject' ? '已退还' : `领取成功${result.allocation ? ` · ¥${(result.allocation.amountCents / 100).toFixed(2)}` : ''}`)
     persist(); await scrollBottom()
   } catch (error) { showToast(error instanceof Error ? error.message : '操作失败') }

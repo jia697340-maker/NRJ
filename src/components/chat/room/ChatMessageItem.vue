@@ -60,6 +60,7 @@ const messageSender = computed(() => props.resolveSender?.(props.msg) || props.s
 const groupFinanceInteraction = computed(() => props.msg?.financialRef?.interactionId
   ? props.selectedChat?.groupFinanceState?.interactions?.find((item: any) => String(item.id) === String(props.msg.financialRef.interactionId))
   : null)
+const resolveGroupFinanceMemberName = (id: string) => props.resolveSender?.({ senderId: id })?.name || ''
 const messageAsset = computed(() => {
   const data = props.msg?.fileData || props.msg?.videoData
   if (!data?.assetId) return null
@@ -342,7 +343,7 @@ const groupBadge = (memberId: string) => {
           </template>
 
           <template v-else-if="groupFinanceInteraction">
-            <GroupFinanceCard :interaction="groupFinanceInteraction" direction="left" :group="selectedChat" actor-id="user" @act="emit('handle-group-finance-action', $event)" @touch-start="emit('touch-start', msg.id)" @touch-end="emit('touch-end')" />
+            <GroupFinanceCard :interaction="groupFinanceInteraction" direction="left" :group="selectedChat" actor-id="user" :resolve-member-name="resolveGroupFinanceMemberName" @act="emit('handle-group-finance-action', $event)" @touch-start="emit('touch-start', msg.id)" @touch-end="emit('touch-end')" />
           </template>
 
           <!-- AI 发来的转账/红包 UI -->
@@ -442,7 +443,7 @@ const groupBadge = (memberId: string) => {
           </template>
 
           <template v-else-if="groupFinanceInteraction">
-            <GroupFinanceCard :interaction="groupFinanceInteraction" direction="right" :group="selectedChat" actor-id="user" @act="emit('handle-group-finance-action', $event)" @touch-start="emit('touch-start', msg.id)" @touch-end="emit('touch-end')" />
+            <GroupFinanceCard :interaction="groupFinanceInteraction" direction="right" :group="selectedChat" actor-id="user" :resolve-member-name="resolveGroupFinanceMemberName" @act="emit('handle-group-finance-action', $event)" @touch-start="emit('touch-start', msg.id)" @touch-end="emit('touch-end')" />
           </template>
 
           <!-- 新版转账/红包 UI -->
