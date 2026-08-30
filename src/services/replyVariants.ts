@@ -28,6 +28,15 @@ export interface ReplyRegenerationSession {
   removedMessageIds: Array<string | number>
 }
 
+export interface ReplyReplacementSession {
+  turnId: string
+  mode: ReplyVariantMode
+  removedMessageIds: Array<string | number>
+  originalState: Record<string, any>
+  existingSetId: string
+  existingVariantId: string
+}
+
 const MAX_VARIANTS_PER_TURN = 5
 
 // These fields can be changed by a model reply and must travel with the selected candidate.
@@ -60,6 +69,10 @@ const applyState = (chat: any, state: Record<string, any>) => {
 
 export const ensureReplyVariantSets = (chat: any): ReplyVariantSet[] => {
   if (!Array.isArray(chat.replyVariantSets)) chat.replyVariantSets = []
+  chat.replyVariantSets = chat.replyVariantSets.filter((set: any) => set && typeof set === 'object')
+  chat.replyVariantSets.forEach((set: any) => {
+    if (!Array.isArray(set.variants)) set.variants = []
+  })
   return chat.replyVariantSets
 }
 
@@ -96,6 +109,54 @@ const markVariantMessages = (messages: any[], setId: string, variantId: string) 
     message.replyVariantId = variantId
   })
 }
+
+const clearVariantMessageMarks = (messages: any[], setId?: string) => {
+  messages.forEach(message => {
+    if (setId && String(message.replyVariantSetId || '') !== String(setId)) return
+    delete message.replyVariantSetId
+    delete message.replyVariantId
+  })
+}
+
+const replaceMessageReferences = (messages: any[], setId: string, variantId: string | null, replacement: any[], keepMarks: boolean) => {
+  const indexes = messages
+    .map((message: any, index: number) => {
+      const matchesSet = String(message.replyVariantSetId || '') === setId
+      const matchesVariant = variantId === null || String(message.replyVariantId || '') === variantId
+      return matchesSet && matchesVariant ? index : -1
+    })
+    .filter((index: number) => index >= 0)
+  if (!indexes.length) return
+  const nextMessages = clone(replacement)
+  if (keepMarks) {
+    const replacementVariantId = String(nextMessages[0]?.replyVariantId || '')
+    if (replacementVariantId) markVariantMessages(nextMessages, setId, replacementVariantId)
+  } else clearVariantMessageMarks(nextMessages)
+  messages.splice(indexes[0], indexes.length, ...nextMessages)
+}
+
+const scrubStoredVariantReferences = (chat: any, setId: string, variantId: string | null, replacement: any[], keepMarks: boolean) => {
+  for (const candidateSet of ensureReplyVariantSets(chat)) {
+    for (const candidate of candidateSet.variants || []) {
+      if (Array.isArray(candidate.state?.messages)) replaceMessageReferences(candidate.state.messages, setId, variantId, replacement, keepMarks)
+    }
+  }
+}
+
+const setPendingReplacement = (chat: any, session: ReplyReplacementSession) => {
+  Object.defineProperty(chat, '_pendingReplyReplacement', {
+    value: session,
+    configurable: true,
+    enumerable: false,
+    writable: true
+  })
+}
+
+const clearPendingReplacement = (chat: any, session?: ReplyReplacementSession) => {
+  if (!session || chat?._pendingReplyReplacement === session) delete chat._pendingReplyReplacement
+}
+
+export const hasPendingReplyReplacement = (chat: any) => Boolean(chat?._pendingReplyReplacement)
 
 const removeTurnThoughts = (chat: any, turnId: string, mode: ReplyVariantMode) => {
   if (turnId) chat.innerThoughts = (chat.innerThoughts || []).filter((item: any) => item.turnId !== turnId)
@@ -171,6 +232,67 @@ export const completeReplyRegeneration = (chat: any, session: ReplyRegenerationS
   return true
 }
 
+// Replacement mode deliberately never creates a variant container. The original state only
+// lives on the in-memory chat object, and persistence callers pause while this session exists.
+export const prepareReplyReplacement = (
+  chat: any,
+  mode: ReplyVariantMode,
+  offlineMode: false | 'mixed' | 'separate' = false
+): ReplyReplacementSession | null => {
+  if (hasPendingReplyReplacement(chat)) return null
+  const trailing = trailingReplyMessages(chat, mode, offlineMode)
+  if (!trailing.messages.length) return null
+
+  const existingSetId = String(trailing.messages.find((message: any) => message.replyVariantSetId)?.replyVariantSetId || '')
+  const set = existingSetId ? ensureReplyVariantSets(chat).find(item => item.id === existingSetId) : undefined
+  const active = set?.variants.find(item => item.id === set.activeVariantId)
+  const turnId = String(trailing.messages.find((message: any) => message.turnId)?.turnId || uid(mode === 'group' ? 'group_turn' : 'turn'))
+  const session: ReplyReplacementSession = {
+    turnId,
+    mode,
+    removedMessageIds: trailing.messages.map((message: any) => message.id),
+    originalState: captureState(chat),
+    existingSetId: set && active ? set.id : '',
+    existingVariantId: active?.id || ''
+  }
+
+  setPendingReplacement(chat, session)
+  chat.messages.splice(trailing.start)
+  removeTurnThoughts(chat, turnId, mode)
+  return session
+}
+
+export const completeReplyReplacement = (chat: any, session: ReplyReplacementSession) => {
+  const newMessages = (chat.messages || []).filter((message: any) => String(message.turnId || '') === session.turnId)
+  if (!newMessages.length) {
+    restoreReplyAfterReplacementFailure(chat, session)
+    return false
+  }
+
+  const set = session.existingSetId
+    ? ensureReplyVariantSets(chat).find(item => item.id === session.existingSetId)
+    : undefined
+  const active = set?.variants.find(item => item.id === session.existingVariantId)
+  if (set && active) {
+    markVariantMessages(newMessages, set.id, active.id)
+    scrubStoredVariantReferences(chat, set.id, active.id, newMessages, true)
+    set.activeVariantId = active.id
+    set.updatedAt = Date.now()
+    active.messages = clone(newMessages)
+    active.state = captureState(chat)
+  } else {
+    clearVariantMessageMarks(newMessages)
+  }
+  clearPendingReplacement(chat, session)
+  return true
+}
+
+export const restoreReplyAfterReplacementFailure = (chat: any, session: ReplyReplacementSession) => {
+  applyState(chat, session.originalState)
+  clearPendingReplacement(chat, session)
+  return { ok: true, needsTimeline: false }
+}
+
 export const restoreReplyVariant = (chat: any, setId: string, variantId: string, force = false) => {
   const set = ensureReplyVariantSets(chat).find(item => item.id === setId)
   const variant = set?.variants.find(item => item.id === variantId)
@@ -207,6 +329,7 @@ export const recoverInterruptedReplyRegeneration = (chat: any) => {
 
 export const replyVariantControlForMessage = (chat: any, messageId: string | number) => {
   for (const set of ensureReplyVariantSets(chat)) {
+    if (!Array.isArray(set.variants) || set.variants.length < 2) continue
     const activeIndex = set.variants.findIndex(item => item.id === set.activeVariantId)
     const active = set.variants[activeIndex]
     if (!active) continue
@@ -215,6 +338,53 @@ export const replyVariantControlForMessage = (chat: any, messageId: string | num
     return { set, active, activeIndex, count: set.variants.length, isTail: variantMessagesAtTail(chat, active) }
   }
   return null
+}
+
+const replaceVisibleVariantMessages = (chat: any, set: ReplyVariantSet, fromVariantId: string, variant: ReplyVariant) => {
+  const indexes = (chat.messages || [])
+    .map((message: any, index: number) => String(message.replyVariantSetId || '') === set.id && String(message.replyVariantId || '') === fromVariantId ? index : -1)
+    .filter((index: number) => index >= 0)
+  if (!indexes.length) return false
+  const replacement = clone(variant.messages)
+  markVariantMessages(replacement, set.id, variant.id)
+  chat.messages.splice(indexes[0], indexes.length, ...replacement)
+  return true
+}
+
+const collapseReplyVariantSet = (chat: any, set: ReplyVariantSet, active: ReplyVariant) => {
+  scrubStoredVariantReferences(chat, set.id, null, active.messages, false)
+  clearVariantMessageMarks(chat.messages || [], set.id)
+  chat.replyVariantSets = ensureReplyVariantSets(chat).filter(item => item.id !== set.id)
+  if (String(chat.pendingReplyVariantSetId || '') === set.id) delete chat.pendingReplyVariantSetId
+}
+
+export const deleteActiveReplyVariant = (chat: any, setId: string) => {
+  const set = ensureReplyVariantSets(chat).find(item => item.id === setId)
+  if (!set || !Array.isArray(set.variants) || set.variants.length < 2 || chat.pendingReplyVariantSetId === set.id) return { ok: false, count: set?.variants?.length || 0 }
+  const activeIndex = set.variants.findIndex(item => item.id === set.activeVariantId)
+  if (activeIndex < 0) return { ok: false, count: set.variants.length }
+  const active = set.variants[activeIndex]
+  const wasTail = variantMessagesAtTail(chat, active)
+  set.variants.splice(activeIndex, 1)
+  const next = set.variants[Math.min(activeIndex, set.variants.length - 1)]
+  if (!next) return { ok: false, count: 0 }
+
+  if (wasTail) applyState(chat, next.state)
+  else replaceVisibleVariantMessages(chat, set, active.id, next)
+  scrubStoredVariantReferences(chat, set.id, active.id, next.messages, true)
+  set.activeVariantId = next.id
+  set.updatedAt = Date.now()
+  markVariantMessages(next.messages, set.id, next.id)
+  if (set.variants.length === 1) collapseReplyVariantSet(chat, set, next)
+  return { ok: true, count: set.variants.length }
+}
+
+export const keepOnlyActiveReplyVariant = (chat: any, setId: string) => {
+  const set = ensureReplyVariantSets(chat).find(item => item.id === setId)
+  const active = set?.variants.find(item => item.id === set.activeVariantId)
+  if (!set || !active || set.variants.length < 2 || chat.pendingReplyVariantSetId === set.id) return { ok: false, count: set?.variants?.length || 0 }
+  collapseReplyVariantSet(chat, set, active)
+  return { ok: true, count: 1 }
 }
 
 export const getReplyVariant = (chat: any, setId: string, variantId: string) => {

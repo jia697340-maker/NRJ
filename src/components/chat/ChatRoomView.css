@@ -39,6 +39,7 @@
 .reply-variant-action:disabled { opacity: .28; cursor: default; }
 .reply-variant-count { min-width: 38px; padding: 0 3px; font-size: 11px; opacity: .72; }
 .reply-variant-action.regenerate { margin-left: 1px; }
+.reply-variant-action.more { width: 30px; font-size: 10px; letter-spacing: 1px; }
 .reply-variant-action svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .reply-variant-preview-message { pointer-events: none; }
 

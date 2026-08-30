@@ -37,6 +37,7 @@ export const chatSettings = reactive({
   disableThoughtInCall: savedChatSettings.disableThoughtInCall ?? true, // 通话时禁用心声机制
   disableSpecialTagsInOffline: savedChatSettings.disableSpecialTagsInOffline ?? true, // 线下模式禁用媒体与互动功能
   disableThoughtInOffline: savedChatSettings.disableThoughtInOffline ?? true, // 线下模式禁用心声机制
+  keepReplyVariantsOnRegenerate: savedChatSettings.keepReplyVariantsOnRegenerate ?? false, // 重新生成时保留旧回复版本
   innerThoughtLimit: savedChatSettings.innerThoughtLimit ?? 50, // 心声存储上限
   enableCharMomentImages: savedChatSettings.enableCharMomentImages ?? false, // 允许角色朋友圈消耗图像额度
   momentReadCount: savedChatSettings.momentReadCount ?? 5 // 角色每次获取朋友圈的最大条数

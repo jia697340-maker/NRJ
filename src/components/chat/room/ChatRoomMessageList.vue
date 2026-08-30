@@ -125,6 +125,13 @@ defineExpose({
           @click="emit('switch-reply-variant', { setId: variantControls.get(String(msg.id))!.set.id, direction: 1 })"
         >›</button>
         <button
+          type="button"
+          class="reply-variant-action more"
+          :disabled="isGenerating"
+          aria-label="管理回复版本"
+          @click="emit('open-reply-variant-actions', { setId: variantControls.get(String(msg.id))!.set.id, count: variantControls.get(String(msg.id))!.count })"
+        >•••</button>
+        <button
           v-if="variantControls.get(String(msg.id))!.isTail"
           type="button"
           class="reply-variant-action regenerate"

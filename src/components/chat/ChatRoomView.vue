@@ -45,8 +45,9 @@ import { queueMessageForPresence } from '../../services/presenceLifecycle'
 import { getIdentityCalendarParts, isConversationTimePaused, resumeConversationTime } from '../../services/conversationTime'
 import { ensureChatTimelineState, persistActiveTimeline } from '../../services/chatTimeline'
 import { createTimeline } from '../../services/chatTimeline'
-import { adjacentReplyVariantId, getReplyVariant, restoreReplyVariant } from '../../services/replyVariants'
+import { adjacentReplyVariantId, deleteActiveReplyVariant, getReplyVariant, hasPendingReplyReplacement, keepOnlyActiveReplyVariant, restoreReplyVariant } from '../../services/replyVariants'
 import ChatReplyVariantForkModal from './modals/ChatReplyVariantForkModal.vue'
+import ChatReplyVariantActionsModal from './modals/ChatReplyVariantActionsModal.vue'
 
 useBubbleBeautify()
 
@@ -105,6 +106,7 @@ const handleAppViewportChange = () => {
 
 function saveCustomContacts(targetChat: any = selectedChat.value) {
   if (!targetChat) return
+  if (hasPendingReplyReplacement(targetChat)) return
   if (targetChat.id === 1) {
     localStorage.setItem('clingy_system_messages', JSON.stringify(targetChat.messages))
     localStorage.setItem('clingy_system_notice_read', targetChat.unread > 0 ? '0' : '1')
@@ -797,6 +799,33 @@ const handleRegenerate = () => {
 }
 
 const pendingVariantSwitch = ref<{ setId: string; variantId: string; parentMessageId: string | number | null; previewMessages: any[] } | null>(null)
+const replyVariantActions = ref<{ setId: string; count: number } | null>(null)
+const openReplyVariantActions = (payload: { setId: string; count: number }) => {
+  if (isGenerating.value || payload.count < 2) return
+  replyVariantActions.value = payload
+}
+const deleteCurrentReplyVariant = async () => {
+  const target = replyVariantActions.value
+  const chat = selectedChat.value
+  if (!target || !chat) return
+  const result = deleteActiveReplyVariant(chat, target.setId)
+  replyVariantActions.value = null
+  if (!result.ok) return showToast('当前版本无法删除')
+  saveCustomContacts(chat)
+  showToast('已删除当前回复版本')
+  await scrollToBottom()
+}
+const keepCurrentReplyVariantOnly = async () => {
+  const target = replyVariantActions.value
+  const chat = selectedChat.value
+  if (!target || !chat) return
+  const result = keepOnlyActiveReplyVariant(chat, target.setId)
+  replyVariantActions.value = null
+  if (!result.ok) return showToast('当前没有可清除的其他版本')
+  saveCustomContacts(chat)
+  showToast('已仅保留当前回复')
+  await scrollToBottom()
+}
 const handleReplyVariantSwitch = async (payload: { setId: string; direction: -1 | 1 }) => {
   if (!selectedChat.value || isGenerating.value) return
   const variantId = adjacentReplyVariantId(selectedChat.value, payload.setId, payload.direction)
@@ -1242,6 +1271,7 @@ onUnmounted(() => {
       @open-character-profile="emit('open-character-profile')"
         @switch-reply-variant="handleReplyVariantSwitch"
         @regenerate-reply="handleRegenerate"
+        @open-reply-variant-actions="openReplyVariantActions"
       />
 
     <ChatReplyVariantForkModal
@@ -1249,6 +1279,13 @@ onUnmounted(() => {
       :preview-messages="pendingVariantSwitch?.previewMessages || []"
       @close="pendingVariantSwitch = null"
       @fork="forkFromReplyVariant"
+    />
+    <ChatReplyVariantActionsModal
+      :visible="Boolean(replyVariantActions)"
+      :count="replyVariantActions?.count || 0"
+      @close="replyVariantActions = null"
+      @delete-current="deleteCurrentReplyVariant"
+      @keep-current="keepCurrentReplyVariantOnly"
     />
 
     <transition name="fade">

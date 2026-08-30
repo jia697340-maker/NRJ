@@ -26,10 +26,14 @@ import { triggerFriendRequestNotification } from './useFriendRequestPrompt'
 import { createIncomingWalletPayment } from '../services/walletService'
 import { extractEmbeddedReasoning } from '../services/reasoning'
 import {
+  completeReplyReplacement,
   completeReplyRegeneration,
+  prepareReplyReplacement,
   prepareReplyRegeneration,
+  restoreReplyAfterReplacementFailure,
   restorePreviousReplyAfterFailure,
-  type ReplyRegenerationSession
+  type ReplyRegenerationSession,
+  type ReplyReplacementSession
 } from '../services/replyVariants'
 
 // 引入拆分的逻辑模块
@@ -88,7 +92,8 @@ export function useChatRoomAPI(
   const isGenerating = ref(false)
   let abortController: AbortController | null = null
   const typingTimers: ReturnType<typeof setTimeout>[] = []
-  let activeRegenerationSession: ReplyRegenerationSession | null = null
+  let activeRegenerationSession: ReplyRegenerationSession | ReplyReplacementSession | null = null
+  let activeRegenerationChatId: string | number | null = null
   const { generateImage: generateNovelImage, abortGeneration: abortNovelGeneration } = useNovelAI()
   const { generateImage: generateGptImage, abortGeneration: abortGptGeneration } = useGptImage()
   const { generateImage: generateGeminiImage, abortGeneration: abortGeminiGeneration } = useGeminiImage()
@@ -152,12 +157,14 @@ export function useChatRoomAPI(
     
     isGenerating.value = false
     
-    const targetChat = mockChats.value.find((c: any) => c.id === selectedChat.value?.id)
+    const targetChat = mockChats.value.find((c: any) => String(c.id) === String(activeRegenerationChatId ?? selectedChat.value?.id))
     if (targetChat) {
       targetChat.isTyping = false
       if (activeRegenerationSession) {
-        restorePreviousReplyAfterFailure(targetChat, activeRegenerationSession)
+        if ('originalState' in activeRegenerationSession) restoreReplyAfterReplacementFailure(targetChat, activeRegenerationSession)
+        else restorePreviousReplyAfterFailure(targetChat, activeRegenerationSession)
         activeRegenerationSession = null
+        activeRegenerationChatId = null
         saveCustomContacts(targetChat)
       }
     }
@@ -211,25 +218,33 @@ export function useChatRoomAPI(
     if (!msgs || msgs.length === 0) return
 
     const regenerateOfflineMode = getOfflineMeetMode?.() ?? false
-    const session = prepareReplyRegeneration(selectedChat.value, 'single', regenerateOfflineMode)
+    const keepVariants = chatSettings.keepReplyVariantsOnRegenerate === true
+    const session = keepVariants
+      ? prepareReplyRegeneration(selectedChat.value, 'single', regenerateOfflineMode)
+      : prepareReplyReplacement(selectedChat.value, 'single', regenerateOfflineMode)
 
     if (session) {
       activeRegenerationSession = session
+      activeRegenerationChatId = selectedChat.value.id
       const previousUserThought = (selectedChat.value.userInnerThoughts || []).find((item: any) => item.turnId === session.turnId)?.content || ''
-      saveCustomContacts()
+      if (keepVariants) saveCustomContacts()
       showExtensionPanel.value = false
       await triggerAPI(callMode, 'default', {
         turnId: session.turnId,
         currentUserThought: previousUserThought,
         consumePendingThought: false,
         onComplete: chat => {
-          completeReplyRegeneration(chat, session)
+          if ('originalState' in session) completeReplyReplacement(chat, session)
+          else completeReplyRegeneration(chat, session)
           activeRegenerationSession = null
+          activeRegenerationChatId = null
           saveCustomContacts(chat)
         },
         onError: chat => {
-          restorePreviousReplyAfterFailure(chat, session)
+          if ('originalState' in session) restoreReplyAfterReplacementFailure(chat, session)
+          else restorePreviousReplyAfterFailure(chat, session)
           activeRegenerationSession = null
+          activeRegenerationChatId = null
           saveCustomContacts(chat)
         }
       })

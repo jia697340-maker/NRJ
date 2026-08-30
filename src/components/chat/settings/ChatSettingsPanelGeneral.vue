@@ -266,6 +266,21 @@ onBeforeUnmount(() => {
       </template>
     </div>
 
+    <div class="glass-panel" v-show="matchSearch('重新生成时保留旧回复', '重新生成', '回复版本', '左右切换')">
+      <div class="glass-list-item" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center; gap:16px;">
+          <span class="item-label">重新生成时保留旧回复</span>
+          <div class="item-value">
+            <label class="switch" @click.stop>
+              <input type="checkbox" v-model="chatSettings.keepReplyVariantsOnRegenerate" @change="handleSave">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <span style="font-size:11px; color:var(--text-tertiary); font-weight:400; line-height:1.5;">开启后可左右切换查看之前的回复；关闭后会直接替换当前回复。</span>
+      </div>
+    </div>
+
     <div class="glass-panel" v-show="matchSearch('自动生成心声', '角色读取历史心声', '读取最近角色心声数量', '角色读取用户历史心声', '读取最近用户心声数量', '心声附带生图', '心声附带语音', '心声存储上限')">
       <div class="glass-list-item" v-show="matchSearch('自动生成心声')">
         <div class="item-label">自动生成心声</div>

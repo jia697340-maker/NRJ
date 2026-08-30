@@ -20,7 +20,7 @@ import { useSeedreamImage } from '../../composables/useSeedreamImage'
 import { usePollinationsImage } from '../../composables/usePollinationsImage'
 import { useAiHordeImage } from '../../composables/useAiHordeImage'
 import { useChatSummary } from '../../composables/useChatSummary'
-import { worldBooks } from '../../store'
+import { chatSettings, worldBooks } from '../../store'
 import { activeGroupReplyIds, groupReplyControllers, requestGroupReply, saveGroupChat } from '../../services/groupChat'
 import { invalidateMemoriesForMessages, invalidateVectorMemoriesForMessages, normalizeMemoryMode } from '../../services/memoryEngine'
 import ChatRoomMessageList from './room/ChatRoomMessageList.vue'
@@ -51,14 +51,22 @@ import { formatIdentityClockTime, getIdentityCalendarParts, isConversationTimePa
 import { createTimeline, ensureChatTimelineState, persistActiveTimeline } from '../../services/chatTimeline'
 import {
   adjacentReplyVariantId,
+  completeReplyReplacement,
   completeReplyRegeneration,
+  deleteActiveReplyVariant,
   getReplyVariant,
+  hasPendingReplyReplacement,
+  keepOnlyActiveReplyVariant,
+  prepareReplyReplacement,
   prepareReplyRegeneration,
+  restoreReplyAfterReplacementFailure,
   restorePreviousReplyAfterFailure,
   restoreReplyVariant,
-  type ReplyRegenerationSession
+  type ReplyRegenerationSession,
+  type ReplyReplacementSession
 } from '../../services/replyVariants'
 import ChatReplyVariantForkModal from './modals/ChatReplyVariantForkModal.vue'
+import ChatReplyVariantActionsModal from './modals/ChatReplyVariantActionsModal.vue'
 import { executeCharacterAssetAction } from '../../services/chatAssetActions'
 import { persistCharacterAssetMetadata } from '../../services/characterAssetRepository'
 import type { CharacterAssetAction, GeneratedFileFormat } from '../../types/chatAssets'
@@ -174,7 +182,7 @@ watch(() => groupMgmt.errorMessage.value, value => { if (value) showToast(value)
 watch(() => groupMgmt.toastMessage.value, value => { if (value) showToast(value) })
 const openEmojiSettings = () => { props.group.openEmojiManagerRequested = true; emit('open-settings') }
 const updatePreviewAndTime = (content: string) => { props.group.preview = content || '暂无消息'; props.group.time = formatIdentityClockTime(groupUserProfile.value) }
-const persist = (record = props.group) => { const last = [...(record.messages || [])].reverse().find((message: any) => message?.content); const pauseState = normalizeConversationTimeState(record); const lastTimestamp = Number(last?.timestamp || last?.id || 0); if (pauseState.paused && last?.type === 'right' && lastTimestamp >= pauseState.pausedAt) resumeConversationTime(record, lastTimestamp); record.preview = last?.content || '群聊已创建'; record.time = formatIdentityClockTime(groupUserProfile.value); ensureChatTimelineState(record); saveGroupChat(currentChatUserId.value, record); void persistActiveTimeline(record, currentChatUserId.value) }
+const persist = (record = props.group) => { if (hasPendingReplyReplacement(record)) return; const last = [...(record.messages || [])].reverse().find((message: any) => message?.content); const pauseState = normalizeConversationTimeState(record); const lastTimestamp = Number(last?.timestamp || last?.id || 0); if (pauseState.paused && last?.type === 'right' && lastTimestamp >= pauseState.pausedAt) resumeConversationTime(record, lastTimestamp); record.preview = last?.content || '群聊已创建'; record.time = formatIdentityClockTime(groupUserProfile.value); ensureChatTimelineState(record); saveGroupChat(currentChatUserId.value, record); void persistActiveTimeline(record, currentChatUserId.value) }
 const conversationTimePaused = computed(() => isConversationTimePaused(props.group))
 const resumePausedConversation = () => { resumeConversationTime(props.group); persist() }
 const handleSaveWebSearch = (enabled: boolean) => {
@@ -262,7 +270,7 @@ const reviewManagementProposal = (accepted: boolean) => {
   } catch (error: any) { showToast(error?.message || '处理管理建议失败') }
 }
 
-const runReply = async (regenerationSession?: ReplyRegenerationSession) => {
+const runReply = async (regenerationSession?: ReplyRegenerationSession | ReplyReplacementSession) => {
   const targetGroup = props.group
   const autonomousRun = Boolean(targetGroup.pendingAutonomyDirective)
   const targetId = String(targetGroup.id)
@@ -441,12 +449,20 @@ const runReply = async (regenerationSession?: ReplyRegenerationSession) => {
     if (result.idle) showToast('群里暂时没有人接话')
     targetGroup.pendingUserThought = ''
     targetGroup.pendingAutonomyDirective = ''
-    replyCompleted = regenerationSession ? completeReplyRegeneration(targetGroup, regenerationSession) : true
+    replyCompleted = regenerationSession
+      ? ('originalState' in regenerationSession ? completeReplyReplacement(targetGroup, regenerationSession) : completeReplyRegeneration(targetGroup, regenerationSession))
+      : true
   } catch (error: any) {
-    if (regenerationSession) restorePreviousReplyAfterFailure(targetGroup, regenerationSession)
+    if (regenerationSession) {
+      if ('originalState' in regenerationSession) restoreReplyAfterReplacementFailure(targetGroup, regenerationSession)
+      else restorePreviousReplyAfterFailure(targetGroup, regenerationSession)
+    }
     if (error?.name !== 'AbortError') showToast(error?.message || '群聊回复失败')
   } finally {
-    if (regenerationSession && !replyCompleted) restorePreviousReplyAfterFailure(targetGroup, regenerationSession)
+    if (regenerationSession && !replyCompleted) {
+      if ('originalState' in regenerationSession) restoreReplyAfterReplacementFailure(targetGroup, regenerationSession)
+      else restorePreviousReplyAfterFailure(targetGroup, regenerationSession)
+    }
     targetGroup.isTyping = false
     activeGroupReplyIds.delete(targetId)
     groupReplyControllers.delete(targetId)
@@ -464,17 +480,37 @@ const handleAddMessage = async (raw: string) => { if (isGroupMemberMuted(props.g
 const regenerate = async () => {
   if (isGenerating.value) return
   if (![...props.group.messages].some((message: any) => message.type === 'right')) return showToast('还没有可重新生成的用户消息')
-  const session = prepareReplyRegeneration(props.group, 'group')
+  const session = chatSettings.keepReplyVariantsOnRegenerate === true
+    ? prepareReplyRegeneration(props.group, 'group')
+    : prepareReplyReplacement(props.group, 'group')
   if (!session) return showToast('没有可重新生成的回复')
   if (session.removedMessageIds.length) {
     invalidateMemoriesForMessages(props.group, session.removedMessageIds)
     await invalidateVectorMemoriesForMessages(props.group, session.removedMessageIds)
   }
-  persist()
+  if (!('originalState' in session)) persist()
   await runReply(session)
 }
 
 const pendingVariantSwitch = ref<{ setId: string; variantId: string; parentMessageId: string | number | null; previewMessages: any[] } | null>(null)
+const replyVariantActions = ref<{ setId: string; count: number } | null>(null)
+const openReplyVariantActions = (payload: { setId: string; count: number }) => { if (!isGenerating.value && payload.count >= 2) replyVariantActions.value = payload }
+const deleteCurrentReplyVariant = async () => {
+  const target = replyVariantActions.value
+  if (!target) return
+  const result = deleteActiveReplyVariant(props.group, target.setId)
+  replyVariantActions.value = null
+  if (!result.ok) return showToast('当前版本无法删除')
+  persist(); showToast('已删除当前回复版本'); await scrollBottom()
+}
+const keepCurrentReplyVariantOnly = async () => {
+  const target = replyVariantActions.value
+  if (!target) return
+  const result = keepOnlyActiveReplyVariant(props.group, target.setId)
+  replyVariantActions.value = null
+  if (!result.ok) return showToast('当前没有可清除的其他版本')
+  persist(); showToast('已仅保留当前回复'); await scrollBottom()
+}
 const handleReplyVariantSwitch = async (payload: { setId: string; direction: -1 | 1 }) => {
   if (isGenerating.value) return
   const variantId = adjacentReplyVariantId(props.group, payload.setId, payload.direction)
@@ -704,9 +740,10 @@ onMounted(async () => { await loadEmojis(); updateTimeStr(); timeInterval = setI
       @click="handleBannerClick"
     />
 
-    <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :is-generating="isGenerating" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @open-character-profile="emit('open-character-profile', $event)" @switch-reply-variant="handleReplyVariantSwitch" @regenerate-reply="regenerate" />
+    <ChatRoomMessageList ref="messageListRef" :displayMessages="displayMessages" :selectedChat="group" :myProfile="groupUserProfile" :selectionMode="selectionMode" :isSelected="isSelected" :justMarkedIds="multi.justMarkedIds.value" :expandedImageIds="media.expandedImageIds.value" :expandedVoiceIds="expandedVoiceIds" :currentMediaThumb="currentMediaThumb" :voicePlayingId="voicePlayingId" :isVoiceSynthesizing="isVoiceSynthesizing" :is-generating="isGenerating" :resolveSender="resolveSender" @click-overlay="showExtensionPanel = false; showEmojiPanel = false" @click-message="multi.handleMessageClick" @toggle-selection="toggleMessageSelection" @touch-start="multi.handleTouchStart" @touch-end="multi.handleTouchEnd" @touch-move="multi.handleTouchMove" @toggle-image-text="media.toggleImageText" @toggle-voice-text="toggleVoiceText" @play-voice="handlePlayVoice" @handle-left-transfer-click="transfer.handleLeftTransferClick" @open-character-profile="emit('open-character-profile', $event)" @switch-reply-variant="handleReplyVariantSwitch" @regenerate-reply="regenerate" @open-reply-variant-actions="openReplyVariantActions" />
 
     <ChatReplyVariantForkModal :visible="Boolean(pendingVariantSwitch)" :preview-messages="pendingVariantSwitch?.previewMessages || []" @close="pendingVariantSwitch = null" @fork="forkFromReplyVariant" />
+    <ChatReplyVariantActionsModal :visible="Boolean(replyVariantActions)" :count="replyVariantActions?.count || 0" @close="replyVariantActions = null" @delete-current="deleteCurrentReplyVariant" @keep-current="keepCurrentReplyVariantOnly" />
 
     <ChatMessageActionModal :visible="multi.showActionModal.value" :message-id="multi.targetMessageId.value" :message-obj="multi.targetMessageId.value ? group.messages.find((message: any) => message.id === multi.targetMessageId.value) : null" @close="multi.showActionModal.value = false" @multi-select="multi.onModalMultiSelect" @recall-multi-select="multi.onModalRecallMultiSelect" @mark-message="multi.onModalMarkMultiSelect" @copy="multi.onModalCopy" @reply="media.replyTargetId.value = $event || multi.targetMessageId.value" @edit="onModalEdit" @create-timeline="ensureMemberTimelineBindings(); timelineForkKind = 'timeline'; timelineForkMessageId = $event || multi.targetMessageId.value || null; showTimelineManagerModal = true" @create-checkpoint="ensureMemberTimelineBindings(); timelineForkKind = 'checkpoint'; timelineForkMessageId = $event || multi.targetMessageId.value || null; showTimelineManagerModal = true" />
     <ChatTimelineManagerModal v-model:visible="showTimelineManagerModal" :selected-chat="group" :fork-message-id="timelineForkMessageId" :fork-kind="timelineForkKind" @save="persist()" @switched="scrollBottom" />

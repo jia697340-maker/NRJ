@@ -4,6 +4,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useChatState } from '../../composables/useChatState'
 import { useChatRoomAPI } from '../../composables/useChatRoomAPI'
 import { useChatAuth } from '../../composables/useChatAuth'
+import { hasPendingReplyReplacement } from '../../services/replyVariants'
 import './ChatRoomView.css'
 
 const props = defineProps<{ groupMode?: boolean; group?: any; externalIsGenerating?: boolean }>()
@@ -43,6 +44,7 @@ function updatePreviewAndTime(content: string) {
 
 function saveCustomContacts(targetChat: any = selectedChat.value) {
   if (!targetChat || targetChat.id === 1) return
+  if (hasPendingReplyReplacement(targetChat)) return
   const { currentChatUserId } = useChatAuth()
   const contactsKey = currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
   const savedStr = localStorage.getItem(contactsKey)
