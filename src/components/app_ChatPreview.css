@@ -328,12 +328,15 @@
   background: rgba(0, 0, 0, 0.05);
   border: 1px solid rgba(0, 0, 0, 0.04);
   border-radius: 999px;
-  padding: 3px;
-  gap: 2px;
+  padding: 3px 4px;
+  gap: 4px;
   width: 100%;
   box-sizing: border-box;
   overflow-x: auto;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
 }
 
 .dark-theme .capsule-tab-bar {
@@ -343,16 +346,19 @@
 
 .capsule-tab-bar::-webkit-scrollbar {
   display: none;
+  width: 0;
+  height: 0;
 }
 
 .capsule-tab-item {
-  flex: 1 0 auto;
-  min-width: 50px;
+  flex: 0 0 calc((100% - 16px) / 5);
+  min-width: 0;
+  box-sizing: border-box;
   text-align: center;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-tertiary);
-  padding: 6px 10px;
+  padding: 6px 0;
   border-radius: 999px;
   cursor: pointer;
   transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);

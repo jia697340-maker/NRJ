@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { globalSettings } from '../store/global'
 import MusicMineTab from './music/MusicMineTab.vue'
 import MusicHomeTab from './music/MusicHomeTab.vue'
@@ -39,9 +39,14 @@ const selectedPlaylist = ref<MusicPlaylist | null>(null)
 const pendingPublicPlaylist = ref<MusicPlaylist | null>(null)
 const selectedPlaylistTracks = ref<MusicTrack[]>([])
 const isPlaylistLoading = ref(false)
+const isPlaylistFiltering = ref(false)
+const playlistFilterChecked = ref(0)
+const playlistFilterTotal = ref(0)
+const playlistFilterRemoved = ref(0)
 const playlistError = ref('')
-const { libraryMessage, homeSections, sourceConfigs, privacyPreferences, clearSearch, loadPlaylist, setAnonymousPublicSources, clearOnlineAccountData } = useMusicLibrary()
-const { currentTrack, playTracks } = useMusicPlayer()
+const { libraryMessage, homeSections, sourceConfigs, privacyPreferences, clearSearch, loadPlaylist, filterPlayablePlaylistTracks, setAnonymousPublicSources, clearOnlineAccountData, setMessage } = useMusicLibrary()
+const { currentTrack, playTracks, embedViewRequest } = useMusicPlayer()
+watch(embedViewRequest, () => { if (activeTab.value !== 'listen') isFullPlayerOpen.value = true })
 const handlePrivacyChoice = async (allowed: boolean) => {
   await setAnonymousPublicSources(allowed)
   privacyModalMode.value = 'closed'
@@ -77,6 +82,7 @@ const openPlaylist = async (playlist: MusicPlaylist) => {
     return
   }
   isCollectionOpen.value = false; selectedPlaylist.value = playlist; selectedPlaylistTracks.value = []
+  isPlaylistFiltering.value = false; playlistFilterChecked.value = 0; playlistFilterTotal.value = 0; playlistFilterRemoved.value = 0
   playlistError.value = ''; isPlaylistLoading.value = true; isPlaylistDetailOpen.value = true
   try { selectedPlaylistTracks.value = (await loadPlaylist(playlist)).tracks }
   catch (error) { playlistError.value = error instanceof Error ? error.message : '歌单读取失败' }
@@ -88,6 +94,25 @@ const openHistoryModal = (tab: 'records' | 'edit' = 'records') => {
 }
 
 const playSelected = (index = 0) => { if (selectedPlaylistTracks.value.length) void playTracks(selectedPlaylistTracks.value, index) }
+const filterSelectedPlaylist = async () => {
+  if (isPlaylistFiltering.value || !selectedPlaylistTracks.value.length) return
+  const playlistKey = selectedPlaylist.value ? `${selectedPlaylist.value.sourceId}:${selectedPlaylist.value.id}` : ''
+  const originalTracks = [...selectedPlaylistTracks.value]
+  isPlaylistFiltering.value = true; playlistFilterChecked.value = 0; playlistFilterTotal.value = originalTracks.length; playlistFilterRemoved.value = 0
+  try {
+    const result = await filterPlayablePlaylistTracks(originalTracks, (checked, total) => {
+      if (playlistKey === (selectedPlaylist.value ? `${selectedPlaylist.value.sourceId}:${selectedPlaylist.value.id}` : '')) {
+        playlistFilterChecked.value = checked; playlistFilterTotal.value = total
+      }
+    })
+    if (playlistKey !== (selectedPlaylist.value ? `${selectedPlaylist.value.sourceId}:${selectedPlaylist.value.id}` : '')) return
+    selectedPlaylistTracks.value = result.tracks
+    playlistFilterRemoved.value = result.removed
+    setMessage(result.removed ? `已筛除 ${result.removed} 首当前无法完整播放的歌曲` : '当前歌单歌曲均可完整播放')
+  } finally {
+    if (playlistKey === (selectedPlaylist.value ? `${selectedPlaylist.value.sourceId}:${selectedPlaylist.value.id}` : '')) isPlaylistFiltering.value = false
+  }
+}
 
 const handleBack = () => {
   if (isFullPlayerOpen.value) {
@@ -173,7 +198,7 @@ const handleBack = () => {
     <MusicCommentsModal :visible="isCommentsOpen" :track="currentTrack" @close="isCommentsOpen = false" />
     <MusicPrivacyModal :visible="privacyModalMode !== 'closed'" :mode="privacyModalMode === 'closed' ? 'management' : privacyModalMode" :anonymousAllowed="privacyPreferences.allowAnonymousPublicSources" @choose="handlePrivacyChoice" @close="closePrivacy" @clearAccounts="clearOnlineAccountData" />
     <MusicPlaylistCollectionModal :visible="isCollectionOpen" :title="collectionMode === 'charts' ? '排行榜' : '歌单广场'" :subtitle="collectionMode === 'charts' ? '按当前热门播放量排序' : '来自已启用音乐来源的推荐歌单'" :playlists="collectionPlaylists" @close="isCollectionOpen = false" @select="openPlaylist" />
-    <MusicPlaylistDetailModal :visible="isPlaylistDetailOpen" :playlist="selectedPlaylist" :tracks="selectedPlaylistTracks" :loading="isPlaylistLoading" :error="playlistError" @close="isPlaylistDetailOpen = false" @playAll="playSelected(0)" @play="(_track, index) => playSelected(index)" />
+    <MusicPlaylistDetailModal :visible="isPlaylistDetailOpen" :playlist="selectedPlaylist" :tracks="selectedPlaylistTracks" :loading="isPlaylistLoading" :error="playlistError" :filtering="isPlaylistFiltering" :filterChecked="playlistFilterChecked" :filterTotal="playlistFilterTotal" :filterRemoved="playlistFilterRemoved" @close="isPlaylistDetailOpen = false" @filter="filterSelectedPlaylist" @playAll="playSelected(0)" @play="(_track, index) => playSelected(index)" />
     <transition name="music-toast"><div v-if="libraryMessage" class="music-toast">{{ libraryMessage }}</div></transition>
   </div>
 </template>

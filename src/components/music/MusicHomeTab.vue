@@ -7,7 +7,7 @@ import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'openSources'): void; (e: 'openPlaylist', playlist: MusicPlaylist): void; (e: 'requestPublicPlaylist', playlist: MusicPlaylist): void; (e: 'openCollection', mode: 'playlists' | 'charts'): void }>()
 const { playTrack, playTracks } = useMusicPlayer()
-const { searchResult, homeSections, history, sourceConfigs, isSearching, isLoadingHome, homeLoadError, searchAll, clearSearch, loadHome, toggleLikeTrack, setMessage } = useMusicLibrary()
+const { searchResult, searchSourceStatuses, homeSections, history, sourceConfigs, isSearching, isLoadingHome, homeLoadError, searchAll, clearSearch, loadHome, toggleLikeTrack, setMessage } = useMusicLibrary()
 const searchQuery = ref('')
 const hasSearched = ref(false)
 const failedPlaylistCovers = ref(new Set<string>())
@@ -58,6 +58,7 @@ const handlePlaylist = (playlist: MusicPlaylist) => {
 const playlistKey = (playlist: MusicPlaylist) => `${playlist.sourceId}:${playlist.id}`
 const playlistCoverUrl = (playlist: MusicPlaylist) => playlist.coverUrl && !failedPlaylistCovers.value.has(playlistKey(playlist)) ? playlist.coverUrl : ''
 const markPlaylistCoverFailed = (playlist: MusicPlaylist) => { failedPlaylistCovers.value.add(playlistKey(playlist)) }
+const trackSourceCount = (track: MusicTrack) => 1 + (track.sourceCandidates?.length || 0)
 onMounted(() => { void loadHome() })
 </script>
 
@@ -90,7 +91,11 @@ onMounted(() => { void loadHome() })
       </button>
     </div>
 
-    <div v-if="isSearching" class="banner-carousel"><div class="banner-card"><div class="banner-tag">搜索中</div><div class="banner-content"><div class="banner-title">正在查找完整歌曲</div><div class="banner-desc">试听、官网外链与不可播放结果不会显示</div></div></div></div>
+    <div v-if="hasSearched && !isSearching && searchSourceStatuses.length" class="source-status-list">
+      <span v-for="status in searchSourceStatuses" :key="status.id" :class="{ failed: !status.ok }" :title="status.detail"><i></i>{{ status.name }}：{{ status.detail }}</span>
+    </div>
+
+    <div v-if="isSearching" class="banner-carousel"><div class="banner-card"><div class="banner-tag">搜索中</div><div class="banner-content"><div class="banner-title">正在查找完整歌曲</div><div class="banner-desc">正在逐项验证时长与播放能力</div></div></div></div>
 
     <div v-else-if="searchResult.tracks.length" class="section-container search-section">
       <div class="section-header">
@@ -103,7 +108,7 @@ onMounted(() => { void loadHome() })
       <div class="song-list-group">
         <div v-for="track in searchResult.tracks" :key="track.id" class="song-row-item" @click="handleTrack(track)">
           <div class="song-cover-thumb" :style="track.coverUrl ? { backgroundImage: `url(${track.coverUrl})`, backgroundSize: 'cover' } : {}"><span v-if="!track.coverUrl">{{ String(track.sourceId).slice(0,1).toUpperCase() }}</span></div>
-          <div class="song-meta-info"><div class="song-name">{{ track.title }} <i v-if="track.requiresVip">VIP</i></div><div class="song-sub">{{ track.artist }} · {{ track.album }} · {{ track.reason || track.sourceId }}</div></div>
+          <div class="song-meta-info"><div class="song-name">{{ track.title }} <i v-if="track.requiresVip">VIP</i></div><div class="song-sub">{{ track.artist }} · {{ track.reason || track.sourceId }}<span v-if="trackSourceCount(track) > 1"> · {{ trackSourceCount(track) }} 个候选源</span></div></div>
           <button class="song-play-btn" title="播放完整歌曲"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
           <button class="song-play-btn" title="收藏" @click.stop="toggleLikeTrack(track)">♡</button>
         </div>
@@ -251,6 +256,7 @@ onMounted(() => { void loadHome() })
 
 .search-input-box {
   flex: 1;
+  min-width: 0;
   height: 38px;
   background: var(--music-pill-bg, #f0f2f5);
   border: 1px solid var(--music-card-border, rgba(0, 0, 0, 0.08));
@@ -266,6 +272,7 @@ onMounted(() => { void loadHome() })
   appearance: none;
   -webkit-appearance: none;
   flex: 1;
+  min-width: 0;
   background: none;
   border: none;
   outline: none;
@@ -351,6 +358,8 @@ onMounted(() => { void loadHome() })
   font-size: 11px;
   color: var(--music-text-sub, #666666);
 }
+
+.source-status-list{display:flex;gap:6px;margin:0 16px 4px;overflow-x:auto;scrollbar-width:none}.source-status-list::-webkit-scrollbar{display:none}.source-status-list span{max-width:220px;flex:0 0 auto;overflow:hidden;padding:5px 8px;border:1px solid var(--music-card-border);border-radius:8px;background:var(--music-secondary-bg);color:var(--music-text-sub);font-size:9px;text-overflow:ellipsis;white-space:nowrap}.source-status-list i{display:inline-block;width:5px;height:5px;margin-right:5px;border-radius:50%;background:#58a66a;vertical-align:1px}.source-status-list span.failed i{background:#c47b72}
 
 /* 快捷金刚区 */
 .quick-circles-row {

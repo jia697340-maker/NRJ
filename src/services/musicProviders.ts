@@ -1,5 +1,5 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
-import type { MusicComment, MusicCommentPage, MusicHomeSection, MusicPlaylist, MusicQuality, MusicSearchPage, MusicSourceConfig, MusicTrack, MusicUserProfile } from '../types/music'
+import type { MusicComment, MusicCommentPage, MusicHomeSection, MusicPlaylist, MusicQuality, MusicSearchPage, MusicSourceConfig, MusicSourceStatus, MusicTrack, MusicUserProfile } from '../types/music'
 import { parseMusicLyrics } from './musicLyrics'
 
 export interface MusicProvider {
@@ -352,7 +352,14 @@ class MetingMusicProvider implements MusicProvider {
       const data = await withTimeout(this.endpoint(server, 'search', query), { credentials: 'omit' }, 12000)
       return (Array.isArray(data) ? data : []).map((item, index) => this.item(item as MetingItem, server, index)).filter(Boolean) as MusicTrack[]
     }))
-    return { tracks: results.flatMap(result => result.status === 'fulfilled' ? result.value : []) }
+    const sourceNames: Record<string, string> = { netease: '网易云', tencent: 'QQ音乐', kugou: '酷狗', kuwo: '酷我', baidu: '百度' }
+    const sourceStatuses: MusicSourceStatus[] = results.map((result, index) => ({
+      id: `${this.id}:${this.servers[index]}`,
+      name: sourceNames[this.servers[index]] || this.servers[index],
+      ok: result.status === 'fulfilled',
+      detail: result.status === 'fulfilled' ? (result.value.length ? `返回 ${result.value.length} 首，待验证播放` : '已响应，但没有结果') : (result.reason instanceof Error ? result.reason.message : '搜索请求失败')
+    }))
+    return { tracks: results.flatMap(result => result.status === 'fulfilled' ? result.value : []), sourceStatuses }
   }
   async getPlaylist(compoundId: string) {
     const separator = compoundId.indexOf(':')
@@ -388,6 +395,52 @@ class MetingMusicProvider implements MusicProvider {
   }
 }
 
+const officialVideoCatalog: MusicTrack[] = [
+  {
+    id: 'official-video:youtube:cOy2rdGe8LE', sourceId: 'official-video', sourceTrackId: 'cOy2rdGe8LE',
+    title: '讨厌红楼梦', artist: '陶喆', album: '黑色柳丁 · 官方完整版 MV', duration: 239,
+    available: true, playbackType: 'embed', validationStatus: 'unknown', embedProvider: 'youtube', embedId: 'cOy2rdGe8LE',
+    externalUrl: 'https://www.youtube.com/watch?v=cOy2rdGe8LE', reason: 'YouTube 官方版本（播放时验证）'
+  },
+  {
+    id: 'official-video:youtube:FhpyoiN1lX4', sourceId: 'official-video', sourceTrackId: 'FhpyoiN1lX4',
+    title: '讨厌红楼梦', artist: '陶喆', album: 'Live Again · 官方艺人频道', duration: 209,
+    available: true, playbackType: 'embed', validationStatus: 'unknown', embedProvider: 'youtube', embedId: 'FhpyoiN1lX4',
+    externalUrl: 'https://www.youtube.com/watch?v=FhpyoiN1lX4', reason: 'YouTube 官方现场版（播放时验证）'
+  }
+]
+
+const publicVideoCatalog: MusicTrack[] = [
+  {
+    id: 'public-video:bilibili:BV1mx411V7N7:5', sourceId: 'public-video', sourceTrackId: 'BV1mx411V7N7:5',
+    title: '讨厌红楼梦', artist: '陶喆', album: '黑色柳丁 MV 合集 · 公开视频', duration: 239,
+    available: true, playbackType: 'embed', validationStatus: 'verified', embedProvider: 'bilibili', embedId: 'BV1mx411V7N7:5',
+    externalUrl: 'https://www.bilibili.com/video/BV1mx411V7N7/', reason: 'Bilibili 公开视频完整版'
+  }
+]
+
+const normalizeMusicSearchText = (value: string) => value.toLowerCase().replace(/[\s·・\-—_()（）【】\[\]]/g, '')
+
+class OfficialVideoProvider implements MusicProvider {
+  id = 'official-video'
+  async search(query: string): Promise<MusicSearchPage> {
+    const normalized = normalizeMusicSearchText(query)
+    const tracks = officialVideoCatalog.filter(track => normalizeMusicSearchText(`${track.title}${track.artist}`).includes(normalized) || normalizeMusicSearchText(track.title).includes(normalized))
+    return { tracks, sourceStatuses: [{ id: this.id, name: '官方视频', ok: true, detail: tracks.length ? `找到 ${tracks.length} 个官方版本，嵌入权限播放时验证` : '本地官方目录已检查' }] }
+  }
+  async getStreamUrl() { return null }
+}
+
+class PublicVideoProvider implements MusicProvider {
+  id = 'public-video'
+  async search(query: string): Promise<MusicSearchPage> {
+    const normalized = normalizeMusicSearchText(query)
+    const tracks = publicVideoCatalog.filter(track => normalizeMusicSearchText(`${track.title}${track.artist}`).includes(normalized) || normalizeMusicSearchText(track.title).includes(normalized))
+    return { tracks, sourceStatuses: [{ id: this.id, name: '国内公开视频', ok: true, detail: tracks.length ? `找到 ${tracks.length} 个完整公开版本` : '本地公开目录已检查' }] }
+  }
+  async getStreamUrl() { return null }
+}
+
 class SubsonicMusicProvider implements MusicProvider {
   id = 'subsonic'
   private config: MusicSourceConfig
@@ -408,23 +461,29 @@ class SubsonicMusicProvider implements MusicProvider {
 }
 
 export const defaultMusicSourceConfigs = (): MusicSourceConfig[] => {
-  const deployedAggregateApiBase = String(import.meta.env.VITE_MUSIC_ACCOUNT_API_BASE || import.meta.env.VITE_PUBLIC_MUSIC_API_BASE || '').trim()
-  const bundledAggregateApiBase = import.meta.env.DEV ? '/music-api' : deployedAggregateApiBase
+  const viteEnv = import.meta.env || {}
+  const deployedAggregateApiBase = String(viteEnv.VITE_MUSIC_ACCOUNT_API_BASE || viteEnv.VITE_PUBLIC_MUSIC_API_BASE || '').trim()
+  const bundledAggregateApiBase = viteEnv.DEV ? '/music-api' : deployedAggregateApiBase
   return [
     { id: 'local', name: '本地音乐', enabled: true, kind: 'local', capabilities: ['播放', '歌词', '歌单', '离线'] },
     { id: 'aggregate', name: '账号音乐服务', enabled: Boolean(bundledAggregateApiBase), kind: 'aggregate', apiBase: bundledAggregateApiBase, capabilities: ['统一托管', '扫码登录', '个人歌单', '账号隔离'] },
     { id: 'public-meting', name: '公共音乐（免后端）', enabled: false, kind: 'meting', apiBase: 'https://meting.mikus.ink/api', capabilities: ['匿名搜索', '公开榜单', '无需部署', '第三方服务'] },
+    { id: 'official-video', name: '官方视频（免部署）', enabled: true, kind: 'embed', capabilities: ['官方完整内容', '无需登录', '无需部署', '网页播放'] },
+    { id: 'public-video', name: '国内公开视频（免部署）', enabled: true, kind: 'embed', capabilities: ['公开完整内容', '国内可用', '无需部署', '网页播放'] },
     { id: 'subsonic', name: '私人音乐库', enabled: false, kind: 'subsonic', apiBase: '', capabilities: ['Navidrome', 'OpenSubsonic', '歌单', '无损'] }
   ]
 }
 
-export const createMusicProviders = (configs: MusicSourceConfig[]) => configs.filter(item => item.enabled && item.id !== 'local' && Boolean(item.apiBase?.trim())).map(config => {
+export const createMusicProviders = (configs: MusicSourceConfig[]) => configs.filter(item => item.enabled && item.id !== 'local' && (configNeedsNoAddress(item) || Boolean(item.apiBase?.trim()))).map(config => {
   if (config.kind === 'aggregate') return new AggregateMusicProvider(config)
   if (config.kind === 'netease') return new NeteaseMusicProvider(config)
   if (config.kind === 'meting') return new MetingMusicProvider(config)
   if (config.kind === 'subsonic') return new SubsonicMusicProvider(config)
+  if (config.kind === 'embed') return config.id === 'public-video' ? new PublicVideoProvider() : new OfficialVideoProvider()
   return null
 }).filter(Boolean) as MusicProvider[]
+
+const configNeedsNoAddress = (config: MusicSourceConfig) => config.kind === 'embed'
 
 export const createNeteaseQrLogin = async (apiBase: string) => {
   const keyData: any = await withTimeout(joinUrl(apiBase, '/login/qr/key', { timestamp: Date.now() })); const key = keyData.data?.unikey

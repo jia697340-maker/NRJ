@@ -4,6 +4,7 @@ import type { DesktopWidgetEntry } from '../composables/useDesktopLayout'
 import DualAvatarWidget from './DualAvatarWidget.vue'
 import MomentCard from './MomentCard.vue'
 import CustomImageWidget from './CustomImageWidget.vue'
+import FolderImageWidget from './FolderImageWidget.vue'
 
 defineProps<{ entry: DesktopWidgetEntry; editing?: boolean; hideDelete?: boolean }>()
 defineEmits<{ delete: [] }>()
@@ -14,6 +15,7 @@ defineEmits<{ delete: [] }>()
     <button v-if="editing && !hideDelete" type="button" class="delete-widget" aria-label="删除小组件" @pointerdown.stop @click.stop="$emit('delete')">−</button>
     <MomentCard v-if="entry.widgetType === 'moment-card'" :instance-id="entry.id" :editing="editing" />
     <DualAvatarWidget v-else-if="entry.widgetType === 'dual-avatar'" :instance-id="entry.id" :editing="editing" />
+    <FolderImageWidget v-else-if="entry.widgetType === 'folder-widget'" :instance-id="entry.id" :editing="editing" />
     <CustomImageWidget v-else :instance-id="entry.id" :editing="editing" />
   </div>
 </template>

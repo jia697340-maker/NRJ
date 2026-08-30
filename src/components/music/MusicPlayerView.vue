@@ -3,6 +3,8 @@
 import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
+import MusicYouTubePlayer from './MusicYouTubePlayer.vue'
+import MusicBilibiliPlayer from './MusicBilibiliPlayer.vue'
 
 const {
   currentTrack,
@@ -15,6 +17,10 @@ const {
   isLyricMode,
   progressPercent,
   currentLyricIndex,
+  activePlaybackType,
+  activeEmbedId,
+  activeEmbedProvider,
+  volume,
   togglePlay,
   nextTrack,
   prevTrack,
@@ -144,7 +150,9 @@ const shareCurrent = async () => {
     <!-- 中央核心：无摆臂经典纯黑胶唱片 / 歌词模式切换 -->
     <div class="center-content-area">
       <!-- 黑胶唱片模式 (无摆臂，纯圆盘与同心纹) -->
-      <div class="disc-wrapper" v-if="!isLyricMode" @click="toggleLyricView">
+      <MusicYouTubePlayer v-if="activePlaybackType === 'embed' && activeEmbedId && activeEmbedProvider === 'youtube'" :videoId="activeEmbedId" :volume="volume" />
+      <MusicBilibiliPlayer v-else-if="activePlaybackType === 'embed' && activeEmbedId && activeEmbedProvider === 'bilibili'" :embedId="activeEmbedId" :volume="volume" :duration="currentTrack?.duration || 0" />
+      <div class="disc-wrapper" v-else-if="!isLyricMode" @click="toggleLyricView">
           <div class="vinyl-record" :class="{ 'is-rotating': isPlaying }">
           <!-- 黑胶外圈光泽纹理 -->
           <div class="vinyl-groove groove-1"></div>

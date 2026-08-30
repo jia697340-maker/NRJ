@@ -52,8 +52,9 @@ export const persistMusicRuntime = () => {
 
 let initializePromise: Promise<void> | null = null
 const restorePlayableTracks = (value: unknown): MusicTrack[] => (Array.isArray(value) ? value : []).flatMap(item => {
-  if (!item || item.externalUrl || item.sourceId === 'apple' || /试听|preview/i.test(item.reason || '')) return []
+  if (!item || (item.externalUrl && item.playbackType !== 'embed') || item.sourceId === 'apple' || /试听|preview/i.test(item.reason || '')) return []
   if (item.localBlobKey) return [{ ...item, playbackType: 'local' as const }]
+  if (item.playbackType === 'embed' && item.embedProvider && item.embedId) return [{ ...item, playbackType: 'embed' as const }]
   return [{ ...item, playbackType: 'full' as const }]
 })
 
@@ -90,7 +91,7 @@ export const initializeMusicRuntime = () => {
           merged.enabled = false
         }
         if (merged.kind === 'aggregate') merged.token = undefined
-        if (merged.kind !== 'local' && !merged.apiBase?.trim()) merged.enabled = false
+        if (merged.kind !== 'local' && merged.kind !== 'embed' && !merged.apiBase?.trim()) merged.enabled = false
         return merged
       })
     }

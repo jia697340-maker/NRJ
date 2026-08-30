@@ -5,6 +5,7 @@ import QRCode from 'qrcode'
 import type { MusicSourceConfig } from '../../../types/music'
 import { checkBundledMusicQrLogin, createBundledMusicQrLogin, createMusicProviders, getBundledMusicQrCapabilities, MUSIC_QR_PROMISE } from '../../../services/musicProviders'
 import { useMusicLibrary } from '../../../composables/useMusicLibrary'
+import { probeMusicUrl, verifiedEmbedTrack } from '../../../services/musicPlaybackValidation'
 import MusicQrConsentModal from './MusicQrConsentModal.vue'
 
 defineProps<{ visible: boolean }>()
@@ -34,6 +35,7 @@ const aggregateLoginSources = [
 ]
 const sourceAddressLabel = (source: MusicSourceConfig) => source.kind === 'aggregate'
   ? '扫码登录由本站公开代理提供（普通用户无需配置）'
+  : source.kind === 'embed' ? '使用平台公开网页播放器，无需服务地址'
   : source.apiBase || '尚未配置服务地址'
 
 const editSource = (source: MusicSourceConfig) => { editingId.value = source.id; draftBase.value = source.apiBase || ''; draftUsername.value = source.username || ''; draftToken.value = source.token || '' }
@@ -85,7 +87,7 @@ const toggleSource = (source: MusicSourceConfig) => {
     else emit('openPrivacy', 'public-consent')
     return
   }
-  if (!source.enabled && source.kind !== 'local' && !source.apiBase?.trim()) {
+  if (!source.enabled && source.kind !== 'local' && source.kind !== 'embed' && !source.apiBase?.trim()) {
     editSource(source)
     setMessage('先填写服务地址，保存后会自动启用')
     return
@@ -102,8 +104,10 @@ const checkSource = async (source: MusicSourceConfig) => {
         && capabilities.serverSideCredentialStore === true
         && capabilities.typedPromiseRequired === true
       if (!ready) throw new Error('本站公开扫码代理安全能力不完整')
-      setMessage('本站公开扫码代理连接正常，无需启动本地服务')
-      return
+      if (!source.apiBase?.trim()) {
+        setMessage('扫码代理正常；账号搜索与播放服务尚未配置')
+        return
+      }
     }
     const provider = createMusicProviders([{ ...source, enabled: true }])[0]
     if (!provider) throw new Error('该来源无需连接测试')
@@ -111,8 +115,14 @@ const checkSource = async (source: MusicSourceConfig) => {
       const profile = await provider.getProfile()
       setMessage(profile ? `已连接：${profile.nickname}` : '服务可访问，当前尚未登录')
     } else {
-      const result = await provider.search('音乐')
-      setMessage(result.tracks.length ? '来源连接正常' : '来源已响应，但没有返回结果')
+      const result = await provider.search(source.kind === 'embed' ? '讨厌红楼梦' : '音乐')
+      if (!result.tracks.length) { setMessage(source.kind === 'aggregate' ? '扫码代理正常；账号搜索没有返回结果' : '来源已响应，但没有返回结果'); return }
+      const candidate = result.tracks[0]
+      if (verifiedEmbedTrack(candidate)) { setMessage(source.id === 'public-video' ? '国内公开视频目录正常，可打开完整播放器' : '官方视频目录正常，可打开完整播放器'); return }
+      const url = provider.getStreamUrl ? await provider.getStreamUrl(candidate, 'standard') : null
+      if (!url) { setMessage('搜索正常，但没有解析到完整播放地址'); return }
+      const probe = await probeMusicUrl(url, 12000, source.kind === 'aggregate' ? 'include' : 'omit')
+      setMessage(probe.valid ? `搜索与完整播放正常（${Math.round(probe.duration)} 秒）` : `搜索正常；${probe.reason}`)
     }
   } catch (error) { setMessage(error instanceof Error ? error.message : '连接测试失败') }
   finally { checkingId.value = '' }
@@ -136,7 +146,7 @@ const checkSource = async (source: MusicSourceConfig) => {
             </div>
             <button class="source-switch" :class="{ active: source.enabled }" @click="toggleSource(source)"><span></span></button>
           </div>
-          <div v-if="source.kind === 'aggregate' || source.kind === 'subsonic' || source.kind === 'meting'" class="source-config">
+          <div v-if="source.kind === 'aggregate' || source.kind === 'subsonic' || source.kind === 'meting' || source.kind === 'embed'" class="source-config">
             <template v-if="editingId === source.id">
               <input v-model="draftBase" class="source-input" :placeholder="source.kind === 'aggregate' ? '单服务聚合 API 地址' : source.kind === 'meting' ? 'Meting 兼容 API 地址' : 'Navidrome / OpenSubsonic 地址'" />
               <input v-if="source.kind === 'subsonic'" v-model="draftUsername" class="source-input compact" placeholder="用户名" />
@@ -146,8 +156,8 @@ const checkSource = async (source: MusicSourceConfig) => {
             </template>
             <template v-else>
               <div class="source-address">{{ sourceAddressLabel(source) }}</div>
-              <button class="source-action" @click="editSource(source)">{{ source.kind === 'aggregate' ? '高级' : '设置' }}</button>
-              <button v-if="source.kind === 'aggregate' || source.apiBase" class="source-action" :disabled="checkingId === source.id" @click="checkSource(source)">{{ checkingId === source.id ? '检测中' : source.kind === 'aggregate' ? '检测代理' : '检测' }}</button>
+              <button v-if="source.kind !== 'embed'" class="source-action" @click="editSource(source)">{{ source.kind === 'aggregate' ? '高级' : '设置' }}</button>
+              <button v-if="source.kind === 'aggregate' || source.kind === 'embed' || source.apiBase" class="source-action" :disabled="checkingId === source.id" @click="checkSource(source)">{{ checkingId === source.id ? '检测中' : source.kind === 'aggregate' ? '检测代理' : '检测' }}</button>
             </template>
           </div>
           <div v-if="source.kind === 'aggregate' && editingId !== source.id" class="aggregate-login-row">

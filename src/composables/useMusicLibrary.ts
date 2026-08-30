@@ -1,16 +1,17 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { computed, ref } from 'vue'
-import type { MusicCommentPage, MusicHomeSection, MusicPlaylist, MusicSearchPage, MusicSourceConfig, MusicTrack, MusicUserProfile } from '../types/music'
+import type { MusicCommentPage, MusicHomeSection, MusicPlaylist, MusicSearchPage, MusicSourceConfig, MusicSourceStatus, MusicTrack, MusicUserProfile } from '../types/music'
 import { musicTrackKey } from '../types/music'
 import { createMusicProviders, loadPublicMusicComments, loadPublicMusicHomeSections, logoutBundledMusicAccounts } from '../services/musicProviders'
-import { loadMusicHomeCache, saveLocalMusicFile, saveMusicHomeCache } from '../services/musicStorage'
+import { getLocalMusicFile, loadMusicHomeCache, saveLocalMusicFile, saveMusicHomeCache } from '../services/musicStorage'
 import { readLocalMusicMetadata } from '../services/musicFileMetadata'
 import { parseMusicLyrics } from '../services/musicLyrics'
 import { defaultMusicPrivacyPreferences, loadMusicPrivacyPreferences, saveMusicPrivacyPreferences } from '../services/musicPrivacy'
+import { probeMusicUrl, verifiedEmbedTrack } from '../services/musicPlaybackValidation'
 import {
   initializeMusicRuntime, musicCustomPlaylists, musicCustomTrackCount, musicCustomTotalMinutes,
   musicCustomNickname, musicCustomVipLabel, musicCustomSignature,
-  musicHistory, musicLikedKeys, musicPlaylistTracks, musicSourceConfigs, persistMusicRuntime
+  musicHistory, musicLikedKeys, musicPlaylistTracks, musicPreferredQuality, musicSourceConfigs, persistMusicRuntime
 } from '../services/musicRuntime'
 
 const searchQuery = ref('')
@@ -21,6 +22,7 @@ const isLoadingHome = ref(false)
 const homeLoadError = ref('')
 const isHomeUsingCache = ref(false)
 const libraryMessage = ref('')
+const searchSourceStatuses = ref<MusicSourceStatus[]>([])
 const accountProfiles = ref<MusicUserProfile[]>([])
 const localTracks = computed(() => musicPlaylistTracks.local || [])
 const privacyPreferences = ref(defaultMusicPrivacyPreferences())
@@ -68,6 +70,23 @@ const trackFromFile = async (file: File): Promise<MusicTrack> => {
   }
 }
 
+const normalizeTrackIdentity = (value: string) => value.toLowerCase().replace(/[\s·・\-—_()（）【】\[\]]/g, '')
+export const musicSearchIdentity = (track: Pick<MusicTrack, 'title' | 'artist'>) => `${normalizeTrackIdentity(track.title)}|${normalizeTrackIdentity(track.artist)}`
+
+const mapWithConcurrency = async <T, R>(items: T[], limit: number, task: (item: T) => Promise<R>) => {
+  const output = new Array<R>(items.length)
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      output[index] = await task(items[index])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return output
+}
+
 export function useMusicLibrary() {
   const libraryReady = initializeMusicRuntime().then(initializePrivacy)
   void libraryReady
@@ -88,34 +107,69 @@ export function useMusicLibrary() {
       const activeProviders = providers()
       if (!activeProviders.length) {
         searchResult.value = { tracks: [] }
-        setMessage('本站音乐服务尚未连接，请让部署者检查 /music-api')
+        searchSourceStatuses.value = []
+        setMessage('还没有启用可搜索的在线音乐来源')
         return
       }
       const results = await Promise.allSettled(activeProviders.map(provider => provider.search(normalized)))
       const pages = results.filter((item): item is PromiseFulfilledResult<MusicSearchPage> => item.status === 'fulfilled').map(item => item.value)
-      const deduplicated: MusicTrack[] = []
-      const keys = new Set<string>()
+      const outerStatuses: MusicSourceStatus[] = results.flatMap((result, index) => {
+        const config = musicSourceConfigs.value.find(item => item.id === activeProviders[index].id)
+        if (result.status === 'rejected') return [{ id: activeProviders[index].id, name: config?.name || activeProviders[index].id, ok: false, detail: result.reason instanceof Error ? result.reason.message : '搜索请求失败' }]
+        if (result.value.sourceStatuses?.length) return result.value.sourceStatuses
+        return [{ id: activeProviders[index].id, name: config?.name || activeProviders[index].id, ok: true, detail: result.value.tracks.length ? `返回 ${result.value.tracks.length} 首，正在验证` : '已响应，但没有结果' }]
+      })
+      const groups = new Map<string, MusicTrack[]>()
       for (const track of pages.flatMap(item => item.tracks)) {
-        if (track.available === false || track.externalUrl || track.playbackType !== 'full') continue
-        const identity = `${track.title.toLowerCase().replace(/\s|[()（）【】\[\]]/g, '')}|${track.artist.toLowerCase().replace(/\s/g, '')}|${Math.round((track.duration || 0) / 3)}`
-        if (!keys.has(identity)) { keys.add(identity); deduplicated.push(track) }
+        if (track.available === false || (track.externalUrl && track.playbackType !== 'embed') || !track.playbackType) continue
+        const identity = musicSearchIdentity(track)
+        groups.set(identity, [...(groups.get(identity) || []), { ...track, sourceCandidates: undefined }])
       }
+      const groupedTracks = [...groups.values()]
+      let trialHidden = 0
+      const verified = await mapWithConcurrency(groupedTracks, 4, async candidates => {
+        const checked: MusicTrack[] = []
+        for (const candidate of candidates) {
+          if (verifiedEmbedTrack(candidate)) { checked.push(candidate); continue }
+          const provider = activeProviders.find(item => item.id === candidate.sourceId)
+          if (!provider?.getStreamUrl || candidate.playbackType !== 'full') continue
+          try {
+            candidate.validationStatus = 'checking'
+            const url = await provider.getStreamUrl(candidate, musicPreferredQuality.value)
+            if (!url) { checked.push({ ...candidate, available: false, validationStatus: 'unavailable', reason: candidate.requiresVip ? '当前账号没有完整播放权限' : '没有解析到完整音频' }); continue }
+            const probe = await probeMusicUrl(url, 12000, candidate.sourceId === 'aggregate' ? 'include' : 'omit')
+            if (probe.trial) trialHidden += 1
+            checked.push({ ...candidate, duration: probe.duration || candidate.duration, available: probe.valid, validationStatus: probe.valid ? 'verified' : (probe.trial ? 'trial' : 'unavailable'), reason: probe.valid ? `${candidate.originSourceId || candidate.sourceId} · 已验证完整播放` : probe.reason })
+          } catch (error) {
+            checked.push({ ...candidate, available: false, validationStatus: 'unavailable', reason: error instanceof Error ? error.message : '播放验证失败' })
+          }
+        }
+        const playable = checked.find(item => item.validationStatus === 'verified' && item.playbackType === 'full')
+          || checked.find(item => verifiedEmbedTrack(item) && item.embedProvider === 'bilibili')
+          || checked.find(verifiedEmbedTrack)
+        if (!playable) return null
+        return { ...playable, sourceCandidates: checked.filter(item => item.id !== playable.id) }
+      })
+      const deduplicated = verified.filter(Boolean) as MusicTrack[]
       searchResult.value = {
         tracks: deduplicated,
         playlists: pages.flatMap(item => item.playlists || []),
         albums: pages.flatMap(item => item.albums || []),
         artists: pages.flatMap(item => item.artists || [])
       }
-      const failed = results.filter(item => item.status === 'rejected').length
+      searchSourceStatuses.value = outerStatuses
+      const failedNames = outerStatuses.filter(item => !item.ok).map(item => item.name)
       if (!pages.length) setMessage('本站音乐服务暂时没有响应，请稍后重试')
-      else if (!deduplicated.length) setMessage('没有找到可完整播放的结果，试听与外链已自动隐藏')
-      else if (failed) setMessage(`${failed} 个来源暂时不可用，已显示可完整播放的结果`)
+      else if (!deduplicated.length) setMessage('没有验证到完整版本；试听和失效地址已隐藏')
+      else if (failedNames.length) setMessage(`${failedNames.slice(0, 2).join('、')}暂时不可用，其他完整结果已显示`)
+      else if (trialHidden) setMessage(`已隐藏 ${trialHidden} 个试听地址，并保留完整版本`)
     } finally { isSearching.value = false }
   }
 
   const clearSearch = () => {
     searchQuery.value = ''
     searchResult.value = { tracks: [] }
+    searchSourceStatuses.value = []
     isSearching.value = false
   }
 
@@ -200,6 +254,50 @@ export function useMusicLibrary() {
     musicPlaylistTracks[`${playlist.sourceId}:${playlist.id}`] = result.tracks
     persistMusicRuntime()
     return result
+  }
+
+  const filterPlayablePlaylistTracks = async (tracks: MusicTrack[], onProgress?: (checked: number, total: number) => void) => {
+    await libraryReady
+    const activeProviders = providers()
+    let checked = 0
+    const filtered = await mapWithConcurrency(tracks, 6, async track => {
+      try {
+        const candidates = [{ ...track, sourceCandidates: undefined }, ...(track.sourceCandidates || []).map(item => ({ ...item, sourceCandidates: undefined }))]
+        const seen = new Set<string>()
+        for (const candidate of candidates) {
+          const key = `${candidate.sourceId}:${candidate.sourceTrackId}:${candidate.embedId || ''}`
+          if (seen.has(key) || candidate.available === false || candidate.validationStatus === 'trial') continue
+          seen.add(key)
+          if (candidate.localBlobKey) {
+            if (await getLocalMusicFile(candidate.localBlobKey)) return candidate
+            continue
+          }
+          if (verifiedEmbedTrack(candidate) && candidate.validationStatus !== 'unavailable') return candidate
+          if (candidate.playbackType !== 'full' || candidate.externalUrl) continue
+          const provider = activeProviders.find(item => item.id === candidate.sourceId)
+          if (!candidate.audioUrl && !provider?.getStreamUrl) continue
+          try {
+            const url = candidate.audioUrl || await provider!.getStreamUrl!(candidate, musicPreferredQuality.value)
+            if (!url) continue
+            const probe = await probeMusicUrl(url, 12000, candidate.sourceId === 'aggregate' ? 'include' : 'omit')
+            if (!probe.valid) continue
+            return {
+              ...candidate,
+              duration: probe.duration || candidate.duration,
+              available: true,
+              validationStatus: 'verified' as const,
+              reason: `${candidate.originSourceId || candidate.sourceId} · 已验证完整播放`
+            }
+          } catch { continue }
+        }
+        return null
+      } finally {
+        checked += 1
+        onProgress?.(checked, tracks.length)
+      }
+    })
+    const playable = filtered.filter(Boolean) as MusicTrack[]
+    return { tracks: playable, removed: tracks.length - playable.length }
   }
 
   const loadComments = async (track: MusicTrack, page = 1): Promise<MusicCommentPage> => {
@@ -378,13 +476,13 @@ export function useMusicLibrary() {
   }
 
   return {
-    searchQuery, searchResult, homeSections, accountProfiles, isSearching, isLoadingHome,
+    searchQuery, searchResult, searchSourceStatuses, homeSections, accountProfiles, isSearching, isLoadingHome,
     homeLoadError, isHomeUsingCache, libraryMessage, localTracks, likedTracks,
     history: musicHistory, customPlaylists: musicCustomPlaylists, playlistTracks: musicPlaylistTracks,
     sourceConfigs: musicSourceConfigs, privacyPreferences, isPrivacyReady,
     customTrackCount: musicCustomTrackCount, customTotalMinutes: musicCustomTotalMinutes,
     customNickname: musicCustomNickname, customVipLabel: musicCustomVipLabel, customSignature: musicCustomSignature,
-    searchAll, clearSearch, loadHome, refreshProfiles, loadPlaylist, loadComments, importLocalFiles, toggleLikeTrack,
+    searchAll, clearSearch, loadHome, refreshProfiles, loadPlaylist, filterPlayablePlaylistTracks, loadComments, importLocalFiles, toggleLikeTrack,
     createPlaylist, addToPlaylist, updateSourceConfig, setAnonymousPublicSources,
     clearOnlineAccountData, importPlaylistLink, importPlaylistFile, exportLibrary,
     importLibraryBackup, deleteHistoryTracks, clearAllHistory, setCustomTrackCount,

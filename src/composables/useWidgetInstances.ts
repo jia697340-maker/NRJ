@@ -30,7 +30,16 @@ export interface CustomImageWidgetConfig {
   objectPosition: string
   borderRadius: number
 }
-export type WidgetConfig = DualAvatarWidgetConfig | MomentCardWidgetConfig | CustomImageWidgetConfig
+export interface FolderWidgetConfig {
+  imageSourceType: 'local' | 'url' | null
+  imageValue: string | null
+  cachedImageValue: string | null
+  objectFit: 'cover' | 'contain'
+  objectPosition: string
+  borderRadius: number
+  heartPink: boolean
+}
+export type WidgetConfig = DualAvatarWidgetConfig | MomentCardWidgetConfig | CustomImageWidgetConfig | FolderWidgetConfig
 export interface WidgetInstanceRecord { id: string; widgetType: WidgetType; config: WidgetConfig; updatedAt: number }
 
 const instanceStore = localforage.createInstance({ name: 'nrt-app', storeName: 'widgetInstances' })
@@ -45,13 +54,16 @@ export const defaultWidgetConfig = (widgetType: WidgetType): WidgetConfig => {
     bgLeftUrl: null, bgRightUrl: null, avatarUrl: null, username: 'My Moment', contentText: 'This is a custom moment description...',
     bgMainType: 'default', bgMainUrl: null, bgMainColor: '#ffffff', bgMainBlur: 0, progressPercent: 38
   }
+  if (widgetType === 'folder-widget') {
+    return { imageSourceType: null, imageValue: null, cachedImageValue: null, objectFit: 'cover', objectPosition: '50% 50%', borderRadius: 16, heartPink: false }
+  }
   return { imageSourceType: null, imageValue: null, cachedImageValue: null, objectFit: 'cover', objectPosition: '50% 50%', borderRadius: 22 }
 }
 
 const normalizeRecord = (value: unknown): WidgetInstanceRecord | null => {
   if (!value || typeof value !== 'object') return null
   const record = value as Partial<WidgetInstanceRecord>
-  if (typeof record.id !== 'string' || !['dual-avatar', 'moment-card', 'custom-image'].includes(String(record.widgetType))) return null
+  if (typeof record.id !== 'string' || !['dual-avatar', 'moment-card', 'custom-image', 'folder-widget'].includes(String(record.widgetType))) return null
   return { id: record.id, widgetType: record.widgetType as WidgetType, config: { ...defaultWidgetConfig(record.widgetType as WidgetType), ...(record.config as object ?? {}) } as WidgetConfig, updatedAt: Number(record.updatedAt) || Date.now() }
 }
 const load = async () => {

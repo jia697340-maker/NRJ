@@ -2,6 +2,15 @@
 
 export type MusicSourceId = 'local' | 'aggregate' | 'netease' | 'qq' | 'kugou' | 'kuwo' | 'migu' | 'bilibili' | 'subsonic' | string
 export type MusicQuality = 'standard' | 'higher' | 'exhigh' | 'lossless' | 'hires'
+export type MusicPlaybackType = 'full' | 'local' | 'embed'
+export type MusicValidationStatus = 'unknown' | 'checking' | 'verified' | 'trial' | 'unavailable'
+
+export interface MusicSourceStatus {
+  id: string
+  name: string
+  ok: boolean
+  detail: string
+}
 
 export interface MusicLyricLine {
   time: number
@@ -40,7 +49,11 @@ export interface MusicTrack {
   originSourceId?: string
   originExtra?: Record<string, string>
   neteaseTrackId?: string
-  playbackType?: 'full' | 'local'
+  playbackType?: MusicPlaybackType
+  validationStatus?: MusicValidationStatus
+  embedProvider?: 'youtube' | 'bilibili'
+  embedId?: string
+  sourceCandidates?: MusicTrack[]
 }
 
 export interface MusicComment {
@@ -108,6 +121,7 @@ export interface MusicSearchPage {
   albums?: MusicAlbum[]
   artists?: MusicArtist[]
   hasMore?: boolean
+  sourceStatuses?: MusicSourceStatus[]
 }
 
 export interface MusicHomeSection {
@@ -136,7 +150,7 @@ export interface MusicSourceConfig {
   apiBase?: string
   username?: string
   token?: string
-  kind: 'local' | 'aggregate' | 'netease' | 'meting' | 'generic' | 'subsonic'
+  kind: 'local' | 'aggregate' | 'netease' | 'meting' | 'generic' | 'subsonic' | 'embed'
   capabilities: string[]
 }
 
