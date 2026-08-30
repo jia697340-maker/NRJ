@@ -34,7 +34,7 @@
                 v-for="card in (walletState?.bankCards || [])" 
                 :key="card.id" 
                 :value="`card_${card.id}`"
-                :disabled="card.type === 'credit' ? (card.limitCents! - card.usedCents! <= 0) : (card.balanceCents! <= 0)"
+                :disabled="!card.enabled || (card.type === 'credit' ? ((card.limitCents || 0) - (card.usedCents || 0) <= 0) : ((card.balanceCents || 0) <= 0))"
               >
                 {{ card.name }} ({{ card.lastFour }}) - 
                 可用: {{ formatMoney(card.type === 'credit' ? (card.limitCents! - card.usedCents!) : card.balanceCents!) }}
@@ -48,6 +48,7 @@
               <span class="currency-symbol">￥</span>
               <input type="number" class="amount-input" v-model="amount" placeholder="0.00" />
             </div>
+            <div v-if="amountExceedsAvailable" class="form-hint" style="color:#f44336">所选付款方式可用金额不足</div>
           </div>
 
           <div class="form-group">
@@ -71,6 +72,7 @@
 
   <PaymentPasswordModal
     :visible="showPasswordInput"
+    :account-id="currentChatUserId || 'guest'"
     @close="showPasswordInput = false"
     @success="handlePasswordSuccess"
   />
@@ -113,6 +115,22 @@ const formatMoney = (cents: number) => {
   return '￥' + (cents / 100).toFixed(2)
 }
 
+const selectedAvailableCents = computed(() => {
+  if (!walletState.value) return 0
+  if (selectedFundingSource.value === 'credit') return Math.max(0, walletState.value.credit.limitCents - walletState.value.credit.usedCents)
+  if (selectedFundingSource.value.startsWith('card_')) {
+    const card = walletState.value.bankCards.find(item => item.id === selectedFundingSource.value.slice(5))
+    if (!card?.enabled) return 0
+    return card.type === 'credit' ? Math.max(0, (card.limitCents || 0) - (card.usedCents || 0)) : Math.max(0, card.balanceCents || 0)
+  }
+  return Math.max(0, walletState.value.cashCents)
+})
+
+const amountExceedsAvailable = computed(() => {
+  const amt = parseFloat(amount.value)
+  return Number.isFinite(amt) && amt > 0 && Math.round(amt * 100) > selectedAvailableCents.value
+})
+
 watch(() => props.visible, (newVal) => {
   if (newVal) {
     transferType.value = 'red_packet'
@@ -129,7 +147,8 @@ watch(() => props.visible, (newVal) => {
 
 const isValid = computed(() => {
   const amt = parseFloat(amount.value)
-  return !isNaN(amt) && amt > 0
+  const hours = parseFloat(expireHours.value)
+  return !isNaN(amt) && amt > 0 && Number.isFinite(hours) && hours > 0 && !amountExceedsAvailable.value
 })
 
 const handleClose = () => {

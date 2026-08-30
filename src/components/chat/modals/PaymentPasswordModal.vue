@@ -21,8 +21,9 @@
             v-model="paymentPasswordInput"
             maxlength="4"
             inputmode="numeric"
+            autocomplete="one-time-code"
             placeholder="请输入密码"
-            @input="passwordError = ''"
+            @input="paymentPasswordInput = paymentPasswordInput.replace(/\D/g, '').slice(0, 4); passwordError = ''"
           />
           <div v-if="passwordError" class="error-text">{{ passwordError }}</div>
         </div>
@@ -39,10 +40,10 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { loadWalletState } from '../../../services/walletService'
-import { useChatAuth } from '../../../composables/useChatAuth'
 
 const props = defineProps<{
   visible: boolean
+  accountId: string
 }>()
 
 const emit = defineEmits<{
@@ -52,7 +53,6 @@ const emit = defineEmits<{
 
 const paymentPasswordInput = ref('')
 const passwordError = ref('')
-const { currentChatUserId } = useChatAuth()
 
 watch(() => props.visible, (newVal) => {
   if (newVal) {
@@ -66,8 +66,7 @@ const handleClose = () => {
 }
 
 const verifyPassword = () => {
-  const accountId = currentChatUserId.value || 'guest'
-  const state = loadWalletState(accountId)
+  const state = loadWalletState(props.accountId || 'guest')
   if (paymentPasswordInput.value !== state.paymentPassword) {
     passwordError.value = '支付密码错误'
     paymentPasswordInput.value = ''

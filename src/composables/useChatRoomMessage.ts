@@ -117,7 +117,7 @@ export function useChatRoomMessage(
   }
 
   const showTransferModal = ref(false)
-  const handleSendTransfer = async (data: { type: 'red_packet' | 'transfer', amount: number, remark: string, expireHours: number }, showExtensionPanel: any) => {
+  const handleSendTransfer = async (data: { type: 'red_packet' | 'transfer', amount: number, remark: string, expireHours: number, fundingSource: 'balance' | 'credit' | 'bank_card', fundingSourceId?: string }, showExtensionPanel: any) => {
     const text = data.type === 'red_packet' ? '[发来一个红包]' : '[发来一笔转账]'
     if (!selectedChat.value) return
     resumeConversationTime(selectedChat.value)
@@ -135,7 +135,9 @@ export function useChatRoomMessage(
         senderType: 'user',
         amountCents: Math.round(data.amount * 100),
         kind: data.type,
-        remark: data.remark
+        remark: data.remark,
+        fundingSource: data.fundingSource,
+        fundingSourceId: data.fundingSourceId
       })
     } catch (error) {
       showToast?.(error instanceof Error ? error.message : '钱包余额不足，无法发送')

@@ -2,6 +2,8 @@
 
 export type WalletFundingSource = 'balance' | 'credit'
 export type WalletTransferResolution = 'claimed' | 'rejected' | 'expired'
+export type WalletMarketMode = 'simulation' | 'live'
+export type WalletMarketSource = 'builtin' | 'custom'
 
 export interface WalletLedgerEntry {
   id: string
@@ -34,6 +36,10 @@ export interface WalletQuote {
   priceCents: number
   previousCloseCents: number
   history: number[]
+  market?: string
+  marketCode?: string
+  updatedAt?: number
+  source?: 'simulation' | 'eastmoney' | 'tencent' | 'custom'
 }
 
 export interface WalletPosition { code: string; quantity: number; averageCostCents: number }
@@ -50,8 +56,9 @@ export interface WalletOrder {
   filledAt?: number
   filledPriceCents?: number
   rejectReason?: string
+  reservedCents?: number
 }
-export interface WalletCreditTransaction { id: string; title: string; amountCents: number; repaidCents: number; createdAt: number }
+export interface WalletCreditTransaction { id: string; title: string; amountCents: number; repaidCents: number; createdAt: number; relatedId?: string }
 export interface WalletCredit {
   enabled: boolean
   limitCents: number
@@ -60,10 +67,37 @@ export interface WalletCredit {
   repaymentDay: number
   transactions: WalletCreditTransaction[]
   baseLimitCents?: number
-  evaluationMethod?: 'random' | 'ai' | 'none'
+  evaluationMethod?: 'random' | 'ai' | 'local' | 'custom' | 'none'
   lastRefreshMonth?: string
+  evaluationSummary?: string
 }
-export interface WalletBankCard { id: string; name: string; type?: 'debit' | 'credit'; fullNumber?: string; lastFour: string; expiryDate?: string; hasCover?: boolean; hasBackCover?: boolean; coverBlur?: number; backCoverBlur?: number; isFavorite?: boolean; enabled: boolean; createdAt: number; balanceCents?: number; limitCents?: number; usedCents?: number }
+export interface WalletBankCard { id: string; name: string; type?: 'debit' | 'credit'; fullNumber?: string; lastFour: string; expiryDate?: string; virtualCvv?: string; hasCover?: boolean; hasBackCover?: boolean; coverBlur?: number; backCoverBlur?: number; isFavorite?: boolean; enabled: boolean; createdAt: number; balanceCents?: number; limitCents?: number; usedCents?: number }
+
+export interface WalletCustomMarketConfig {
+  name: string
+  url: string
+  method: 'GET' | 'POST'
+  headersText: string
+  symbolsParameter: string
+  dataPath: string
+  codeField: string
+  nameField: string
+  priceField: string
+  previousCloseField: string
+  timestampField: string
+}
+
+export interface WalletMarketSettings {
+  mode: WalletMarketMode
+  source: WalletMarketSource
+  refreshSeconds: number
+  lastUpdatedAt: number
+  lastAttemptedAt: number
+  status: 'idle' | 'loading' | 'ready' | 'stale' | 'error'
+  providerLabel: string
+  error: string
+  custom: WalletCustomMarketConfig
+}
 
 export interface WalletState {
   schemaVersion: 2
@@ -78,6 +112,11 @@ export interface WalletState {
   positions: WalletPosition[]
   orders: WalletOrder[]
   watchlist: string[]
+  liveQuotes: WalletQuote[]
+  livePositions: WalletPosition[]
+  liveOrders: WalletOrder[]
+  liveWatchlist: string[]
+  marketSettings: WalletMarketSettings
   credit: WalletCredit
   bankCards: WalletBankCard[]
   hideAmounts: boolean
@@ -98,10 +137,33 @@ const quoteSeeds: Array<[string, string, string, number]> = [
   ['CLY007', '栖木文娱', '文娱', 1960], ['CLY008', '长风制造', '制造', 3515]
 ]
 
+const liveQuoteSeeds: WalletQuote[] = [
+  { code: '600519', name: '贵州茅台', sector: '消费', market: '沪市', marketCode: '1.600519', priceCents: 0, previousCloseCents: 0, history: [], source: 'eastmoney' },
+  { code: '000001', name: '平安银行', sector: '金融', market: '深市', marketCode: '0.000001', priceCents: 0, previousCloseCents: 0, history: [], source: 'eastmoney' },
+  { code: '300750', name: '宁德时代', sector: '制造', market: '深市', marketCode: '0.300750', priceCents: 0, previousCloseCents: 0, history: [], source: 'eastmoney' },
+  { code: '601318', name: '中国平安', sector: '金融', market: '沪市', marketCode: '1.601318', priceCents: 0, previousCloseCents: 0, history: [], source: 'eastmoney' }
+]
+
+const defaultCustomMarketConfig = (): WalletCustomMarketConfig => ({
+  name: '自定义行情', url: '', method: 'GET', headersText: '', symbolsParameter: 'symbols', dataPath: 'data',
+  codeField: 'code', nameField: 'name', priceField: 'price', previousCloseField: 'previousClose', timestampField: 'timestamp'
+})
+
+const defaultMarketSettings = (): WalletMarketSettings => ({
+  mode: 'simulation', source: 'builtin', refreshSeconds: 60, lastUpdatedAt: 0, lastAttemptedAt: 0,
+  status: 'idle', providerLabel: '内置网络行情', error: '', custom: defaultCustomMarketConfig()
+})
+
 const makePaymentHandle = (accountId: string) => {
   let hash = 17
   for (const char of accountId) hash = (hash * 33 + char.charCodeAt(0)) >>> 0
   return `PAY${String(hash).padStart(9, '0').slice(-9)}`
+}
+
+const makeVirtualCvv = (id: string) => {
+  let hash = 29
+  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+  return String(100 + (hash % 900))
 }
 
 export const walletStorageKey = (accountId: string) => `${STORAGE_PREFIX}${accountId || 'guest'}`
@@ -118,6 +180,8 @@ export const createWalletState = (accountId: string, accountName = '我'): Walle
   payments: [],
   quotes: quoteSeeds.map(([code, name, sector, priceCents]) => ({ code, name, sector, priceCents, previousCloseCents: priceCents, history: [priceCents] })),
   positions: [], orders: [], watchlist: ['CLY001', 'CLY003', 'CLY006'],
+  liveQuotes: liveQuoteSeeds.map(item => ({ ...item, history: [...item.history] })), livePositions: [], liveOrders: [], liveWatchlist: liveQuoteSeeds.map(item => item.code),
+  marketSettings: defaultMarketSettings(),
   credit: { enabled: false, limitCents: 0, usedCents: 0, billingDay: 5, repaymentDay: 15, transactions: [], baseLimitCents: 0, evaluationMethod: 'none', lastRefreshMonth: '' },
   bankCards: [], hideAmounts: false,
   market: { tick: 0, lastAdvancedAt: Date.now() }
@@ -146,8 +210,17 @@ const normalize = (raw: any, accountId: string, accountName = '我'): WalletStat
     quotes: Array.isArray(raw.quotes) && raw.quotes.length ? raw.quotes : base.quotes,
     positions: Array.isArray(raw.positions) ? raw.positions : [], orders: Array.isArray(raw.orders) ? raw.orders : [],
     watchlist: Array.isArray(raw.watchlist) ? raw.watchlist : base.watchlist,
+    liveQuotes: Array.isArray(raw.liveQuotes) && raw.liveQuotes.length ? raw.liveQuotes : base.liveQuotes,
+    livePositions: Array.isArray(raw.livePositions) ? raw.livePositions : [],
+    liveOrders: Array.isArray(raw.liveOrders) ? raw.liveOrders : [],
+    liveWatchlist: Array.isArray(raw.liveWatchlist) ? raw.liveWatchlist : base.liveWatchlist,
+    marketSettings: {
+      ...base.marketSettings,
+      ...(raw.marketSettings || {}),
+      custom: { ...base.marketSettings.custom, ...(raw.marketSettings?.custom || {}) }
+    },
     credit: { ...base.credit, ...(raw.credit || {}), transactions: Array.isArray(raw.credit?.transactions) ? raw.credit.transactions : [] },
-    bankCards: Array.isArray(raw.bankCards) ? raw.bankCards : [],
+    bankCards: Array.isArray(raw.bankCards) ? raw.bankCards.map((card: WalletBankCard) => ({ ...card, enabled: card.enabled !== false, virtualCvv: card.virtualCvv || makeVirtualCvv(card.id) })) : [],
     hideAmounts: raw.hideAmounts ?? raw.security?.hideAmounts ?? false,
     paymentPassword: raw.paymentPassword || base.paymentPassword,
     market: { ...base.market, ...(raw.market || {}) }
@@ -168,6 +241,11 @@ export const saveWalletState = (state: WalletState) => {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: { accountId: state.accountId } }))
 }
 
+export const getWalletQuotes = (state: WalletState) => state.marketSettings.mode === 'live' ? state.liveQuotes : state.quotes
+export const getWalletPositions = (state: WalletState) => state.marketSettings.mode === 'live' ? state.livePositions : state.positions
+export const getWalletOrders = (state: WalletState) => state.marketSettings.mode === 'live' ? state.liveOrders : state.orders
+export const getWalletWatchlist = (state: WalletState) => state.marketSettings.mode === 'live' ? state.liveWatchlist : state.watchlist
+
 const pushLedger = (state: WalletState, input: Omit<WalletLedgerEntry, 'id' | 'createdAt' | 'balanceAfterCents'>) => {
   const entry: WalletLedgerEntry = { ...input, id: uid('ledger'), createdAt: Date.now(), balanceAfterCents: state.cashCents }
   state.ledger.unshift(entry); state.ledger = state.ledger.slice(0, 2000); return entry
@@ -185,14 +263,14 @@ export const adjustWalletBalance = (state: WalletState, amountCents: number, tit
   if (bankCardId) {
     const card = state.bankCards.find(c => c.id === bankCardId)
     if (!card) throw new Error('未找到指定的银行卡')
+    if (!card.enabled) throw new Error('该银行卡已停用')
     
     // 如果是充值 (amount > 0)，是从银行卡扣钱到钱包
     if (amount > 0) {
       if (card.type === 'credit') {
-        card.usedCents = (card.usedCents || 0) + amount
-        if (card.limitCents && card.usedCents > card.limitCents) {
-          throw new Error('信用卡可用额度不足')
-        }
+        const nextUsed = (card.usedCents || 0) + amount
+        if (card.limitCents !== undefined && nextUsed > card.limitCents) throw new Error('信用卡可用额度不足')
+        card.usedCents = nextUsed
       } else {
         if ((card.balanceCents || 0) < amount) {
           throw new Error('储蓄卡余额不足')
@@ -222,11 +300,14 @@ export const createOutgoingWalletPayment = (accountId: string, amountCents: numb
   if (fundingSource === 'credit') {
     if (!state.credit.enabled || state.credit.limitCents - state.credit.usedCents < amount) throw new Error('花呗可用额度不足')
     state.credit.usedCents += amount
-  } else if (fundingSource === 'bank_card' && fundingSourceId) {
+    state.credit.transactions.unshift({ id: uid('credit'), title: kind === 'red_packet' ? '发送红包' : '发起转账', amountCents: amount, repaidCents: 0, createdAt: Date.now(), relatedId: '' })
+  } else if (fundingSource === 'bank_card') {
+    if (!fundingSourceId) throw new Error('请选择用于付款的银行卡')
     const card = state.bankCards.find(c => c.id === fundingSourceId)
     if (!card) throw new Error('未找到指定的银行卡')
+    if (!card.enabled) throw new Error('该银行卡已停用')
     if (card.type === 'credit') {
-      if (card.limitCents && (card.usedCents || 0) + amount > card.limitCents) throw new Error('信用卡可用额度不足')
+      if (card.limitCents !== undefined && (card.usedCents || 0) + amount > card.limitCents) throw new Error('信用卡可用额度不足')
       card.usedCents = (card.usedCents || 0) + amount
     } else {
       if ((card.balanceCents || 0) < amount) throw new Error('储蓄卡余额不足')
@@ -239,6 +320,10 @@ export const createOutgoingWalletPayment = (accountId: string, amountCents: numb
   
   state.heldCents += amount
   const payment: WalletPayment = { id: uid('payment'), direction: 'outgoing', amountCents: amount, kind, remark, status: 'pending', createdAt: Date.now(), fundingSource, fundingSourceId }
+  if (fundingSource === 'credit') {
+    const transaction = state.credit.transactions[0]
+    if (transaction && !transaction.relatedId) transaction.relatedId = payment.id
+  }
   state.payments.unshift(payment)
   pushLedger(state, { category: kind, title: kind === 'red_packet' ? '发出红包（待领取）' : '转账（待收款）', amountCents: -amount, relatedId: payment.id, note: remark })
   saveWalletState(state); return payment
@@ -246,6 +331,7 @@ export const createOutgoingWalletPayment = (accountId: string, amountCents: numb
 
 export const createIncomingWalletPayment = (accountId: string, amountCents: number, kind: 'transfer' | 'red_packet', remark = '') => {
   const state = loadWalletState(accountId); const amount = cents(amountCents)
+  if (!amount) throw new Error('金额必须大于 0')
   const payment: WalletPayment = { id: uid('payment'), direction: 'incoming', amountCents: amount, kind, remark, status: 'pending', createdAt: Date.now() }
   state.payments.unshift(payment); saveWalletState(state); return payment
 }
@@ -267,6 +353,8 @@ export const resolveWalletPayment = (accountId: string, paymentId: string, resol
     if (resolution !== 'claimed') {
       if (payment.fundingSource === 'credit') {
         state.credit.usedCents = Math.max(0, state.credit.usedCents - payment.amountCents)
+        const transaction = state.credit.transactions.find(item => item.relatedId === payment.id)
+        if (transaction) transaction.repaidCents = transaction.amountCents
       } else if (payment.fundingSource === 'bank_card' && payment.fundingSourceId) {
         const card = state.bankCards.find(c => c.id === payment.fundingSourceId)
         if (card) {
@@ -276,7 +364,7 @@ export const resolveWalletPayment = (accountId: string, paymentId: string, resol
             card.balanceCents = (card.balanceCents || 0) + payment.amountCents
           }
         } else {
-          // If card was deleted, fallback to cashCents
+          // 兼容历史数据中已被删除、但仍有待退款款项的卡片。
           state.cashCents += payment.amountCents
         }
       } else {
@@ -297,10 +385,11 @@ const noise = (code: string, tick: number) => {
 }
 
 export const advanceWalletMarket = (state: WalletState, forceTicks = 0) => {
+  if (state.marketSettings.mode !== 'simulation') return false
   const ticks = Math.max(forceTicks, Math.min(96, Math.max(0, Math.floor((Date.now() - state.market.lastAdvancedAt) / 300000))))
   if (!ticks) return false
   for (let i = 0; i < ticks; i++) { state.market.tick++; state.quotes.forEach(quote => { quote.priceCents = Math.max(100, Math.round(quote.priceCents * (1 + noise(quote.code, state.market.tick)))); quote.history.push(quote.priceCents); quote.history = quote.history.slice(-48) }) }
-  state.market.lastAdvancedAt = Date.now(); processPendingOrders(state); return true
+  state.market.lastAdvancedAt = Date.now(); processWalletPendingOrders(state); return true
 }
 
 const useFunds = (state: WalletState, amount: number, source: WalletFundingSource, title: string, relatedId: string) => {
@@ -314,37 +403,101 @@ const useFunds = (state: WalletState, amount: number, source: WalletFundingSourc
 }
 
 const fillOrder = (state: WalletState, order: WalletOrder, price: number) => {
-  const quote = state.quotes.find(item => item.code === order.code); if (!quote) throw new Error('股票不存在')
+  const quotes = getWalletQuotes(state); const positions = getWalletPositions(state)
+  const quote = quotes.find(item => item.code === order.code); if (!quote) throw new Error('股票不存在')
   if (order.side === 'buy') {
-    const total = price * order.quantity; useFunds(state, total, order.fundingSource, `买入${quote.name}`, order.id)
-    const position = state.positions.find(item => item.code === order.code)
+    const total = price * order.quantity
+    if (order.reservedCents) {
+      const reserved = order.reservedCents
+      const released = Math.max(0, reserved - total)
+      state.heldCents = Math.max(0, state.heldCents - reserved)
+      if (order.fundingSource === 'credit') {
+        state.credit.usedCents = Math.max(0, state.credit.usedCents - released)
+        const transaction = state.credit.transactions.find(item => item.relatedId === order.id)
+        if (transaction) transaction.amountCents = total
+      } else if (released) {
+        state.cashCents += released
+        pushLedger(state, { category: 'stock_refund', title: `${quote.name}成交差额退回`, amountCents: released, relatedId: order.id })
+      }
+      order.reservedCents = 0
+    } else {
+      useFunds(state, total, order.fundingSource, `买入${quote.name}`, order.id)
+    }
+    const position = positions.find(item => item.code === order.code)
     if (position) { const old = position.averageCostCents * position.quantity; position.quantity += order.quantity; position.averageCostCents = Math.round((old + total) / position.quantity) }
-    else state.positions.push({ code: order.code, quantity: order.quantity, averageCostCents: price })
+    else positions.push({ code: order.code, quantity: order.quantity, averageCostCents: price })
   } else {
-    const position = state.positions.find(item => item.code === order.code); if (!position || position.quantity < order.quantity) throw new Error('可卖数量不足')
+    const position = positions.find(item => item.code === order.code); if (!position || position.quantity < order.quantity) throw new Error('可卖数量不足')
     position.quantity -= order.quantity; const total = price * order.quantity; state.cashCents += total
     pushLedger(state, { category: 'stock', title: `卖出${quote.name}`, amountCents: total, relatedId: order.id })
-    if (!position.quantity) state.positions = state.positions.filter(item => item !== position)
+    if (!position.quantity) {
+      if (state.marketSettings.mode === 'live') state.livePositions = positions.filter(item => item !== position)
+      else state.positions = positions.filter(item => item !== position)
+    }
   }
   order.status = 'filled'; order.filledAt = Date.now(); order.filledPriceCents = price
 }
 
-const processPendingOrders = (state: WalletState) => state.orders.filter(order => order.status === 'pending').forEach(order => {
-  const quote = state.quotes.find(item => item.code === order.code); if (!quote || !order.limitPriceCents) return
+export const processWalletPendingOrders = (state: WalletState) => getWalletOrders(state).filter(order => order.status === 'pending').forEach(order => {
+  const quote = getWalletQuotes(state).find(item => item.code === order.code); if (!quote || !order.limitPriceCents) return
   if (!(order.side === 'buy' ? quote.priceCents <= order.limitPriceCents : quote.priceCents >= order.limitPriceCents)) return
   try { fillOrder(state, order, quote.priceCents) } catch (error) { order.status = 'rejected'; order.rejectReason = error instanceof Error ? error.message : '成交失败' }
 })
 
 export const placeWalletOrder = (state: WalletState, input: Omit<WalletOrder, 'id' | 'status' | 'createdAt'>) => {
-  const quote = state.quotes.find(item => item.code === input.code); if (!quote) throw new Error('请选择有效股票')
+  const quote = getWalletQuotes(state).find(item => item.code === input.code); if (!quote || quote.priceCents <= 0) throw new Error('请选择已有有效行情的股票')
   const order: WalletOrder = { ...input, quantity: Math.max(1, Math.floor(Number(input.quantity) || 0)), id: uid('order'), status: 'pending', createdAt: Date.now() }
-  state.orders.unshift(order)
+  if (order.side === 'sell') {
+    const positions = getWalletPositions(state)
+    const position = positions.find(item => item.code === order.code)
+    const pendingSellQuantity = getWalletOrders(state).filter(item => item.status === 'pending' && item.side === 'sell' && item.code === order.code).reduce((sum, item) => sum + item.quantity, 0)
+    if (!position || position.quantity - pendingSellQuantity < order.quantity) throw new Error('可卖数量不足')
+  }
+  getWalletOrders(state).unshift(order)
   if (order.orderType === 'market') { try { fillOrder(state, order, quote.priceCents) } catch (error) { order.status = 'rejected'; order.rejectReason = error instanceof Error ? error.message : '下单失败'; throw error } }
-  else if (!order.limitPriceCents || order.limitPriceCents <= 0) throw new Error('请输入有效限价')
+  else if (!order.limitPriceCents || order.limitPriceCents <= 0) {
+    getWalletOrders(state).splice(getWalletOrders(state).indexOf(order), 1)
+    throw new Error('请输入有效限价')
+  } else if (order.side === 'buy') {
+    const reserved = order.limitPriceCents * order.quantity
+    try {
+      if (order.fundingSource === 'credit') {
+        if (!state.credit.enabled || state.credit.limitCents - state.credit.usedCents < reserved) throw new Error('花呗可用额度不足')
+        state.credit.usedCents += reserved
+        state.credit.transactions.unshift({ id: uid('credit'), title: `买入${quote.name}限价委托`, amountCents: reserved, repaidCents: 0, createdAt: Date.now(), relatedId: order.id })
+      } else {
+        if (state.cashCents < reserved) throw new Error('钱包余额不足')
+        state.cashCents -= reserved
+        pushLedger(state, { category: 'stock', title: `买入${quote.name}限价委托（冻结）`, amountCents: -reserved, relatedId: order.id })
+      }
+      state.heldCents += reserved
+      order.reservedCents = reserved
+    } catch (error) {
+      getWalletOrders(state).splice(getWalletOrders(state).indexOf(order), 1)
+      throw error
+    }
+  }
   return order
 }
 
-export const cancelWalletOrder = (state: WalletState, orderId: string) => { const order = state.orders.find(item => item.id === orderId); if (!order || order.status !== 'pending') throw new Error('该委托无法撤销'); order.status = 'cancelled' }
+export const cancelWalletOrder = (state: WalletState, orderId: string) => {
+  const order = getWalletOrders(state).find(item => item.id === orderId)
+  if (!order || order.status !== 'pending') throw new Error('该委托无法撤销')
+  if (order.reservedCents) {
+    const reserved = order.reservedCents
+    state.heldCents = Math.max(0, state.heldCents - reserved)
+    if (order.fundingSource === 'credit') {
+      state.credit.usedCents = Math.max(0, state.credit.usedCents - reserved)
+      const transaction = state.credit.transactions.find(item => item.relatedId === order.id)
+      if (transaction) transaction.repaidCents = transaction.amountCents
+    } else {
+      state.cashCents += reserved
+      pushLedger(state, { category: 'stock_refund', title: '股票委托撤单退回', amountCents: reserved, relatedId: order.id })
+    }
+    order.reservedCents = 0
+  }
+  order.status = 'cancelled'
+}
 
 export const repayWalletCredit = (state: WalletState, amountCents: number) => {
   const amount = Math.min(cents(amountCents), state.credit.usedCents); if (!amount) throw new Error('当前没有待还金额'); if (state.cashCents < amount) throw new Error('钱包余额不足')
@@ -374,7 +527,7 @@ export const refreshCreditLimitIfNeeded = (state: WalletState) => {
 }
 
 export const resetWalletFinance = (state: WalletState) => {
-  const keep = { accountName: state.accountName, paymentHandle: state.paymentHandle, bankCards: state.bankCards, hideAmounts: state.hideAmounts }
+  const keep = { accountName: state.accountName, paymentHandle: state.paymentHandle, bankCards: state.bankCards, hideAmounts: state.hideAmounts, paymentPassword: state.paymentPassword, marketSettings: state.marketSettings }
   Object.assign(state, createWalletState(state.accountId, state.accountName), keep)
 }
 
