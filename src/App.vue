@@ -20,6 +20,7 @@ import AppBubbleWorkshop from './components/app_BubbleWorkshop.vue'
 import AppMusic from './components/app_Music.vue'
 import AppForum from './components/app_Forum.vue'
 import AppMCP from './components/app_MCP.vue'
+import AppKeepAlive from './components/app_KeepAlive.vue'
 import McpConfirmationHost from './components/mcp/McpConfirmationHost.vue'
 import AppVideoHall from './components/app_VideoHall.vue'
 import LockScreen from './components/LockScreen.vue'
@@ -552,6 +553,13 @@ watch([activeApp, isLocked], ([appId, locked]) => {
       <AppMCP
         v-if="activeApp === 'mcp'"
         data-font-app="mcp"
+        @close="activeApp = null"
+      />
+    </Transition>
+    <Transition name="app-fade">
+      <AppKeepAlive
+        v-if="activeApp === 'keep_alive'"
+        data-font-app="keep_alive"
         @close="activeApp = null"
       />
     </Transition>

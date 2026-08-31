@@ -305,7 +305,9 @@ const handleInnerClick = (e: MouseEvent) => {
 <style scoped>
 .moment-card {
   width: 100%;
+  height: 100%;
   max-width: 400px;
+  box-sizing: border-box;
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 4px 16px var(--shadow-color);

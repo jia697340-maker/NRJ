@@ -53,3 +53,9 @@ self.addEventListener('fetch', (event) => {
     return response
   })))
 })
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'nianrenji-keep-alive-probe') return
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    clients.forEach((client) => client.postMessage({ type: 'keep-alive-sync', time: Date.now() }))
+  }))
+})

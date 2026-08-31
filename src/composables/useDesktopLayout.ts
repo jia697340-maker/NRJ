@@ -3,7 +3,7 @@ import { reactive, readonly } from 'vue'
 
 export const DESKTOP_COLUMNS = 4
 export const DESKTOP_ROWS = 4
-export type WidgetType = 'dual-avatar' | 'moment-card' | 'custom-image' | 'folder-widget'
+export type WidgetType = 'dual-avatar' | 'moment-card' | 'custom-image' | 'folder-widget' | 'dual-frame' | 'circle-avatar-widget' | 'rectangle-image' | 'profile-card-widget' | 'about-us-widget'
 
 export interface DesktopAppEntry { type: 'app'; id: string }
 export interface DesktopFolderEntry { type: 'folder'; id: string; name: string; appIds: string[] }
@@ -24,7 +24,8 @@ const DOCK_CAPACITY = 4
 const DEFAULT_PAGE_COUNT = 4
 export const DEFAULT_WIDGET_IDS = { moment: 'widget-moment-default', dualAvatar: 'widget-dual-avatar-default' } as const
 const THIRD_PAGE_APP_IDS = new Set(['widget_beautify', 'character_workshop', 'persona_workshop', 'bubble_dressup', 'character_phone', 'watch_together', 'timebox', 'mcp'])
-const FOURTH_PAGE_APP_IDS = new Set(['text_game', 'keep_alive', 'appearance_wardrobe', 'book_store', 'game', 'bubble', 'mall', 'fate'])
+const FOURTH_PAGE_APP_ORDER = ['mall', 'fate', 'book_store', 'bubble', 'text_game', 'keep_alive', 'appearance_wardrobe', 'game']
+const FOURTH_PAGE_APP_IDS = new Set(FOURTH_PAGE_APP_ORDER)
 
 const state = reactive<DesktopLayoutState>({ version: 2, dock: [], pages: [], hiddenAppIds: [] })
 let initialized = false
@@ -84,7 +85,8 @@ const createDefaultLayout = (appIds: string[]): DesktopLayoutState => {
   primary.slice(4, 8).forEach((id, index) => firstEntries.push({ type: 'app', id, column: index % 2 + 1, row: Math.floor(index / 2) + 3 }))
   const pageOne = primary.slice(8).map(id => ({ type: 'app', id }) as DesktopAppEntry)
   const pageTwo = appIds.filter(id => THIRD_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id }) as DesktopAppEntry)
-  const pageThree = appIds.filter(id => FOURTH_PAGE_APP_IDS.has(id)).map(id => ({ type: 'app', id }) as DesktopAppEntry)
+  const availableIds = new Set(appIds)
+  const pageThree = FOURTH_PAGE_APP_ORDER.filter(id => availableIds.has(id)).map(id => ({ type: 'app', id }) as DesktopAppEntry)
   return { version: 2, dock, pages: [firstEntries, fillPage(pageOne), fillPage(pageTwo), fillPage(pageThree)].map(entries => ({ id: pageId(), entries })), hiddenAppIds: [] }
 }
 const persistNow = () => {
@@ -113,7 +115,7 @@ const normalizeBaseEntries = (entries: unknown, validIds: Set<string>, hidden: S
       appIds.forEach(id => usedApps.add(id))
       if (appIds.length === 1) result.push({ type: 'app', id: appIds[0] })
       if (appIds.length > 1) result.push({ type: 'folder', id: candidate.id, name: typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim().slice(0, 12) : '文件夹', appIds })
-    } else if (allowWidgets && candidate.type === 'widget' && typeof candidate.id === 'string' && ['dual-avatar', 'moment-card', 'custom-image', 'folder-widget'].includes(String(candidate.widgetType))) {
+    } else if (allowWidgets && candidate.type === 'widget' && typeof candidate.id === 'string' && ['dual-avatar', 'moment-card', 'custom-image', 'folder-widget', 'dual-frame', 'circle-avatar-widget', 'rectangle-image', 'profile-card-widget', 'about-us-widget'].includes(String(candidate.widgetType))) {
       result.push({ type: 'widget', id: candidate.id, widgetType: candidate.widgetType as WidgetType, widthUnits: Math.max(1, Math.min(4, Number(candidate.widthUnits) || 1)), heightUnits: Math.max(1, Math.min(4, Number(candidate.heightUnits) || 1)) })
     }
   }
@@ -229,6 +231,45 @@ const entryAt = (location: DesktopLocation): DesktopEntry | null => {
   if (location.column && location.row) return page.entries.find(entry => { const span = spanOf(entry); return location.column! >= entry.column && location.column! < entry.column + span.width && location.row! >= entry.row && location.row! < entry.row + span.height }) ?? null
   return null
 }
+
+const canMoveEntry = (from: DesktopLocation, to: DesktopLocation) => {
+  const moving = entryAt(from)
+  if (!moving || (moving.type === 'widget' && to.area !== 'page') || (to.area === 'folder' && moving.type !== 'app')) return false
+  if (to.area === 'folder') {
+    const folder = to.folderId ? findFolder(to.folderId) : null
+    return !!folder && moving.type === 'app'
+      && ((from.area === 'folder' && from.folderId === folder.id) || !folder.appIds.includes(moving.id))
+  }
+  if (to.area === 'dock') {
+    if (moving.type === 'widget') return false
+    if (from.area === 'dock' || state.dock.length < DOCK_CAPACITY) return true
+    return from.area === 'page' && !!state.dock[Math.max(0, Math.min(to.index ?? state.dock.length, state.dock.length - 1))]
+  }
+
+  const targetPage = pageFor(to)
+  if (!targetPage || !to.column || !to.row) return false
+  const sourcePage = from.area === 'page' ? pageFor(from) : null
+  const sourceGrid = sourcePage?.entries.find(entry => entry.id === moving.id) ?? null
+  const targetWithoutMoving = targetPage.entries.filter(entry => entry.id !== moving.id)
+  if (canPlace(targetWithoutMoving, moving, to.column, to.row)) return true
+
+  const displaced = entryAt(to)
+  if (!displaced || displaced.id === moving.id || from.area === 'folder') return false
+  if (from.area === 'dock') return displaced.type !== 'widget'
+  if (!sourcePage || !sourceGrid) return false
+
+  if (sourcePage === targetPage) {
+    const remaining = targetPage.entries.filter(entry => entry.id !== moving.id && entry.id !== displaced.id)
+    const movingAtTarget = { ...cloneEntry(moving), column: to.column, row: to.row } as DesktopGridEntry
+    return canPlace(remaining, moving, to.column, to.row)
+      && canPlace([...remaining, movingAtTarget], displaced, sourceGrid.column, sourceGrid.row)
+  }
+
+  const targetRemaining = targetPage.entries.filter(entry => entry.id !== displaced.id)
+  const sourceRemaining = sourcePage.entries.filter(entry => entry.id !== moving.id)
+  return canPlace(targetRemaining, moving, to.column, to.row)
+    && canPlace(sourceRemaining, displaced, sourceGrid.column, sourceGrid.row)
+}
 const removeAt = (location: DesktopLocation): DesktopEntry | null => {
   if (location.area === 'folder') { const folder = location.folderId ? findFolder(location.folderId) : null; const id = folder?.appIds.splice(location.index ?? -1, 1)[0]; return id ? { type: 'app', id } : null }
   if (location.area === 'dock') return state.dock.splice(location.index ?? -1, 1)[0] ?? null
@@ -240,9 +281,8 @@ const moveEntry = (from: DesktopLocation, to: DesktopLocation): DesktopLocation 
   const moving = entryAt(from); if (!moving || (moving.type === 'widget' && to.area !== 'page') || (to.area === 'folder' && moving.type !== 'app')) return null
   if (to.area === 'page') {
     const targetPage = pageFor(to); if (!targetPage || !to.column || !to.row) return null
-    const previewEntries = targetPage.entries.filter(entry => entry.id !== moving.id).slice().sort((a, b) => a.row - b.row || a.column - b.column).map(cloneEntry)
-    const previewPacked = packEntries(previewEntries, { entry: moving, column: to.column, row: to.row })
-    if (!previewPacked) {
+    const targetWithoutMoving = targetPage.entries.filter(entry => entry.id !== moving.id)
+    if (!canPlace(targetWithoutMoving, moving, to.column, to.row)) {
       const displaced = entryAt(to)
       if (!displaced || displaced.id === moving.id || from.area === 'folder') return null
       if (from.area === 'dock') {
@@ -254,23 +294,30 @@ const moveEntry = (from: DesktopLocation, to: DesktopLocation): DesktopLocation 
         save(); return { area: 'page', pageId: targetPage.id, entryId: moving.id, column: to.column, row: to.row }
       }
       const sourcePage = pageFor(from), sourceGrid = sourcePage?.entries.find(entry => entry.id === moving.id)
-      if (!sourcePage || !sourceGrid || sourcePage === targetPage) return null
-      const targetSwap = packEntries(targetPage.entries.filter(entry => entry.id !== displaced.id).map(cloneEntry), { entry: moving, column: to.column, row: to.row })
-      const sourceSwap = packEntries(sourcePage.entries.filter(entry => entry.id !== moving.id).map(cloneEntry), { entry: displaced, column: sourceGrid.column, row: sourceGrid.row })
-      if (!targetSwap || !sourceSwap) return null
-      targetPage.entries.splice(0, targetPage.entries.length, ...targetSwap); sourcePage.entries.splice(0, sourcePage.entries.length, ...sourceSwap)
+      if (!sourcePage || !sourceGrid) return null
+      if (sourcePage === targetPage) {
+        const remaining = targetPage.entries.filter(entry => entry.id !== moving.id && entry.id !== displaced.id)
+        const movingAtTarget = { ...cloneEntry(moving), column: to.column, row: to.row } as DesktopGridEntry
+        if (!canPlace(remaining, moving, to.column, to.row) || !canPlace([...remaining, movingAtTarget], displaced, sourceGrid.column, sourceGrid.row)) return null
+        const sourcePosition = { column: sourceGrid.column, row: sourceGrid.row }
+        sourceGrid.column = to.column; sourceGrid.row = to.row
+        const displacedGrid = targetPage.entries.find(entry => entry.id === displaced.id)
+        if (!displacedGrid) return null
+        displacedGrid.column = sourcePosition.column; displacedGrid.row = sourcePosition.row
+        save(); return { area: 'page', pageId: targetPage.id, entryId: moving.id, column: to.column, row: to.row }
+      }
+      const targetRemaining = targetPage.entries.filter(entry => entry.id !== displaced.id)
+      const sourceRemaining = sourcePage.entries.filter(entry => entry.id !== moving.id)
+      if (!canPlace(targetRemaining, moving, to.column, to.row) || !canPlace(sourceRemaining, displaced, sourceGrid.column, sourceGrid.row)) return null
+      const targetIndex = targetPage.entries.findIndex(entry => entry.id === displaced.id)
+      const sourceIndex = sourcePage.entries.findIndex(entry => entry.id === moving.id)
+      if (targetIndex < 0 || sourceIndex < 0) return null
+      targetPage.entries.splice(targetIndex, 1, { ...cloneEntry(moving), column: to.column, row: to.row } as DesktopGridEntry)
+      sourcePage.entries.splice(sourceIndex, 1, { ...cloneEntry(displaced), column: sourceGrid.column, row: sourceGrid.row } as DesktopGridEntry)
       save(); return { area: 'page', pageId: targetPage.id, entryId: moving.id, column: to.column, row: to.row }
     }
-    const sourcePage = from.area === 'page' ? pageFor(from) : null
-    const sourceSnapshot = sourcePage?.entries.map(cloneGridEntry), targetSnapshot = sourcePage === targetPage ? null : targetPage.entries.map(cloneGridEntry)
     const removed = removeAt(from); if (!removed) return null
-    const packed = previewPacked
-    if (!packed) {
-      if (sourcePage && sourceSnapshot) sourcePage.entries.splice(0, sourcePage.entries.length, ...sourceSnapshot)
-      if (targetSnapshot) targetPage.entries.splice(0, targetPage.entries.length, ...targetSnapshot)
-      return null
-    }
-    targetPage.entries.splice(0, targetPage.entries.length, ...packed)
+    targetPage.entries.push({ ...cloneEntry(removed), column: to.column, row: to.row } as DesktopGridEntry)
     if (from.area === 'folder' && from.folderId) resolveFolderAfterRemoval(from.folderId)
     save(); return { area: 'page', pageId: targetPage.id, entryId: removed.id, column: to.column, row: to.row }
   }
@@ -327,6 +374,21 @@ const removeWidget = (id: string) => {
   for (const page of state.pages) { const index = page.entries.findIndex(entry => entry.type === 'widget' && entry.id === id); if (index >= 0) { page.entries.splice(index, 1); save(); return true } }
   return false
 }
+const resizeWidget = (id: string, widthUnits: number, heightUnits: number) => {
+  const width = Math.max(1, Math.min(DESKTOP_COLUMNS, Math.round(Number(widthUnits) || 1)))
+  const height = Math.max(1, Math.min(DESKTOP_ROWS, Math.round(Number(heightUnits) || 1)))
+  for (const page of state.pages) {
+    const entry = page.entries.find((item): item is DesktopGridEntry & DesktopWidgetEntry => item.type === 'widget' && item.id === id)
+    if (!entry) continue
+    const resized: DesktopWidgetEntry = { type: 'widget', id: entry.id, widgetType: entry.widgetType, widthUnits: width, heightUnits: height }
+    if (!canPlace(page.entries, resized, entry.column, entry.row, entry.id)) return false
+    entry.widthUnits = width
+    entry.heightUnits = height
+    save()
+    return true
+  }
+  return false
+}
 const renameFolder = (folderId: string, name: string) => { const folder = findFolder(folderId); if (folder) { folder.name = name.trim().slice(0, 12) || '文件夹'; save() } }
 const addPage = (afterIndex: number) => { const index = Math.max(0, Math.min(afterIndex + 1, state.pages.length)); state.pages.splice(index, 0, { id: pageId(), entries: [] }); persistNow(); return index }
 const deletePage = (index: number) => { if (state.pages.length <= 1 || !state.pages[index] || state.pages[index].entries.length) return false; state.pages.splice(index, 1); persistNow(); return true }
@@ -337,27 +399,14 @@ const addWidget = (widgetType: WidgetType, widthUnits: number, heightUnits: numb
   target.entries.push({ ...entry, ...position }); persistNow()
   return { entry, pageIndex: index, location: { area: 'page', pageId: target.id, entryId: entry.id, ...position } as DesktopLocation }
 }
-const reset = (appIds: string[], resetWidgets = false) => {
-  const currentWidgets = state.pages.flatMap((page, pageIndex) => page.entries.filter((entry): entry is DesktopGridEntry & DesktopWidgetEntry => entry.type === 'widget').map(entry => ({ entry: cloneEntry(entry) as DesktopWidgetEntry, pageIndex, column: entry.column, row: entry.row })))
+const reset = (appIds: string[], widgetIdsToRemove: readonly string[] = []) => {
+  const removedWidgetIds = new Set(widgetIdsToRemove)
+  const currentWidgets = state.pages.flatMap((page, pageIndex) => page.entries.filter((entry): entry is DesktopGridEntry & DesktopWidgetEntry => entry.type === 'widget' && !removedWidgetIds.has(entry.id)).map(entry => ({ entry: cloneEntry(entry) as DesktopWidgetEntry, pageIndex, column: entry.column, row: entry.row })))
   const defaults = createDefaultLayout(appIds)
   const fresh: DesktopLayoutState = { version: 2, dock: defaults.dock, pages: [], hiddenAppIds: [] }
-  const pageCount = resetWidgets ? DEFAULT_PAGE_COUNT : Math.max(DEFAULT_PAGE_COUNT, state.pages.length)
-  for (let index = 0; index < pageCount; index++) fresh.pages.push({ id: !resetWidgets && state.pages[index] ? state.pages[index].id : pageId(), entries: [] })
-  if (!resetWidgets) {
-    for (const item of currentWidgets) fresh.pages[item.pageIndex].entries.push({ ...item.entry, column: item.column, row: item.row })
-  } else {
-    const widgets = currentWidgets.map(item => ({ ...item, entry: { ...item.entry, widthUnits: item.entry.widgetType === 'moment-card' ? 4 : 2, heightUnits: 2 }, pageIndex: item.entry.id === DEFAULT_WIDGET_IDS.moment || item.entry.id === DEFAULT_WIDGET_IDS.dualAvatar ? 0 : item.pageIndex }))
-    const moment = widgets.find(item => item.entry.id === DEFAULT_WIDGET_IDS.moment)
-    const dual = widgets.find(item => item.entry.id === DEFAULT_WIDGET_IDS.dualAvatar)
-    if (moment) fresh.pages[0].entries.push({ ...moment.entry, column: 1, row: 1 })
-    if (dual) fresh.pages[0].entries.push({ ...dual.entry, column: 3, row: 3 })
-    for (const item of widgets.filter(value => value !== moment && value !== dual)) {
-      while (fresh.pages.length <= item.pageIndex) fresh.pages.push({ id: pageId(), entries: [] })
-      let target = fresh.pages[item.pageIndex], position = findFirstPosition(target.entries, item.entry)
-      if (!position) { target = { id: pageId(), entries: [] }; fresh.pages.push(target); position = { column: 1, row: 1 } }
-      target.entries.push({ ...item.entry, ...position })
-    }
-  }
+  const pageCount = Math.max(DEFAULT_PAGE_COUNT, state.pages.length)
+  for (let index = 0; index < pageCount; index++) fresh.pages.push({ id: state.pages[index]?.id ?? pageId(), entries: [] })
+  for (const item of currentWidgets) fresh.pages[item.pageIndex].entries.push({ ...item.entry, column: item.column, row: item.row })
   defaults.pages.forEach((page, preferredPage) => {
     for (const app of page.entries.filter((entry): entry is DesktopGridEntry & DesktopAppEntry => entry.type === 'app')) {
       let target = fresh.pages[preferredPage], position = findFirstPosition(target.entries, app)
@@ -370,6 +419,7 @@ const reset = (appIds: string[], resetWidgets = false) => {
     }
   })
   assignLayout(fresh); persistNow()
+  return [...removedWidgetIds]
 }
 
-export const useDesktopLayout = () => ({ layout: readonly(state) as Readonly<DesktopLayoutState>, initialize, entryAt, findFolder, moveEntry, addToFolder, createFolder, hideApp, removeWidget, renameFolder, reset, addPage, deletePage, addWidget, canPlace, beginLayoutBatch, endLayoutBatch })
+export const useDesktopLayout = () => ({ layout: readonly(state) as Readonly<DesktopLayoutState>, initialize, entryAt, findFolder, canMoveEntry, moveEntry, addToFolder, createFolder, hideApp, removeWidget, resizeWidget, renameFolder, reset, addPage, deletePage, addWidget, canPlace, beginLayoutBatch, endLayoutBatch })

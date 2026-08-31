@@ -39,7 +39,50 @@ export interface FolderWidgetConfig {
   borderRadius: number
   heartPink: boolean
 }
-export type WidgetConfig = DualAvatarWidgetConfig | MomentCardWidgetConfig | CustomImageWidgetConfig | FolderWidgetConfig
+export interface DualFrameWidgetConfig {
+  title: string
+  leftImage: string | null
+  rightImage: string | null
+  leftCachedImage: string | null
+  rightCachedImage: string | null
+  buttonText: string
+  borderRadius: number
+}
+export interface CircleAvatarWidgetConfig {
+  avatarImage: string | null
+  cachedAvatarImage: string | null
+  title: string
+  subtitle: string
+}
+export interface RectangleImageWidgetConfig {
+  imageSourceType: 'local' | 'url' | null
+  imageValue: string | null
+  cachedImageValue: string | null
+  objectFit: 'cover' | 'contain'
+  objectPosition: string
+  borderRadius: number
+}
+export interface ProfileCardWidgetConfig {
+  coverImage: string | null
+  cachedCoverImage: string | null
+  avatarImage: string | null
+  cachedAvatarImage: string | null
+  name: string
+  handle: string
+  bio: string
+  location: string
+}
+export interface AboutUsWidgetConfig {
+  avatarImage: string | null
+  cachedAvatarImage: string | null
+  cardImage: string | null
+  cachedCardImage: string | null
+  title: string
+  tag1: string
+  tag2: string
+  slogan: string
+}
+export type WidgetConfig = DualAvatarWidgetConfig | MomentCardWidgetConfig | CustomImageWidgetConfig | FolderWidgetConfig | DualFrameWidgetConfig | CircleAvatarWidgetConfig | RectangleImageWidgetConfig | ProfileCardWidgetConfig | AboutUsWidgetConfig
 export interface WidgetInstanceRecord { id: string; widgetType: WidgetType; config: WidgetConfig; updatedAt: number }
 
 const instanceStore = localforage.createInstance({ name: 'nrt-app', storeName: 'widgetInstances' })
@@ -57,13 +100,28 @@ export const defaultWidgetConfig = (widgetType: WidgetType): WidgetConfig => {
   if (widgetType === 'folder-widget') {
     return { imageSourceType: null, imageValue: null, cachedImageValue: null, objectFit: 'cover', objectPosition: '50% 50%', borderRadius: 16, heartPink: false }
   }
+  if (widgetType === 'dual-frame') {
+    return { title: '선택해 주십시오.', leftImage: null, rightImage: null, leftCachedImage: null, rightCachedImage: null, buttonText: '사용', borderRadius: 14 }
+  }
+  if (widgetType === 'circle-avatar-widget') {
+    return { avatarImage: null, cachedAvatarImage: null, title: '主文案占位', subtitle: '胶囊占位' }
+  }
+  if (widgetType === 'rectangle-image') {
+    return { imageSourceType: null, imageValue: null, cachedImageValue: null, objectFit: 'cover', objectPosition: '50% 50%', borderRadius: 16 }
+  }
+  if (widgetType === 'profile-card-widget') {
+    return { coverImage: null, cachedCoverImage: null, avatarImage: null, cachedAvatarImage: null, name: '名片昵称', handle: '@用户名或状态', bio: '点击编辑个性签名', location: '城市' }
+  }
+  if (widgetType === 'about-us-widget') {
+    return { avatarImage: null, cachedAvatarImage: null, cardImage: null, cachedCardImage: null, title: '标题占位', tag1: '#标签一', tag2: '#标签二', slogan: '☆⁺底部签名占位文案⁺☆' }
+  }
   return { imageSourceType: null, imageValue: null, cachedImageValue: null, objectFit: 'cover', objectPosition: '50% 50%', borderRadius: 22 }
 }
 
 const normalizeRecord = (value: unknown): WidgetInstanceRecord | null => {
   if (!value || typeof value !== 'object') return null
   const record = value as Partial<WidgetInstanceRecord>
-  if (typeof record.id !== 'string' || !['dual-avatar', 'moment-card', 'custom-image', 'folder-widget'].includes(String(record.widgetType))) return null
+  if (typeof record.id !== 'string' || !['dual-avatar', 'moment-card', 'custom-image', 'folder-widget', 'dual-frame', 'circle-avatar-widget', 'rectangle-image', 'profile-card-widget', 'about-us-widget'].includes(String(record.widgetType))) return null
   return { id: record.id, widgetType: record.widgetType as WidgetType, config: { ...defaultWidgetConfig(record.widgetType as WidgetType), ...(record.config as object ?? {}) } as WidgetConfig, updatedAt: Number(record.updatedAt) || Date.now() }
 }
 const load = async () => {
