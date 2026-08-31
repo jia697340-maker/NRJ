@@ -152,6 +152,7 @@ export interface MusicSourceConfig {
   token?: string
   kind: 'local' | 'aggregate' | 'netease' | 'meting' | 'generic' | 'subsonic' | 'embed'
   capabilities: string[]
+  anonymousPublic?: boolean
 }
 
 export interface MusicPrivacyPreferences {

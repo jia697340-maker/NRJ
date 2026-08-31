@@ -5,6 +5,7 @@ import { musicTrackKey } from '../types/music'
 import { createMusicProviders } from '../services/musicProviders'
 import { getLocalMusicFile } from '../services/musicStorage'
 import { probeMusicUrl, verifiedEmbedTrack } from '../services/musicPlaybackValidation'
+import { markMusicSourceFailure, markMusicSourceSuccess, orderMusicSourcesForCapability } from '../services/musicSourceFallback'
 import {
   initializeMusicRuntime, musicCurrentIndex, musicCurrentTime, musicHistory, musicLikedKeys,
   musicPlayMode, musicPreferredQuality, musicQueue, musicSourceConfigs, musicVolume, persistMusicRuntime
@@ -146,6 +147,28 @@ const recordHistory = (track: MusicTrack) => {
   musicHistory.value = [updated, ...musicHistory.value.filter(item => musicTrackKey(item) !== key)].slice(0, 500)
 }
 
+const normalizeFallbackText = (value: string) => value.toLowerCase().replace(/[\s·・\-—_()（）【】\[\]]/g, '')
+const discoverPlaybackFallback = async (track: MusicTrack, existing: MusicTrack[], attemptedProviderIds: Set<string>) => {
+  if (track.localBlobKey) return null
+  const existingIds = new Set(existing.map(candidateId))
+  const existingProviderIds = new Set(existing.map(item => item.sourceId))
+  const providers = orderMusicSourcesForCapability(createMusicProviders(musicSourceConfigs.value).filter(provider => provider.id !== track.sourceId && !existingProviderIds.has(provider.id) && !attemptedProviderIds.has(provider.id) && provider.getStreamUrl), 'search')
+  const title = normalizeFallbackText(track.title)
+  const artist = normalizeFallbackText(track.artist)
+  for (const provider of providers) {
+    attemptedProviderIds.add(provider.id)
+    try {
+      const page = await provider.search(`${track.title} ${track.artist}`.trim())
+      markMusicSourceSuccess(provider.id, 'search')
+      const candidate = page.tracks.find(item => normalizeFallbackText(item.title) === title && (!artist || normalizeFallbackText(item.artist).includes(artist) || artist.includes(normalizeFallbackText(item.artist))))
+        || page.tracks.find(item => normalizeFallbackText(item.title).includes(title) || title.includes(normalizeFallbackText(item.title)))
+      if (!candidate || existingIds.has(candidateId(candidate))) continue
+      return { ...candidate, sourceCandidates: undefined }
+    } catch (error) { markMusicSourceFailure(provider.id, 'search', error) }
+  }
+  return null
+}
+
 const loadCurrentTrack = async (autoplay = true, restoreTime = 0) => {
   const track = currentTrack.value
   if (!track) return
@@ -153,7 +176,16 @@ const loadCurrentTrack = async (autoplay = true, restoreTime = 0) => {
   isBuffering.value = true
   playbackError.value = ''
   const failures: string[] = []
-  for (const candidate of playbackCandidates(track)) {
+  const candidates = playbackCandidates(track)
+  const attemptedFallbackProviders = new Set(candidates.map(item => item.sourceId))
+  let fallbackExhausted = false
+  for (let candidateIndex = 0; candidateIndex < candidates.length || !fallbackExhausted; candidateIndex += 1) {
+    if (candidateIndex >= candidates.length) {
+      const fallback = await discoverPlaybackFallback(track, candidates, attemptedFallbackProviders)
+      if (fallback) candidates.push(fallback)
+      else { fallbackExhausted = true; break }
+    }
+    const candidate = candidates[candidateIndex]
     if (sequence !== requestSequence) return
     activeCandidateId = candidateId(candidate)
     try {
@@ -183,8 +215,10 @@ const loadCurrentTrack = async (autoplay = true, restoreTime = 0) => {
       const probe = await probeMusicUrl(url, 12000, candidate.sourceId === 'aggregate' ? 'include' : 'omit')
       if (!probe.valid) {
         candidate.available = false; candidate.validationStatus = probe.trial ? 'trial' : 'unavailable'; candidate.reason = probe.reason
+        markMusicSourceFailure(candidate.sourceId, 'stream', new Error(probe.reason))
         rejectedCandidateIds.add(activeCandidateId); failures.push(probe.reason); continue
       }
+      markMusicSourceSuccess(candidate.sourceId, 'stream')
       if (sequence !== requestSequence) return
       await loadCandidateLyrics(candidate, track)
       if (sequence !== requestSequence) return
@@ -205,6 +239,7 @@ const loadCurrentTrack = async (autoplay = true, restoreTime = 0) => {
       persistMusicRuntime()
       return
     } catch (error) {
+      markMusicSourceFailure(candidate.sourceId, 'stream', error)
       rejectedCandidateIds.add(activeCandidateId)
       failures.push(error instanceof Error ? error.message : '播放失败')
     }

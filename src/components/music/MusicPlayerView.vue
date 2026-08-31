@@ -31,12 +31,45 @@ const {
 } = useMusicPlayer()
 
 const emit = defineEmits(['collapse', 'openPlaylistDrawer', 'openPlaybackSettings', 'openComments'])
-const { setMessage } = useMusicLibrary()
+const { setMessage, loadComments } = useMusicLibrary()
 
 const lyricsWrapperRef = ref<HTMLElement | null>(null)
 const lyricsScrollBoxRef = ref<HTMLElement | null>(null)
 const isUserScrolling = ref(false)
 let userScrollTimer: number | null = null
+const currentCommentCount = ref(0)
+let commentFetchVersion = 0
+
+// 格式化评论数字显示（如 999+ / 1w+ / 精确数字）
+const formatCommentBadge = (count: number) => {
+  if (!count || count <= 0) return ''
+  if (count >= 100000) return `${Math.floor(count / 10000)}w+`
+  if (count >= 10000) return `${(count / 10000).toFixed(1).replace(/\.0$/, '')}w`
+  if (count > 999) return '999+'
+  return `${count}`
+}
+
+// 自动加载当前歌曲评论数量
+const fetchTrackCommentCount = async () => {
+  const track = currentTrack.value
+  if (!track) {
+    currentCommentCount.value = 0
+    return
+  }
+  const version = ++commentFetchVersion
+  try {
+    const res = await loadComments(track, 1)
+    if (version === commentFetchVersion && res && typeof res.total === 'number') {
+      currentCommentCount.value = res.total
+    }
+  } catch {
+    // 忽略预取失败，不阻断主播放流程
+  }
+}
+
+watch(() => currentTrack.value?.id || currentTrack.value?.sourceTrackId, () => {
+  void fetchTrackCommentCount()
+}, { immediate: true })
 
 const openComments = () => {
   if (!currentTrack.value) { setMessage('请先播放一首歌曲'); return }
@@ -214,10 +247,11 @@ const shareCurrent = async () => {
         </svg>
       </button>
 
-      <button class="interact-btn" title="评论" @click="openComments">
+      <button class="interact-btn comment-btn" title="评论" @click="openComments">
         <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
         </svg>
+        <span v-if="currentCommentCount > 0" class="comment-badge">{{ formatCommentBadge(currentCommentCount) }}</span>
       </button>
 
       <button class="interact-btn" title="音效" @click="emit('openPlaybackSettings')">
@@ -616,10 +650,36 @@ const shareCurrent = async () => {
   align-items: center;
   justify-content: center;
   transition: color 0.2s;
+  position: relative;
 }
 
 .is-dark .interact-btn {
   color: #8e8e93;
+}
+
+.comment-btn {
+  position: relative;
+}
+
+.comment-badge {
+  position: absolute;
+  top: 1px;
+  left: calc(50% + 5px);
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  border-radius: 7px;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(239, 68, 68, 0.4);
+  pointer-events: none;
+  transform: scale(0.92);
+  transform-origin: left center;
 }
 
 .interact-btn.liked {

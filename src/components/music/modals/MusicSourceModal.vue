@@ -5,12 +5,12 @@ import QRCode from 'qrcode'
 import type { MusicSourceConfig } from '../../../types/music'
 import { checkBundledMusicQrLogin, createBundledMusicQrLogin, createMusicProviders, getBundledMusicQrCapabilities, MUSIC_QR_PROMISE } from '../../../services/musicProviders'
 import { useMusicLibrary } from '../../../composables/useMusicLibrary'
-import { probeMusicUrl, verifiedEmbedTrack } from '../../../services/musicPlaybackValidation'
+import { verifiedEmbedTrack } from '../../../services/musicPlaybackValidation'
 import MusicQrConsentModal from './MusicQrConsentModal.vue'
 
 defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'closeApp'): void; (e: 'openPrivacy', mode?: 'management' | 'public-consent'): void }>()
-const { sourceConfigs, updateSourceConfig, setAnonymousPublicSources, setMessage } = useMusicLibrary()
+const { sourceConfigs, privacyPreferences, updateSourceConfig, setMessage } = useMusicLibrary()
 const editingId = ref('')
 const draftBase = ref('')
 const draftUsername = ref('')
@@ -41,10 +41,10 @@ const sourceAddressLabel = (source: MusicSourceConfig) => source.kind === 'aggre
 const editSource = (source: MusicSourceConfig) => { editingId.value = source.id; draftBase.value = source.apiBase || ''; draftUsername.value = source.username || ''; draftToken.value = source.token || '' }
 const saveSource = (source: MusicSourceConfig) => {
   const apiBase = draftBase.value.trim()
-  updateSourceConfig({ ...source, enabled: source.kind === 'meting' ? false : (apiBase ? true : source.enabled), apiBase, username: draftUsername.value.trim(), token: source.kind === 'subsonic' ? draftToken.value : undefined })
+  updateSourceConfig({ ...source, enabled: source.anonymousPublic ? source.enabled : (apiBase ? true : source.enabled), apiBase, username: draftUsername.value.trim(), token: source.kind === 'subsonic' ? draftToken.value : undefined })
   editingId.value = ''
   setMessage(`${source.name}设置已保存`)
-  if (source.kind === 'meting') emit('openPrivacy', 'public-consent')
+  if (source.anonymousPublic && !source.enabled) emit('openPrivacy', 'public-consent')
 }
 const stopQr = () => { if (qrTimer !== null) window.clearInterval(qrTimer); qrTimer = null }
 const startAggregateQrLogin = async (source: MusicSourceConfig, platform: { id: string; name: string }, retentionDays: number, promise: string) => {
@@ -82,8 +82,9 @@ const confirmQrLogin = (retentionDays: number, promise: string) => {
 }
 onBeforeUnmount(stopQr)
 const toggleSource = (source: MusicSourceConfig) => {
-  if (source.kind === 'meting') {
-    if (source.enabled) void setAnonymousPublicSources(false)
+  if (source.anonymousPublic) {
+    if (source.enabled) updateSourceConfig({ ...source, enabled: false })
+    else if (sourceConfigs.value.some(item => item.anonymousPublic && item.enabled)) updateSourceConfig({ ...source, enabled: true })
     else emit('openPrivacy', 'public-consent')
     return
   }
@@ -95,6 +96,10 @@ const toggleSource = (source: MusicSourceConfig) => {
   updateSourceConfig({ ...source, enabled: !source.enabled })
 }
 const checkSource = async (source: MusicSourceConfig) => {
+  if (source.anonymousPublic && !privacyPreferences.value.allowAnonymousPublicSources) {
+    emit('openPrivacy', 'public-consent')
+    return
+  }
   checkingId.value = source.id
   try {
     if (source.kind === 'aggregate') {
@@ -121,8 +126,7 @@ const checkSource = async (source: MusicSourceConfig) => {
       if (verifiedEmbedTrack(candidate)) { setMessage(source.id === 'public-video' ? '国内公开视频目录正常，可打开完整播放器' : '官方视频目录正常，可打开完整播放器'); return }
       const url = provider.getStreamUrl ? await provider.getStreamUrl(candidate, 'standard') : null
       if (!url) { setMessage('搜索正常，但没有解析到完整播放地址'); return }
-      const probe = await probeMusicUrl(url, 12000, source.kind === 'aggregate' ? 'include' : 'omit')
-      setMessage(probe.valid ? `搜索与完整播放正常（${Math.round(probe.duration)} 秒）` : `搜索正常；${probe.reason}`)
+      setMessage('搜索与播放地址解析正常；实际音频会在点击播放时验证')
     }
   } catch (error) { setMessage(error instanceof Error ? error.message : '连接测试失败') }
   finally { checkingId.value = '' }
@@ -146,7 +150,7 @@ const checkSource = async (source: MusicSourceConfig) => {
             </div>
             <button class="source-switch" :class="{ active: source.enabled }" @click="toggleSource(source)"><span></span></button>
           </div>
-          <div v-if="source.kind === 'aggregate' || source.kind === 'subsonic' || source.kind === 'meting' || source.kind === 'embed'" class="source-config">
+          <div v-if="source.kind === 'aggregate' || source.kind === 'subsonic' || source.kind === 'meting' || source.kind === 'netease' || source.kind === 'generic' || source.kind === 'embed'" class="source-config">
             <template v-if="editingId === source.id">
               <input v-model="draftBase" class="source-input" :placeholder="source.kind === 'aggregate' ? '单服务聚合 API 地址' : source.kind === 'meting' ? 'Meting 兼容 API 地址' : 'Navidrome / OpenSubsonic 地址'" />
               <input v-if="source.kind === 'subsonic'" v-model="draftUsername" class="source-input compact" placeholder="用户名" />
@@ -174,7 +178,7 @@ const checkSource = async (source: MusicSourceConfig) => {
           <strong>扫码登录 · 站点统一提供</strong>
           <p>二维码生成与状态查询由站内公开 Serverless 代理完成。普通用户无需部署服务、启动本地程序或填写 Cookie、Token、账号服务地址；拒绝登录不会影响公开音乐。</p>
         </div>
-        <div class="source-note">搜索只显示可在本应用内完整播放的结果；30 秒试听、官网跳转和不可播放曲目会自动隐藏。平台账号权益仍由原平台管理。</div>
+        <div class="source-note">搜索阶段不会批量请求音频；点击播放时才验证实际音频，遇到试听、失效地址或限流会自动切换下一家。平台账号权益仍由原平台管理。</div>
         <button class="leave-music" @click="emit('closeApp')">返回桌面</button>
       </div>
     </section>

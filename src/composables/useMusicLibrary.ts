@@ -8,6 +8,7 @@ import { readLocalMusicMetadata } from '../services/musicFileMetadata'
 import { parseMusicLyrics } from '../services/musicLyrics'
 import { defaultMusicPrivacyPreferences, loadMusicPrivacyPreferences, saveMusicPrivacyPreferences } from '../services/musicPrivacy'
 import { probeMusicUrl, verifiedEmbedTrack } from '../services/musicPlaybackValidation'
+import { markMusicSourceFailure, markMusicSourceSuccess, orderMusicSourcesForCapability } from '../services/musicSourceFallback'
 import {
   initializeMusicRuntime, musicCustomPlaylists, musicCustomTrackCount, musicCustomTotalMinutes,
   musicCustomNickname, musicCustomVipLabel, musicCustomSignature,
@@ -33,7 +34,7 @@ const initializePrivacy = () => {
   privacyPromise = (async () => {
     privacyPreferences.value = await loadMusicPrivacyPreferences()
     if (!privacyPreferences.value.allowAnonymousPublicSources) {
-      musicSourceConfigs.value = musicSourceConfigs.value.map(item => item.kind === 'meting' ? { ...item, enabled: false } : item)
+      musicSourceConfigs.value = musicSourceConfigs.value.map(item => item.anonymousPublic ? { ...item, enabled: false } : item)
     }
     isPrivacyReady.value = true
   })()
@@ -111,14 +112,39 @@ export function useMusicLibrary() {
         setMessage('还没有启用可搜索的在线音乐来源')
         return
       }
-      const results = await Promise.allSettled(activeProviders.map(provider => provider.search(normalized)))
-      const pages = results.filter((item): item is PromiseFulfilledResult<MusicSearchPage> => item.status === 'fulfilled').map(item => item.value)
-      const outerStatuses: MusicSourceStatus[] = results.flatMap((result, index) => {
-        const config = musicSourceConfigs.value.find(item => item.id === activeProviders[index].id)
-        if (result.status === 'rejected') return [{ id: activeProviders[index].id, name: config?.name || activeProviders[index].id, ok: false, detail: result.reason instanceof Error ? result.reason.message : '搜索请求失败' }]
-        if (result.value.sourceStatuses?.length) return result.value.sourceStatuses
-        return [{ id: activeProviders[index].id, name: config?.name || activeProviders[index].id, ok: true, detail: result.value.tracks.length ? `返回 ${result.value.tracks.length} 首，正在验证` : '已响应，但没有结果' }]
+      const configFor = (id: string) => musicSourceConfigs.value.find(item => item.id === id)
+      const publicProviders = orderMusicSourcesForCapability(activeProviders.filter(provider => configFor(provider.id)?.anonymousPublic), 'search')
+      const independentProviders = orderMusicSourcesForCapability(activeProviders.filter(provider => !configFor(provider.id)?.anonymousPublic), 'search')
+      const pages: MusicSearchPage[] = []
+      const outerStatuses: MusicSourceStatus[] = []
+      const independentResults = await Promise.allSettled(independentProviders.map(provider => provider.search(normalized)))
+      independentResults.forEach((result, index) => {
+        const provider = independentProviders[index]
+        const config = configFor(provider.id)
+        if (result.status === 'rejected') {
+          markMusicSourceFailure(provider.id, 'search', result.reason)
+          outerStatuses.push({ id: provider.id, name: config?.name || provider.id, ok: false, detail: result.reason instanceof Error ? result.reason.message : '搜索请求失败' })
+          return
+        }
+        markMusicSourceSuccess(provider.id, 'search')
+        pages.push(result.value)
+        outerStatuses.push(...(result.value.sourceStatuses?.length ? result.value.sourceStatuses : [{ id: provider.id, name: config?.name || provider.id, ok: true, detail: result.value.tracks.length ? `返回 ${result.value.tracks.length} 首` : '已响应，但没有结果' }]))
       })
+      for (const provider of publicProviders) {
+        const config = configFor(provider.id)
+        try {
+          const page = await provider.search(normalized)
+          markMusicSourceSuccess(provider.id, 'search')
+          outerStatuses.push(...(page.sourceStatuses?.length ? page.sourceStatuses : [{ id: provider.id, name: config?.name || provider.id, ok: true, detail: page.tracks.length ? `返回 ${page.tracks.length} 首` : '已响应，但没有结果' }]))
+          if (page.tracks.length || page.playlists?.length || page.albums?.length || page.artists?.length) {
+            pages.push(page)
+            break
+          }
+        } catch (error) {
+          markMusicSourceFailure(provider.id, 'search', error)
+          outerStatuses.push({ id: provider.id, name: config?.name || provider.id, ok: false, detail: error instanceof Error ? error.message : '搜索请求失败' })
+        }
+      }
       const groups = new Map<string, MusicTrack[]>()
       for (const track of pages.flatMap(item => item.tracks)) {
         if (track.available === false || (track.externalUrl && track.playbackType !== 'embed') || !track.playbackType) continue
@@ -126,31 +152,12 @@ export function useMusicLibrary() {
         groups.set(identity, [...(groups.get(identity) || []), { ...track, sourceCandidates: undefined }])
       }
       const groupedTracks = [...groups.values()]
-      let trialHidden = 0
-      const verified = await mapWithConcurrency(groupedTracks, 4, async candidates => {
-        const checked: MusicTrack[] = []
-        for (const candidate of candidates) {
-          if (verifiedEmbedTrack(candidate)) { checked.push(candidate); continue }
-          const provider = activeProviders.find(item => item.id === candidate.sourceId)
-          if (!provider?.getStreamUrl || candidate.playbackType !== 'full') continue
-          try {
-            candidate.validationStatus = 'checking'
-            const url = await provider.getStreamUrl(candidate, musicPreferredQuality.value)
-            if (!url) { checked.push({ ...candidate, available: false, validationStatus: 'unavailable', reason: candidate.requiresVip ? '当前账号没有完整播放权限' : '没有解析到完整音频' }); continue }
-            const probe = await probeMusicUrl(url, 12000, candidate.sourceId === 'aggregate' ? 'include' : 'omit')
-            if (probe.trial) trialHidden += 1
-            checked.push({ ...candidate, duration: probe.duration || candidate.duration, available: probe.valid, validationStatus: probe.valid ? 'verified' : (probe.trial ? 'trial' : 'unavailable'), reason: probe.valid ? `${candidate.originSourceId || candidate.sourceId} · 已验证完整播放` : probe.reason })
-          } catch (error) {
-            checked.push({ ...candidate, available: false, validationStatus: 'unavailable', reason: error instanceof Error ? error.message : '播放验证失败' })
-          }
-        }
-        const playable = checked.find(item => item.validationStatus === 'verified' && item.playbackType === 'full')
-          || checked.find(item => verifiedEmbedTrack(item) && item.embedProvider === 'bilibili')
-          || checked.find(verifiedEmbedTrack)
-        if (!playable) return null
-        return { ...playable, sourceCandidates: checked.filter(item => item.id !== playable.id) }
+      const deduplicated = groupedTracks.flatMap(candidates => {
+        const playable = candidates.find(item => item.playbackType === 'full' && item.available !== false)
+          || candidates.find(item => verifiedEmbedTrack(item) && item.embedProvider === 'bilibili')
+          || candidates.find(verifiedEmbedTrack)
+        return playable ? [{ ...playable, validationStatus: playable.validationStatus || 'unknown', sourceCandidates: candidates.filter(item => item.id !== playable.id) }] : []
       })
-      const deduplicated = verified.filter(Boolean) as MusicTrack[]
       searchResult.value = {
         tracks: deduplicated,
         playlists: pages.flatMap(item => item.playlists || []),
@@ -159,10 +166,9 @@ export function useMusicLibrary() {
       }
       searchSourceStatuses.value = outerStatuses
       const failedNames = outerStatuses.filter(item => !item.ok).map(item => item.name)
-      if (!pages.length) setMessage('本站音乐服务暂时没有响应，请稍后重试')
-      else if (!deduplicated.length) setMessage('没有验证到完整版本；试听和失效地址已隐藏')
-      else if (failedNames.length) setMessage(`${failedNames.slice(0, 2).join('、')}暂时不可用，其他完整结果已显示`)
-      else if (trialHidden) setMessage(`已隐藏 ${trialHidden} 个试听地址，并保留完整版本`)
+      if (!pages.length) setMessage('全部已启用音乐来源都暂时没有响应，请稍后重试')
+      else if (!deduplicated.length) setMessage('没有找到可播放的结果')
+      else if (failedNames.length) setMessage(`${failedNames.slice(0, 2).join('、')}暂时不可用，已自动切换其他来源`)
     } finally { isSearching.value = false }
   }
 
@@ -193,15 +199,26 @@ export function useMusicLibrary() {
       }
 
       const capable = providers().filter(provider => provider.getHome)
-      const [publicResult, results] = await Promise.all([
-        loadPublicMusicHomeSections().catch(() => []),
-        Promise.allSettled(capable.map(provider => provider.getHome!()))
-      ])
-      const providerSections = results
-        .filter((item): item is PromiseFulfilledResult<MusicHomeSection[]> => item.status === 'fulfilled')
-        .flatMap(item => item.value)
-        .filter(section => Boolean(section.tracks?.length || section.playlists?.length))
-      const freshSections = [...publicResult, ...providerSections.filter(section => section.id !== 'public-recommend')]
+      const configFor = (id: string) => musicSourceConfigs.value.find(item => item.id === id)
+      const independent = orderMusicSourcesForCapability(capable.filter(provider => !configFor(provider.id)?.anonymousPublic), 'home')
+      const publicPool = orderMusicSourcesForCapability(capable.filter(provider => configFor(provider.id)?.anonymousPublic), 'home')
+      const independentResults = await Promise.allSettled(independent.map(provider => provider.getHome!()))
+      const independentSections = independentResults.flatMap((result, index) => {
+        const provider = independent[index]
+        if (result.status === 'rejected') { markMusicSourceFailure(provider.id, 'home', result.reason); return [] }
+        markMusicSourceSuccess(provider.id, 'home')
+        return result.value
+      }).filter(section => Boolean(section.tracks?.length || section.playlists?.length))
+      let publicSections: MusicHomeSection[] = []
+      for (const provider of publicPool) {
+        try {
+          const sections = (await provider.getHome!()).filter(section => Boolean(section.tracks?.length || section.playlists?.length))
+          markMusicSourceSuccess(provider.id, 'home')
+          if (sections.length) { publicSections = sections; break }
+        } catch (error) { markMusicSourceFailure(provider.id, 'home', error) }
+      }
+      if (!publicSections.length && privacyPreferences.value.allowAnonymousPublicSources) publicSections = await loadPublicMusicHomeSections().catch(() => [])
+      const freshSections = [...publicSections, ...independentSections.filter(section => !publicSections.some(publicSection => publicSection.id === section.id))]
       if (freshSections.length) {
         homeSections.value = freshSections
         isHomeUsingCache.value = false
@@ -248,12 +265,30 @@ export function useMusicLibrary() {
   }
 
   const loadPlaylist = async (playlist: MusicPlaylist) => {
-    const provider = providers().find(item => item.id === playlist.sourceId)
-    if (!provider?.getPlaylist) throw new Error('该来源暂不支持读取歌单')
-    const result = await provider.getPlaylist(playlist.id)
-    musicPlaylistTracks[`${playlist.sourceId}:${playlist.id}`] = result.tracks
-    persistMusicRuntime()
-    return result
+    const active = providers().filter(item => item.getPlaylist)
+    const original = active.find(item => item.id === playlist.sourceId)
+    const ordered = orderMusicSourcesForCapability([...(original ? [original] : []), ...active.filter(item => item.id !== original?.id)], 'playlist')
+    const sourceConfig = musicSourceConfigs.value.find(item => item.id === playlist.sourceId)
+    const explicitPrefix = playlist.id.includes(':') ? playlist.id.slice(0, playlist.id.indexOf(':')) : (sourceConfig?.kind === 'meting' ? 'netease' : '')
+    const rawId = playlist.id.includes(':') ? playlist.id.slice(playlist.id.indexOf(':') + 1) : playlist.id
+    const failures: string[] = []
+    for (const provider of ordered) {
+      const config = musicSourceConfigs.value.find(item => item.id === provider.id)
+      if (explicitPrefix === 'tencent' && config?.kind === 'netease') continue
+      const id = config?.kind === 'meting' || config?.kind === 'aggregate' ? `${explicitPrefix || 'netease'}:${rawId}` : rawId
+      try {
+        const result = await provider.getPlaylist!(id)
+        if (!result.tracks.length) throw new Error('来源没有返回歌曲')
+        markMusicSourceSuccess(provider.id, 'playlist')
+        musicPlaylistTracks[`${playlist.sourceId}:${playlist.id}`] = result.tracks
+        persistMusicRuntime()
+        return result
+      } catch (error) {
+        markMusicSourceFailure(provider.id, 'playlist', error)
+        failures.push(error instanceof Error ? error.message : '歌单读取失败')
+      }
+    }
+    throw new Error(failures.at(-1) || '全部已启用来源都无法读取该歌单')
   }
 
   const filterPlayablePlaylistTracks = async (tracks: MusicTrack[], onProgress?: (checked: number, total: number) => void) => {
@@ -301,15 +336,37 @@ export function useMusicLibrary() {
   }
 
   const loadComments = async (track: MusicTrack, page = 1): Promise<MusicCommentPage> => {
+    const failures: unknown[] = []
     try {
       return await loadPublicMusicComments(track, page)
     } catch (publicError) {
-      if (publicError instanceof Error && /未找到可靠|歌曲信息不完整/.test(publicError.message)) throw publicError
-      const provider = providers().find(item => item.id === track.sourceId && item.getComments)
-        || providers().find(item => item.id === 'aggregate' && item.getComments)
-      if (!provider?.getComments) throw publicError
-      return provider.getComments(track, page)
+      failures.push(publicError)
     }
+    const capable = providers().filter(item => item.getComments)
+    const original = capable.find(item => item.id === track.sourceId)
+    const ordered = orderMusicSourcesForCapability([...(original ? [original] : []), ...capable.filter(item => item.id !== original?.id)], 'comments')
+    for (const provider of ordered) {
+      try {
+        const config = musicSourceConfigs.value.find(item => item.id === provider.id)
+        let commentTrack = track
+        if (config?.kind === 'netease' && !track.neteaseTrackId && !((track.originSourceId === 'netease' || track.sourceId === provider.id) && /^\d+$/.test(track.sourceTrackId))) {
+          const matches = await provider.search(`${track.title} ${track.artist}`.trim())
+          const wantedTitle = normalizeTrackIdentity(track.title)
+          const wantedArtist = normalizeTrackIdentity(track.artist)
+          const matched = matches.tracks.find(item => normalizeTrackIdentity(item.title) === wantedTitle && (normalizeTrackIdentity(item.artist).includes(wantedArtist) || wantedArtist.includes(normalizeTrackIdentity(item.artist))))
+          if (!matched) throw new Error('未找到可靠的网易云对应歌曲')
+          commentTrack = { ...track, neteaseTrackId: matched.sourceTrackId }
+        }
+        const result = await provider.getComments!(commentTrack, page)
+        markMusicSourceSuccess(provider.id, 'comments')
+        return result
+      } catch (error) {
+        markMusicSourceFailure(provider.id, 'comments', error)
+        failures.push(error)
+      }
+    }
+    const last = failures.at(-1)
+    throw last instanceof Error ? last : new Error('全部评论来源都暂时不可用')
   }
 
   const importLocalFiles = async (files: File[]) => {
@@ -358,7 +415,7 @@ export function useMusicLibrary() {
 
   const setAnonymousPublicSources = async (allowed: boolean) => {
     privacyPreferences.value = { version: 1, noticeAcknowledged: true, allowAnonymousPublicSources: allowed, updatedAt: Date.now() }
-    musicSourceConfigs.value = musicSourceConfigs.value.map(item => item.kind === 'meting' ? { ...item, enabled: allowed && Boolean(item.apiBase?.trim()) } : item)
+    musicSourceConfigs.value = musicSourceConfigs.value.map(item => item.anonymousPublic ? { ...item, enabled: allowed && Boolean(item.apiBase?.trim()) } : item)
     persistMusicRuntime()
     await saveMusicPrivacyPreferences(privacyPreferences.value)
     setMessage(allowed ? '已启用匿名公共音乐查询' : '已关闭第三方公共音乐查询')

@@ -5,7 +5,7 @@ import { useMusicLibrary } from '../../../composables/useMusicLibrary'
 import type { MusicComment, MusicTrack } from '../../../types/music'
 
 const props = defineProps<{ visible: boolean; track: MusicTrack | null }>()
-const emit = defineEmits<{ (e: 'close'): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'updateTotal', total: number): void }>()
 const { loadComments } = useMusicLibrary()
 const hotComments = ref<MusicComment[]>([])
 const comments = ref<MusicComment[]>([])
@@ -36,6 +36,7 @@ const loadPage = async (nextPage: number, append = false) => {
     const result = await loadComments(props.track, nextPage)
     if (version !== requestVersion) return
     total.value = result.total
+    emit('updateTotal', result.total)
     hotComments.value = nextPage === 1 ? result.hotComments : hotComments.value
     comments.value = append ? [...comments.value, ...result.comments] : result.comments
     page.value = nextPage

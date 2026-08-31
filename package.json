@@ -34,6 +34,7 @@
     "test:time": "tsx scripts/test-conversation-time.ts",
     "test:music-qr": "node scripts/test-music-qr.mjs",
     "test:music-playback": "tsx scripts/test-music-playback.ts",
+    "test:music-fallback": "tsx scripts/test-music-source-fallback.ts",
     "test:veo": "tsx scripts/test-veo-video.ts",
     "test:omni": "tsx scripts/test-gemini-omni-video.ts",
     "test:kling": "tsx scripts/test-kling-video.ts",

@@ -70,6 +70,14 @@ const aggregateImageUrl = (base: string, value: unknown) => {
   return secureImageUrl(original)
 }
 const musicSessionCredentials = (): RequestCredentials => 'include'
+const servicePayload = (value: unknown) => {
+  if (isRecord(value) && 'code' in value) {
+    const code = numberValue(value.code)
+    if (code !== 0 && code !== 200) throw new Error(textValue(value.message) || textValue(value.msg) || `请求失败 (${code})`)
+  }
+  return value
+}
+const unsupportedEndpoint = (error: unknown) => error instanceof Error && /\b404\b|not found|接口不存在/i.test(error.message)
 
 const neteaseTrack = (song: any): MusicTrack => ({
   id: `netease:${song.id}`, sourceId: 'netease', sourceTrackId: String(song.id),
@@ -92,55 +100,74 @@ const neteasePlaylist = (item: any): MusicPlaylist => ({
 })
 
 class NeteaseMusicProvider implements MusicProvider {
-  id = 'netease'
+  id: string
   private config: MusicSourceConfig
-  constructor(config: MusicSourceConfig) { this.config = config }
+  constructor(config: MusicSourceConfig) { this.config = config; this.id = config.id }
   private get base() { if (!this.config.apiBase) throw new Error('请先在来源管理中填写网易云服务地址'); return this.config.apiBase }
   private async request(path: string, params: Record<string, string | number | undefined> = {}) {
     const payload = { ...params, timestamp: Date.now(), ...(this.config.token ? { cookie: this.config.token } : {}) }
-    if (!this.config.token) return withTimeout(joinUrl(this.base, path, payload))
-    return withTimeout(joinUrl(this.base, path), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    if (!this.config.token) return servicePayload(await withTimeout(joinUrl(this.base, path, payload)))
+    return servicePayload(await withTimeout(joinUrl(this.base, path), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }))
   }
   async search(query: string, page = 1): Promise<MusicSearchPage> {
-    const data: any = await this.request('/cloudsearch', { keywords: query, type: 1, limit: 30, offset: (page - 1) * 30 })
+    const params = { keywords: query, type: 1, limit: 30, offset: (page - 1) * 30 }
+    let data: any
+    try { data = await this.request('/cloudsearch', params) }
+    catch (error) { if (!unsupportedEndpoint(error)) throw error; data = await this.request('/search', params) }
     const songs = data.result?.songs || []
-    return { tracks: songs.map(neteaseTrack).filter((track: MusicTrack) => track.available !== false), hasMore: songs.length === 30 }
+    return { tracks: songs.map(neteaseTrack).filter((track: MusicTrack) => track.available !== false).map((track: MusicTrack) => ({ ...track, sourceId: this.id })), hasMore: songs.length === 30 }
   }
   async getHome(): Promise<MusicHomeSection[]> {
-    const [recommended, charts, daily, login]: any[] = await Promise.all([
-      this.request('/personalized', { limit: 12 }), this.request('/toplist'),
-      this.request('/recommend/songs').catch(() => null), this.request('/login/status').catch(() => null)
+    const recommended: any = await this.request('/personalized', { limit: 12 })
+    const [charts, daily, login]: any[] = await Promise.all([
+      this.request('/toplist').catch(() => null), this.request('/recommend/songs').catch(() => null), this.request('/login/status').catch(() => null)
     ])
-    const sections: MusicHomeSection[] = [
-      { id: 'netease-recommend', title: '网易云推荐歌单', type: 'playlists', playlists: (recommended.result || []).map(neteasePlaylist) },
-      { id: 'netease-charts', title: '网易云排行榜', type: 'charts', playlists: (charts.list || []).slice(0, 10).map(neteasePlaylist) }
-    ]
+    const sections: MusicHomeSection[] = []
+    if (recommended?.result?.length) sections.push({ id: `${this.id}-recommend`, title: '网易云推荐歌单', type: 'playlists', playlists: recommended.result.map(neteasePlaylist).map((item: MusicPlaylist) => ({ ...item, sourceId: this.id })) })
+    if (charts?.list?.length) sections.push({ id: `${this.id}-charts`, title: '网易云排行榜', type: 'charts', playlists: charts.list.slice(0, 10).map(neteasePlaylist).map((item: MusicPlaylist) => ({ ...item, sourceId: this.id })) })
     const uid = login?.data?.profile?.userId || login?.profile?.userId
     if (uid) {
       const userLists: any = await this.request('/user/playlist', { uid, limit: 50 }).catch(() => null)
-      if (userLists?.playlist?.length) sections.unshift({ id: 'netease-mine', title: '我的网易云歌单', type: 'playlists', playlists: userLists.playlist.map(neteasePlaylist) })
+      if (userLists?.playlist?.length) sections.unshift({ id: `${this.id}-mine`, title: '我的网易云歌单', type: 'playlists', playlists: userLists.playlist.map(neteasePlaylist).map((item: MusicPlaylist) => ({ ...item, sourceId: this.id })) })
     }
-    if (daily?.data?.dailySongs?.length) sections.unshift({ id: 'netease-daily', title: '每日推荐歌曲', type: 'tracks', tracks: daily.data.dailySongs.map(neteaseTrack).filter((track: MusicTrack) => track.available !== false) })
+    if (daily?.data?.dailySongs?.length) sections.unshift({ id: `${this.id}-daily`, title: '每日推荐歌曲', type: 'tracks', tracks: daily.data.dailySongs.map(neteaseTrack).filter((track: MusicTrack) => track.available !== false).map((track: MusicTrack) => ({ ...track, sourceId: this.id })) })
     return sections
   }
   async getPlaylist(id: string) {
-    const data: any = await this.request('/playlist/track/all', { id, limit: 1000 })
     const detail: any = await this.request('/playlist/detail', { id })
-    return { playlist: neteasePlaylist(detail.playlist || { id, name: '歌单' }), tracks: (data.songs || []).map(neteaseTrack).filter((track: MusicTrack) => track.available !== false) }
+    const all: any = await this.request('/playlist/track/all', { id, limit: 1000 }).catch(() => null)
+    const songs = all?.songs?.length ? all.songs : detail?.playlist?.tracks || []
+    if (!songs.length) throw new Error('歌单来源已响应，但没有返回歌曲')
+    return {
+      playlist: { ...neteasePlaylist(detail.playlist || { id, name: '歌单' }), sourceId: this.id },
+      tracks: songs.map(neteaseTrack).filter((track: MusicTrack) => track.available !== false).map((track: MusicTrack) => ({ ...track, sourceId: this.id }))
+    }
   }
   async getStreamUrl(track: MusicTrack, quality: MusicQuality) {
     const levels: Record<MusicQuality, string> = { standard: 'standard', higher: 'higher', exhigh: 'exhigh', lossless: 'lossless', hires: 'hires' }
-    const data: any = await this.request('/song/url/v1', { id: track.sourceTrackId, level: levels[quality] })
-    const item = data.data?.[0]
+    let data: any
+    try { data = await this.request('/song/url/v1', { id: track.sourceTrackId, level: levels[quality] }) }
+    catch (error) { if (!unsupportedEndpoint(error)) throw error; data = null }
+    let item = data?.data?.[0]
+    if (!item?.url) {
+      data = await this.request('/song/url', { id: track.sourceTrackId, br: quality === 'standard' ? 128000 : 320000 })
+      item = data?.data?.[0]
+    }
     if (!item?.url || item.freeTrialInfo || item.freeTimeTrialPrivilege?.resConsumable === true) return null
-    return item.url as string
+    return secureImageUrl(item.url) || null
   }
-  async getLyrics(track: MusicTrack) { const data: any = await this.request('/lyric/new', { id: track.sourceTrackId }); return parseMusicLyrics(data.yrc?.lyric || data.lrc?.lyric || '', data.tlyric?.lyric || '') }
+  async getLyrics(track: MusicTrack) { let data: any; try { data = await this.request('/lyric/new', { id: track.sourceTrackId }) } catch (error) { if (!unsupportedEndpoint(error)) throw error; data = await this.request('/lyric', { id: track.sourceTrackId }) } return parseMusicLyrics(data.yrc?.lyric || data.lrc?.lyric || '', data.tlyric?.lyric || '') }
+  async getComments(track: MusicTrack, page = 1): Promise<MusicCommentPage> {
+    const id = track.neteaseTrackId || (/^\d+$/.test(track.sourceTrackId) ? track.sourceTrackId : '')
+    if (!id) throw new Error('未找到可靠的网易云对应歌曲')
+    const limit = 20
+    return parseCommentPage(await this.request('/comment/music', { id, limit, offset: (Math.max(1, page) - 1) * limit }))
+  }
   async getProfile(): Promise<MusicUserProfile | null> {
     const data: any = await this.request('/login/status'); const profile = data.data?.profile || data.profile
     if (!profile) return null
     const detail: any = await this.request('/user/detail', { uid: profile.userId }).catch(() => null)
-    return { id: String(profile.userId), sourceId: 'netease', nickname: profile.nickname, avatarUrl: profile.avatarUrl, signature: profile.signature, level: detail?.level, vipLabel: detail?.profile?.vipType ? '黑胶 VIP' : '网易云账号' }
+    return { id: String(profile.userId), sourceId: this.id, nickname: profile.nickname, avatarUrl: profile.avatarUrl, signature: profile.signature, level: detail?.level, vipLabel: detail?.profile?.vipType ? '黑胶 VIP' : '网易云账号' }
   }
 }
 
@@ -175,13 +202,17 @@ const aggregateParams = (track: MusicTrack) => ({
 })
 
 const aggregateComment = (value: unknown): MusicComment | null => {
-  if (!isRecord(value) || !textValue(value.id) || !textValue(value.content) || !isRecord(value.user)) return null
-  const reply = isRecord(value.reply) ? value.reply : null
+  const rawCommentId = isRecord(value) ? value.id ?? value.commentId : undefined
+  const commentId = typeof rawCommentId === 'string' || typeof rawCommentId === 'number' ? String(rawCommentId) : ''
+  if (!isRecord(value) || !commentId || !textValue(value.content) || !isRecord(value.user)) return null
+  const replied = Array.isArray(value.beReplied) && isRecord(value.beReplied[0]) ? value.beReplied[0] : null
+  const reply = isRecord(value.reply) ? value.reply : replied
+  const replyUser = reply && isRecord(reply.user) ? reply.user : null
   return {
-    id: textValue(value.id), content: textValue(value.content), time: numberValue(value.time),
+    id: commentId, content: textValue(value.content), time: numberValue(value.time),
     timeText: textValue(value.timeText) || undefined, likedCount: numberValue(value.likedCount),
     user: { nickname: textValue(value.user.nickname, '网易云用户'), avatarUrl: secureImageUrl(value.user.avatarUrl) },
-    reply: reply && textValue(reply.content) ? { content: textValue(reply.content), nickname: textValue(reply.nickname, '网易云用户') } : null
+    reply: reply && textValue(reply.content) ? { content: textValue(reply.content), nickname: textValue(reply.nickname) || textValue(replyUser?.nickname, '网易云用户') } : null
   }
 }
 
@@ -288,7 +319,7 @@ class AggregateMusicProvider implements MusicProvider {
   }
 }
 
-type MetingItem = { title?: string; author?: string; pic?: string; url?: string; lrc?: string }
+type MetingItem = { title?: string; name?: string; author?: string; artist?: string; pic?: string; url?: string; lrc?: string }
 
 export const loadPublicMusicHomeSections = async (): Promise<MusicHomeSection[]> => {
   const liveUrl = new URL('/.netlify/functions/music-home', window.location.origin)
@@ -325,8 +356,11 @@ export const loadPublicMusicHomeSections = async (): Promise<MusicHomeSection[]>
 class MetingMusicProvider implements MusicProvider {
   id: string
   private config: MusicSourceConfig
-  private readonly servers = ['netease', 'tencent', 'kugou', 'kuwo', 'baidu']
-  constructor(config: MusicSourceConfig) { this.config = config; this.id = config.id }
+  private readonly servers: string[]
+  constructor(config: MusicSourceConfig) {
+    this.config = config; this.id = config.id
+    this.servers = config.id === 'qijieya-meting' ? ['netease', 'tencent'] : config.id === 'injahow-meting' ? ['netease'] : ['netease', 'tencent', 'kugou', 'kuwo', 'baidu']
+  }
   private get base() { if (!this.config.apiBase) throw new Error('公共音乐服务地址为空'); return this.config.apiBase }
   private endpoint(server: string, type: string, id: string) {
     const url = new URL(this.base, window.location.origin)
@@ -335,7 +369,9 @@ class MetingMusicProvider implements MusicProvider {
   }
   private item(value: MetingItem, server: string, index: number): MusicTrack | null {
     const mediaUrl = textValue(value.url)
-    if (!textValue(value.title) || !mediaUrl || /(?:preview|trial|试听)/i.test(mediaUrl)) return null
+    const title = textValue(value.title) || textValue(value.name)
+    const artist = textValue(value.author) || textValue(value.artist)
+    if (!title || !mediaUrl || /(?:preview|trial|试听)/i.test(mediaUrl)) return null
     let sourceTrackId = ''
     try { sourceTrackId = new URL(mediaUrl, window.location.origin).searchParams.get('id') || '' } catch { sourceTrackId = '' }
     if (!sourceTrackId) sourceTrackId = `${Date.now()}-${index}`
@@ -343,23 +379,24 @@ class MetingMusicProvider implements MusicProvider {
       id: `${this.id}:${server}:${sourceTrackId}`, sourceId: this.id, sourceTrackId,
       originSourceId: server, originExtra: { mediaUrl, lyricUrl: textValue(value.lrc) },
       neteaseTrackId: server === 'netease' && /^\d+$/.test(sourceTrackId) ? sourceTrackId : undefined,
-      title: textValue(value.title, '未知歌曲'), artist: textValue(value.author, '未知歌手'), album: `${server} · 公共音乐`,
+      title, artist: artist || '未知歌手', album: `${server} · 公共音乐`,
       duration: 0, coverUrl: secureImageUrl(value.pic), available: true, playbackType: 'full', reason: '匿名公共音源 · 完整播放'
     }
   }
   async search(query: string): Promise<MusicSearchPage> {
-    const results = await Promise.allSettled(this.servers.map(async server => {
-      const data = await withTimeout(this.endpoint(server, 'search', query), { credentials: 'omit' }, 12000)
-      return (Array.isArray(data) ? data : []).map((item, index) => this.item(item as MetingItem, server, index)).filter(Boolean) as MusicTrack[]
-    }))
     const sourceNames: Record<string, string> = { netease: '网易云', tencent: 'QQ音乐', kugou: '酷狗', kuwo: '酷我', baidu: '百度' }
-    const sourceStatuses: MusicSourceStatus[] = results.map((result, index) => ({
-      id: `${this.id}:${this.servers[index]}`,
-      name: sourceNames[this.servers[index]] || this.servers[index],
-      ok: result.status === 'fulfilled',
-      detail: result.status === 'fulfilled' ? (result.value.length ? `返回 ${result.value.length} 首，待验证播放` : '已响应，但没有结果') : (result.reason instanceof Error ? result.reason.message : '搜索请求失败')
-    }))
-    return { tracks: results.flatMap(result => result.status === 'fulfilled' ? result.value : []), sourceStatuses }
+    const sourceStatuses: MusicSourceStatus[] = []
+    for (const server of this.servers) {
+      try {
+        const data = servicePayload(await withTimeout(this.endpoint(server, 'search', query), { credentials: 'omit' }, 12000))
+        const tracks = (Array.isArray(data) ? data : []).map((item, index) => this.item(item as MetingItem, server, index)).filter(Boolean) as MusicTrack[]
+        sourceStatuses.push({ id: `${this.id}:${server}`, name: sourceNames[server] || server, ok: true, detail: tracks.length ? `返回 ${tracks.length} 首` : '已响应，但没有结果' })
+        if (tracks.length) return { tracks, sourceStatuses }
+      } catch (error) {
+        sourceStatuses.push({ id: `${this.id}:${server}`, name: sourceNames[server] || server, ok: false, detail: error instanceof Error ? error.message : '搜索请求失败' })
+      }
+    }
+    return { tracks: [], sourceStatuses }
   }
   async getPlaylist(compoundId: string) {
     const separator = compoundId.indexOf(':')
@@ -393,6 +430,50 @@ class MetingMusicProvider implements MusicProvider {
       return parseMusicLyrics(await response.text())
     } catch { return [] }
   }
+}
+
+class VKeysMusicProvider implements MusicProvider {
+  id: string
+  private config: MusicSourceConfig
+  constructor(config: MusicSourceConfig) { this.config = config; this.id = config.id }
+  private get base() { return (this.config.apiBase || 'https://api.vkeys.cn/v2/music').replace(/\/$/, '') }
+  private endpoint(platform: string, query: string, choose: number) {
+    return joinUrl(this.base, platform, { word: query, choose })
+  }
+  private track(value: unknown, platform: string): MusicTrack | null {
+    if (!isRecord(value)) return null
+    const mediaUrl = secureImageUrl(value.url)
+    const sourceTrackId = textValue(value.mid) || String(value.id || '')
+    if (!sourceTrackId || !textValue(value.song) || !mediaUrl) return null
+    return {
+      id: `${this.id}:${platform}:${sourceTrackId}`, sourceId: this.id, sourceTrackId,
+      originSourceId: platform === 'tencent' ? 'tencent' : 'netease',
+      originExtra: { mediaUrl },
+      neteaseTrackId: platform === 'netease' && /^\d+$/.test(String(value.id || '')) ? String(value.id) : undefined,
+      title: textValue(value.song), artist: textValue(value.singer, '未知歌手'), album: textValue(value.album, `${platform} · 落月音乐`),
+      duration: numberValue(value.interval), coverUrl: secureImageUrl(value.cover), available: true,
+      playbackType: 'full', quality: 'lossless', reason: `${textValue(value.quality, '完整音源')} · 播放时验证`
+    }
+  }
+  async search(query: string): Promise<MusicSearchPage> {
+    const statuses: MusicSourceStatus[] = []
+    for (const platform of ['netease', 'tencent']) {
+      for (let choose = 1; choose <= 3; choose += 1) {
+        try {
+          const payload = servicePayload(await withTimeout(this.endpoint(platform, query, choose), { credentials: 'omit' }, 12000))
+          const track = this.track(isRecord(payload) ? payload.data : null, platform)
+          if (track) {
+            statuses.push({ id: `${this.id}:${platform}`, name: platform === 'netease' ? '落月网易云' : '落月QQ音乐', ok: true, detail: '已找到播放候选' })
+            return { tracks: [track], sourceStatuses: statuses }
+          }
+        } catch (error) {
+          if (choose === 3) statuses.push({ id: `${this.id}:${platform}`, name: platform === 'netease' ? '落月网易云' : '落月QQ音乐', ok: false, detail: error instanceof Error ? error.message : '搜索请求失败' })
+        }
+      }
+    }
+    return { tracks: [], sourceStatuses: statuses }
+  }
+  async getStreamUrl(track: MusicTrack) { return secureImageUrl(track.originExtra?.mediaUrl) || null }
 }
 
 const officialVideoCatalog: MusicTrack[] = [
@@ -463,11 +544,17 @@ class SubsonicMusicProvider implements MusicProvider {
 export const defaultMusicSourceConfigs = (): MusicSourceConfig[] => {
   const viteEnv = import.meta.env || {}
   const deployedAggregateApiBase = String(viteEnv.VITE_MUSIC_ACCOUNT_API_BASE || viteEnv.VITE_PUBLIC_MUSIC_API_BASE || '').trim()
-  const bundledAggregateApiBase = viteEnv.DEV ? '/music-api' : deployedAggregateApiBase
+  const bundledAggregateApiBase = deployedAggregateApiBase
   return [
     { id: 'local', name: '本地音乐', enabled: true, kind: 'local', capabilities: ['播放', '歌词', '歌单', '离线'] },
-    { id: 'aggregate', name: '账号音乐服务', enabled: Boolean(bundledAggregateApiBase), kind: 'aggregate', apiBase: bundledAggregateApiBase, capabilities: ['统一托管', '扫码登录', '个人歌单', '账号隔离'] },
-    { id: 'public-meting', name: '公共音乐（免后端）', enabled: false, kind: 'meting', apiBase: 'https://meting.mikus.ink/api', capabilities: ['匿名搜索', '公开榜单', '无需部署', '第三方服务'] },
+    { id: 'thatapi-netease', name: '网易云公开一号源', enabled: false, kind: 'netease', apiBase: 'https://netease.thatapi.cn', anonymousPublic: true, capabilities: ['推荐歌单', '歌单详情', '搜索', '评论', '播放'] },
+    { id: 'cyanyun-netease', name: '网易云公开二号源', enabled: false, kind: 'netease', apiBase: 'https://www.cyanyun.com/api', anonymousPublic: true, capabilities: ['推荐歌单', '歌单详情', '搜索', '播放'] },
+    { id: 'qijieya-meting', name: '网易云与QQ公共源', enabled: false, kind: 'meting', apiBase: 'https://api.qijieya.cn/meting/', anonymousPublic: true, capabilities: ['网易云', 'QQ音乐', '搜索', '歌单', '播放'] },
+    { id: 'vkeys-music', name: '落月播放补源', enabled: false, kind: 'generic', apiBase: 'https://api.vkeys.cn/v2/music', anonymousPublic: true, capabilities: ['网易云', 'QQ音乐', '播放补源', '多音质'] },
+    { id: 'injahow-meting', name: '公开歌单补源', enabled: false, kind: 'meting', apiBase: 'https://api.injahow.cn/meting/', anonymousPublic: true, capabilities: ['网易云', '歌单', '单曲', '播放补源'] },
+    { id: 'hf-netease', name: '网易云应急源', enabled: false, kind: 'netease', apiBase: 'https://moefurina-neteasecloudmusicapienhanced.hf.space', anonymousPublic: true, capabilities: ['推荐歌单', '评论', '播放', '应急备用'] },
+    { id: 'public-meting', name: '原公共音乐源', enabled: false, kind: 'meting', apiBase: 'https://meting.mikus.ink/api', anonymousPublic: true, capabilities: ['匿名搜索', '公开榜单', '无需部署', '第三方服务'] },
+    { id: 'aggregate', name: '可选账号服务', enabled: Boolean(bundledAggregateApiBase), kind: 'aggregate', apiBase: bundledAggregateApiBase, capabilities: ['可选配置', '扫码登录', '个人歌单', '账号隔离'] },
     { id: 'official-video', name: '官方视频（免部署）', enabled: true, kind: 'embed', capabilities: ['官方完整内容', '无需登录', '无需部署', '网页播放'] },
     { id: 'public-video', name: '国内公开视频（免部署）', enabled: true, kind: 'embed', capabilities: ['公开完整内容', '国内可用', '无需部署', '网页播放'] },
     { id: 'subsonic', name: '私人音乐库', enabled: false, kind: 'subsonic', apiBase: '', capabilities: ['Navidrome', 'OpenSubsonic', '歌单', '无损'] }
@@ -478,6 +565,7 @@ export const createMusicProviders = (configs: MusicSourceConfig[]) => configs.fi
   if (config.kind === 'aggregate') return new AggregateMusicProvider(config)
   if (config.kind === 'netease') return new NeteaseMusicProvider(config)
   if (config.kind === 'meting') return new MetingMusicProvider(config)
+  if (config.kind === 'generic' && config.id === 'vkeys-music') return new VKeysMusicProvider(config)
   if (config.kind === 'subsonic') return new SubsonicMusicProvider(config)
   if (config.kind === 'embed') return config.id === 'public-video' ? new PublicVideoProvider() : new OfficialVideoProvider()
   return null

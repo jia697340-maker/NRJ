@@ -31,6 +31,7 @@ const isHistoryModalOpen = ref(false)
 const historyModalTab = ref<'records' | 'edit'>('records')
 const isPlaybackSettingsOpen = ref(false)
 const isCommentsOpen = ref(false)
+const commentTotalMap = ref<Record<string, number>>({})
 const privacyModalMode = ref<'closed' | 'management' | 'public-consent'>('closed')
 const isCollectionOpen = ref(false)
 const collectionMode = ref<'playlists' | 'charts'>('playlists')
@@ -195,7 +196,15 @@ const handleBack = () => {
     <MusicDataModal :visible="isDataModalOpen" @close="isDataModalOpen = false" />
     <MusicHistoryModal :visible="isHistoryModalOpen" :defaultTab="historyModalTab" @close="isHistoryModalOpen = false" />
     <MusicPlaybackSettingsModal :visible="isPlaybackSettingsOpen" @close="isPlaybackSettingsOpen = false" />
-    <MusicCommentsModal :visible="isCommentsOpen" :track="currentTrack" @close="isCommentsOpen = false" />
+    <MusicCommentsModal
+      :visible="isCommentsOpen"
+      :track="currentTrack"
+      @updateTotal="(total) => {
+        if (currentTrack?.id) commentTotalMap[currentTrack.id] = total
+        if (currentTrack?.sourceTrackId) commentTotalMap[currentTrack.sourceTrackId] = total
+      }"
+      @close="isCommentsOpen = false"
+    />
     <MusicPrivacyModal :visible="privacyModalMode !== 'closed'" :mode="privacyModalMode === 'closed' ? 'management' : privacyModalMode" :anonymousAllowed="privacyPreferences.allowAnonymousPublicSources" @choose="handlePrivacyChoice" @close="closePrivacy" @clearAccounts="clearOnlineAccountData" />
     <MusicPlaylistCollectionModal :visible="isCollectionOpen" :title="collectionMode === 'charts' ? '排行榜' : '歌单广场'" :subtitle="collectionMode === 'charts' ? '按当前热门播放量排序' : '来自已启用音乐来源的推荐歌单'" :playlists="collectionPlaylists" @close="isCollectionOpen = false" @select="openPlaylist" />
     <MusicPlaylistDetailModal :visible="isPlaylistDetailOpen" :playlist="selectedPlaylist" :tracks="selectedPlaylistTracks" :loading="isPlaylistLoading" :error="playlistError" :filtering="isPlaylistFiltering" :filterChecked="playlistFilterChecked" :filterTotal="playlistFilterTotal" :filterRemoved="playlistFilterRemoved" @close="isPlaylistDetailOpen = false" @filter="filterSelectedPlaylist" @playAll="playSelected(0)" @play="(_track, index) => playSelected(index)" />

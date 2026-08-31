@@ -81,12 +81,14 @@ export const initializeMusicRuntime = () => {
       const defaults = defaultMusicSourceConfigs()
       const stored = Array.isArray(saved.sourceConfigs) ? saved.sourceConfigs : []
       musicSourceConfigs.value = defaults.map(item => {
-        const merged = { ...item, ...(stored.find(savedItem => savedItem.id === item.id) || {}) }
+        const storedItem = stored.find(savedItem => savedItem.id === item.id)
+        const legacyPublicEnabled = stored.find(savedItem => savedItem.id === 'public-meting')?.enabled === true
+        const merged = { ...item, ...(storedItem || {}), ...(!storedItem && item.anonymousPublic && legacyPublicEnabled ? { enabled: true } : {}) }
         if (!merged.apiBase?.trim() && item.apiBase?.trim()) {
           merged.apiBase = item.apiBase
           merged.enabled = item.enabled
         }
-        if (merged.kind === 'aggregate' && !item.apiBase?.trim() && merged.apiBase === `${window.location.origin}/music-api`) {
+        if (merged.kind === 'aggregate' && !item.apiBase?.trim() && (merged.apiBase === '/music-api' || merged.apiBase === `${window.location.origin}/music-api`)) {
           merged.apiBase = ''
           merged.enabled = false
         }

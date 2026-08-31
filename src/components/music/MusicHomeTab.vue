@@ -76,7 +76,7 @@ onMounted(() => { void loadHome() })
           <circle cx="11" cy="11" r="8"></circle>
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
-        <input v-model="searchQuery" type="text" placeholder="搜索可完整播放的歌曲..." class="search-native-input" @keyup.enter="submitSearch" />
+        <input v-model="searchQuery" type="text" placeholder="搜索歌曲..." class="search-native-input" @keyup.enter="submitSearch" />
         <button v-if="searchQuery" class="clear-search-btn" title="清空搜索" @click="handleClearSearch">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -95,7 +95,7 @@ onMounted(() => { void loadHome() })
       <span v-for="status in searchSourceStatuses" :key="status.id" :class="{ failed: !status.ok }" :title="status.detail"><i></i>{{ status.name }}：{{ status.detail }}</span>
     </div>
 
-    <div v-if="isSearching" class="banner-carousel"><div class="banner-card"><div class="banner-tag">搜索中</div><div class="banner-content"><div class="banner-title">正在查找完整歌曲</div><div class="banner-desc">正在逐项验证时长与播放能力</div></div></div></div>
+    <div v-if="isSearching" class="banner-carousel"><div class="banner-card"><div class="banner-tag">搜索中</div><div class="banner-content"><div class="banner-title">正在查询音乐来源</div><div class="banner-desc">当前来源不可用时会自动尝试下一家</div></div></div></div>
 
     <div v-else-if="searchResult.tracks.length" class="section-container search-section">
       <div class="section-header">
@@ -116,8 +116,8 @@ onMounted(() => { void loadHome() })
     </div>
 
     <div v-else-if="hasSearched && !searchResult.tracks.length" class="section-container empty-source-card">
-      <div class="section-title">{{ hasConfiguredOnlineSource ? '没有找到可完整播放的结果' : '还没有连接在线音乐服务' }}</div>
-      <div class="empty-source-text">{{ hasConfiguredOnlineSource ? '当前服务没有返回可完整播放的音源，请检查服务状态。' : '搜索需要一个音乐数据服务；登录不是搜索前提，连接服务后即可免登录搜索和播放公开可用曲目。' }}</div>
+      <div class="section-title">{{ hasConfiguredOnlineSource ? '没有找到搜索结果' : '还没有连接在线音乐服务' }}</div>
+      <div class="empty-source-text">{{ hasConfiguredOnlineSource ? '已尝试当前可用来源，但都没有返回结果。' : '搜索需要一个音乐数据服务；登录不是搜索前提，连接服务后即可免登录搜索和播放公开可用曲目。' }}</div>
       <div class="empty-actions">
         <button type="button" @click="handleClearSearch">返回推荐首页</button>
         <button type="button" @click="emit('openSources')">打开来源管理</button>
