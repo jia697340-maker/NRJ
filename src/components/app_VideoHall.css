@@ -1,0 +1,1481 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+
+:root {
+  --vh-bg: #ffffff;
+  --vh-ink: #121212;
+  --vh-line: rgba(18, 18, 18, 0.12);
+  --vh-line-light: rgba(18, 18, 18, 0.06);
+  --vh-mist: #f6f8fb;
+  --vh-mist2: #f2f5f9;
+  --vh-sand: #faf7f2;
+  --vh-sand2: #f6f2eb;
+}
+
+.vh-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--vh-bg);
+  color: var(--vh-ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
+
+.vh-wrapper::-webkit-scrollbar {
+  width: 4px;
+}
+.vh-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+.vh-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+}
+
+.vh-home {
+  width: min(100%, 430px);
+  margin: 0 auto;
+  background: #fff;
+  padding: calc(12px + env(safe-area-inset-top)) 14px calc(64px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+/* 顶部操作区 */
+.vh-top,
+.vh-detail-top {
+  height: 42px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.vh-top-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 9px/1 Georgia, "Times New Roman", serif;
+  letter-spacing: 0.16em;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.vh-top-tag .vh-tag-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #111;
+  opacity: 0.7;
+}
+
+.vh-close-pill,
+.vh-back-pill {
+  border: 1px solid var(--vh-line);
+  background: #fff;
+  height: 28px;
+  padding: 0 10px 0 12px;
+  border-radius: 100px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 10px/1 Inter, -apple-system, sans-serif;
+  letter-spacing: 0.08em;
+  color: var(--vh-ink);
+  cursor: pointer;
+  transition: all 0.16s ease;
+  user-select: none;
+}
+
+.vh-close-pill:hover,
+.vh-close-pill:active,
+.vh-back-pill:hover,
+.vh-back-pill:active {
+  background: #f5f5f5;
+  border-color: #111;
+}
+
+.vh-close-icon {
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.vh-back-arrow {
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 0.16s ease;
+}
+
+.vh-back-pill:hover .vh-back-arrow {
+  transform: translateX(-2px);
+}
+
+/* 封面：电影胶片微排版 */
+.vh-cover {
+  position: relative;
+  height: 160px;
+  margin: 0 2px 22px;
+  border: 1px solid var(--vh-line);
+  background: #fff;
+  overflow: hidden;
+}
+
+.vh-cover::before {
+  content: "";
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: 1px solid rgba(18, 18, 18, 0.045);
+  right: -72px;
+  top: -64px;
+  pointer-events: none;
+}
+
+.vh-cover .vh-cover-en {
+  position: absolute;
+  left: 18px;
+  top: 16px;
+  font: 9px Georgia, "Times New Roman", serif;
+  letter-spacing: 0.18em;
+  color: var(--vh-ink);
+}
+
+.vh-cover .vh-hairline {
+  position: absolute;
+  left: 18px;
+  top: 55px;
+  width: 36px;
+  height: 1px;
+  background: #111;
+  opacity: 0.34;
+}
+
+.vh-cover .vh-crosshair-tl {
+  position: absolute;
+  right: 18px;
+  top: 16px;
+  font: 13px/1 monospace;
+  color: #bbb;
+  opacity: 0.7;
+}
+
+.vh-cover .vh-note {
+  position: absolute;
+  right: 68px;
+  top: 26px;
+  font: italic 11px Georgia, "Times New Roman", serif;
+  color: #666;
+}
+
+.vh-cover h1 {
+  position: absolute;
+  left: 18px;
+  top: 70px;
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--vh-ink);
+}
+
+.vh-cover .vh-sub {
+  position: absolute;
+  left: 18px;
+  top: 110px;
+  font-size: 11px;
+  color: #777;
+}
+
+.vh-cover .vh-count {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  text-align: right;
+  color: var(--vh-ink);
+}
+
+.vh-cover .vh-count b {
+  display: block;
+  font: 400 30px/1 Georgia, "Times New Roman", serif;
+}
+
+.vh-cover .vh-count span {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: #888;
+}
+
+/* 拼版标题栏 */
+.vh-board-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin: 0 4px 10px;
+}
+
+.vh-board-title .vh-cn {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--vh-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vh-board-title .vh-cn-tag {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: #888;
+  font-family: Georgia, serif;
+}
+
+.vh-board-title .vh-en {
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  color: #999;
+}
+
+/* 拼版网格：8块各自独立的版式排版 */
+.vh-board {
+  margin: 0 2px;
+  border-top: 1px solid var(--vh-line);
+  border-left: 1px solid var(--vh-line);
+  background: #fff;
+}
+
+.vh-row {
+  display: grid;
+}
+
+.vh-r1 {
+  grid-template-columns: 1.1fr 0.9fr;
+}
+
+.vh-r2 {
+  grid-template-columns: 0.85fr 1.15fr;
+}
+
+.vh-r3 {
+  grid-template-columns: 1.05fr 0.95fr;
+}
+
+.vh-r4 {
+  grid-template-columns: 0.92fr 1.08fr;
+}
+
+.vh-tile {
+  min-height: 126px;
+  position: relative;
+  border-right: 1px solid var(--vh-line);
+  border-bottom: 1px solid var(--vh-line);
+  cursor: pointer;
+  overflow: hidden;
+  background: #fff;
+  transition: background 0.16s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+.vh-tile:active {
+  background: #f7f9fc;
+}
+
+/* 兔子 SVG 图标插槽 */
+.vh-rabbit-slot {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.vh-rabbit-svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  fill: currentColor;
+  color: #222;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.18s ease;
+}
+
+.vh-tile:hover .vh-rabbit-svg,
+.vh-tile:active .vh-rabbit-svg {
+  transform: translateY(-2px) scale(1.12);
+  color: #000;
+}
+
+.vh-rabbit-svg.soft {
+  color: #777;
+}
+
+.vh-rabbit-svg.tint-mist {
+  color: #5879a2;
+}
+
+.vh-rabbit-svg.tint-sand {
+  color: #a47d57;
+}
+
+.vh-rabbit-svg.tint-purple {
+  color: #7c5fb0;
+}
+
+/* 01 Gemini Omni */
+.vh-tile-01 {
+  padding: 16px 14px 14px;
+}
+.vh-tile-01 .vh-num {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.vh-tile-01 .vh-name {
+  margin-top: 22px;
+  font-size: 20px;
+  font-weight: 600;
+  font-family: Georgia, serif;
+  letter-spacing: -0.02em;
+  color: var(--vh-ink);
+}
+.vh-tile-01 .vh-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #777;
+}
+.vh-tile-01 .vh-tag-sub {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  font-size: 7px;
+  letter-spacing: 0.16em;
+  color: #999;
+}
+
+/* 02 Veo 3.1 */
+.vh-tile-02 {
+  background: var(--vh-mist);
+  padding: 14px 14px 14px;
+}
+.vh-tile-02 .vh-watermark {
+  position: absolute;
+  right: 8px;
+  top: 4px;
+  font: italic 40px/1 Georgia, serif;
+  color: #000;
+  opacity: 0.04;
+  pointer-events: none;
+}
+.vh-tile-02 .vh-num {
+  position: absolute;
+  left: 14px;
+  top: 12px;
+  font: italic 11px Georgia, serif;
+  color: #888;
+}
+.vh-tile-02 .vh-name {
+  margin-top: 36px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--vh-ink);
+}
+.vh-tile-02 .vh-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #777;
+  max-width: 140px;
+}
+
+/* 03 Kling 3.0 */
+.vh-tile-03 {
+  background: var(--vh-sand);
+  padding: 14px 12px 14px;
+}
+.vh-tile-03 .vh-num {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  font: italic 10px Georgia, serif;
+  color: #888;
+}
+.vh-tile-03 .vh-badge {
+  font-size: 7px;
+  letter-spacing: 0.14em;
+  color: #999;
+  text-transform: uppercase;
+}
+.vh-tile-03 .vh-name {
+  margin-top: 14px;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--vh-ink);
+}
+.vh-tile-03 .vh-desc {
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #777;
+}
+.vh-tile-03 .vh-dashline {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 24px;
+  height: 1px;
+  background: #111;
+  opacity: 0.15;
+}
+
+/* 04 Wan 3.0 */
+.vh-tile-04 {
+  padding: 16px 16px 14px;
+}
+.vh-tile-04 .vh-num {
+  position: absolute;
+  right: 14px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.vh-tile-04 .vh-name {
+  margin-top: 24px;
+  font-size: 19px;
+  font-weight: 500;
+  font-family: Georgia, serif;
+  letter-spacing: -0.02em;
+  color: var(--vh-ink);
+}
+.vh-tile-04 .vh-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #777;
+}
+.vh-tile-04 .vh-underline {
+  position: absolute;
+  left: 16px;
+  bottom: 28px;
+  width: 32px;
+  height: 1px;
+  background: #111;
+  opacity: 0.18;
+}
+
+/* 05 Seedance 2.5 */
+.vh-tile-05 {
+  padding: 16px 14px 14px;
+}
+.vh-tile-05 .vh-num {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.vh-tile-05 .vh-name {
+  margin-top: 16px;
+  font-size: 17px;
+  line-height: 1.18;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--vh-ink);
+}
+.vh-tile-05 .vh-desc {
+  margin-top: 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #777;
+}
+.vh-tile-05 .vh-corner-tag {
+  position: absolute;
+  left: 14px;
+  bottom: 11px;
+  font-size: 7px;
+  letter-spacing: 0.12em;
+  color: #aaa;
+}
+
+/* 06 MiniMax H3 */
+.vh-tile-06 {
+  background: var(--vh-mist2);
+  padding: 16px 14px 14px;
+}
+.vh-tile-06 .vh-num {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.vh-tile-06 .vh-name {
+  margin-top: 26px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--vh-ink);
+}
+.vh-tile-06 .vh-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #777;
+}
+
+/* 07 Agnes Video */
+.vh-tile-07 {
+  background: var(--vh-sand2);
+  padding: 14px 12px 14px;
+}
+.vh-tile-07 .vh-num {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  font: italic 10px Georgia, serif;
+  color: #888;
+}
+.vh-tile-07 .vh-name {
+  margin-top: 22px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--vh-ink);
+}
+.vh-tile-07 .vh-desc {
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #777;
+}
+.vh-tile-07 .vh-pill-tag {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  font-size: 7px;
+  letter-spacing: 0.14em;
+  color: #999;
+}
+
+/* 08 Atlas Cloud */
+.vh-tile-08 {
+  padding: 16px 14px 14px;
+}
+.vh-tile-08 .vh-num {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.vh-tile-08 .vh-name {
+  margin-top: 24px;
+  font-size: 19px;
+  font-weight: 500;
+  font-family: Georgia, serif;
+  letter-spacing: -0.02em;
+  color: var(--vh-ink);
+}
+.vh-tile-08 .vh-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #777;
+}
+
+/* 拼版底栏 */
+.vh-board-foot {
+  margin: 18px 4px 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--vh-line);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.vh-board-foot .vh-foot-l {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: #888;
+}
+
+.vh-board-foot .vh-foot-r {
+  font: italic 11px Georgia, "Times New Roman", serif;
+  color: #888;
+}
+
+/* ==========================================================================
+   内页：配置详情页（Editorial Hero 展板与统一框架）
+   ========================================================================== */
+
+.vh-detail-container {
+  width: min(100%, 430px);
+  margin: 0 auto;
+  padding: calc(12px + env(safe-area-inset-top)) 14px calc(64px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  animation: vhFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+}
+
+@keyframes vhFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.vh-detail-header-wrap {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+/* 内页 Hero 展板 */
+.vh-detail-hero {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid var(--vh-line);
+  padding: 16px 16px 14px;
+  margin: 0 2px 14px;
+  overflow: hidden;
+}
+
+.vh-detail-hero::before {
+  content: "";
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  border: 1px solid rgba(18, 18, 18, 0.04);
+  right: -40px;
+  top: -40px;
+  pointer-events: none;
+}
+
+.vh-hero-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vh-hero-en {
+  font: 9px/1 Georgia, "Times New Roman", serif;
+  letter-spacing: 0.16em;
+  color: var(--vh-ink);
+  text-transform: uppercase;
+}
+
+.vh-hero-note {
+  font: italic 11px Georgia, "Times New Roman", serif;
+  color: #777;
+}
+
+.vh-hero-hairline {
+  width: 32px;
+  height: 1px;
+  background: #111;
+  opacity: 0.34;
+  margin: 8px 0 12px;
+}
+
+.vh-hero-body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.vh-hero-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.vh-hero-title {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--vh-ink);
+  line-height: 1.15;
+}
+
+.vh-hero-desc {
+  font-size: 11px;
+  color: #777;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.vh-hero-tag {
+  display: inline-block;
+  font-size: 7.5px;
+  letter-spacing: 0.14em;
+  color: #888;
+  font-family: ui-monospace, monospace;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.vh-hero-right {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-left: 10px;
+}
+
+.vh-hero-num {
+  font: italic 32px/1 Georgia, serif;
+  color: rgba(0, 0, 0, 0.22);
+}
+
+.vh-hero-rabbit {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vh-hero-rabbit .vh-rabbit-svg {
+  width: 26px;
+  height: 26px;
+}
+
+.vh-subview-host {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 隐藏内页子视图自带的旧顶栏，由外层统一托管 */
+.vh-subview-host .hall-header,
+.vh-subview-host .header-minimal,
+.vh-subview-host header {
+  display: none !important;
+}
+
+.vh-subview-host > div,
+.vh-subview-host .omni-hall,
+.vh-subview-host .video-hall,
+.vh-subview-host .kling-hall,
+.vh-subview-host .wan-hall,
+.vh-subview-host .seedance-hall,
+.vh-subview-host .h3-hall,
+.vh-subview-host .agnes-hall,
+.vh-subview-host .atlas-hall {
+  position: static !important;
+  inset: auto !important;
+  height: auto !important;
+  min-height: auto !important;
+  width: 100% !important;
+  overflow: visible !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: transparent !important;
+}
+
+.vh-subview-host .hall-scroll,
+.vh-subview-host main {
+  width: 100% !important;
+  padding: 0 0 20px 0 !important;
+  overflow: visible !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+}
+
+/* ==========================================================================
+   深度统一美化：视频大厅内页元素（Editorial Studio 风格）
+   ========================================================================== */
+
+/* 1. 选项卡美化 (Tabs) */
+.vh-subview-host .hall-tabs {
+  width: min(calc(100% - 28px), 402px) !important;
+  margin: 0 auto 14px !important;
+  padding: 4px !important;
+  border-radius: 100px !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+  border: 1px solid var(--vh-line) !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  gap: 3px !important;
+}
+
+.vh-subview-host .hall-tabs button {
+  flex: 1 !important;
+  border-radius: 100px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  font-weight: 550 !important;
+  color: #666 !important;
+  background: transparent !important;
+  border: none !important;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  cursor: pointer !important;
+}
+
+.vh-subview-host .hall-tabs button.active {
+  background: #ffffff !important;
+  color: #111111 !important;
+  font-weight: 650 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+.vh-subview-host .hall-tabs span {
+  background: rgba(0, 0, 0, 0.06) !important;
+  color: #666 !important;
+  font-size: 9px !important;
+  font-family: ui-monospace, monospace !important;
+  padding: 2px 6px !important;
+  border-radius: 100px !important;
+  font-weight: 600 !important;
+}
+
+.vh-subview-host .hall-tabs button.active span {
+  background: #111111 !important;
+  color: #ffffff !important;
+}
+
+/* 2. 卡片与分组面板 (Panels & Sections) */
+.vh-subview-host .panel,
+.vh-subview-host .settings-panel,
+.vh-subview-host .create-section,
+.vh-subview-host .running-section,
+.vh-subview-host .parameters-section,
+.vh-subview-host .prompt-section,
+.vh-subview-host .director-panel,
+.vh-subview-host .branch-panel,
+.vh-subview-host .director-stage {
+  background: #ffffff !important;
+  border: 1px solid var(--vh-line) !important;
+  border-radius: 14px !important;
+  padding: 16px !important;
+  margin-bottom: 14px !important;
+  box-sizing: border-box !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+
+.vh-subview-host .settings-panel {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.vh-subview-host .section-toggle {
+  padding: 14px 16px !important;
+  background: #ffffff !important;
+  border-radius: 14px !important;
+  border: none !important;
+}
+
+.vh-subview-host .section-toggle:hover {
+  background: #fafafa !important;
+}
+
+.vh-subview-host .settings-body {
+  padding: 14px 16px 16px !important;
+  border-top: 1px solid var(--vh-line-light) !important;
+  background: #fdfdfd !important;
+}
+
+.vh-subview-host .section-heading {
+  margin-bottom: 14px !important;
+}
+
+.vh-subview-host .section-heading small,
+.vh-subview-host .section-toggle small {
+  font-size: 9px !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  color: #888888 !important;
+  font-family: Georgia, serif !important;
+}
+
+.vh-subview-host .section-heading h2,
+.vh-subview-host .section-toggle strong {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: #121212 !important;
+  letter-spacing: -0.01em !important;
+  margin-top: 4px !important;
+}
+
+.vh-subview-host .cost-pill {
+  background: #f5f5f5 !important;
+  border: 1px solid var(--vh-line) !important;
+  color: #555555 !important;
+  font-size: 10px !important;
+  font-family: ui-monospace, monospace !important;
+  font-weight: 600 !important;
+  padding: 4px 8px !important;
+  border-radius: 6px !important;
+}
+
+/* 3. 模式切换水平药丸 (Mode Tabs) */
+.vh-subview-host .mode-tabs {
+  display: flex !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  padding: 2px 2px 8px !important;
+  margin-bottom: 10px !important;
+  scrollbar-width: none !important;
+}
+
+.vh-subview-host .mode-tabs::-webkit-scrollbar {
+  display: none !important;
+}
+
+.vh-subview-host .mode-tabs button {
+  flex: 0 0 auto !important;
+  padding: 7px 14px !important;
+  border-radius: 100px !important;
+  background: #f4f5f7 !important;
+  border: 1px solid rgba(18, 18, 18, 0.05) !important;
+  color: #555555 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.16s ease !important;
+}
+
+.vh-subview-host .mode-tabs button:hover {
+  background: #ebecee !important;
+  color: #111 !important;
+}
+
+.vh-subview-host .mode-tabs button.active {
+  background: #111111 !important;
+  border-color: #111111 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) !important;
+}
+
+.vh-subview-host .mode-tabs button.disabled {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  background: #f4f5f7 !important;
+  color: #aaa !important;
+}
+
+/* 模型选择网格 (Model Grid) */
+.vh-subview-host .model-grid {
+  display: grid !important;
+  gap: 8px !important;
+  margin-bottom: 12px !important;
+}
+
+.vh-subview-host .model-grid button {
+  background: #fafafa !important;
+  border: 1px solid var(--vh-line) !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  text-align: left !important;
+  transition: all 0.16s ease !important;
+  cursor: pointer !important;
+}
+
+.vh-subview-host .model-grid button:hover {
+  border-color: #111 !important;
+  background: #ffffff !important;
+}
+
+.vh-subview-host .model-grid button.active {
+  background: #ffffff !important;
+  border-color: #111111 !important;
+  box-shadow: 0 0 0 1px #111111 inset !important;
+}
+
+.vh-subview-host .model-grid strong {
+  color: #111111 !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+}
+
+.vh-subview-host .model-grid small {
+  color: #777777 !important;
+  font-size: 10px !important;
+}
+
+/* 4. 表单与输入控件 (Inputs, Selects, Textareas) */
+.vh-subview-host .field {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  margin-bottom: 10px !important;
+}
+
+.vh-subview-host .field > span {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #222222 !important;
+}
+
+.vh-subview-host .field > small {
+  font-size: 10px !important;
+  color: #888888 !important;
+  line-height: 1.4 !important;
+}
+
+.vh-subview-host input,
+.vh-subview-host select,
+.vh-subview-host textarea {
+  width: 100% !important;
+  background: #ffffff !important;
+  border: 1px solid var(--vh-line) !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  font-size: 13px !important;
+  color: #111111 !important;
+  box-sizing: border-box !important;
+  font-family: inherit !important;
+  transition: all 0.16s ease !important;
+  outline: none !important;
+}
+
+.vh-subview-host input:focus,
+.vh-subview-host select:focus,
+.vh-subview-host textarea:focus {
+  border-color: #111111 !important;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.vh-subview-host textarea {
+  min-height: 110px !important;
+  line-height: 1.6 !important;
+  resize: vertical !important;
+}
+
+.vh-subview-host .input-action {
+  display: flex !important;
+  align-items: center !important;
+  background: #ffffff !important;
+  border: 1px solid var(--vh-line) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+.vh-subview-host .input-action:focus-within {
+  border-color: #111111 !important;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.vh-subview-host .input-action input {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.vh-subview-host .input-action button {
+  background: #f4f4f4 !important;
+  border: none !important;
+  border-left: 1px solid var(--vh-line-light) !important;
+  padding: 0 14px !important;
+  height: 38px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #333333 !important;
+  cursor: pointer !important;
+  transition: background 0.16s ease !important;
+}
+
+.vh-subview-host .input-action button:hover {
+  background: #e8e8e8 !important;
+}
+
+.vh-subview-host .parameter-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+}
+
+/* 5. 素材上传插槽 (Upload Slots & Grids) */
+.vh-subview-host .upload-slot {
+  border: 1px dashed rgba(18, 18, 18, 0.22) !important;
+  background: #fafafa !important;
+  border-radius: 12px !important;
+  min-height: 130px !important;
+  transition: all 0.16s ease !important;
+}
+
+.vh-subview-host .upload-slot:hover {
+  border-color: #111111 !important;
+  background: #f5f5f5 !important;
+}
+
+.vh-subview-host .upload-slot.filled {
+  border-style: solid !important;
+  border-color: var(--vh-line) !important;
+  background: #000000 !important;
+}
+
+.vh-subview-host .reference-thumb,
+.vh-subview-host .reference-add {
+  border-radius: 10px !important;
+  border: 1px solid var(--vh-line) !important;
+  background: #fafafa !important;
+  height: 96px !important;
+  overflow: hidden !important;
+}
+
+.vh-subview-host .reference-add {
+  border-style: dashed !important;
+  border-color: rgba(18, 18, 18, 0.22) !important;
+  cursor: pointer !important;
+}
+
+.vh-subview-host .reference-add:hover {
+  border-color: #111111 !important;
+  background: #f5f5f5 !important;
+}
+
+/* 6. 生成核心按钮 (Generate Button) */
+.vh-subview-host .generate-button {
+  width: 100% !important;
+  background: #111111 !important;
+  color: #ffffff !important;
+  border: 1px solid #111111 !important;
+  padding: 13px 18px !important;
+  border-radius: 10px !important;
+  font-size: 13.5px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.02em !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  cursor: pointer !important;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12) !important;
+  margin: 8px 0 16px !important;
+}
+
+.vh-subview-host .generate-button:hover {
+  background: #282828 !important;
+  border-color: #282828 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18) !important;
+}
+
+.vh-subview-host .generate-button:active {
+  transform: translateY(0) !important;
+}
+
+.vh-subview-host .generate-button:disabled {
+  background: rgba(0, 0, 0, 0.1) !important;
+  border-color: transparent !important;
+  color: #888888 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* 7. 后台运行任务 (Running Cards) */
+.vh-subview-host .running-card {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 10px 0 !important;
+  border-top: 1px solid var(--vh-line-light) !important;
+}
+
+.vh-subview-host .running-card:first-of-type {
+  border-top: none !important;
+}
+
+.vh-subview-host .running-indicator {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 50% !important;
+  background: #eef7f0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.vh-subview-host .running-indicator span,
+.vh-subview-host .running-indicator i {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: #2e7d32 !important;
+  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.2) !important;
+}
+
+.vh-subview-host .running-card button,
+.vh-subview-host .work-actions button,
+.vh-subview-host .stage-info button {
+  background: #f4f5f7 !important;
+  border: 1px solid rgba(18, 18, 18, 0.08) !important;
+  border-radius: 6px !important;
+  padding: 6px 12px !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  color: #222222 !important;
+  cursor: pointer !important;
+  transition: all 0.16s ease !important;
+}
+
+.vh-subview-host .running-card button:hover,
+.vh-subview-host .work-actions button:hover,
+.vh-subview-host .stage-info button:hover {
+  background: #e8eaed !important;
+  border-color: #111 !important;
+}
+
+.vh-subview-host .work-actions .danger {
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+  border-color: #fecaca !important;
+}
+
+.vh-subview-host .work-actions .danger:hover {
+  background: #fee2e2 !important;
+  border-color: #ef4444 !important;
+}
+
+/* 8. 作品卡片 (Work Cards) */
+.vh-subview-host .works-list {
+  display: grid !important;
+  gap: 14px !important;
+}
+
+.vh-subview-host .work-card {
+  background: #ffffff !important;
+  border: 1px solid var(--vh-line) !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+
+.vh-subview-host .work-media {
+  background: #000000 !important;
+  position: relative !important;
+}
+
+.vh-subview-host .work-info {
+  padding: 12px 14px 14px !important;
+}
+
+.vh-subview-host .work-info strong {
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  color: #111111 !important;
+  line-height: 1.4 !important;
+}
+
+.vh-subview-host .work-info p {
+  font-size: 11px !important;
+  color: #777777 !important;
+  margin: 4px 0 0 !important;
+}
+
+.vh-subview-host .status-badge {
+  background: rgba(18, 18, 18, 0.8) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  padding: 3px 8px !important;
+  color: #ffffff !important;
+}
+
+.vh-subview-host .status-badge.completed {
+  background: rgba(22, 101, 52, 0.85) !important;
+}
+
+.vh-subview-host .status-badge.failed {
+  background: rgba(185, 28, 28, 0.85) !important;
+}
+
+/* 9. 导演台与分支控制 (Director Stage & Branches) */
+.vh-subview-host .director-actions {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 8px !important;
+  margin-bottom: 12px !important;
+}
+
+.vh-subview-host .director-actions button {
+  padding: 9px !important;
+  border-radius: 8px !important;
+  background: #f4f5f7 !important;
+  border: 1px solid var(--vh-line) !important;
+  color: #555555 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.16s ease !important;
+}
+
+.vh-subview-host .director-actions button.active {
+  background: #111111 !important;
+  border-color: #111111 !important;
+  color: #ffffff !important;
+}
+
+.vh-subview-host .quick-prompts {
+  display: flex !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  margin-bottom: 12px !important;
+  scrollbar-width: none !important;
+}
+
+.vh-subview-host .quick-prompts button {
+  flex: 0 0 auto !important;
+  padding: 5px 10px !important;
+  border-radius: 100px !important;
+  background: #fafafa !important;
+  border: 1px solid var(--vh-line) !important;
+  font-size: 11px !important;
+  color: #555555 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.vh-subview-host .quick-prompts button:hover {
+  background: #111111 !important;
+  color: #ffffff !important;
+  border-color: #111111 !important;
+}
+
+.vh-subview-host .branch-list {
+  display: grid !important;
+  gap: 8px !important;
+}
+
+.vh-subview-host .branch-list button {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 10px 12px !important;
+  background: #fafafa !important;
+  border: 1px solid var(--vh-line) !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  transition: all 0.16s ease !important;
+}
+
+.vh-subview-host .branch-list button:hover {
+  border-color: #111111 !important;
+  background: #ffffff !important;
+}
+
+.vh-subview-host .branch-list span {
+  font-size: 10px !important;
+  color: #888888 !important;
+  font-family: ui-monospace, monospace !important;
+}
+
+.vh-subview-host .branch-list strong {
+  font-size: 12px !important;
+  color: #111111 !important;
+}
+
+/* 10. 空状态与提示 (Empty & Messages) */
+.vh-subview-host .page-message,
+.vh-subview-host .page-error {
+  border-radius: 8px !important;
+  padding: 10px 14px !important;
+  font-size: 12px !important;
+  margin: 0 0 12px !important;
+  border: 1px solid transparent !important;
+}
+
+.vh-subview-host .page-message {
+  background: #f0fdf4 !important;
+  color: #166534 !important;
+  border-color: #bbf7d0 !important;
+}
+
+.vh-subview-host .page-error {
+  background: #fef2f2 !important;
+  color: #991b1b !important;
+  border-color: #fecaca !important;
+}
+
+.vh-subview-host .empty-works {
+  padding: 48px 16px !important;
+  text-align: center !important;
+  background: #ffffff !important;
+  border: 1px solid var(--vh-line) !important;
+  border-radius: 14px !important;
+  margin-top: 10px !important;
+}
+
+.vh-subview-host .empty-works h2 {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #111111 !important;
+  margin: 14px 0 6px !important;
+}
+
+.vh-subview-host .empty-works p {
+  font-size: 12px !important;
+  color: #777777 !important;
+}
+
+.vh-subview-host .empty-works button {
+  margin-top: 16px !important;
+  background: #111111 !important;
+  color: #ffffff !important;
+  border: none !important;
+  padding: 9px 18px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+.vh-subview-host .generation-note {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  margin-top: 12px !important;
+}
+
+.vh-subview-host .generation-note span {
+  background: #f4f5f7 !important;
+  color: #666666 !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  padding: 4px 8px !important;
+  border-radius: 4px !important;
+}
+
+/* 移动端与响应式细化 */
+@media (max-width: 380px) {
+  .vh-subview-host .parameter-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .vh-subview-host .director-actions {
+    grid-template-columns: 1fr !important;
+  }
+}

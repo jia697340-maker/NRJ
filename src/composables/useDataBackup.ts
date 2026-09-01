@@ -72,6 +72,7 @@ export const BACKUP_CATALOG: BackupCatalogItem[] = [
   { id: 'chat-files', group: '聊天内容', name: '角色真实文件', description: '角色配置和生成后在聊天中发送的真实文件', stores: [{ dbName: 'nrt-app', storeName: 'chatFileBlobs' }] },
   { id: 'chat-videos', group: '聊天内容', name: '角色真实视频', description: '角色配置和生成后在聊天中发送的真实视频', stores: [{ dbName: 'nrt-app', storeName: 'chatVideoBlobs' }] },
   { id: 'chat-timelines', group: '聊天内容', name: '时间线与存档', description: '平行时间线、存档点、最近删除及跨应用剧情快照', stores: [{ dbName: 'nrt-app', storeName: 'chatTimelines' }, { dbName: 'nrt-app', storeName: 'memoryVectors' }] },
+  { id: 'character-phones', group: '聊天内容', name: '角色手机', description: '角色设备、锁屏、APP、联系人会话、活动事件与联动设置', stores: [{ dbName: 'nrt-app', storeName: 'characterPhones' }] },
   { id: 'chat-voices', group: '聊天内容', name: '聊天语音与元数据', description: '语音消息及其播放信息', stores: [{ dbName: 'nrt-app', storeName: 'chatVoices' }, { dbName: 'nrt-app', storeName: 'chatVoiceMeta' }] },
   { id: 'chat-wallpapers', group: '聊天内容', name: '聊天壁纸', description: '会话专属背景', stores: [{ dbName: 'nrt-app', storeName: 'chatWallpapers' }] },
   { id: 'worldbooks', group: '世界书与记忆', name: '世界书正文与分组', description: '世界书内容和结构', localKeys: ['worldbooks'] },

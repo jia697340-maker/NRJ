@@ -4,6 +4,8 @@ import { cloneTimelineVectors, exportTimelineVectors, importTimelineVectors, rem
 import { getMomentListKey, listMoments, listSharedCharacterMoments, saveMomentList, saveSharedCharacterMoments } from './momentRepository'
 import { walletStorageKey } from './walletService'
 import { sendCapabilityMessage } from './api'
+import { exportCharacterPhoneSnapshot, importCharacterPhoneSnapshot } from './characterPhoneRepository'
+import type { CharacterPhoneRecord } from '../types/characterPhone'
 
 export type TimelineDeleteMode = 'trash' | 'permanent'
 export type TimelineRetention = 7 | 30 | 90 | -1
@@ -68,6 +70,7 @@ interface CrossAppSnapshot {
   moments: any[]
   sharedMoments: any[]
   groups: string | null
+  phone: CharacterPhoneRecord | null
 }
 
 interface TimelineRecord {
@@ -202,14 +205,15 @@ const applyState = (chat: any, snapshot: Record<string, any>) => {
   chat.time = last ? new Date(Number(last.timestamp || last.id || Date.now())).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''
 }
 
-const captureCrossApp = async (accountId?: string | null): Promise<CrossAppSnapshot> => ({
+const captureCrossApp = async (chat: any, accountId?: string | null): Promise<CrossAppSnapshot> => ({
   wallet: localStorage.getItem(walletStorageKey(accountKey(accountId))),
   moments: await listMoments(),
   sharedMoments: await listSharedCharacterMoments(),
-  groups: localStorage.getItem(getGroupChatsKey(accountId))
+  groups: localStorage.getItem(getGroupChatsKey(accountId)),
+  phone: await exportCharacterPhoneSnapshot(accountKey(accountId), String(chat.characterEntityId || chat.id), ensureChatTimelineState(chat).activeTimelineId)
 })
 
-const restoreCrossApp = async (snapshot: CrossAppSnapshot | null, accountId?: string | null) => {
+const restoreCrossApp = async (snapshot: CrossAppSnapshot | null, chat: any, accountId?: string | null) => {
   if (!snapshot) return
   const walletKey = walletStorageKey(accountKey(accountId))
   if (snapshot.wallet === null) localStorage.removeItem(walletKey)
@@ -219,6 +223,7 @@ const restoreCrossApp = async (snapshot: CrossAppSnapshot | null, accountId?: st
   const groupsKey = getGroupChatsKey(accountId)
   if (snapshot.groups === null) localStorage.removeItem(groupsKey)
   else localStorage.setItem(groupsKey, snapshot.groups)
+  if (snapshot.phone) await importCharacterPhoneSnapshot({ ...snapshot.phone, accountId: accountKey(accountId), characterId: String(chat.characterEntityId || chat.id), chatId: chat.id, timelineId: ensureChatTimelineState(chat).activeTimelineId })
   window.dispatchEvent(new CustomEvent('clingy-wallet-updated', { detail: { accountId: accountKey(accountId) } }))
 }
 
@@ -250,7 +255,7 @@ const persistActiveTimelineNow = async (chat: any, accountId?: string | null, in
   }
   const record: TimelineRecord = {
     schemaVersion: 1, chatId: String(chat.id), accountId: accountKey(accountId), timelineId: state.activeTimelineId,
-    state: captureState(chat), crossApp: includeCrossApp ? await captureCrossApp(accountId) : (existing?.crossApp || null),
+    state: captureState(chat), crossApp: includeCrossApp ? await captureCrossApp(chat, accountId) : (existing?.crossApp || null),
     journal, updatedAt: Date.now()
   }
   await store.setItem(key, record)
@@ -354,7 +359,7 @@ export const createTimeline = async (chat: any, accountId: string | null | undef
     for (const field of BLANK_RESET_FIELDS) state[field] = blankValue(field)
     state.contactState = 'friend'
     state.socialPrivacy = chat.socialPrivacy || 'public'
-    crossApp = { wallet: null, moments: [], sharedMoments: [], groups: null }
+    crossApp = { wallet: null, moments: [], sharedMoments: [], groups: null, phone: null }
     forkMessageId = null
   } else if (input.fromMessageId !== undefined && input.fromMessageId !== null) {
     const branched = branchStateAtMessage(source, input.fromMessageId)
@@ -394,7 +399,7 @@ export const switchTimeline = async (chat: any, accountId: string | null | undef
   targetMeta.frozenAt = null
   targetMeta.lastActiveAt = Date.now()
   applyState(chat, target.state)
-  await restoreCrossApp(target.crossApp, accountId)
+  await restoreCrossApp(target.crossApp, chat, accountId)
   window.dispatchEvent(new CustomEvent('clingy:timeline-switched', { detail: { chatId: chat.id, timelineId } }))
   return targetMeta
 }
@@ -442,7 +447,7 @@ export const restoreCheckpoint = async (chat: any, accountId: string | null | un
   if (mode === 'branch') return createTimeline(chat, accountId, { name: `${meta.name} · 分支`, fromCheckpointId: checkpointId, activate: true })
   if (manager.settings.autoSafetyCheckpoint) await createCheckpoint(chat, accountId, { name: '回退前安全存档', note: `恢复“${meta.name}”前自动保存`, locked: true })
   applyState(chat, record.state)
-  await restoreCrossApp(record.crossApp, accountId)
+  await restoreCrossApp(record.crossApp, chat, accountId)
   await importTimelineVectors(chat.id, manager.activeTimelineId, record.vectors || [])
   await persistActiveTimeline(chat, accountId, true)
   return getActiveTimeline(chat)

@@ -16,7 +16,7 @@ const running = ref(false)
 const feedback = ref<{ type: 'success' | 'error'; text: string } | null>(null)
 const previewResult = ref<AutonomyCheckResult | null>(null)
 const showClearConfirm = ref(false)
-const filter = ref<'all' | 'message' | 'moment' | 'status'>('all')
+const filter = ref<'all' | 'message' | 'moment' | 'status' | 'phone'>('all')
 const intervalDraft = ref('45')
 const silenceHoursDraft = ref('12')
 
@@ -70,6 +70,7 @@ const filters = [
   { id: 'message', label: '消息' },
   { id: 'moment', label: '朋友圈' },
   { id: 'status', label: '状态' }
+  , { id: 'phone', label: '手机' }
 ] as const
 
 const history = computed<AutonomyEvent[]>(() => {
@@ -119,7 +120,7 @@ const toggleMessagePermission = () => {
   save()
 }
 
-const actionLabel = (type: string) => ({ message: '主动消息', moment: '朋友圈', status: '状态变化' } as Record<string, string>)[type] || type
+const actionLabel = (type: string) => ({ message: '主动消息', moment: '朋友圈', status: '状态变化', phone: '使用手机' } as Record<string, string>)[type] || type
 const actionDetail = (action: any) => action.type === 'status'
   ? `${({ online: '在线', offline: '离线', busy: '忙碌', away: '暂离' } as Record<string, string>)[action.status] || action.status || '未指定'}${action.text ? ` · ${action.text}` : ''}`
   : action.content || '无内容'
@@ -324,7 +325,7 @@ const clearHistory = () => {
             </div>
             <div v-if="history.length" class="timeline">
               <article v-for="event in history" :key="event.id" class="timeline-item" :class="event.type">
-                <div class="timeline-marker"><svg viewBox="0 0 24 24"><path v-if="event.type === 'message'" d="M5 5h14v11H9l-4 3Z"/><path v-else-if="event.type === 'moment'" d="M4 5h16v14H4zM4 16l4-4 3 3 3-4 6 6"/><path v-else-if="event.type === 'status'" d="M12 4a8 8 0 1 0 8 8"/><path v-else-if="event.type === 'error'" d="M12 8v5m0 3h.01M4 20h16L12 4Z"/><path v-else d="M5 12h14"/></svg></div>
+                <div class="timeline-marker"><svg viewBox="0 0 24 24"><path v-if="event.type === 'message'" d="M5 5h14v11H9l-4 3Z"/><path v-else-if="event.type === 'moment'" d="M4 5h16v14H4zM4 16l4-4 3 3 3-4 6 6"/><path v-else-if="event.type === 'status'" d="M12 4a8 8 0 1 0 8 8"/><path v-else-if="event.type === 'phone'" d="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 15h4"/><path v-else-if="event.type === 'error'" d="M12 8v5m0 3h.01M4 20h16L12 4Z"/><path v-else d="M5 12h14"/></svg></div>
                 <div class="timeline-content"><div><strong>{{ event.title }}</strong><time>{{ formatTime(event.createdAt) }}</time></div><p>{{ event.detail }}</p><span v-if="triggerLabel(event.trigger)">{{ triggerLabel(event.trigger) }}</span><span v-if="event.catchup">经过时间结算</span><span v-if="event.blockedReason">权限已拦截</span></div>
               </article>
             </div>

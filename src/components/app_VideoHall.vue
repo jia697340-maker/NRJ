@@ -11,103 +11,29 @@ import MinimaxH3VideoAccessView from './video/MinimaxH3VideoAccessView.vue'
 import GeminiOmniAccessView from './video/GeminiOmniAccessView.vue'
 import AgnesVideoAccessView from './video/AgnesVideoAccessView.vue'
 import AtlasCloudVideoAccessView from './video/AtlasCloudVideoAccessView.vue'
+import './app_VideoHall.css'
 
 const emit = defineEmits<{
   (event: 'close'): void
 }>()
 
-const currentView = ref<'platforms' | 'veo' | 'kling' | 'wan' | 'seedance' | 'h3' | 'omni' | 'agnes' | 'atlas'>('platforms')
-const activeIndex = ref(0)
+const currentView = ref<'platforms' | 'omni' | 'veo' | 'kling' | 'wan' | 'seedance' | 'h3' | 'agnes' | 'atlas'>('platforms')
 let backButtonHandle: PluginListenerHandle | null = null
 
-const platforms = [
-  {
-    id: 'omni',
-    name: 'Gemini Omni',
-    desc: 'Google 对话生成与修改\n全模态原生音画引擎',
-    action: '进入创作',
-    disabled: false
-  },
-  {
-    id: 'veo',
-    name: 'Veo 3.1',
-    desc: 'Google 原生画面与音频\n视频生成引擎',
-    action: '进入配置',
-    disabled: false
-  },
-  {
-    id: 'kling',
-    name: 'Kling 3.0',
-    desc: '快手原生音画与多镜头\n网页与 App 双通道引擎',
-    action: '进入配置',
-    disabled: false
-  },
-  {
-    id: 'wan',
-    name: 'Wan 3.0',
-    desc: '阿里云全模态原生音画\n最长 30 秒视频引擎',
-    action: '进入配置',
-    disabled: false
-  },
-  {
-    id: 'seedance',
-    name: 'Seedance 2.5',
-    desc: '字节跳动长叙事与全模态\n最长 30 秒音画引擎',
-    action: '进入配置',
-    disabled: false
-  },
-  {
-    id: 'h3',
-    name: 'MiniMax H3',
-    desc: '多模态参考与原生立体声\n2K 音画视频生成引擎',
-    action: '进入配置',
-    disabled: false
-  },
-  {
-    id: 'agnes',
-    name: 'Agnes Video',
-    desc: '短视频与关键帧动画\nSeed 复现与负向控制',
-    action: '开始创作',
-    disabled: false
-  },
-  {
-    id: 'atlas',
-    name: 'Atlas Cloud',
-    desc: '一把密钥访问多家模型\n统一费用与任务中心',
-    action: '进入模型中心',
-    disabled: false
-  }
-]
-
-const handlePrev = () => {
-  if (activeIndex.value > 0) activeIndex.value--
+const ENGINE_META: Record<string, { num: string; title: string; enName: string; desc: string; tag: string; catType: string }> = {
+  omni: { num: '01', title: 'Gemini Omni', enName: 'GEMINI OMNI', desc: '全模态对话生成与修改 · 原生音画', tag: 'MOTION CORE', catType: 'solid' },
+  veo: { num: '02', title: 'Veo 3.1', enName: 'GOOGLE VEO', desc: 'Google 原生画面与音频 · 视频生成引擎', tag: 'NATIVE AUDIO', catType: 'mist' },
+  kling: { num: '03', title: 'Kling 3.0', enName: 'KLING AI', desc: '快手原生音画与多镜头 · 双通道引擎', tag: 'MULTI-CAMERA', catType: 'sand' },
+  wan: { num: '04', title: 'Wan 3.0', enName: 'WAN 3.0', desc: '阿里云全模态原生音画 · 最长30秒视频', tag: 'ALIBABA CLOUD', catType: 'solid' },
+  seedance: { num: '05', title: 'Seedance 2.5', enName: 'SEEDANCE', desc: '字节跳动长叙事与全模态 · 视频引擎', tag: 'ARK SPARK', catType: 'mist' },
+  h3: { num: '06', title: 'MiniMax H3', enName: 'MINIMAX H3', desc: '多模态参考与原生立体声 · 2K音画', tag: '2K NATIVE', catType: 'mist' },
+  agnes: { num: '07', title: 'Agnes Video', enName: 'AGNES VIDEO', desc: '短视频与关键帧动画 · Seed复现', tag: 'KEYFRAME ANIM', catType: 'sand' },
+  atlas: { num: '08', title: 'Atlas Cloud', enName: 'ATLAS CLOUD', desc: '一把密钥访问多家模型 · 统一费用中心', tag: 'UNIFIED CLOUD', catType: 'solid' }
 }
 
-const handleNext = () => {
-  if (activeIndex.value < platforms.length - 1) activeIndex.value++
+const handleSelect = (id: typeof currentView.value) => {
+  currentView.value = id
 }
-
-const handleSelect = (id: string, disabled: boolean) => {
-  if (!disabled && (id === 'veo' || id === 'kling' || id === 'wan' || id === 'seedance' || id === 'h3' || id === 'omni' || id === 'agnes' || id === 'atlas')) {
-    currentView.value = id as typeof currentView.value
-  }
-}
-
-const platformIconStyle = (id: string) => id === 'omni'
-  ? 'background: linear-gradient(135deg,#4285f4,#a142f4 48%,#fbbc04); color: #fff;'
-  : id === 'veo'
-  ? 'background: linear-gradient(135deg,#1f1c2c,#928dab); color: #fff;'
-  : id === 'wan'
-    ? 'background: linear-gradient(135deg,#5433ff,#20bdff); color: #fff;'
-    : id === 'seedance'
-      ? 'background: linear-gradient(135deg,#2a164f,#7656d6); color: #fff;'
-      : id === 'h3'
-        ? 'background: linear-gradient(135deg,#042f2e,#14b8a6); color: #fff;'
-        : id === 'agnes'
-          ? 'background: linear-gradient(135deg,#f1d7b5,#b98f68 55%,#75513b); color: #fff;'
-        : id === 'atlas'
-          ? 'background: linear-gradient(135deg,#172033,#3e587d 55%,#8aa7cf); color: #fff;'
-      : 'background: linear-gradient(135deg,#111,#383838); color: #fff;'
 
 onMounted(async () => {
   if (!Capacitor.isNativePlatform()) return
@@ -122,339 +48,228 @@ onUnmounted(() => { void backButtonHandle?.remove() })
 
 <template>
   <div class="vh-wrapper">
-    <!-- 极简无界顶栏 -->
-    <div v-if="currentView === 'platforms'" class="header-minimal">
-      <div class="header-titles">
-        <h1 class="main-title">视频引擎</h1>
-        <p class="sub-title">选择要接入的视频生成服务</p>
+    <!-- 首页视觉：Editorial 杂志拼版矩阵 v3 -->
+    <main v-if="currentView === 'platforms'" class="vh-home">
+      <div class="vh-top">
+        <div class="vh-top-tag">
+          <span class="vh-tag-dot"></span>
+          <span>NRJ · VIDEO REGISTRY</span>
+        </div>
+        <button class="vh-close-pill" aria-label="关闭" @click="$emit('close')">
+          <span>CLOSE</span>
+          <span class="vh-close-icon">×</span>
+        </button>
       </div>
-      <button class="close-btn" @click="emit('close')">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
-      </button>
-    </div>
 
-    <!-- 纯白胶囊悬浮轮播（平台选择） -->
-    <div v-if="currentView === 'platforms'" class="carousel-container">
-      <button class="nav-btn prev-btn" :class="{ hidden: activeIndex === 0 }" @click="handlePrev">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-      </button>
+      <section class="vh-cover">
+        <div class="vh-cover-en">VIDEO ACCESS / STUDIO</div>
+        <div class="vh-hairline"></div>
+        <div class="vh-crosshair-tl">+</div>
+        <div class="vh-note">motion collection</div>
+        <h1>视频大厅</h1>
+        <div class="vh-sub">选择多模态视频生成与音画引擎</div>
+        <div class="vh-count">
+          <b>08</b>
+          <span>SERVICES</span>
+        </div>
+      </section>
 
-      <div class="capsule-track">
-        <div class="capsule-wrapper" :style="{ transform: `translateX(calc(-${activeIndex * 100}% - ${activeIndex * 40}px))` }">
-          <div
-            v-for="(item, index) in platforms"
-            :key="item.id"
-            class="capsule-item"
-            :class="{ active: index === activeIndex, disabled: item.disabled }"
-            @click="handleSelect(item.id, item.disabled)"
-          >
-            <div class="capsule-shape">
-              <!-- 动态呼吸涟漪 (利用 transform 硬件加速) -->
-              <div class="ripple-bg" v-if="index === activeIndex && !item.disabled">
-                <div class="ripple r1"></div>
-                <div class="ripple r2"></div>
-              </div>
+      <div class="vh-board-title">
+        <div class="vh-cn">
+          <span>服务目录</span>
+          <span class="vh-cn-tag">CATALOG</span>
+        </div>
+        <div class="vh-en">01—08 / SELECT</div>
+      </div>
 
-              <div
-                class="capsule-icon"
-                :style="platformIconStyle(item.id)"
-              >
-                <span v-if="item.id === 'omni'" style="font-weight: 800; font-size: 10px; letter-spacing: -.35px;">OMNI</span>
-                <span v-else-if="item.id === 'veo'" style="font-weight: 800; font-size: 14px;">VEO</span>
-                <span v-else-if="item.id === 'kling'" style="font-weight: 800; font-size: 12px; letter-spacing: -.4px;">KLING</span>
-                <span v-else-if="item.id === 'wan'" style="font-weight: 800; font-size: 13px; letter-spacing: -.2px;">WAN</span>
-                <span v-else-if="item.id === 'seedance'" style="font-weight: 800; font-size: 10px; letter-spacing: -.45px;">SEED</span>
-                <span v-else-if="item.id === 'h3'" style="font-weight: 800; font-size: 13px; letter-spacing: -.2px;">H3</span>
-                <span v-else-if="item.id === 'agnes'" style="font-weight: 800; font-size: 9px; letter-spacing: -.35px;">AGNES</span>
-                <span v-else-if="item.id === 'atlas'" style="font-weight: 800; font-size: 9px; letter-spacing: -.35px;">ATLAS</span>
-              </div>
+      <section class="vh-board">
+        <!-- 第 1 行: 01 Gemini Omni + 02 Veo 3.1 -->
+        <div class="vh-row vh-r1">
+          <article class="vh-tile vh-tile-01" @click="handleSelect('omni')">
+            <div class="vh-num">01</div>
+            <div class="vh-name">Gemini Omni</div>
+            <div class="vh-desc">全模态对话生成与修改</div>
+            <div class="vh-tag-sub">MOTION CORE</div>
+            <div class="vh-rabbit-slot">
+              <svg class="vh-rabbit-svg" viewBox="0 0 1244 1280">
+                <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+                  <path d="M6945 12788 c-73 -14 -168 -63 -205 -105 -63 -72 -73 -109 -81 -308 -4 -99 -11 -405 -15 -680 -9 -680 7 -912 77 -1113 93 -263 325 -629 686 -1086 74 -93 144 -189 157 -215 88 -176 106 -407 73 -936 -9 -143 -21 -336 -27 -430 -11 -192 -29 -292 -69 -380 -32 -69 -76 -112 -126 -120 -19 -3 -50 -7 -67 -10 -101 -15 -269 -127 -444 -296 -139 -133 -194 -173 -256 -184 -57 -11 -90 2 -195 72 -125 84 -272 154 -443 210 -160 53 -408 115 -575 143 -611 103 -1695 -37 -2176 -281 -464 -236 -1276 -920 -1779 -1499 -245 -283 -319 -424 -405 -773 -111 -449 -186 -1303 -155 -1763 13 -207 6 -274 -37 -324 -19 -23 -33 -30 -61 -30 -46 0 -75 19 -154 102 -76 79 -129 108 -197 108 -81 0 -91 -9 -145 -133 -129 -293 -145 -431 -75 -669 l19 -66 -109 -109 c-111 -110 -161 -185 -161 -244 0 -37 42 -114 102 -190 73 -92 305 -347 408 -449 239 -238 651 -487 850 -514 25 -4 99 -3 165 2 199 14 470 -9 626 -54 30 -8 115 -44 189 -79 208 -98 414 -159 682 -204 175 -30 247 -36 910 -81 1148 -77 1443 -93 1728 -93 250 -1 282 1 351 21 102 28 179 68 262 137 174 144 171 209 -18 465 -99 133 -155 238 -155 287 0 43 40 86 96 103 21 6 102 15 179 21 220 15 234 19 451 119 254 118 383 162 490 168 109 6 151 -13 230 -104 133 -154 194 -207 303 -263 130 -67 195 -109 446 -287 385 -273 508 -338 705 -375 88 -17 560 -17 720 -1 450 47 670 103 757 194 69 72 79 148 33 246 -53 112 -105 154 -514 409 -434 272 -542 359 -601 485 -89 193 -64 360 74 492 73 69 138 99 285 132 152 34 223 57 311 100 98 48 193 146 253 262 88 169 119 301 132 568 15 303 38 412 125 589 30 61 61 136 70 169 50 199 82 653 55 797 -14 74 -67 177 -146 284 -80 108 -94 138 -94 207 0 69 37 148 98 211 67 69 105 85 224 97 339 34 810 140 961 217 102 51 235 199 432 478 54 77 126 175 158 219 87 114 101 157 101 291 -1 89 -6 125 -26 187 -49 149 -131 265 -239 339 -121 82 -170 156 -268 402 -75 187 -119 268 -218 399 -48 64 -151 217 -227 340 -174 277 -281 429 -354 502 -71 70 -93 85 -212 145 -226 115 -485 188 -712 200 -159 9 -202 23 -224 72 -11 22 -26 206 -54 669 -7 124 -18 203 -44 316 -88 390 -259 907 -447 1349 -125 295 -362 748 -432 823 -62 68 -186 83 -351 42 -116 -29 -154 -45 -194 -83 -62 -60 -82 -153 -100 -474 -9 -165 -22 -203 -66 -203 -56 0 -168 135 -316 383 -106 179 -177 272 -288 379 -151 146 -294 224 -460 253 -94 17 -182 18 -257 3z"/>
+                </g>
+              </svg>
+            </div>
+          </article>
 
-              <div class="capsule-text">
-                <h3>{{ item.name }}</h3>
-                <p v-html="item.desc.replace('\n', '<br>')"></p>
-              </div>
+          <article class="vh-tile vh-tile-02" @click="handleSelect('veo')">
+            <div class="vh-watermark">V</div>
+            <div class="vh-num">02</div>
+            <div class="vh-name">Veo 3.1</div>
+            <div class="vh-desc">Google 原生视频与音频</div>
+            <div class="vh-rabbit-slot">
+              <svg class="vh-rabbit-svg tint-mist" viewBox="0 0 1244 1280">
+                <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+                  <path d="M6945 12788 c-73 -14 -168 -63 -205 -105 -63 -72 -73 -109 -81 -308 -4 -99 -11 -405 -15 -680 -9 -680 7 -912 77 -1113 93 -263 325 -629 686 -1086 74 -93 144 -189 157 -215 88 -176 106 -407 73 -936 -9 -143 -21 -336 -27 -430 -11 -192 -29 -292 -69 -380 -32 -69 -76 -112 -126 -120 -19 -3 -50 -7 -67 -10 -101 -15 -269 -127 -444 -296 -139 -133 -194 -173 -256 -184 -57 -11 -90 2 -195 72 -125 84 -272 154 -443 210 -160 53 -408 115 -575 143 -611 103 -1695 -37 -2176 -281 -464 -236 -1276 -920 -1779 -1499 -245 -283 -319 -424 -405 -773 -111 -449 -186 -1303 -155 -1763 13 -207 6 -274 -37 -324 -19 -23 -33 -30 -61 -30 -46 0 -75 19 -154 102 -76 79 -129 108 -197 108 -81 0 -91 -9 -145 -133 -129 -293 -145 -431 -75 -669 l19 -66 -109 -109 c-111 -110 -161 -185 -161 -244 0 -37 42 -114 102 -190 73 -92 305 -347 408 -449 239 -238 651 -487 850 -514 25 -4 99 -3 165 2 199 14 470 -9 626 -54 30 -8 115 -44 189 -79 208 -98 414 -159 682 -204 175 -30 247 -36 910 -81 1148 -77 1443 -93 1728 -93 250 -1 282 1 351 21 102 28 179 68 262 137 174 144 171 209 -18 465 -99 133 -155 238 -155 287 0 43 40 86 96 103 21 6 102 15 179 21 220 15 234 19 451 119 254 118 383 162 490 168 109 6 151 -13 230 -104 133 -154 194 -207 303 -263 130 -67 195 -109 446 -287 385 -273 508 -338 705 -375 88 -17 560 -17 720 -1 450 47 670 103 757 194 69 72 79 148 33 246 -53 112 -105 154 -514 409 -434 272 -542 359 -601 485 -89 193 -64 360 74 492 73 69 138 99 285 132 152 34 223 57 311 100 98 48 193 146 253 262 88 169 119 301 132 568 15 303 38 412 125 589 30 61 61 136 70 169 50 199 82 653 55 797 -14 74 -67 177 -146 284 -80 108 -94 138 -94 207 0 69 37 148 98 211 67 69 105 85 224 97 339 34 810 140 961 217 102 51 235 199 432 478 54 77 126 175 158 219 87 114 101 157 101 291 -1 89 -6 125 -26 187 -49 149 -131 265 -239 339 -121 82 -170 156 -268 402 -75 187 -119 268 -218 399 -48 64 -151 217 -227 340 -174 277 -281 429 -354 502 -71 70 -93 85 -212 145 -226 115 -485 188 -712 200 -159 9 -202 23 -224 72 -11 22 -26 206 -54 669 -7 124 -18 203 -44 316 -88 390 -259 907 -447 1349 -125 295 -362 748 -432 823 -62 68 -186 83 -351 42 -116 -29 -154 -45 -194 -83 -62 -60 -82 -153 -100 -474 -9 -165 -22 -203 -66 -203 -56 0 -168 135 -316 383 -106 179 -177 272 -288 379 -151 146 -294 224 -460 253 -94 17 -182 18 -257 3z"/>
+                </g>
+              </svg>
+            </div>
+          </article>
+        </div>
 
-              <div class="capsule-action">
-                <span>{{ item.action }}</span>
+        <!-- 第 2 行: 03 Kling 3.0 + 04 Wan 3.0 -->
+        <div class="vh-row vh-r2">
+          <article class="vh-tile vh-tile-03" @click="handleSelect('kling')">
+            <div class="vh-num">03</div>
+            <div class="vh-badge">KLING AI</div>
+            <div class="vh-name">Kling 3.0</div>
+            <div class="vh-desc">快手原生音画 · 多镜头</div>
+            <div class="vh-dashline"></div>
+            <div class="vh-rabbit-slot">
+              <svg class="vh-rabbit-svg tint-sand" viewBox="0 0 1244 1280">
+                <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+                  <path d="M6945 12788 c-73 -14 -168 -63 -205 -105 -63 -72 -73 -109 -81 -308 -4 -99 -11 -405 -15 -680 -9 -680 7 -912 77 -1113 93 -263 325 -629 686 -1086 74 -93 144 -189 157 -215 88 -176 106 -407 73 -936 -9 -143 -21 -336 -27 -430 -11 -192 -29 -292 -69 -380 -32 -69 -76 -112 -126 -120 -19 -3 -50 -7 -67 -10 -101 -15 -269 -127 -444 -296 -139 -133 -194 -173 -256 -184 -57 -11 -90 2 -195 72 -125 84 -272 154 -443 210 -160 53 -408 115 -575 143 -611 103 -1695 -37 -2176 -281 -464 -236 -1276 -920 -1779 -1499 -245 -283 -319 -424 -405 -773 -111 -449 -186 -1303 -155 -1763 13 -207 6 -274 -37 -324 -19 -23 -33 -30 -61 -30 -46 0 -75 19 -154 102 -76 79 -129 108 -197 108 -81 0 -91 -9 -145 -133 -129 -293 -145 -431 -75 -669 l19 -66 -109 -109 c-111 -110 -161 -185 -161 -244 0 -37 42 -114 102 -190 73 -92 305 -347 408 -449 239 -238 651 -487 850 -514 25 -4 99 -3 165 2 199 14 470 -9 626 -54 30 -8 115 -44 189 -79 208 -98 414 -159 682 -204 175 -30 247 -36 910 -81 1148 -77 1443 -93 1728 -93 250 -1 282 1 351 21 102 28 179 68 262 137 174 144 171 209 -18 465 -99 133 -155 238 -155 287 0 43 40 86 96 103 21 6 102 15 179 21 220 15 234 19 451 119 254 118 383 162 490 168 109 6 151 -13 230 -104 133 -154 194 -207 303 -263 130 -67 195 -109 446 -287 385 -273 508 -338 705 -375 88 -17 560 -17 720 -1 450 47 670 103 757 194 69 72 79 148 33 246 -53 112 -105 154 -514 409 -434 272 -542 359 -601 485 -89 193 -64 360 74 492 73 69 138 99 285 132 152 34 223 57 311 100 98 48 193 146 253 262 88 169 119 301 132 568 15 303 38 412 125 589 30 61 61 136 70 169 50 199 82 653 55 797 -14 74 -67 177 -146 284 -80 108 -94 138 -94 207 0 69 37 148 98 211 67 69 105 85 224 97 339 34 810 140 961 217 102 51 235 199 432 478 54 77 126 175 158 219 87 114 101 157 101 291 -1 89 -6 125 -26 187 -49 149 -131 265 -239 339 -121 82 -170 156 -268 402 -75 187 -119 268 -218 399 -48 64 -151 217 -227 340 -174 277 -281 429 -354 502 -71 70 -93 85 -212 145 -226 115 -485 188 -712 200 -159 9 -202 23 -224 72 -11 22 -26 206 -54 669 -7 124 -18 203 -44 316 -88 390 -259 907 -447 1349 -125 295 -362 748 -432 823 -62 68 -186 83 -351 42 -116 -29 -154 -45 -194 -83 -62 -60 -82 -153 -100 -474 -9 -165 -22 -203 -66 -203 -56 0 -168 135 -316 383 -106 179 -177 272 -288 379 -151 146 -294 224 -460 253 -94 17 -182 18 -257 3z"/>
+                </g>
+              </svg>
+            </div>
+          </article>
+
+          <article class="vh-tile vh-tile-04" @click="handleSelect('wan')">
+            <div class="vh-num">04</div>
+            <div class="vh-name">Wan 3.0</div>
+            <div class="vh-desc">阿里云原生音画 · 30秒</div>
+            <div class="vh-underline"></div>
+            <div class="vh-rabbit-slot">
+              <svg class="vh-rabbit-svg" viewBox="0 0 1244 1280">
+                <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+                  <path d="M6945 12788 c-73 -14 -168 -63 -205 -105 -63 -72 -73 -109 -81 -308 -4 -99 -11 -405 -15 -680 -9 -680 7 -912 77 -1113 93 -263 325 -629 686 -1086 74 -93 144 -189 157 -215 88 -176 106 -407 73 -936 -9 -143 -21 -336 -27 -430 -11 -192 -29 -292 -69 -380 -32 -69 -76 -112 -126 -120 -19 -3 -50 -7 -67 -10 -101 -15 -269 -127 -444 -296 -139 -133 -194 -173 -256 -184 -57 -11 -90 2 -195 72 -125 84 -272 154 -443 210 -160 53 -408 115 -575 143 -611 103 -1695 -37 -2176 -281 -464 -236 -1276 -920 -1779 -1499 -245 -283 -319 -424 -405 -773 -111 -449 -186 -1303 -155 -1763 13 -207 6 -274 -37 -324 -19 -23 -33 -30 -61 -30 -46 0 -75 19 -154 102 -76 79 -129 108 -197 108 -81 0 -91 -9 -145 -133 -129 -293 -145 -431 -75 -669 l19 -66 -109 -109 c-111 -110 -161 -185 -161 -244 0 -37 42 -114 102 -190 73 -92 305 -347 408 -449 239 -238 651 -487 850 -514 25 -4 99 -3 165 2 199 14 470 -9 626 -54 30 -8 115 -44 189 -79 208 -98 414 -159 682 -204 175 -30 247 -36 910 -81 1148 -77 1443 -93 1728 -93 250 -1 282 1 351 21 102 28 179 68 262 137 174 144 171 209 -18 465 -99 133 -155 238 -155 287 0 43 40 86 96 103 21 6 102 15 179 21 220 15 234 19 451 119 254 118 383 162 490 168 109 6 151 -13 230 -104 133 -154 194 -207 303 -263 130 -67 195 -109 446 -287 385 -273 508 -338 705 -375 88 -17 560 -17 720 -1 450 47 670 103 757 194 69 72 79 148 33 246 -53 112 -105 154 -514 409 -434 272 -542 359 -601 485 -89 193 -64 360 74 492 73 69 138 99 285 132 152 34 223 57 311 100 98 48 193 146 253 262 88 169 119 301 132 568 15 303 38 412 125 589 30 61 61 136 70 169 50 199 82 653 55 797 -14 74 -67 177 -146 284 -80 108 -94 138 -94 207 0 69 37 148 98 211 67 69 105 85 224 97 339 34 810 140 961 217 102 51 235 199 432 478 54 77 126 175 158 219 87 114 101 157 101 291 -1 89 -6 125 -26 187 -49 149 -131 265 -239 339 -121 82 -170 156 -268 402 -75 187 -119 268 -218 399 -48 64 -151 217 -227 340 -174 277 -281 429 -354 502 -71 70 -93 85 -212 145 -226 115 -485 188 -712 200 -159 9 -202 23 -224 72 -11 22 -26 206 -54 669 -7 124 -18 203 -44 316 -88 390 -259 907 -447 1349 -125 295 -362 748 -432 823 -62 68 -186 83 -351 42 -116 -29 -154 -45 -194 -83 -62 -60 -82 -153 -100 -474 -9 -165 -22 -203 -66 -203 -56 0 -168 135 -316 383 -106 179 -177 272 -288 379 -151 146 -294 224 -460 253 -94 17 -182 18 -257 3z"/>
+                </g>
+              </svg>
+            </div>
+          </article>
+        </div>
+
+        <!-- 第 3 行: 05 Seedance 2.5 + 06 MiniMax H3 -->
+        <div class="vh-row vh-r3">
+          <article class="vh-tile vh-tile-05" @click="handleSelect('seedance')">
+            <div class="vh-num">05</div>
+            <div class="vh-name">Seedance<br>2.5</div>
+            <div class="vh-desc">字节跳动长叙事与全模态</div>
+            <div class="vh-corner-tag">ARK SPARK</div>
+            <div class="vh-rabbit-slot">
+              <svg class="vh-rabbit-svg soft" viewBox="0 0 1244 1280">
+                <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+                  <path d="M6945 12788 c-73 -14 -168 -63 -205 -105 -63 -72 -73 -109 -81 -308 -4 -99 -11 -405 -15 -680 -9 -680 7 -912 77 -1113 93 -263 325 -629 686 -1086 74 -93 144 -189 157 -215 88 -176 106 -407 73 -936 -9 -143 -21 -336 -27 -430 -11 -192 -29 -292 -69 -380 -32 -69 -76 -112 -126 -120 -19 -3 -50 -7 -67 -10 -101 -15 -269 -127 -444 -296 -139 -133 -194 -173 -256 -184 -57 -11 -90 2 -195 72 -125 84 -272 154 -443 210 -160 53 -408 115 -575 143 -611 103 -1695 -37 -2176 -281 -464 -236 -1276 -920 -1779 -1499 -245 -283 -319 -424 -405 -773 -111 -449 -186 -1303 -155 -1763 13 -207 6 -274 -37 -324 -19 -23 -33 -30 -61 -30 -46 0 -75 19 -154 102 -76 79 -129 108 -197 108 -81 0 -91 -9 -145 -133 -129 -293 -145 -431 -75 -669 l19 -66 -109 -109 c-111 -110 -161 -185 -161 -244 0 -37 42 -114 102 -190 73 -92 305 -347 408 -449 239 -238 651 -487 850 -514 25 -4 99 -3 165 2 199 14 470 -9 626 -54 30 -8 115 -44 189 -79 208 -98 414 -159 682 -204 175 -30 247 -36 910 -81 1148 -77 1443 -93 1728 -93 250 -1 282 1 351 21 102 28 179 68 262 137 174 144 171 209 -18 465 -99 133 -155 238 -155 287 0 43 40 86 96 103 21 6 102 15 179 21 220 15 234 19 451 119 254 118 383 162 490 168 109 6 151 -13 230 -104 133 -154 194 -207 303 -263 130 -67 195 -109 446 -287 385 -273 508 -338 705 -375 88 -17 560 -17 720 -1 450 47 670 103 757 194 69 72 79 148 33 246 -53 112 -105 154 -514 409 -434 272 -542 359 -601 485 -89 193 -64 360 74 492 73 69 138 99 285 132 152 34 223 57 311 100 98 48 193 146 253 262 88 169 119 301 132 568 15 303 38 412 125 589 30 61 61 136 70 169 50 199 82 653 55 797 -14 74 -67 177 -146 284 -80 108 -94 138 -94 207 0 69 37 148 98 211 67 69 105 85 224 97 339 34 810 140 961 217 102 51 235 199 432 478 54 77 126 175 158 219 87 114 101 157 101 291 -1 89 -6 125 -26 187 -49 149 -131 265 -239 339 -121 82 -170 156 -268 402 -75 187 -119 268 -218 399 -48 64 -151 217 -227 340 -174 277 -281 429 -354 502 -71 70 -93 85 -212 145 -226 115 -485 188 -712 200 -159 9 -202 23 -224 72 -11 22 -26 206 -54 669 -7 124 -18 203 -44 316 -88 390 -259 907 -447 1349 -125 295 -362 748 -432 823 -62 68 -186 83 -351 42 -116 -29 -154 -45 -194 -83 -62 -60 -82 -153 -100 -474 -9 -165 -22 -203 -66 -203 -56 0 -168 135 -316 383 -106 179 -177 272 -288 379 -151 146 -294 224 -460 253 -94 17 -182 18 -257 3z"/>
+                </g>
+              </svg>
+            </div>
+          </article>
+
+          <article class="vh-tile vh-tile-06" @click="handleSelect('h3')">
+            <div class="vh-num">06</div>
+            <div class="vh-name">MiniMax H3</div>
+            <div class="vh-desc">2K 原生立体声音画</div>
+            <div class="vh-rabbit-slot">
+              <svg class="vh-rabbit-svg tint-mist" viewBox="0 0 1244 1280">
+                <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+                  <path d="M6945 12788 c-73 -14 -168 -63 -205 -105 -63 -72 -73 -109 -81 -308 -4 -99 -11 -405 -15 -680 -9 -680 7 -912 77 -1113 93 -263 325 -629 686 -1086 74 -93 144 -189 157 -215 88 -176 106 -407 73 -936 -9 -143 -21 -336 -27 -430 -11 -192 -29 -292 -69 -380 -32 -69 -76 -112 -126 -120 -19 -3 -50 -7 -67 -10 -101 -15 -269 -127 -444 -296 -139 -133 -194 -173 -256 -184 -57 -11 -90 2 -195 72 -125 84 -272 154 -443 210 -160 53 -408 115 -575 143 -611 103 -1695 -37 -2176 -281 -464 -236 -1276 -920 -1779 -1499 -245 -283 -319 -424 -405 -773 -111 -449 -186 -1303 -155 -1763 13 -207 6 -274 -37 -324 -19 -23 -33 -30 -61 -30 -46 0 -75 19 -154 102 -76 79 -129 108 -197 108 -81 0 -91 -9 -145 -133 -129 -293 -145 -431 -75 -669 l19 -66 -109 -109 c-111 -110 -161 -185 -161 -244 0 -37 42 -114 102 -190 73 -92 305 -347 408 -449 239 -238 651 -487 850 -514 25 -4 99 -3 165 2 199 14 470 -9 626 -54 30 -8 115 -44 189 -79 208 -98 414 -159 682 -204 175 -30 247 -36 910 -81 1148 -77 1443 -93 1728 -93 250 -1 282 1 351 21 102 28 179 68 262 137 174 144 171 209 -18 465 -99 133 -155 238 -155 287 0 43 40 86 96 103 21 6 102 15 179 21 220 15 234 19 451 119 254 118 383 162 490 168 109 6 151 -13 230 -104 133 -154 194 -207 303 -263 130 -67 195 -109 446 -287 385 -273 508 -338 705 -375 88 -17 560 -17 720 -1 450 47 670 103 757 194 69 72 79 148 33 246 -53 112 -105 154 -514 409 -434 272 -542 359 -601 485 -89 193 -64 360 74 492 73 69 138 99 285 132 152 34 223 57 311 100 98 48 193 146 253 262 88 169 119 301 132 568 15 303 38 412 125 589 30 61 61 136 70 169 50 199 82 653 55 797 -14 74 -67 177 -146 284 -80 108 -94 138 -94 207 0 69 37 148 98 211 67 69 105 85 224 97 339 34 810 140 961 217 102 51 235 199 432 478 54 77 126 175 158 219 87 114 101 157 101 291 -1 89 -6 125 -26 187 -49 149 -131 265 -239 339 -121 82 -170 156 -268 402 -75 187 -119 268 -218 399 -48 64 -151 217 -227 340 -174 277 -281 429 -354 502 -71 70 -93 85 -212 145 -226 115 -485 188 -712 200 -159 9 -202 23 -224 72 -11 22 -26 206 -54 669 -7 124 -18 203 -44 316 -88 390 -259 907 -447 1349 -125 295 -362 748 -432 823 -62 68 -186 83 -351 42 -116 -29 -154 -45 -194 -83 -62 -60 -82 -153 -100 -474 -9 -165 -22 -203 -66 -203 -56 0 -168 135 -316 383 -106 179 -177 272 -288 379 -151 146 -294 224 -460 253 -94 17 -182 18 -257 3z"/>
+                </g>
+              </svg>
+            </div>
+          </article>
+        </div>
+
+        <!-- 第 4 行: 07 Agnes Video + 08 Atlas Cloud -->
+        <div class="vh-row vh-r4">
+          <article class="vh-tile vh-tile-07" @click="handleSelect('agnes')">
+            <div class="vh-num">07</div>
+            <div class="vh-name">Agnes Video</div>
+            <div class="vh-desc">短视频与关键帧动画</div>
+            <div class="vh-pill-tag">KEYFRAME ANIM</div>
+            <div class="vh-rabbit-slot">
+              <svg class="vh-rabbit-svg tint-sand" viewBox="0 0 1244 1280">
+                <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+                  <path d="M6945 12788 c-73 -14 -168 -63 -205 -105 -63 -72 -73 -109 -81 -308 -4 -99 -11 -405 -15 -680 -9 -680 7 -912 77 -1113 93 -263 325 -629 686 -1086 74 -93 144 -189 157 -215 88 -176 106 -407 73 -936 -9 -143 -21 -336 -27 -430 -11 -192 -29 -292 -69 -380 -32 -69 -76 -112 -126 -120 -19 -3 -50 -7 -67 -10 -101 -15 -269 -127 -444 -296 -139 -133 -194 -173 -256 -184 -57 -11 -90 2 -195 72 -125 84 -272 154 -443 210 -160 53 -408 115 -575 143 -611 103 -1695 -37 -2176 -281 -464 -236 -1276 -920 -1779 -1499 -245 -283 -319 -424 -405 -773 -111 -449 -186 -1303 -155 -1763 13 -207 6 -274 -37 -324 -19 -23 -33 -30 -61 -30 -46 0 -75 19 -154 102 -76 79 -129 108 -197 108 -81 0 -91 -9 -145 -133 -129 -293 -145 -431 -75 -669 l19 -66 -109 -109 c-111 -110 -161 -185 -161 -244 0 -37 42 -114 102 -190 73 -92 305 -347 408 -449 239 -238 651 -487 850 -514 25 -4 99 -3 165 2 199 14 470 -9 626 -54 30 -8 115 -44 189 -79 208 -98 414 -159 682 -204 175 -30 247 -36 910 -81 1148 -77 1443 -93 1728 -93 250 -1 282 1 351 21 102 28 179 68 262 137 174 144 171 209 -18 465 -99 133 -155 238 -155 287 0 43 40 86 96 103 21 6 102 15 179 21 220 15 234 19 451 119 254 118 383 162 490 168 109 6 151 -13 230 -104 133 -154 194 -207 303 -263 130 -67 195 -109 446 -287 385 -273 508 -338 705 -375 88 -17 560 -17 720 -1 450 47 670 103 757 194 69 72 79 148 33 246 -53 112 -105 154 -514 409 -434 272 -542 359 -601 485 -89 193 -64 360 74 492 73 69 138 99 285 132 152 34 223 57 311 100 98 48 193 146 253 262 88 169 119 301 132 568 15 303 38 412 125 589 30 61 61 136 70 169 50 199 82 653 55 797 -14 74 -67 177 -146 284 -80 108 -94 138 -94 207 0 69 37 148 98 211 67 69 105 85 224 97 339 34 810 140 961 217 102 51 235 199 432 478 54 77 126 175 158 219 87 114 101 157 101 291 -1 89 -6 125 -26 187 -49 149 -131 265 -239 339 -121 82 -170 156 -268 402 -75 187 -119 268 -218 399 -48 64 -151 217 -227 340 -174 277 -281 429 -354 502 -71 70 -93 85 -212 145 -226 115 -485 188 -712 200 -159 9 -202 23 -224 72 -11 22 -26 206 -54 669 -7 124 -18 203 -44 316 -88 390 -259 907 -447 1349 -125 295 -362 748 -432 823 -62 68 -186 83 -351 42 -116 -29 -154 -45 -194 -83 -62 -60 -82 -153 -100 -474 -9 -165 -22 -203 -66 -203 -56 0 -168 135 -316 383 -106 179 -177 272 -288 379 -151 146 -294 224 -460 253 -94 17 -182 18 -257 3z"/>
+                </g>
+              </svg>
+            </div>
+          </article>
+
+          <article class="vh-tile vh-tile-08" @click="handleSelect('atlas')">
+            <div class="vh-num">08</div>
+            <div class="vh-name">Atlas Cloud</div>
+            <div class="vh-desc">统一模型与算力中心</div>
+            <div class="vh-rabbit-slot">
+              <svg class="vh-rabbit-svg" viewBox="0 0 1244 1280">
+                <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+                  <path d="M6945 12788 c-73 -14 -168 -63 -205 -105 -63 -72 -73 -109 -81 -308 -4 -99 -11 -405 -15 -680 -9 -680 7 -912 77 -1113 93 -263 325 -629 686 -1086 74 -93 144 -189 157 -215 88 -176 106 -407 73 -936 -9 -143 -21 -336 -27 -430 -11 -192 -29 -292 -69 -380 -32 -69 -76 -112 -126 -120 -19 -3 -50 -7 -67 -10 -101 -15 -269 -127 -444 -296 -139 -133 -194 -173 -256 -184 -57 -11 -90 2 -195 72 -125 84 -272 154 -443 210 -160 53 -408 115 -575 143 -611 103 -1695 -37 -2176 -281 -464 -236 -1276 -920 -1779 -1499 -245 -283 -319 -424 -405 -773 -111 -449 -186 -1303 -155 -1763 13 -207 6 -274 -37 -324 -19 -23 -33 -30 -61 -30 -46 0 -75 19 -154 102 -76 79 -129 108 -197 108 -81 0 -91 -9 -145 -133 -129 -293 -145 -431 -75 -669 l19 -66 -109 -109 c-111 -110 -161 -185 -161 -244 0 -37 42 -114 102 -190 73 -92 305 -347 408 -449 239 -238 651 -487 850 -514 25 -4 99 -3 165 2 199 14 470 -9 626 -54 30 -8 115 -44 189 -79 208 -98 414 -159 682 -204 175 -30 247 -36 910 -81 1148 -77 1443 -93 1728 -93 250 -1 282 1 351 21 102 28 179 68 262 137 174 144 171 209 -18 465 -99 133 -155 238 -155 287 0 43 40 86 96 103 21 6 102 15 179 21 220 15 234 19 451 119 254 118 383 162 490 168 109 6 151 -13 230 -104 133 -154 194 -207 303 -263 130 -67 195 -109 446 -287 385 -273 508 -338 705 -375 88 -17 560 -17 720 -1 450 47 670 103 757 194 69 72 79 148 33 246 -53 112 -105 154 -514 409 -434 272 -542 359 -601 485 -89 193 -64 360 74 492 73 69 138 99 285 132 152 34 223 57 311 100 98 48 193 146 253 262 88 169 119 301 132 568 15 303 38 412 125 589 30 61 61 136 70 169 50 199 82 653 55 797 -14 74 -67 177 -146 284 -80 108 -94 138 -94 207 0 69 37 148 98 211 67 69 105 85 224 97 339 34 810 140 961 217 102 51 235 199 432 478 54 77 126 175 158 219 87 114 101 157 101 291 -1 89 -6 125 -26 187 -49 149 -131 265 -239 339 -121 82 -170 156 -268 402 -75 187 -119 268 -218 399 -48 64 -151 217 -227 340 -174 277 -281 429 -354 502 -71 70 -93 85 -212 145 -226 115 -485 188 -712 200 -159 9 -202 23 -224 72 -11 22 -26 206 -54 669 -7 124 -18 203 -44 316 -88 390 -259 907 -447 1349 -125 295 -362 748 -432 823 -62 68 -186 83 -351 42 -116 -29 -154 -45 -194 -83 -62 -60 -82 -153 -100 -474 -9 -165 -22 -203 -66 -203 -56 0 -168 135 -316 383 -106 179 -177 272 -288 379 -151 146 -294 224 -460 253 -94 17 -182 18 -257 3z"/>
+                </g>
+              </svg>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <footer class="vh-board-foot">
+        <div class="vh-foot-l">NRJ / VIDEO STUDIO INDEX</div>
+        <div class="vh-foot-r">01—08</div>
+      </footer>
+    </main>
+
+    <!-- 配置详情页 -->
+    <div v-else class="vh-detail-container">
+      <div class="vh-detail-header-wrap">
+        <!-- 统一顶部导航栏 -->
+        <div class="vh-detail-top">
+          <button class="vh-back-pill" aria-label="返回平台列表" @click="currentView = 'platforms'">
+            <span class="vh-back-arrow">←</span>
+            <span>BACK</span>
+          </button>
+          <div class="vh-top-tag">
+            <span class="vh-tag-dot"></span>
+            <span>NRJ · VIDEO CONFIG</span>
+          </div>
+          <button class="vh-close-pill" aria-label="关闭" @click="$emit('close')">
+            <span>CLOSE</span>
+            <span class="vh-close-icon">×</span>
+          </button>
+        </div>
+
+        <!-- 内页专属 Hero 展板 -->
+        <section v-if="ENGINE_META[currentView]" class="vh-detail-hero">
+          <div class="vh-hero-meta">
+            <span class="vh-hero-en">ENGINE // {{ ENGINE_META[currentView].num }} {{ ENGINE_META[currentView].enName }}</span>
+            <span class="vh-hero-note">motion collection</span>
+          </div>
+          <div class="vh-hero-hairline"></div>
+          <div class="vh-hero-body">
+            <div class="vh-hero-left">
+              <h1 class="vh-hero-title">{{ ENGINE_META[currentView].title }}</h1>
+              <div class="vh-hero-desc">{{ ENGINE_META[currentView].desc }}</div>
+              <div class="vh-hero-tag">{{ ENGINE_META[currentView].tag }}</div>
+            </div>
+            <div class="vh-hero-right">
+              <div class="vh-hero-num">{{ ENGINE_META[currentView].num }}</div>
+              <div class="vh-hero-rabbit">
+                <svg class="vh-rabbit-svg" :class="{ 'soft': ENGINE_META[currentView].catType === 'soft', 'tint-mist': ENGINE_META[currentView].catType === 'mist', 'tint-sand': ENGINE_META[currentView].catType === 'sand' }" viewBox="0 0 1244 1280">
+                  <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)" fill="currentColor" stroke="none">
+                    <path d="M6945 12788 c-73 -14 -168 -63 -205 -105 -63 -72 -73 -109 -81 -308 -4 -99 -11 -405 -15 -680 -9 -680 7 -912 77 -1113 93 -263 325 -629 686 -1086 74 -93 144 -189 157 -215 88 -176 106 -407 73 -936 -9 -143 -21 -336 -27 -430 -11 -192 -29 -292 -69 -380 -32 -69 -76 -112 -126 -120 -19 -3 -50 -7 -67 -10 -101 -15 -269 -127 -444 -296 -139 -133 -194 -173 -256 -184 -57 -11 -90 2 -195 72 -125 84 -272 154 -443 210 -160 53 -408 115 -575 143 -611 103 -1695 -37 -2176 -281 -464 -236 -1276 -920 -1779 -1499 -245 -283 -319 -424 -405 -773 -111 -449 -186 -1303 -155 -1763 13 -207 6 -274 -37 -324 -19 -23 -33 -30 -61 -30 -46 0 -75 19 -154 102 -76 79 -129 108 -197 108 -81 0 -91 -9 -145 -133 -129 -293 -145 -431 -75 -669 l19 -66 -109 -109 c-111 -110 -161 -185 -161 -244 0 -37 42 -114 102 -190 73 -92 305 -347 408 -449 239 -238 651 -487 850 -514 25 -4 99 -3 165 2 199 14 470 -9 626 -54 30 -8 115 -44 189 -79 208 -98 414 -159 682 -204 175 -30 247 -36 910 -81 1148 -77 1443 -93 1728 -93 250 -1 282 1 351 21 102 28 179 68 262 137 174 144 171 209 -18 465 -99 133 -155 238 -155 287 0 43 40 86 96 103 21 6 102 15 179 21 220 15 234 19 451 119 254 118 383 162 490 168 109 6 151 -13 230 -104 133 -154 194 -207 303 -263 130 -67 195 -109 446 -287 385 -273 508 -338 705 -375 88 -17 560 -17 720 -1 450 47 670 103 757 194 69 72 79 148 33 246 -53 112 -105 154 -514 409 -434 272 -542 359 -601 485 -89 193 -64 360 74 492 73 69 138 99 285 132 152 34 223 57 311 100 98 48 193 146 253 262 88 169 119 301 132 568 15 303 38 412 125 589 30 61 61 136 70 169 50 199 82 653 55 797 -14 74 -67 177 -146 284 -80 108 -94 138 -94 207 0 69 37 148 98 211 67 69 105 85 224 97 339 34 810 140 961 217 102 51 235 199 432 478 54 77 126 175 158 219 87 114 101 157 101 291 -1 89 -6 125 -26 187 -49 149 -131 265 -239 339 -121 82 -170 156 -268 402 -75 187 -119 268 -218 399 -48 64 -151 217 -227 340 -174 277 -281 429 -354 502 -71 70 -93 85 -212 145 -226 115 -485 188 -712 200 -159 9 -202 23 -224 72 -11 22 -26 206 -54 669 -7 124 -18 203 -44 316 -88 390 -259 907 -447 1349 -125 295 -362 748 -432 823 -62 68 -186 83 -351 42 -116 -29 -154 -45 -194 -83 -62 -60 -82 -153 -100 -474 -9 -165 -22 -203 -66 -203 -56 0 -168 135 -316 383 -106 179 -177 272 -288 379 -151 146 -294 224 -460 253 -94 17 -182 18 -257 3z"/>
+                  </g>
+                </svg>
               </div>
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
-      <button class="nav-btn next-btn" :class="{ hidden: activeIndex === platforms.length - 1 }" @click="handleNext">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-      </button>
+      <!-- 子视图内容 -->
+      <div class="vh-subview-host">
+        <GeminiOmniAccessView v-if="currentView === 'omni'" @back="currentView = 'platforms'" />
+        <VeoVideoAccessView v-else-if="currentView === 'veo'" @back="currentView = 'platforms'" />
+        <KlingVideoAccessView v-else-if="currentView === 'kling'" @back="currentView = 'platforms'" />
+        <WanVideoAccessView v-else-if="currentView === 'wan'" @back="currentView = 'platforms'" />
+        <SeedanceVideoAccessView v-else-if="currentView === 'seedance'" @back="currentView = 'platforms'" />
+        <MinimaxH3VideoAccessView v-else-if="currentView === 'h3'" @back="currentView = 'platforms'" />
+        <AgnesVideoAccessView v-else-if="currentView === 'agnes'" @back="currentView = 'platforms'" />
+        <AtlasCloudVideoAccessView v-else-if="currentView === 'atlas'" @back="currentView = 'platforms'" />
+      </div>
     </div>
-
-    <!-- 子视图 -->
-    <GeminiOmniAccessView v-else-if="currentView === 'omni'" @back="currentView = 'platforms'" />
-    <VeoVideoAccessView v-else-if="currentView === 'veo'" @back="currentView = 'platforms'" />
-    <KlingVideoAccessView v-else-if="currentView === 'kling'" @back="currentView = 'platforms'" />
-    <WanVideoAccessView v-else-if="currentView === 'wan'" @back="currentView = 'platforms'" />
-    <SeedanceVideoAccessView v-else-if="currentView === 'seedance'" @back="currentView = 'platforms'" />
-    <MinimaxH3VideoAccessView v-else-if="currentView === 'h3'" @back="currentView = 'platforms'" />
-    <AgnesVideoAccessView v-else-if="currentView === 'agnes'" @back="currentView = 'platforms'" />
-    <AtlasCloudVideoAccessView v-else-if="currentView === 'atlas'" @back="currentView = 'platforms'" />
   </div>
 </template>
-
-<style scoped>
-/* Container & Resets */
-.vh-wrapper {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: #ffffff;
-  color: #111111;
-  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  z-index: 100;
-}
-
-/* Header */
-.header-minimal {
-  position: relative;
-  padding: calc(env(safe-area-inset-top) + 24px) 24px 20px;
-  text-align: center;
-  flex-shrink: 0;
-}
-.header-titles {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.main-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #000;
-  letter-spacing: 0.5px;
-}
-.sub-title {
-  margin: 0;
-  font-size: 13px;
-  color: #888;
-  font-weight: 400;
-}
-.close-btn {
-  position: absolute;
-  top: calc(env(safe-area-inset-top) + 20px);
-  right: 20px;
-  background: none;
-  border: none;
-  color: #000;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 50%;
-  transition: background 0.2s;
-}
-.close-btn:active {
-  background: rgba(0,0,0,0.05);
-}
-
-/* Carousel */
-.carousel-container {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-}
-.nav-btn {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  color: #bbbbbb;
-  cursor: pointer;
-  z-index: 10;
-  transition: opacity 0.3s, color 0.3s;
-}
-.nav-btn:active {
-  color: #000;
-}
-.prev-btn {
-  left: 16px;
-}
-.next-btn {
-  right: 16px;
-}
-.nav-btn.hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.capsule-track {
-  width: 250px;
-  height: 460px;
-  position: relative;
-}
-.capsule-wrapper {
-  display: flex;
-  gap: 40px;
-  height: 100%;
-  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: transform;
-}
-.capsule-item {
-  width: 250px;
-  flex-shrink: 0;
-  height: 100%;
-  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s;
-  will-change: transform, opacity;
-  transform: scale(0.85);
-  opacity: 0.3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.capsule-item.active {
-  transform: scale(1);
-  opacity: 1;
-}
-
-/* The fluid pill/capsule shape */
-.capsule-shape {
-  width: 100%;
-  height: 100%;
-  border-radius: 125px; /* Fully rounded top and bottom */
-  background: #ffffff;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.06), inset 0 0 0 1px rgba(0,0,0,0.03);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 48px 24px 36px;
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-  box-sizing: border-box;
-}
-
-.capsule-item.disabled .capsule-shape {
-  background: #fbfbfb;
-}
-
-/* Hardware Accelerated Ripple */
-.ripple-bg {
-  position: absolute;
-  top: 56px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 64px;
-  height: 64px;
-  z-index: 0;
-  pointer-events: none;
-}
-.ripple {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.04);
-  animation: rippleAnim 3.5s infinite cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform, opacity;
-}
-.ripple.r2 {
-  animation-delay: 1.75s;
-}
-@keyframes rippleAnim {
-  0% { transform: scale(0.6); opacity: 1; }
-  100% { transform: scale(3.5); opacity: 0; }
-}
-
-.capsule-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 12px 28px rgba(0,0,0,0.05), inset 0 0 0 1px rgba(0,0,0,0.03);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #111;
-  z-index: 1;
-  margin-top: 8px;
-}
-.capsule-item.disabled .capsule-icon {
-  color: #ccc;
-  box-shadow: none;
-  background: transparent;
-}
-
-.capsule-text {
-  text-align: center;
-  z-index: 1;
-  margin-top: 24px;
-}
-.capsule-text h3 {
-  margin: 0 0 12px 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: #111;
-}
-.capsule-text p {
-  margin: 0;
-  font-size: 13px;
-  color: #888;
-  line-height: 1.6;
-}
-
-.capsule-action {
-  z-index: 1;
-  font-size: 14px;
-  font-weight: 600;
-  color: #000;
-  padding: 14px 28px;
-  border-radius: 100px;
-  background: rgba(0,0,0,0.04);
-  transition: background 0.2s;
-}
-.capsule-item.disabled .capsule-action {
-  color: #aaa;
-  background: transparent;
-}
-.capsule-item.active .capsule-action:active {
-  background: rgba(0,0,0,0.08);
-}
-@media (max-width: 390px) {
-  .nav-btn {
-    width: 40px;
-  }
-  .prev-btn {
-    left: 4px;
-  }
-  .next-btn {
-    right: 4px;
-  }
-}
-@media (max-width: 340px) {
-  .nav-btn {
-    width: 34px;
-  }
-  .prev-btn {
-    left: 0;
-  }
-  .next-btn {
-    right: 0;
-  }
-  .capsule-track,
-  .capsule-item {
-    width: 238px;
-  }
-}
-</style>

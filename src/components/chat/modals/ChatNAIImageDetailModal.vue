@@ -92,8 +92,8 @@ const handleSave = () => {
             </div>
           </div>
           <div class="form-row">
-            <div class="flex-between">
-              <label>流式生成 (SSE)</label>
+            <label>流式生成 (SSE)</label>
+            <div class="switch-control-row">
               <label class="toggle-switch">
                 <input type="checkbox" v-model="localConfig.useStream" class="toggle-checkbox" />
                 <span class="toggle-slider"></span>
@@ -193,27 +193,31 @@ const handleSave = () => {
             </div>
 
             <!-- NAI3 特定设置 -->
-            <div v-if="localConfig.model.includes('nai-diffusion-3')" class="form-row" style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.02); border-radius: 8px;">
-              <div class="flex-between" style="margin-bottom: 8px;">
+            <div v-if="localConfig.model.includes('nai-diffusion-3')" class="form-row" style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.02); border-radius: 8px; gap: 12px;">
+              <div>
                 <label>启用 SMEA (sm)</label>
-                <label class="toggle-switch">
-                  <input type="checkbox" v-model="localConfig.sm" class="toggle-checkbox" />
-                  <span class="toggle-slider"></span>
-                </label>
+                <div class="switch-control-row">
+                  <label class="toggle-switch">
+                    <input type="checkbox" v-model="localConfig.sm" class="toggle-checkbox" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
               </div>
-              <div class="flex-between" :style="{ opacity: localConfig.sm ? 1 : 0.5 }">
+              <div :style="{ opacity: localConfig.sm ? 1 : 0.5 }">
                 <label>启用 SMEA DYN (sm_dyn)</label>
-                <label class="toggle-switch">
-                  <input type="checkbox" v-model="localConfig.sm_dyn" :disabled="!localConfig.sm" class="toggle-checkbox" />
-                  <span class="toggle-slider"></span>
-                </label>
+                <div class="switch-control-row">
+                  <label class="toggle-switch">
+                    <input type="checkbox" v-model="localConfig.sm_dyn" :disabled="!localConfig.sm" class="toggle-checkbox" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
               </div>
             </div>
 
             <!-- NAI4 特定设置 -->
             <div v-if="localConfig.model.includes('nai-diffusion-4')" class="form-row" style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.02); border-radius: 8px;">
-              <div class="flex-between">
-                <label>启用 Variety+ (skip_cfg_above_sigma)</label>
+              <label>启用 Variety+ (skip_cfg_above_sigma)</label>
+              <div class="switch-control-row">
                 <label class="toggle-switch">
                   <input type="checkbox" v-model="localConfig.skip_cfg_above_sigma" class="toggle-checkbox" />
                   <span class="toggle-slider"></span>
@@ -264,7 +268,10 @@ const handleSave = () => {
               ></textarea>
             </div>
             <div class="form-row" style="padding:12px;background:rgba(0,122,255,.05);border-radius:8px">
-              <div class="flex-between"><label>角色视觉档案</label><label class="toggle-switch"><input type="checkbox" v-model="localConfig.visualProfile.enabled" class="toggle-checkbox" /><span class="toggle-slider"></span></label></div>
+              <label>角色视觉档案</label>
+              <div class="switch-control-row">
+                <label class="toggle-switch"><input type="checkbox" v-model="localConfig.visualProfile.enabled" class="toggle-checkbox" /><span class="toggle-slider"></span></label>
+              </div>
               <template v-if="localConfig.visualProfile.enabled">
                 <div class="flex-between" style="margin-top:10px; margin-bottom: 6px;">
                   <label style="margin:0;">中文设定（仅供你查看）</label>
@@ -282,8 +289,8 @@ const handleSave = () => {
           <!-- LLM 辅助生图 -->
           <div v-if="activeTab === 'llm'" class="tab-content">
             <div class="form-row" style="padding: 12px; background: rgba(0,122,255,0.05); border-radius: 8px; border: 1px solid rgba(0,122,255,0.2);">
-              <div class="flex-between" style="margin-bottom: 8px;">
-                <label style="color: #007aff; margin-bottom: 0;">开启 LLM 生图辅助</label>
+              <label style="color: #007aff;">开启 LLM 生图辅助</label>
+              <div class="switch-control-row" style="margin-bottom: 8px;">
                 <label class="toggle-switch">
                   <input type="checkbox" v-model="localConfig.enableLlmAssist" class="toggle-checkbox" />
                   <span class="toggle-slider"></span>

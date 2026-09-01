@@ -9,6 +9,7 @@ export type ApiCapabilityId =
   | 'character-workshop'
   | 'moment-interaction'
   | 'social-generation'
+  | 'character-phone'
   | 'prompt-assistant'
   | 'forum-content'
   | 'forum-interaction'
@@ -37,6 +38,7 @@ export const apiCapabilityRegistry: Record<ApiCapabilityId, ApiCapabilityDefinit
   'character-workshop': { id: 'character-workshop', name: '角色与人设工坊', description: '角色、用户人设的生成、补全与审核', group: 'content', assignable: true, fallback: 'default-node', fallbackOnRequestError: false, supportsParameterOverrides: true },
   'moment-interaction': { id: 'moment-interaction', name: '朋友圈互动', description: '查看动态、点赞、评论和后续回应', group: 'content', assignable: true, fallback: 'default-node', fallbackOnRequestError: true, supportsParameterOverrides: true },
   'social-generation': { id: 'social-generation', name: '社交资料生成', description: '角色社交资料、朋友圈草稿与生活人脉', group: 'content', assignable: true, fallback: 'default-node', fallbackOnRequestError: false, supportsParameterOverrides: true },
+  'character-phone': { id: 'character-phone', name: '角色手机', description: '角色设备、动态 APP、生活联系人回复与手机内容刷新', group: 'content', assignable: true, fallback: 'default-node', fallbackOnRequestError: false, supportsParameterOverrides: true },
   'prompt-assistant': { id: 'prompt-assistant', name: 'AI 辅助创作', description: '提示词方案、聊天纠正规则和头像构想', group: 'content', assignable: true, fallback: 'default-node', fallbackOnRequestError: false, supportsParameterOverrides: true },
   'forum-content': { id: 'forum-content', name: '论坛内容', description: '论坛帖子批次、随帖评论、NPC 和新圈子', group: 'forum', assignable: true, fallback: 'default-node', fallbackOnRequestError: true, supportsParameterOverrides: true },
   'forum-interaction': { id: 'forum-interaction', name: '论坛互动', description: '论坛评论回应和帖子互动', group: 'forum', assignable: true, fallback: 'default-node', fallbackOnRequestError: true, supportsParameterOverrides: true },
@@ -52,4 +54,3 @@ export const apiCapabilityGroups = [
   { id: 'forum', name: '论坛' },
   { id: 'special', name: '特殊能力' }
 ] as const
-

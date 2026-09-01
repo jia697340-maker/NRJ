@@ -43,6 +43,7 @@ import { useChatRoomImageGen } from './useChatRoomImageGen'
 import { processMomentTags } from './useChatRoomMessage'
 import { executeCharacterAssetAction, toCharacterAssetAction } from '../services/chatAssetActions'
 import { queueCharacterTogetherListenInvite } from '../services/togetherListen'
+import { buildPhoneReadObservation, executePhoneActionTags, markPhoneContextDelivered, parsePhoneReadRequests } from '../services/characterPhone'
 
 // 通话中禁止的动作
 const CALL_BLOCKED_ACTIONS = new Set([
@@ -420,6 +421,22 @@ export function useChatRoomAPI(
         providerState = result.providerState
         webSearchTrace = result.webSearch
       }
+
+      const phoneReadResult = parsePhoneReadRequests(replyText)
+      replyText = phoneReadResult.cleaned
+      const phoneActionResult = offlineMeetMode && chatSettings.disableSpecialTagsInOffline !== false
+        ? { cleaned: replyText, handled: 0, matched: 0 }
+        : await executePhoneActionTags(replyText, targetChat, currentChatUserId.value || 'guest', 'chat')
+      replyText = phoneActionResult.cleaned
+      const phoneObservation = apiPurpose === 'default' && phoneReadResult.requests.length
+        ? await buildPhoneReadObservation(targetChat, currentChatUserId.value || 'guest', phoneReadResult.requests)
+        : { text: '', confirmedEventIds: [] as string[] }
+      const handledPhoneRead = phoneReadResult.requests.length > 0
+      if (phoneObservation.confirmedEventIds.length) await markPhoneContextDelivered(targetChat, currentChatUserId.value || 'guest', phoneObservation.confirmedEventIds)
+      if (targetChat?.pendingPhoneContextEventIds?.length) {
+        await markPhoneContextDelivered(targetChat, currentChatUserId.value || 'guest', targetChat.pendingPhoneContextEventIds)
+        targetChat.pendingPhoneContextEventIds = []
+      }
       
       // 优先拦截并处理朋友圈相关的特殊标签
       const processMomentRes = offlineMeetMode && chatSettings.disableSpecialTagsInOffline !== false
@@ -427,9 +444,10 @@ export function useChatRoomAPI(
         : await processMomentTags(replyText, targetChat)
       replyText = processMomentRes.newContent
       // 第二轮再次出现读取标签时只移除标签，不继续递归请求，避免模型形成循环。
-      const shouldTriggerAI = apiPurpose !== 'moment-followup' && processMomentRes.shouldTriggerAI
-      const aiContext = processMomentRes.aiContext
+      const shouldTriggerAI = apiPurpose === 'default' && (processMomentRes.shouldTriggerAI || Boolean(phoneObservation.text))
+      const aiContext = [processMomentRes.aiContext, phoneObservation.text].filter(Boolean).join('\n\n')
       const handledMomentAction = Boolean(processMomentRes.handledMomentAction)
+      const handledPhoneAction = phoneActionResult.handled > 0 || phoneActionResult.matched > 0
 
       // 防御调用方绕过统一 API 解析的情况；不完整标签保持原文，避免误删正文。
       const embeddedReasoning = extractEmbeddedReasoning(replyText)
@@ -515,7 +533,7 @@ export function useChatRoomAPI(
       
       // 如果没有解析出任何动作（比如模型只输出了 <read_moments /> 没有输出 msg），也需要保证后续的流程（比如追问）能继续
       // 降级处理
-      if (extractedActions.length === 0 && !shouldTriggerAI && !handledMomentAction) {
+      if (extractedActions.length === 0 && !shouldTriggerAI && !handledMomentAction && !handledPhoneAction && !handledPhoneRead) {
         let fallbackText = replyText.replace(/<inner_thought>[\s\S]*?<\/inner_thought>/gi, '')
         fallbackText = fallbackText.replace(/<\/?(msg|recall)>/g, '').trim()
         if (fallbackText) {
@@ -526,7 +544,7 @@ export function useChatRoomAPI(
         }
       }
       
-      if (extractedActions.length > 0 || shouldTriggerAI || handledMomentAction) {
+      if (extractedActions.length > 0 || shouldTriggerAI || handledMomentAction || handledPhoneAction || handledPhoneRead) {
         // 模拟真人连发：通过递归/异步延迟逐条处理动作队列
         const processNextAction = async (index: number) => {
           const chatToUpdate = mockChats.value.find((c: any) => c.id === currentChatId)
@@ -545,12 +563,12 @@ export function useChatRoomAPI(
                 id: Date.now(),
                 type: 'system',
                 content: aiContext,
-                systemKind: 'moments_context',
+                systemKind: phoneObservation.text ? 'interactive_context' : 'moments_context',
                 isHidden: true
               })
               saveCustomContacts()
-              console.log(`[朋友圈] 已向上下文中注入系统旁白，准备发起追问`)
-              return triggerAPI(callMode, 'moment-followup', {
+              console.log(`[互动能力] 已向上下文中注入读取结果，准备发起一次追问`)
+              return triggerAPI(callMode, phoneObservation.text ? 'phone-followup' : 'moment-followup', {
                 turnId,
                 currentUserThought,
                 consumePendingThought: false,

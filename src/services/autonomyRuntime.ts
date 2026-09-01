@@ -6,6 +6,7 @@ import { createAutonomyLedgerWindow, ensureAutonomyLedger, pendingAutonomyLedger
 import { flushAutonomyDeliveries } from './autonomyDelivery'
 import { ensureAutonomyDefaults, persistAutonomyChat, runDueAutonomyChecks } from './characterAutonomy'
 import { isConversationTimePaused } from './conversationTime'
+import { runDueCharacterPhoneRefreshes } from './characterPhone'
 
 let runtimeTimer: number | null = null
 let runtimeBusy = false
@@ -43,6 +44,7 @@ const processVisibleRuntime = async (resume = false) => {
     const hasPendingCatchup = autonomousChats().some(chat => Boolean(pendingAutonomyLedgerWindow(chat)))
     await runDueAutonomyChecks(resume || hasPendingCatchup ? 'resume' : 'scheduled')
     await runDueGroupAutonomyChecks(mockChats.value, myProfile.value, currentChatUserId.value)
+    await runDueCharacterPhoneRefreshes(mockChats.value, currentChatUserId.value || 'guest')
     flushAutonomyDeliveries(autonomousChats(), resume).forEach(persistAutonomyChat)
     persistRuntimeSeenAt(Date.now())
   } finally {

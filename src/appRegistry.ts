@@ -32,7 +32,7 @@ export const appRegistry: AppRegistryItem[] = [
   { id: 'character_workshop', name: '角色工坊', icon: '<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.5 4.1 4.1 1.5-4.1 1.5-1.5 4.1-1.5-4.1-4.1-1.5 4.1-1.5L12 3.5z"/><path d="M18.1 14.5l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8.8-2.1z"/><path d="M5.5 15.2l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6.6-1.6z"/></svg>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'persona_workshop', name: '人设工坊', icon: '<span class="text-icon">我</span>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'bubble_dressup', name: '气泡工坊', icon: '<span class="text-icon">泡</span>', color: '#ffffff', available: true, allowCustomFont: true },
-  { id: 'character_phone', name: 'TA的手机', icon: '<span class="text-icon">机</span>', color: '#ffffff', available: false, allowCustomFont: true },
+  { id: 'character_phone', name: 'TA的手机', icon: '<span class="text-icon">机</span>', color: '#ffffff', available: true, allowCustomFont: true },
   { id: 'watch_together', name: '共赏空间', icon: '<span class="text-icon">赏</span>', color: '#ffffff', available: false, allowCustomFont: true },
   { id: 'timebox', name: '时间盒', icon: '<span class="text-icon">盒</span>', color: '#ffffff', available: false, allowCustomFont: true },
   { id: 'mcp', name: 'MCP', icon: '<span class="text-icon">M</span>', color: '#ffffff', available: true, allowCustomFont: true },

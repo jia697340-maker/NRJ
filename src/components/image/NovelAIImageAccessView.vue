@@ -419,15 +419,15 @@ const resetPrompts = () => {
           </div>
         </div>
         <div class="form-row">
-          <div class="flex-between">
-            <label>流式生成 (SSE)</label>
+          <label>流式生成 (SSE)</label>
+          <div class="switch-control-row">
             <label class="toggle-switch">
               <input type="checkbox" v-model="config.useStream" class="toggle-checkbox" />
               <span class="toggle-slider"></span>
             </label>
-          </div>
-          <div style="font-size: 12px; color: #888; margin-top: 8px; line-height: 1.4;">
-            * 提示：若使用第三方节点时频繁生成失败，可尝试关闭此项。
+            <span style="font-size: 12px; color: #888; line-height: 1.4;">
+              若使用第三方节点时频繁生成失败，可尝试关闭此项。
+            </span>
           </div>
         </div>
       </div>
@@ -521,27 +521,31 @@ const resetPrompts = () => {
           </div>
 
           <!-- NAI3 特定设置 -->
-          <div v-if="params.model.includes('nai-diffusion-3')" class="form-row" style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.02); border-radius: 8px;">
-            <div class="flex-between" style="margin-bottom: 8px;">
+          <div v-if="params.model.includes('nai-diffusion-3')" class="form-row" style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.02); border-radius: 8px; gap: 12px;">
+            <div>
               <label>启用 SMEA (sm)</label>
-              <label class="toggle-switch">
-                <input type="checkbox" v-model="params.sm" class="toggle-checkbox" />
-                <span class="toggle-slider"></span>
-              </label>
+              <div class="switch-control-row">
+                <label class="toggle-switch">
+                  <input type="checkbox" v-model="params.sm" class="toggle-checkbox" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
             </div>
-            <div class="flex-between" :style="{ opacity: params.sm ? 1 : 0.5 }">
+            <div :style="{ opacity: params.sm ? 1 : 0.5 }">
               <label>启用 SMEA DYN (sm_dyn)</label>
-              <label class="toggle-switch">
-                <input type="checkbox" v-model="params.sm_dyn" :disabled="!params.sm" class="toggle-checkbox" />
-                <span class="toggle-slider"></span>
-              </label>
+              <div class="switch-control-row">
+                <label class="toggle-switch">
+                  <input type="checkbox" v-model="params.sm_dyn" :disabled="!params.sm" class="toggle-checkbox" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
             </div>
           </div>
 
           <!-- NAI4 特定设置 -->
           <div v-if="params.model.includes('nai-diffusion-4')" class="form-row" style="margin-top: 10px; padding: 12px; background: rgba(0,0,0,0.02); border-radius: 8px;">
-            <div class="flex-between">
-              <label>启用 Variety+ (skip_cfg_above_sigma)</label>
+            <label>启用 Variety+ (skip_cfg_above_sigma)</label>
+            <div class="switch-control-row">
               <label class="toggle-switch">
                 <input type="checkbox" v-model="params.skip_cfg_above_sigma" class="toggle-checkbox" />
                 <span class="toggle-slider"></span>

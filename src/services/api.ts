@@ -14,7 +14,7 @@ import { buildWebSearchContext, inferWebSearchQuery, mergeWebSearchTrace, runSel
 import type { ApiCapabilityId } from './apiCapabilities'
 
 export type ForumApiPurpose = 'forum-account' | 'forum-circle' | 'forum-population' | 'forum-post' | 'forum-comment' | 'forum-dm' | 'forum-group' | 'forum-media' | 'forum-memory'
-export type ChatApiPurpose = 'default' | 'moment-followup' | 'character-generation' | 'character-review-global' | 'prompt-generation' | ForumApiPurpose
+export type ChatApiPurpose = 'default' | 'moment-followup' | 'phone-followup' | 'character-generation' | 'character-review-global' | 'prompt-generation' | ForumApiPurpose
 
 const capabilityForForumPurpose = (purpose: ForumApiPurpose): ApiCapabilityId => {
   if (purpose === 'forum-comment') return 'forum-interaction'

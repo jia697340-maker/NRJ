@@ -191,6 +191,7 @@ const knownStores = [
       { name: 'nrt-app', storeName: 'memoryCovers', label: '记忆封面', category: 'worldbook_covers' },
       { name: 'nrt-app', storeName: 'memoryStyles', label: '记忆样式', category: 'theme_appearance' },
       { name: 'nrt-app', storeName: 'discover_moments', label: '动态广场', category: 'chat_images' },
+      { name: 'nrt-app', storeName: 'characterPhones', label: '角色手机', category: 'chat_data' },
       { name: 'nrt-app', storeName: 'history_items', label: '生成历史', category: 'ai_history' },
       { name: 'nrt-app', storeName: 'chatVoices', label: '语音合成缓存', category: 'voice_data' },
       { name: 'nrt-app', storeName: 'chatVoiceMeta', label: '语音缓存索引', category: 'voice_data' },

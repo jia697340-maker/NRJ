@@ -1,0 +1,1269 @@
+/* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
+
+:root {
+  --va-bg: #ffffff;
+  --va-ink: #121212;
+  --va-line: rgba(18, 18, 18, 0.12);
+  --va-line-light: rgba(18, 18, 18, 0.06);
+  --va-pink: #fff8fa;
+  --va-pink2: #fff4f7;
+  --va-pink3: #fffafb;
+  --va-cat-pink: #e895a9;
+}
+
+.va-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--va-bg);
+  color: var(--va-ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
+
+.va-wrapper::-webkit-scrollbar {
+  width: 4px;
+}
+.va-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+.va-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+}
+
+.va-home {
+  width: min(100%, 430px);
+  margin: 0 auto;
+  background: #fff;
+  padding: calc(12px + env(safe-area-inset-top)) 14px calc(64px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+/* 顶部操作区 */
+.va-top,
+.va-detail-top {
+  height: 42px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.va-top-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 9px/1 Georgia, "Times New Roman", serif;
+  letter-spacing: 0.16em;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.va-top-tag .va-tag-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #111;
+  opacity: 0.7;
+}
+
+.va-close-pill,
+.va-back-pill {
+  border: 1px solid var(--va-line);
+  background: #fff;
+  height: 28px;
+  padding: 0 10px 0 12px;
+  border-radius: 100px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 10px/1 Inter, -apple-system, sans-serif;
+  letter-spacing: 0.08em;
+  color: var(--va-ink);
+  cursor: pointer;
+  transition: all 0.16s ease;
+  user-select: none;
+}
+
+.va-close-pill:hover,
+.va-close-pill:active,
+.va-back-pill:hover,
+.va-back-pill:active {
+  background: #f5f5f5;
+  border-color: #111;
+}
+
+.va-close-icon {
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.va-back-arrow {
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 0.16s ease;
+}
+
+.va-back-pill:hover .va-back-arrow {
+  transform: translateX(-2px);
+}
+
+/* 封面：纯白 + 黑，无粉色，独立版面构图 */
+.va-cover {
+  position: relative;
+  height: 160px;
+  margin: 0 2px 22px;
+  border: 1px solid var(--va-line);
+  background: #fff;
+  overflow: hidden;
+}
+
+.va-cover::before {
+  content: "";
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: 1px solid rgba(18, 18, 18, 0.045);
+  right: -72px;
+  top: -64px;
+  pointer-events: none;
+}
+
+.va-cover .va-cover-en {
+  position: absolute;
+  left: 18px;
+  top: 16px;
+  font: 9px Georgia, "Times New Roman", serif;
+  letter-spacing: 0.18em;
+  color: var(--va-ink);
+}
+
+.va-cover .va-hairline {
+  position: absolute;
+  left: 18px;
+  top: 55px;
+  width: 36px;
+  height: 1px;
+  background: #111;
+  opacity: 0.34;
+}
+
+.va-cover .va-note {
+  position: absolute;
+  right: 78px;
+  top: 26px;
+  font: italic 11px Georgia, "Times New Roman", serif;
+  color: #666;
+}
+
+.va-cover h1 {
+  position: absolute;
+  left: 18px;
+  top: 70px;
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--va-ink);
+}
+
+.va-cover .va-sub {
+  position: absolute;
+  left: 18px;
+  top: 110px;
+  font-size: 11px;
+  color: #777;
+}
+
+.va-cover .va-count {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  text-align: right;
+  color: var(--va-ink);
+}
+
+.va-cover .va-count b {
+  display: block;
+  font: 400 30px/1 Georgia, "Times New Roman", serif;
+}
+
+.va-cover .va-count span {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: #888;
+}
+
+/* 拼版标题栏：杂志自介式标头 */
+.va-board-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin: 0 4px 10px;
+}
+
+.va-board-title .va-cn {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--va-ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.va-board-title .va-cn-tag {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: #888;
+  font-family: Georgia, serif;
+}
+
+.va-board-title .va-en {
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  color: #999;
+}
+
+/* 拼版网格：8块各自独立的版式排版 */
+.va-board {
+  margin: 0 2px;
+  border-top: 1px solid var(--va-line);
+  border-left: 1px solid var(--va-line);
+  background: #fff;
+}
+
+.va-row {
+  display: grid;
+}
+
+.va-r1 {
+  grid-template-columns: 1.08fr 0.92fr;
+}
+
+.va-r2 {
+  grid-template-columns: 0.78fr 1.22fr;
+}
+
+.va-r3 {
+  grid-template-columns: 1.12fr 0.88fr;
+}
+
+.va-r4 {
+  grid-template-columns: 0.9fr 1.1fr;
+}
+
+.va-tile {
+  min-height: 126px;
+  position: relative;
+  border-right: 1px solid var(--va-line);
+  border-bottom: 1px solid var(--va-line);
+  cursor: pointer;
+  overflow: hidden;
+  background: #fff;
+  transition: background 0.16s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+.va-tile:active {
+  background: #fff7fa;
+}
+
+/* 专属猫咪 SVG 图标 */
+.va-cat-slot {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.va-cat-svg {
+  width: 22px;
+  height: 21px;
+  display: block;
+  fill: currentColor;
+  color: #222;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.18s ease;
+}
+
+.va-tile:hover .va-cat-svg,
+.va-tile:active .va-cat-svg {
+  transform: translateY(-2px) scale(1.12);
+  color: #000;
+}
+
+.va-cat-svg.soft {
+  color: #777;
+}
+
+.va-cat-svg.tint-pink {
+  color: #d17c91;
+}
+
+/* 01 MiniMax */
+.va-tile-01 {
+  padding: 16px 14px 14px;
+}
+.va-tile-01 .va-num {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.va-tile-01 .va-name {
+  margin-top: 22px;
+  font-size: 21px;
+  font-weight: 500;
+  font-family: Georgia, serif;
+  letter-spacing: -0.02em;
+  color: var(--va-ink);
+}
+.va-tile-01 .va-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #777;
+}
+.va-tile-01 .va-tag-sub {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  font-size: 7px;
+  letter-spacing: 0.16em;
+  color: #999;
+}
+
+/* 02 Seed Audio */
+.va-tile-02 {
+  background: var(--va-pink3);
+  padding: 14px 14px 14px;
+}
+.va-tile-02 .va-watermark {
+  position: absolute;
+  right: 8px;
+  top: 4px;
+  font: italic 40px/1 Georgia, serif;
+  color: #000;
+  opacity: 0.04;
+  pointer-events: none;
+}
+.va-tile-02 .va-num {
+  position: absolute;
+  left: 14px;
+  top: 12px;
+  font: italic 11px Georgia, serif;
+  color: #888;
+}
+.va-tile-02 .va-name {
+  margin-top: 36px;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--va-ink);
+}
+.va-tile-02 .va-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #777;
+  max-width: 140px;
+}
+
+/* 03 Gemini */
+.va-tile-03 {
+  background: var(--va-pink);
+  padding: 14px 12px 14px;
+}
+.va-tile-03 .va-num {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  font: italic 10px Georgia, serif;
+  color: #888;
+}
+.va-tile-03 .va-badge {
+  font-size: 7px;
+  letter-spacing: 0.14em;
+  color: #999;
+  text-transform: uppercase;
+}
+.va-tile-03 .va-name {
+  margin-top: 14px;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--va-ink);
+}
+.va-tile-03 .va-desc {
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #777;
+}
+.va-tile-03 .va-dashline {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 24px;
+  height: 1px;
+  background: #111;
+  opacity: 0.15;
+}
+
+/* 04 ElevenLabs */
+.va-tile-04 {
+  padding: 16px 16px 14px;
+}
+.va-tile-04 .va-num {
+  position: absolute;
+  right: 14px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.va-tile-04 .va-name {
+  margin-top: 24px;
+  font-size: 19px;
+  font-weight: 500;
+  font-family: Georgia, serif;
+  letter-spacing: -0.02em;
+  color: var(--va-ink);
+}
+.va-tile-04 .va-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #777;
+}
+.va-tile-04 .va-underline {
+  position: absolute;
+  left: 16px;
+  bottom: 28px;
+  width: 32px;
+  height: 1px;
+  background: #111;
+  opacity: 0.18;
+}
+
+/* 05 Microsoft MAI */
+.va-tile-05 {
+  padding: 16px 14px 14px;
+}
+.va-tile-05 .va-num {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.va-tile-05 .va-name {
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 1.18;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--va-ink);
+}
+.va-tile-05 .va-desc {
+  margin-top: 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #777;
+}
+.va-tile-05 .va-corner-tag {
+  position: absolute;
+  left: 14px;
+  bottom: 11px;
+  font-size: 7px;
+  letter-spacing: 0.12em;
+  color: #aaa;
+}
+
+/* 06 阿里云语音 */
+.va-tile-06 {
+  background: var(--va-pink3);
+  padding: 16px 14px 14px;
+}
+.va-tile-06 .va-petal-deco {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  width: 50px;
+  height: 14px;
+  background: var(--va-pink2);
+  transform: rotate(-8deg);
+  pointer-events: none;
+}
+.va-tile-06 .va-num {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.va-tile-06 .va-name {
+  margin-top: 26px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--va-ink);
+}
+.va-tile-06 .va-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #777;
+}
+
+/* 07 豆包语音 */
+.va-tile-07 {
+  background: var(--va-pink);
+  padding: 14px 12px 14px;
+}
+.va-tile-07 .va-num {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  font: italic 10px Georgia, serif;
+  color: #888;
+}
+.va-tile-07 .va-name {
+  margin-top: 22px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--va-ink);
+}
+.va-tile-07 .va-desc {
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #777;
+}
+.va-tile-07 .va-pill-tag {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  font-size: 7px;
+  letter-spacing: 0.14em;
+  color: #999;
+}
+
+/* 08 Fish Audio */
+.va-tile-08 {
+  padding: 16px 14px 14px;
+}
+.va-tile-08 .va-num {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font: italic 11px Georgia, serif;
+  color: #666;
+}
+.va-tile-08 .va-name {
+  margin-top: 24px;
+  font-size: 19px;
+  font-weight: 500;
+  font-family: Georgia, serif;
+  letter-spacing: -0.02em;
+  color: var(--va-ink);
+}
+.va-tile-08 .va-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #777;
+}
+
+/* 拼版底栏 */
+.va-board-foot {
+  margin: 18px 4px 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--va-line);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.va-board-foot .va-foot-l {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: #888;
+}
+
+.va-board-foot .va-foot-r {
+  font: italic 11px Georgia, "Times New Roman", serif;
+  color: #888;
+}
+
+/* ==========================================================================
+   内页：配置详情页（Editorial 深度美化版）
+   ========================================================================== */
+
+.va-detail-container {
+  width: min(100%, 430px);
+  margin: 0 auto;
+  padding: calc(12px + env(safe-area-inset-top)) 14px calc(64px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  animation: vaFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes vaFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 内页 Hero 展板 */
+.va-detail-hero {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid var(--va-line);
+  padding: 16px 16px 14px;
+  margin: 0 2px 18px;
+  overflow: hidden;
+}
+
+.va-detail-hero::before {
+  content: "";
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  border: 1px solid rgba(18, 18, 18, 0.04);
+  right: -40px;
+  top: -40px;
+  pointer-events: none;
+}
+
+.va-hero-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.va-hero-en {
+  font: 9px/1 Georgia, "Times New Roman", serif;
+  letter-spacing: 0.16em;
+  color: var(--va-ink);
+  text-transform: uppercase;
+}
+
+.va-hero-note {
+  font: italic 11px Georgia, "Times New Roman", serif;
+  color: #777;
+}
+
+.va-hero-hairline {
+  width: 32px;
+  height: 1px;
+  background: #111;
+  opacity: 0.34;
+  margin: 8px 0 12px;
+}
+
+.va-hero-body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.va-hero-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.va-hero-title {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--va-ink);
+  line-height: 1.15;
+}
+
+.va-hero-desc {
+  font-size: 11px;
+  color: #777;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.va-hero-tag {
+  display: inline-block;
+  font-size: 7.5px;
+  letter-spacing: 0.14em;
+  color: #888;
+  font-family: ui-monospace, monospace;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.va-hero-right {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-left: 10px;
+}
+
+.va-hero-num {
+  font: italic 32px/1 Georgia, serif;
+  color: rgba(0, 0, 0, 0.22);
+}
+
+.va-hero-cat {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.va-hero-cat .va-cat-svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* 详情主视口 */
+.va-detail-view {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.fluid-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 模块分段标头 */
+.va-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 0 4px;
+}
+
+.va-section-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  font-family: ui-monospace, monospace;
+  color: var(--va-ink);
+  white-space: nowrap;
+}
+
+.va-section-line {
+  flex: 1;
+  height: 1px;
+  background: var(--va-line-light);
+}
+
+.va-section-note {
+  font-size: 10.5px;
+  color: #888;
+  white-space: nowrap;
+}
+
+/* 模块卡片 */
+.va-card {
+  background: #ffffff;
+  border: 1px solid var(--va-line);
+  padding: 14px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+}
+
+.va-wrapper .form-row,
+.va-card .form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.va-wrapper .column-row,
+.va-card .column-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.va-wrapper .preset-row,
+.va-card .preset-row {
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--va-line);
+  cursor: pointer;
+}
+
+.va-wrapper .row-label,
+.va-card .row-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--va-ink);
+}
+
+.va-wrapper .row-action,
+.va-card .row-action {
+  font-size: 12px;
+  color: #666;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.16s ease;
+}
+
+.va-wrapper .preset-row:hover .row-action,
+.va-card .preset-row:hover .row-action {
+  color: #111;
+}
+
+.va-wrapper .row-header,
+.va-card .row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.text-btn {
+  background: none;
+  border: none;
+  font-size: 11.5px;
+  color: #111;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+}
+
+.text-btn:hover {
+  opacity: 0.7;
+}
+
+.text-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* 控件 */
+.fluid-input,
+.fluid-select,
+.fluid-textarea {
+  width: 100%;
+  border: 1px solid var(--va-line);
+  background: #fff;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--va-ink);
+  outline: none;
+  transition: border-color 0.16s, box-shadow 0.16s;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.fluid-input:hover,
+.fluid-select:hover,
+.fluid-textarea:hover {
+  border-color: rgba(18, 18, 18, 0.28);
+}
+
+.fluid-input:focus,
+.fluid-select:focus,
+.fluid-textarea:focus {
+  border-color: #111;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.04);
+}
+
+.fluid-select {
+  appearance: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.fluid-textarea {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.5;
+}
+
+.pill-tabs {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 100px;
+  padding: 3px;
+  gap: 2px;
+  user-select: none;
+}
+
+.pill-tab {
+  padding: 5px 12px;
+  font-size: 11.5px;
+  border-radius: 100px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pill-tab.active {
+  background: #fff;
+  color: #000;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.wide-tabs {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.wide-tabs .pill-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 5px 4px;
+  text-align: center;
+  font-size: 11px;
+}
+
+.compact-tabs {
+  max-width: 240px;
+}
+
+.seed-provider-row {
+  gap: 8px;
+}
+
+.provider-hint {
+  color: #888;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.connection-badge {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.text-counter {
+  margin-top: -4px;
+  color: #aaa;
+  font-size: 10.5px;
+  text-align: right;
+  font-family: ui-monospace, monospace;
+}
+
+.fluid-action-btn {
+  background: #111111;
+  color: #fff;
+  border: 1px solid #111111;
+  border-radius: 6px;
+  padding: 11px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  margin-top: 4px;
+}
+
+.fluid-action-btn:hover {
+  background: #2b2b2b;
+  border-color: #2b2b2b;
+  transform: translateY(-1px);
+}
+
+.fluid-action-btn:active {
+  transform: translateY(0);
+}
+
+.fluid-action-btn:disabled {
+  background: rgba(0, 0, 0, 0.08);
+  color: #aaa;
+  border-color: transparent;
+  transform: none;
+  cursor: not-allowed;
+}
+
+.va-btn-icon {
+  font-size: 10px;
+}
+
+.msg-box {
+  font-size: 11.5px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.success-msg,
+.success-banner {
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.error-msg,
+.error-banner {
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.column-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.link-text {
+  color: #111;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.sub-text {
+  opacity: 0.7;
+  font-size: 10.5px;
+}
+
+.ghost-btn {
+  align-self: flex-start;
+  padding: 6px 12px;
+  background: #fff;
+  color: #111;
+  border: 1px solid var(--va-line);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ghost-btn:hover {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.ghost-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.connection-actions {
+  gap: 8px;
+}
+
+.connection-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: vaSpin 0.7s linear infinite;
+}
+
+@keyframes vaSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Range */
+.provider-range {
+  width: 100%;
+  accent-color: #111;
+  cursor: pointer;
+}
+
+/* Preset Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: vaFadeIn 0.2s ease;
+}
+
+.modal-content {
+  background: #fff;
+  width: 100%;
+  max-width: 360px;
+  border-radius: 8px;
+  padding: 18px;
+  border: 1px solid var(--va-line);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #000;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modal-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #000;
+}
+
+.preset-add {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.preset-add .fluid-input {
+  flex: 1;
+  padding: 8px 10px;
+}
+
+.add-btn {
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.add-btn:hover {
+  background: #2b2b2b;
+}
+
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.preset-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+}
+
+.preset-info {
+  flex: 1;
+  cursor: pointer;
+}
+
+.preset-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #000;
+  margin-bottom: 2px;
+}
+
+.preset-region {
+  font-size: 11px;
+  color: #888;
+}
+
+.del-btn {
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.del-btn:hover {
+  color: #dc2626;
+}
+
+.empty-hint {
+  text-align: center;
+  color: #aaa;
+  font-size: 12px;
+  padding: 24px 0;
+}

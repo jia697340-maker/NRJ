@@ -17,6 +17,7 @@ import { recoverInterruptedReplyRegeneration } from '../../services/replyVariant
 import { normalizeCharacterAssets } from '../../services/characterAssetRepository'
 import { DEFAULT_FILE_FORMATS } from '../../services/characterCapabilities'
 import { getCharacterVideoProvider, getCharacterVideoProviderDefaults } from '../../services/videoGenerationService'
+import { deleteCharacterPhones } from '../../services/characterPhoneRepository'
 
 const normalizeCharacterVideoConfig = (value: any) => {
   const provider = getCharacterVideoProvider(String(value?.provider || 'veo')) || getCharacterVideoProvider('veo')!
@@ -404,6 +405,7 @@ export const deleteChats = async (ids: (string | number)[]) => {
     
     for (const c of toDeleteContacts) {
       await deleteAllChatTimelineData(c.id, currentChatUserId.value, (c.timelineState?.timelines || []).map((item: any) => item.id))
+      await deleteCharacterPhones(currentChatUserId.value || 'guest', String(c.characterEntityId || c.id))
       await deleteIdentityProfile('character', String(c.characterEntityId || c.id))
       if (c.avatarKey && !getCharacterDirectoryEntry(String(c.characterEntityId || c.id))) {
         await avatarStore.removeItem(c.avatarKey)
