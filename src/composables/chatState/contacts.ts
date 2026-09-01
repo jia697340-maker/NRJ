@@ -150,6 +150,7 @@ export const loadCustomContacts = async () => {
       timePerception: c.timePerception ?? true,
       sendCharacterTime: c.sendCharacterTime ?? true,
       memoryBook: c.memoryBook || [],
+      togetherListenSharedMemories: c.togetherListenSharedMemories || [],
       callSummaries: c.callSummaries || [],
       autoSummaryEnabled: c.autoSummaryEnabled ?? false,
       autoSummaryThreshold: c.autoSummaryThreshold || 500,

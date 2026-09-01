@@ -42,6 +42,7 @@ import { useChatRoomVision } from './useChatRoomVision'
 import { useChatRoomImageGen } from './useChatRoomImageGen'
 import { processMomentTags } from './useChatRoomMessage'
 import { executeCharacterAssetAction, toCharacterAssetAction } from '../services/chatAssetActions'
+import { queueCharacterTogetherListenInvite } from '../services/togetherListen'
 
 // 通话中禁止的动作
 const CALL_BLOCKED_ACTIONS = new Set([
@@ -469,7 +470,7 @@ export function useChatRoomAPI(
       }
 
       // 修改解析逻辑：按原文顺序提取标签
-      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|send_existing_file|generate_file|send_existing_video|generate_video|voice_call_user|video_call_user|offline|status|narration|block_user|delete_friend|relationship_plan|send_friend_request|propose_user_relation)(\s+[^>]*)?>([\s\S]*?)<\/\1>/g
+      const tokenRegex = /<(msg|recall|claim|reject|send_transfer|send_red_packet|send_voice|send_image|send_emoji|send_existing_file|generate_file|send_existing_video|generate_video|voice_call_user|video_call_user|offline|status|narration|block_user|delete_friend|relationship_plan|send_friend_request|propose_user_relation|invite_together_listen)(\s+[^>]*)?>([\s\S]*?)<\/\1>/g
       const extractedActions: { type: string, content: string, attrs?: string, amount?: number, quote?: { sender: string, content: string }, contentLanguage?: string, translation?: string, translationLanguage?: string, narrationKind?: 'action' | 'scene' | 'thought' }[] = []
       let match
       
@@ -600,6 +601,12 @@ export function useChatRoomAPI(
                 triggerFriendRequestNotification(chatToUpdate, request)
               }
             }
+            processNextAction(index + 1)
+            return
+          }
+
+          if (action.type === 'invite_together_listen') {
+            if (chatToUpdate) queueCharacterTogetherListenInvite(chatToUpdate, action.content)
             processNextAction(index + 1)
             return
           }

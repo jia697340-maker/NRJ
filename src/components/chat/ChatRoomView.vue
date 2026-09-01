@@ -58,6 +58,9 @@ import ChatRoomHeader from './room/ChatRoomHeader.vue'
 import ChatRoomMessageList from './room/ChatRoomMessageList.vue'
 import ChatRoomInputArea from './room/ChatRoomInputArea.vue'
 import ChatVoiceCallWidget from './room/ChatVoiceCallWidget.vue'
+import TogetherListenHub from '../music/TogetherListenHub.vue'
+import { useTogetherListen } from '../../services/togetherListen'
+import { useMusicPlayer } from '../../composables/useMusicPlayer'
 
 const props = withDefaults(defineProps<{
   isVisible?: boolean
@@ -124,6 +127,7 @@ function saveCustomContacts(targetChat: any = selectedChat.value) {
       contacts[index].userInnerThoughts = targetChat.userInnerThoughts || []
       contacts[index].pendingUserThought = targetChat.pendingUserThought || ''
       contacts[index].memoryBook = targetChat.memoryBook || []
+      contacts[index].togetherListenSharedMemories = targetChat.togetherListenSharedMemories || []
       contacts[index].memoryState = targetChat.memoryState || null
       contacts[index].lastSummaryMsgId = targetChat.lastSummaryMsgId || 0
       contacts[index].callSummaries = targetChat.callSummaries || []
@@ -188,6 +192,31 @@ const { currentChatUserId } = useChatAuth()
 
 const showExtensionPanel = ref(false)
 const showEmojiPanel = ref(false)
+const showTogetherListenHub = ref(false)
+const togetherListen = useTogetherListen()
+const togetherMusicPlayer = useMusicPlayer()
+const currentChatListenSession = computed(() => {
+  const session = togetherListen.activeSession.value
+  if (!session || session.status !== 'active' || !selectedChat.value) return null
+  return String(session.participant.chatId || '') === String(selectedChat.value.id) ? session : null
+})
+const currentChatListenInvite = computed(() => {
+  const invite = togetherListen.pendingCharacterInvite.value
+  if (!invite || !selectedChat.value) return null
+  return String(invite.chatId) === String(selectedChat.value.id) ? invite : null
+})
+const openTogetherListen = () => {
+  showExtensionPanel.value = false
+  showEmojiPanel.value = false
+  showTogetherListenHub.value = true
+}
+const acceptTogetherListenInvite = () => {
+  if (!selectedChat.value || !togetherListen.acceptCharacterInvite(selectedChat.value)) return
+  showTogetherListenHub.value = true
+}
+const declineTogetherListenInvite = () => {
+  if (selectedChat.value) togetherListen.declineCharacterInvite(selectedChat.value.id)
+}
 const showOfflineSessionEndModal = ref(false)
 const showWebSearchModal = ref(false)
 const showTimelineManagerModal = ref(false)
@@ -1240,6 +1269,24 @@ onUnmounted(() => {
       @click-overlay="showExtensionPanel = false; showEmojiPanel = false"
     />
 
+    <section v-if="currentChatListenInvite" class="chat-listen-invite" aria-label="角色发来一起听邀请">
+      <span class="chat-listen-pair" aria-hidden="true">
+        <i :style="myProfile.avatarUrl ? { backgroundImage: `url(${myProfile.avatarUrl})` } : {}">{{ myProfile.avatarUrl ? '' : String(myProfile.name || '我').charAt(0) }}</i>
+        <i :style="selectedChat?.avatarUrl ? { backgroundImage: `url(${selectedChat.avatarUrl})` } : {}">{{ selectedChat?.avatarUrl ? '' : String(selectedChat?.name || '角').charAt(0) }}</i>
+      </span>
+      <span><strong>{{ currentChatListenInvite.characterName }} 邀请你一起听</strong><small>{{ currentChatListenInvite.message }}</small></span>
+      <div><button type="button" @click="declineTogetherListenInvite">拒绝</button><button type="button" @click="acceptTogetherListenInvite">接受</button></div>
+    </section>
+
+    <button v-if="currentChatListenSession" type="button" class="chat-listen-mini" @click="showTogetherListenHub = true">
+      <span class="chat-listen-pair" aria-hidden="true">
+        <i :style="currentChatListenSession.user?.avatarUrl ? { backgroundImage: `url(${currentChatListenSession.user.avatarUrl})` } : {}">{{ currentChatListenSession.user?.avatarUrl ? '' : String(currentChatListenSession.user?.name || myProfile.name || '我').charAt(0) }}</i>
+        <i :class="{ anonymous: !currentChatListenSession.participant.revealed }" :style="currentChatListenSession.participant.revealed && currentChatListenSession.participant.avatarUrl ? { backgroundImage: `url(${currentChatListenSession.participant.avatarUrl})` } : {}">{{ currentChatListenSession.participant.revealed && currentChatListenSession.participant.avatarUrl ? '' : currentChatListenSession.participant.revealed ? String(currentChatListenSession.participant.name || '听').charAt(0) : '?' }}</i>
+      </span>
+      <span><strong>正在和 {{ currentChatListenSession.participant.name }} 一起听</strong><small>{{ togetherMusicPlayer.currentTrack.value?.title || '暂未播放' }} · 点击打开独立音乐聊天</small></span>
+      <i>›</i>
+    </button>
+
     <ChatRoomMessageList
       ref="messageListRef"
       :displayMessages="displayMessages"
@@ -1521,6 +1568,7 @@ onUnmounted(() => {
       @show-video-call-modal="startVideoCall"
       @show-user-thought-modal="showUserThoughtModal = true"
       @show-web-search-modal="showWebSearchModal = true"
+      @open-together-listen="openTogetherListen"
       @toggle-mixed-offline="toggleMixedOfflineSession"
       @open-relationship="emit('open-relationship')"
       @advance-relationship="handleRelationshipAdvance"
@@ -1560,6 +1608,12 @@ onUnmounted(() => {
       :enabled="selectedChat?.webSearchEnabled === true"
       @close="showWebSearchModal = false"
       @save="handleSaveWebSearch"
+    />
+
+    <TogetherListenHub
+      :visible="showTogetherListenHub"
+      :suggested-chat="selectedChat"
+      @close="showTogetherListenHub = false"
     />
     
     <ChatMemoryModal

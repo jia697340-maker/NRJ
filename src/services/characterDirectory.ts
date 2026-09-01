@@ -35,6 +35,16 @@ export interface ForumContactBridgeInput {
   existingEntityId?: string
 }
 
+export interface MatchedListenerContactInput {
+  entityId: string
+  name: string
+  socialId: string
+  signature?: string
+  persona: string
+  avatarUrl?: string
+  interactionSummary?: string
+}
+
 const cleanId = (value: unknown) => String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20)
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
@@ -322,6 +332,69 @@ export const createForumFriendContact = (input: ForumContactBridgeInput) => {
   candidate.relationship.stateChangedAt = Date.now()
   candidate.relationship.events ||= []
   candidate.relationship.events.unshift({ id: `forum_friend_${Date.now()}`, type: 'friendship_restored', title: '通过论坛成为好友', detail: input.interactionSummary || '', createdAt: Date.now(), memoryRelevant: true })
+  const key = `${CONTACT_KEY_PREFIX}${accountId}`
+  let contacts: any[] = []
+  try { contacts = JSON.parse(localStorage.getItem(key) || '[]') } catch {}
+  const index = contacts.findIndex(contact => String(contact.characterEntityId || contact.id) === entry!.entityId)
+  if (index >= 0) contacts[index] = candidate
+  else contacts.push(candidate)
+  localStorage.setItem(key, JSON.stringify(contacts))
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('clingy:character-directory-updated'))
+  return { entry, contact: candidate }
+}
+
+export const createMatchedListenerContact = (input: MatchedListenerContactInput) => {
+  const { currentChatUserId } = useChatAuth()
+  const accountId = currentChatUserId.value
+  if (!accountId) throw new Error('请先登录聊天 App 账号')
+  const entries = readDirectory()
+  let entry = entries.find(item => item.entityId === input.entityId)
+  if (!entry) {
+    const socialProfile = normalizeSocialProfile({
+      id: input.entityId,
+      name: input.name,
+      socialProfile: { nickname: input.name, socialId: input.socialId, signature: input.signature || '' }
+    })
+    socialProfile.socialId = uniqueSocialId(entries, socialProfile.socialId, input.entityId)
+    entry = {
+      entityId: input.entityId,
+      ownerAccountId: accountId,
+      name: input.name.trim(),
+      persona: input.persona,
+      avatarKey: `listen_avatar_${input.entityId.replace(/[^a-zA-Z0-9]/g, '').slice(-12)}`,
+      socialProfile,
+      socialCircle: [],
+      socialCircleSettings: normalizeSocialCircleSettings(null),
+      socialPrivacy: 'public',
+      discoverable: true,
+      allowFriendRequests: true,
+      idAliases: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+    entries.push(entry)
+    writeDirectory(entries)
+  }
+  const candidate = createDirectoryCandidate(entry)
+  if (!candidate) throw new Error('无法写入聊天联系人')
+  candidate.name = input.name.trim()
+  candidate.persona = input.persona
+  candidate.avatarUrl = input.avatarUrl || candidate.avatarUrl
+  candidate.contactState = 'friend'
+  candidate.relationship ||= {}
+  candidate.relationship.friendship = 'friends'
+  candidate.relationship.blockedBy = 'none'
+  candidate.relationship.changedAt = Date.now()
+  candidate.relationship.stateChangedAt = Date.now()
+  candidate.relationship.events ||= []
+  candidate.relationship.events.unshift({
+    id: `listen_friend_${Date.now()}`,
+    type: 'friendship_restored',
+    title: '通过一起听成为好友',
+    detail: input.interactionSummary || '',
+    createdAt: Date.now(),
+    memoryRelevant: true
+  })
   const key = `${CONTACT_KEY_PREFIX}${accountId}`
   let contacts: any[] = []
   try { contacts = JSON.parse(localStorage.getItem(key) || '[]') } catch {}

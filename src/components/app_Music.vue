@@ -16,6 +16,7 @@ import MusicCommentsModal from './music/modals/MusicCommentsModal.vue'
 import MusicPrivacyModal from './music/modals/MusicPrivacyModal.vue'
 import MusicPlaylistCollectionModal from './music/modals/MusicPlaylistCollectionModal.vue'
 import MusicPlaylistDetailModal from './music/modals/MusicPlaylistDetailModal.vue'
+import TogetherListenHub from './music/TogetherListenHub.vue'
 import { useMusicLibrary } from '../composables/useMusicLibrary'
 import { useMusicPlayer } from '../composables/useMusicPlayer'
 import type { MusicPlaylist, MusicTrack } from '../types/music'
@@ -30,6 +31,7 @@ const isDataModalOpen = ref(false)
 const isHistoryModalOpen = ref(false)
 const historyModalTab = ref<'records' | 'edit'>('records')
 const isPlaybackSettingsOpen = ref(false)
+const isTogetherListenOpen = ref(false)
 const isCommentsOpen = ref(false)
 const commentTotalMap = ref<Record<string, number>>({})
 const privacyModalMode = ref<'closed' | 'management' | 'public-consent'>('closed')
@@ -152,6 +154,7 @@ const handleBack = () => {
             @openPlaylistDrawer="isPlaylistDrawerOpen = true"
             @openPlaybackSettings="isPlaybackSettingsOpen = true"
             @openComments="isCommentsOpen = true"
+            @openTogetherListen="isTogetherListenOpen = true"
           />
         </div>
       </KeepAlive>
@@ -184,6 +187,7 @@ const handleBack = () => {
         @openPlaylistDrawer="isPlaylistDrawerOpen = true"
         @openPlaybackSettings="isPlaybackSettingsOpen = true"
         @openComments="isCommentsOpen = true"
+        @openTogetherListen="isTogetherListenOpen = true"
       />
     </transition>
 
@@ -196,6 +200,7 @@ const handleBack = () => {
     <MusicDataModal :visible="isDataModalOpen" @close="isDataModalOpen = false" />
     <MusicHistoryModal :visible="isHistoryModalOpen" :defaultTab="historyModalTab" @close="isHistoryModalOpen = false" />
     <MusicPlaybackSettingsModal :visible="isPlaybackSettingsOpen" @close="isPlaybackSettingsOpen = false" />
+    <TogetherListenHub :visible="isTogetherListenOpen" return-to-player-on-connect @close="isTogetherListenOpen = false" />
     <MusicCommentsModal
       :visible="isCommentsOpen"
       :track="currentTrack"

@@ -1550,3 +1550,42 @@
   opacity: 0;
   transform: translateY(-8px);
 }
+
+.chat-listen-mini {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  width: calc(100% - 24px);
+  min-height: 54px;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 12px 2px;
+  padding: 7px 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--sys-bg-secondary) 88%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  box-shadow: 0 5px 18px rgba(0,0,0,.05);
+  backdrop-filter: blur(14px);
+  cursor: pointer;
+}
+.chat-listen-pair { position:relative;display:block;width:52px;height:38px;flex:none; }
+.chat-listen-pair i { position:absolute;top:1px;display:grid;width:34px;height:34px;place-items:center;border:2px solid var(--sys-bg-primary);border-radius:50%;background:var(--sys-bg-tertiary) center/cover;color:var(--text-primary);font-size:9px;font-style:normal; }
+.chat-listen-pair i:first-child { left:0;z-index:2; }
+.chat-listen-pair i:last-child { right:0; }
+.chat-listen-pair i.anonymous { background:linear-gradient(145deg,#8177a8,#4f526d);color:#fff; }
+.chat-listen-mini>span:nth-child(2) { display:flex;min-width:0;flex:1;flex-direction:column;gap:4px; }
+.chat-listen-mini strong,.chat-listen-mini small { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.chat-listen-mini strong { font-size:11px; }
+.chat-listen-mini small { color:var(--text-tertiary);font-size:9px; }
+.chat-listen-mini i { display:grid;width:29px;height:29px;place-items:center;border-radius:50%;background:var(--text-primary);color:var(--sys-bg-secondary);font-size:10px;font-style:normal; }
+.chat-listen-invite { position:relative;z-index:3;display:flex;align-items:center;gap:9px;margin:7px 10px 0;padding:10px;border:1px solid var(--border-color);border-radius:13px;background:var(--sys-bg-primary);box-shadow:0 5px 18px rgba(0,0,0,.07); }
+.chat-listen-invite>span:nth-child(2) { display:flex;min-width:0;flex:1;flex-direction:column;gap:4px; }
+.chat-listen-invite strong,.chat-listen-invite small { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.chat-listen-invite strong { font-size:11px; }
+.chat-listen-invite small { color:var(--text-tertiary);font-size:9px; }
+.chat-listen-invite>div { display:flex;gap:5px; }
+.chat-listen-invite button { height:29px;padding:0 9px;border:1px solid var(--border-color);border-radius:9px;background:transparent;color:var(--text-primary);font-size:9px; }
+.chat-listen-invite button:last-child { border-color:var(--text-primary);background:var(--text-primary);color:var(--sys-bg-primary); }

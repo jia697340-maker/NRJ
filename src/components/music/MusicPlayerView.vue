@@ -1,8 +1,10 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
+import { useTogetherListen } from '../../services/togetherListen'
+import { myProfile } from '../../composables/chatState/state'
 import MusicYouTubePlayer from './MusicYouTubePlayer.vue'
 import MusicBilibiliPlayer from './MusicBilibiliPlayer.vue'
 
@@ -30,8 +32,41 @@ const {
   formatTime
 } = useMusicPlayer()
 
-const emit = defineEmits(['collapse', 'openPlaylistDrawer', 'openPlaybackSettings', 'openComments'])
+const emit = defineEmits(['collapse', 'openPlaylistDrawer', 'openPlaybackSettings', 'openComments', 'openTogetherListen'])
 const { setMessage, loadComments } = useMusicLibrary()
+const { activeSession } = useTogetherListen()
+const listenClock = ref(Date.now())
+const listenBubble = ref('')
+let listenClockTimer: number | null = null
+let listenBubbleTimer: number | null = null
+const listenSession = computed(() => activeSession.value?.status === 'active' ? activeSession.value : null)
+const listenUser = computed(() => listenSession.value?.user || myProfile.value)
+const listenPartnerName = computed(() => {
+  const participant = listenSession.value?.participant
+  if (!participant) return ''
+  return participant.revealed ? participant.name : participant.anonymousName
+})
+const listenElapsed = computed(() => {
+  const session = listenSession.value
+  if (!session) return '00:00'
+  const seconds = Math.max(0, Math.floor((listenClock.value - session.startedAt) / 1000))
+  return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
+})
+const listenUserAvatarStyle = computed(() => listenUser.value.avatarUrl ? { backgroundImage: `url(${listenUser.value.avatarUrl})` } : {})
+const listenPartnerAvatarStyle = computed(() => {
+  const participant = listenSession.value?.participant
+  return participant?.revealed && participant.avatarUrl ? { backgroundImage: `url(${participant.avatarUrl})` } : {}
+})
+
+watch(() => listenSession.value?.messages.length || 0, () => {
+  const message = [...(listenSession.value?.messages || [])].reverse().find(item => item.sender === 'partner' && item.kind === 'text')
+  if (!message) return
+  listenBubble.value = message.content
+  if (listenBubbleTimer !== null) window.clearTimeout(listenBubbleTimer)
+  listenBubbleTimer = window.setTimeout(() => { listenBubble.value = '' }, 8000)
+})
+
+onMounted(() => { listenClockTimer = window.setInterval(() => { listenClock.value = Date.now() }, 1000) })
 
 const lyricsWrapperRef = ref<HTMLElement | null>(null)
 const lyricsScrollBoxRef = ref<HTMLElement | null>(null)
@@ -144,6 +179,8 @@ onBeforeUnmount(() => {
   if (userScrollTimer !== null) {
     window.clearTimeout(userScrollTimer)
   }
+  if (listenClockTimer !== null) window.clearInterval(listenClockTimer)
+  if (listenBubbleTimer !== null) window.clearTimeout(listenBubbleTimer)
 })
 
 const shareCurrent = async () => {
@@ -155,7 +192,7 @@ const shareCurrent = async () => {
 </script>
 
 <template>
-  <div class="player-full-view">
+  <div class="player-full-view" :class="{ 'is-together-player': listenSession }">
     <!-- 顶部操作栏 -->
     <div class="player-header">
       <button class="header-action-btn" title="收起" @click="emit('collapse')">
@@ -181,7 +218,15 @@ const shareCurrent = async () => {
     </div>
 
     <!-- 中央核心：无摆臂经典纯黑胶唱片 / 歌词模式切换 -->
-    <div class="center-content-area">
+    <div class="center-content-area" :class="{ 'is-together-listening': listenSession }">
+      <button v-if="listenSession" class="player-together-pair" type="button" title="打开一起听聊天" @click.stop="emit('openTogetherListen')">
+        <span class="player-avatar-pair" :class="{ 'is-interacting': listenBubble }" aria-label="一起听双方头像">
+          <i class="player-listen-avatar" :style="listenUserAvatarStyle">{{ listenUser.avatarUrl ? '' : String(listenUser.name || '我').charAt(0) }}</i>
+          <i class="player-listen-avatar partner" :class="{ anonymous: !listenSession.participant.revealed }" :style="listenPartnerAvatarStyle">{{ listenSession.participant.revealed && listenSession.participant.avatarUrl ? '' : listenSession.participant.revealed ? String(listenSession.participant.name || '听').charAt(0) : '?' }}</i>
+          <span v-if="listenBubble" class="player-listen-bubble">{{ listenBubble }}</span>
+        </span>
+        <small>和{{ listenPartnerName }}一起听了 {{ listenElapsed }}</small>
+      </button>
       <!-- 黑胶唱片模式 (无摆臂，纯圆盘与同心纹) -->
       <MusicYouTubePlayer v-if="activePlaybackType === 'embed' && activeEmbedId && activeEmbedProvider === 'youtube'" :videoId="activeEmbedId" :volume="volume" />
       <MusicBilibiliPlayer v-else-if="activePlaybackType === 'embed' && activeEmbedId && activeEmbedProvider === 'bilibili'" :embedId="activeEmbedId" :volume="volume" :duration="currentTrack?.duration || 0" />
@@ -236,11 +281,12 @@ const shareCurrent = async () => {
       </div>
     </div>
 
-    <div v-if="playbackError" class="playback-message">{{ playbackError }}</div>
-    <div v-else-if="isBuffering" class="playback-message">正在缓冲音频…</div>
+    <div class="player-control-deck">
+      <div v-if="playbackError" class="playback-message">{{ playbackError }}</div>
+      <div v-else-if="isBuffering" class="playback-message">正在缓冲音频…</div>
 
-    <!-- 下方交互功能栏 (喜欢、评论、音效、更多) -->
-    <div class="player-action-bar">
+      <!-- 下方交互功能栏 (喜欢、评论、音效、更多) -->
+      <div class="player-action-bar">
       <button class="interact-btn" :class="{ liked: isLikedCurrent }" @click="toggleLike">
         <svg viewBox="0 0 24 24" width="22" height="22" :fill="isLikedCurrent ? '#e5e5ea' : 'none'" stroke="currentColor" stroke-width="2">
           <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
@@ -268,17 +314,17 @@ const shareCurrent = async () => {
         </svg>
       </button>
 
-      <button class="interact-btn" title="更多设置" @click="emit('openPlaybackSettings')">
+      <button class="interact-btn" title="一起听" @click="emit('openTogetherListen')">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
           <circle cx="12" cy="5" r="2"></circle>
           <circle cx="12" cy="12" r="2"></circle>
           <circle cx="12" cy="19" r="2"></circle>
         </svg>
       </button>
-    </div>
+      </div>
 
-    <!-- 进度条区域 -->
-    <div class="progress-bar-container">
+      <!-- 进度条区域 -->
+      <div class="progress-bar-container">
       <span class="time-label">{{ formatTime(currentTime) }}</span>
       <div class="progress-track" @click="handleSeek">
         <div class="progress-filled" :style="{ width: `${progressPercent}%` }">
@@ -286,10 +332,10 @@ const shareCurrent = async () => {
         </div>
       </div>
       <span class="time-label">{{ formatTime(currentTrack?.duration || 0) }}</span>
-    </div>
+      </div>
 
-    <!-- 主播放控制器 -->
-    <div class="main-controls-bar">
+      <!-- 主播放控制器 -->
+      <div class="main-controls-bar">
       <!-- 播放模式 -->
       <button class="ctrl-btn-sub" @click="toggleMode" :title="playMode">
         <svg v-if="playMode === 'loop'" viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
@@ -351,6 +397,7 @@ const shareCurrent = async () => {
           <line x1="3" y1="18" x2="3.01" y2="18"></line>
         </svg>
       </button>
+      </div>
     </div>
   </div>
 </template>
@@ -364,9 +411,8 @@ const shareCurrent = async () => {
   height: 100%;
   background: radial-gradient(circle at center top, #ffffff 0%, #ebeef5 100%);
   color: #1c1c1e;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   z-index: 50;
   padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0;
   box-sizing: border-box;
@@ -385,6 +431,7 @@ const shareCurrent = async () => {
   justify-content: space-between;
   padding: 12px 16px;
   height: 56px;
+  box-sizing: border-box;
 }
 
 .header-action-btn {
@@ -438,13 +485,135 @@ const shareCurrent = async () => {
 
 /* 中央区域 */
 .center-content-area {
-  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   position: relative;
   overflow: hidden;
+}
+
+.player-together-pair {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #73737b;
+  font: inherit;
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.player-avatar-pair {
+  position: relative;
+  display: block;
+  width: 136px;
+  height: 66px;
+}
+
+.player-listen-avatar {
+  position: absolute;
+  top: 5px;
+  left: 9px;
+  z-index: 2;
+  display: grid;
+  width: 62px;
+  height: 62px;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #dedee4, #bfc0c9) center/cover;
+  color: #44444b;
+  font-size: 17px;
+  font-style: normal;
+  box-shadow: 0 4px 14px rgba(0,0,0,.14);
+}
+
+.player-listen-avatar.partner {
+  left: 65px;
+  z-index: 1;
+  transition: left .28s cubic-bezier(.2,.8,.2,1);
+}
+
+.player-avatar-pair.is-interacting .player-listen-avatar.partner { left: 85px; }
+
+.player-listen-avatar.anonymous {
+  background: linear-gradient(145deg, #8177a8, #4f526d);
+  color: #fff;
+}
+
+.player-together-pair > small {
+  margin-top: -1px;
+  color: #898990;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.player-listen-bubble {
+  position: absolute;
+  top: 50px;
+  left: 116px;
+  width: max-content;
+  max-width: 150px;
+  overflow: hidden;
+  padding: 7px 10px;
+  border-radius: 14px 14px 14px 4px;
+  background: rgba(78,78,84,.86);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 5px 16px rgba(0,0,0,.14);
+  backdrop-filter: blur(10px);
+}
+
+.is-dark .player-together-pair { color: #96969f; }
+.is-dark .player-together-pair > small { color: #96969f; }
+.center-content-area.is-together-listening {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: stretch;
+  justify-items: stretch;
+  justify-content: stretch;
+}
+
+.center-content-area.is-together-listening .player-together-pair {
+  position: relative;
+  top: auto;
+  left: auto;
+  justify-self: center;
+  transform: none;
+}
+
+.center-content-area.is-together-listening .disc-wrapper {
+  min-height: 0;
+  height: 100%;
+  align-items: center;
+  padding-bottom: 12px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.center-content-area.is-together-listening .vinyl-record {
+  box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.1);
+}
+
+.is-dark .center-content-area.is-together-listening .vinyl-record {
+  box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.08);
+}
+
+.center-content-area.is-together-listening .lyrics-wrapper {
+  min-height: 0;
+  height: 100%;
+  padding-top: 0;
 }
 
 /* 黑胶唱片 (无摆臂) */
@@ -454,6 +623,8 @@ const shareCurrent = async () => {
   justify-content: center;
   width: 100%;
   height: 100%;
+  min-height: 0;
+  container-type: size;
 }
 
 .vinyl-record {
@@ -468,6 +639,14 @@ const shareCurrent = async () => {
   align-items: center;
   justify-content: center;
   transition: transform 0.3s;
+  flex: 0 0 auto;
+}
+
+@supports (height: 1cqh) {
+  .vinyl-record {
+    width: min(72vw, 290px, calc(100cqh - 64px));
+    height: min(72vw, 290px, calc(100cqh - 64px));
+  }
 }
 
 .is-dark .vinyl-record {
@@ -627,6 +806,11 @@ const shareCurrent = async () => {
   line-height: 1.35;
 }
 .playback-message { margin:-2px 28px 8px;padding:8px 11px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.68);font-size:10px;line-height:1.45;text-align:center; }
+
+.player-control-deck {
+  min-height: 0;
+  flex: none;
+}
 
 .is-dark .lyric-line.active {
   color: #ffffff;

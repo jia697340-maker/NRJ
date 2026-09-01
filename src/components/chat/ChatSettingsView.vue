@@ -64,6 +64,7 @@ import ChatIdentityProfileModal from './modals/ChatIdentityProfileModal.vue'
 import ChatGroupMemoryBridgeModal from './modals/ChatGroupMemoryBridgeModal.vue'
 import ChatSocialCircleModal from './modals/ChatSocialCircleModal.vue'
 import ChatTimelineManagerModal from './modals/ChatTimelineManagerModal.vue'
+import TogetherListenHub from '../music/TogetherListenHub.vue'
 
 const searchQuery = ref('')
 const matchSearch = (...keywords: (string | undefined | null)[]) => {
@@ -107,6 +108,7 @@ const { getTimezoneLabel } = useTimezone()
 
 // --- 时区相关逻辑 ---
 const showTimezoneModal = ref(false)
+const showTogetherListenSettings = ref(false)
 const showIdentityTimeModal = ref(false)
 const currentSelectingTarget = ref<'user' | 'character'>('user')
 
@@ -815,6 +817,7 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         :match-search="matchSearch"
         @show-summary-view="showSummaryView = true"
         @show-token-stats-modal="showTokenStatsModal = true"
+        @show-together-listen-settings="showTogetherListenSettings = true"
       />
 
       <ChatSettingsPanelRole
@@ -1062,6 +1065,12 @@ const handleSaveTimeDisplayStyle = (style: 'none' | 'hm' | 'hms', position: 'ava
         v-model:visible="showTimelineManagerModal"
         :selected-chat="selectedChat"
         @save="saveCurrentChat"
+      />
+      <TogetherListenHub
+        :visible="showTogetherListenSettings"
+        :suggested-chat="selectedChat"
+        initial-page="settings"
+        @close="showTogetherListenSettings = false"
       />
 
       <!-- 社交人脉管理弹窗 -->

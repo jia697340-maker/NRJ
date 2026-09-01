@@ -42,6 +42,7 @@ const emit = defineEmits<{
   (e: 'show-user-thought-modal'): void
   (e: 'show-contact-card-modal'): void
   (e: 'show-web-search-modal'): void
+  (e: 'open-together-listen'): void
   (e: 'toggle-mixed-offline'): void
   (e: 'open-relationship'): void
   (e: 'advance-relationship'): void
@@ -414,8 +415,15 @@ const handleEnter = () => { const option = filteredMentionOptions.value.find(ite
               <span class="extension-label">模型沟通</span>
             </div>
 
-            <!-- 剩余 5 个占位项 -->
-            <div v-for="i in 5" :key="`placeholder-${i}`" class="extension-item placeholder">
+            <div class="extension-item is-active" @click="emit('open-together-listen')">
+              <div class="extension-icon-box">
+                <svg viewBox="0 0 24 24" width="26" height="26" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 15V9l7-2v6"/><circle cx="8" cy="16" r="2"/><circle cx="15" cy="14" r="2"/></svg>
+              </div>
+              <span class="extension-label">一起听</span>
+            </div>
+
+            <!-- 剩余 4 个占位项 -->
+            <div v-for="i in 4" :key="`placeholder-${i}`" class="extension-item placeholder">
               <div class="extension-icon-box placeholder-box">
                 <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3" fill="none" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="6" ry="6"></rect>

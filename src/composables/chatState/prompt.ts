@@ -473,5 +473,25 @@ ${usesNaturalPromptV2
       ? `\n\n[Friend request permission]\nIf ${charName} genuinely decides to add the user as a friend now, output <send_friend_request>the sincere request message</send_friend_request> once. Do not use it mechanically or when a request is already pending.`
       : `\n\n【好友申请权限】\n如果角色${charName}此刻确实自主决定添加用户为好友，可以输出一次 <send_friend_request>真诚的申请文案</send_friend_request>。不要机械使用，也不要在已有待处理申请时重复申请。`
     : ''
-  return resolvedPrompts.join('\n\n') + memoryBookContext + presenceContext + finalVoiceRules + assetPrompt + relationshipRules + offlinePrompt + transferStateGuard + buildSocialProfilePrompt(chat, usesEnglishPrompt) + buildSocialCirclePrompt(chat, usesEnglishPrompt) + userSocialContext + friendRequestRule + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
+  let togetherListenInviteRule = ''
+  let togetherListenState: any = null
+  if (account) {
+    try { togetherListenState = JSON.parse(localStorage.getItem(`clingy_together_listen_v1_${account.id}`) || 'null') } catch {}
+  }
+  if (account && relationship.friendship === 'friends' && relationship.blockedBy === 'none' && !callMode && !offlineMeetMode) {
+    if (togetherListenState?.settings?.allowCharacterInvites !== false && !togetherListenState?.activeSession) {
+      togetherListenInviteRule = usesEnglishPrompt
+        ? `\n\n[Listen-together invitation]\nIf ${charName} genuinely wants to invite the user to listen to music together now, output <invite_together_listen>a natural invitation</invite_together_listen> once. This creates an invitation the user may accept or decline; it does not start playback automatically. Do not use it mechanically or repeatedly.`
+        : `\n\n【一起听邀请权限】\n如果角色${charName}此刻确实想邀请用户一起听歌，可以输出一次 <invite_together_listen>自然的邀请文案</invite_together_listen>。这只会发出可接受或拒绝的邀请，不会自动开始播放；不要机械或频繁使用。`
+    }
+  }
+  pushContextTrace(trace, { id: 'runtime:together-listen-invite', category: 'system', group: '一起听', label: '角色主动一起听邀请', text: togetherListenInviteRule, reason: togetherListenInviteRule ? '当前允许角色主动邀请一起听' : '当前不允许或已有一起听会话' })
+  const sharedMusicMemory = togetherListenState?.settings?.memoryMode === 'shared' && Array.isArray(chat.togetherListenSharedMemories)
+    ? chat.togetherListenSharedMemories.slice(-8).map((item: any) => String(item?.content || '').trim()).filter(Boolean).join('\n')
+    : ''
+  const sharedMusicMemoryContext = sharedMusicMemory
+    ? (usesEnglishPrompt ? `\n\n[Shared listen-together memories]\n${sharedMusicMemory}` : `\n\n【共享的一起听记忆】\n${sharedMusicMemory}`)
+    : ''
+  pushContextTrace(trace, { id: 'memory:together-listen-shared', category: 'memory', group: '一起听', label: '共享的一起听记忆', text: sharedMusicMemoryContext, reason: sharedMusicMemoryContext ? '用户已选择与普通单聊互通' : '没有共享的一起听记忆' })
+  return resolvedPrompts.join('\n\n') + memoryBookContext + sharedMusicMemoryContext + presenceContext + finalVoiceRules + assetPrompt + relationshipRules + offlinePrompt + transferStateGuard + buildSocialProfilePrompt(chat, usesEnglishPrompt) + buildSocialCirclePrompt(chat, usesEnglishPrompt) + userSocialContext + friendRequestRule + togetherListenInviteRule + (usesEnglishPrompt ? englishDialogueLanguageGuard : '')
 }

@@ -9,6 +9,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'show-summary-view'): void
   (e: 'show-token-stats-modal'): void
+  (e: 'show-together-listen-settings'): void
 }>()
 </script>
 
@@ -36,6 +37,12 @@ const emit = defineEmits<{
           <span class="item-value-text">{{ tokenStats?.totalTokens || 0 }} Tokens</span>
           <span class="arrow">></span>
         </div>
+      </div>
+    </div>
+    <div class="glass-panel" v-show="matchSearch('一起听', '音乐记忆', '音乐聊天')">
+      <div class="glass-list-item" @click="emit('show-together-listen-settings')">
+        <div class="item-label">一起听与音乐</div>
+        <div class="item-value"><span class="item-value-text">音乐空间独立设置</span><span class="arrow">></span></div>
       </div>
     </div>
   </div>
