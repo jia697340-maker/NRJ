@@ -4,7 +4,13 @@ import { useChatAuth } from '../composables/useChatAuth'
 import { runDueGroupAutonomyChecks } from './groupAutonomyRuntime'
 import { createAutonomyLedgerWindow, ensureAutonomyLedger, pendingAutonomyLedgerWindow } from './autonomyConfig'
 import { flushAutonomyDeliveries } from './autonomyDelivery'
-import { ensureAutonomyDefaults, persistAutonomyChat, runDueAutonomyChecks } from './characterAutonomy'
+import {
+  beginAutonomyPersistenceBatch,
+  ensureAutonomyDefaults,
+  flushAutonomyPersistenceBatch,
+  persistAutonomyChat,
+  runDueAutonomyChecks
+} from './characterAutonomy'
 import { isConversationTimePaused } from './conversationTime'
 import { runDueCharacterPhoneRefreshes } from './characterPhone'
 
@@ -18,10 +24,15 @@ const activeChats = () => mockChats.value.filter(chat => chat?.id !== 1 && chat?
 const autonomousChats = () => activeChats().filter(chat => !isConversationTimePaused(chat))
 
 const persistRuntimeSeenAt = (seenAt = Date.now()) => {
-  for (const chat of activeChats()) {
-    ensureAutonomyDefaults(chat)
-    ensureAutonomyLedger(chat).lastRuntimeSeenAt = seenAt
-    persistAutonomyChat(chat)
+  beginAutonomyPersistenceBatch()
+  try {
+    for (const chat of activeChats()) {
+      ensureAutonomyDefaults(chat)
+      ensureAutonomyLedger(chat).lastRuntimeSeenAt = seenAt
+      persistAutonomyChat(chat)
+    }
+  } finally {
+    flushAutonomyPersistenceBatch()
   }
 }
 
@@ -31,22 +42,32 @@ const processVisibleRuntime = async (resume = false) => {
   const now = Date.now()
   try {
     if (resume) {
-      for (const chat of activeChats()) {
-        ensureAutonomyDefaults(chat)
-        if (isConversationTimePaused(chat)) {
-          ensureAutonomyLedger(chat).lastRuntimeSeenAt = now
-          persistAutonomyChat(chat)
-          continue
+      beginAutonomyPersistenceBatch()
+      try {
+        for (const chat of activeChats()) {
+          ensureAutonomyDefaults(chat)
+          if (isConversationTimePaused(chat)) {
+            ensureAutonomyLedger(chat).lastRuntimeSeenAt = now
+            persistAutonomyChat(chat)
+            continue
+          }
+          if (createAutonomyLedgerWindow(chat, now)) persistAutonomyChat(chat)
         }
-        if (createAutonomyLedgerWindow(chat, now)) persistAutonomyChat(chat)
+      } finally {
+        flushAutonomyPersistenceBatch()
       }
     }
     const hasPendingCatchup = autonomousChats().some(chat => Boolean(pendingAutonomyLedgerWindow(chat)))
     await runDueAutonomyChecks(resume || hasPendingCatchup ? 'resume' : 'scheduled')
     await runDueGroupAutonomyChecks(mockChats.value, myProfile.value, currentChatUserId.value)
     await runDueCharacterPhoneRefreshes(mockChats.value, currentChatUserId.value || 'guest')
-    flushAutonomyDeliveries(autonomousChats(), resume).forEach(persistAutonomyChat)
-    persistRuntimeSeenAt(Date.now())
+    beginAutonomyPersistenceBatch()
+    try {
+      flushAutonomyDeliveries(autonomousChats(), resume).forEach(persistAutonomyChat)
+      persistRuntimeSeenAt(Date.now())
+    } finally {
+      flushAutonomyPersistenceBatch()
+    }
   } finally {
     runtimeBusy = false
   }

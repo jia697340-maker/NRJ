@@ -115,25 +115,85 @@ const contactsKey = () => {
   return currentChatUserId.value ? `clingy_custom_contacts_${currentChatUserId.value}` : 'clingy_custom_contacts'
 }
 
+const AUTONOMY_PERSIST_FIELDS = [
+  'autonomyEnabled', 'autonomyAllowMessages', 'autonomyAllowMoments', 'autonomyAllowStatus', 'autonomyStatusPermissionExplicit',
+  'autonomyCatchup', 'autonomyActiveStart', 'autonomyActiveEnd', 'autonomyMinIntervalMinutes',
+  'autonomyGuaranteeContact', 'autonomyMaxSilenceMinutes', 'autonomyEmotionMustDeliver', 'autonomyLastMeaningfulActionAt',
+  'autonomyLedger', 'autonomyDeliveries',
+  'autonomyHistory', 'autonomyState', 'messages', 'unread', 'preview', 'time', 'statusText', 'offlineUntil',
+  'statusSource', 'statusSetAt', 'enableImmersiveStatus', 'presenceSession', 'presenceHistory', 'presencePendingReply',
+  'timelineState', 'activeTimelineId'
+] as const
+
+type PendingAutonomyPersist = {
+  chat: any
+  accountId: string | null
+}
+
+let autonomyPersistBatchDepth = 0
+const pendingAutonomyPersists = new Map<string, Map<string, PendingAutonomyPersist>>()
+
+const applyAutonomyFields = (target: any, chat: any) => {
+  AUTONOMY_PERSIST_FIELDS.forEach(field => { target[field] = chat[field] })
+}
+
+const queueAutonomyPersist = (key: string, chat: any, accountId: string | null) => {
+  let pendingForKey = pendingAutonomyPersists.get(key)
+  if (!pendingForKey) {
+    pendingForKey = new Map()
+    pendingAutonomyPersists.set(key, pendingForKey)
+  }
+  pendingForKey.set(String(chat.id), { chat, accountId })
+}
+
+const persistAutonomyEntries = (key: string, entries: PendingAutonomyPersist[]) => {
+  if (!entries.length) return [] as PendingAutonomyPersist[]
+  const saved = JSON.parse(localStorage.getItem(key) || '[]')
+  if (!Array.isArray(saved)) throw new TypeError('联系人存储格式无效')
+  const savedById = new Map(saved.map((item: any) => [String(item.id), item]))
+  const persisted: PendingAutonomyPersist[] = []
+  for (const entry of entries) {
+    const target = savedById.get(String(entry.chat.id))
+    if (!target) continue
+    applyAutonomyFields(target, entry.chat)
+    persisted.push(entry)
+  }
+  if (persisted.length) localStorage.setItem(key, JSON.stringify(saved))
+  return persisted
+}
+
+const persistAutonomyTimelines = (entries: PendingAutonomyPersist[]) => {
+  for (const entry of entries) {
+    ensureChatTimelineState(entry.chat)
+    void persistActiveTimeline(entry.chat, entry.accountId)
+  }
+}
+
+export const beginAutonomyPersistenceBatch = () => {
+  autonomyPersistBatchDepth += 1
+}
+
+export const flushAutonomyPersistenceBatch = () => {
+  if (autonomyPersistBatchDepth > 0) autonomyPersistBatchDepth -= 1
+  if (autonomyPersistBatchDepth > 0 || pendingAutonomyPersists.size === 0) return
+  const batches = [...pendingAutonomyPersists.entries()]
+  for (const [key, pending] of batches) {
+    const persisted = persistAutonomyEntries(key, [...pending.values()])
+    pendingAutonomyPersists.delete(key)
+    persistAutonomyTimelines(persisted)
+  }
+}
+
 export const persistAutonomyChat = (chat: any) => {
   const key = contactsKey()
-  const saved = JSON.parse(localStorage.getItem(key) || '[]')
-  const index = saved.findIndex((item: any) => String(item.id) === String(chat.id))
-  if (index < 0) return
-  const fields = [
-    'autonomyEnabled', 'autonomyAllowMessages', 'autonomyAllowMoments', 'autonomyAllowStatus', 'autonomyStatusPermissionExplicit',
-    'autonomyCatchup', 'autonomyActiveStart', 'autonomyActiveEnd', 'autonomyMinIntervalMinutes',
-    'autonomyGuaranteeContact', 'autonomyMaxSilenceMinutes', 'autonomyEmotionMustDeliver', 'autonomyLastMeaningfulActionAt',
-    'autonomyLedger', 'autonomyDeliveries',
-    'autonomyHistory', 'autonomyState', 'messages', 'unread', 'preview', 'time', 'statusText', 'offlineUntil',
-    'statusSource', 'statusSetAt', 'enableImmersiveStatus', 'presenceSession', 'presenceHistory', 'presencePendingReply',
-    'timelineState', 'activeTimelineId'
-  ]
-  fields.forEach(field => { saved[index][field] = chat[field] })
-  localStorage.setItem(key, JSON.stringify(saved))
   const { currentChatUserId } = useChatAuth()
-  ensureChatTimelineState(chat)
-  void persistActiveTimeline(chat, currentChatUserId.value)
+  const accountId = currentChatUserId.value
+  if (autonomyPersistBatchDepth > 0) {
+    queueAutonomyPersist(key, chat, accountId)
+    return
+  }
+  const persisted = persistAutonomyEntries(key, [{ chat, accountId }])
+  persistAutonomyTimelines(persisted)
 }
 
 const addEvent = (chat: any, event: Omit<AutonomyEvent, 'id'>) => {

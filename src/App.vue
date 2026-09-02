@@ -26,7 +26,7 @@ import McpConfirmationHost from './components/mcp/McpConfirmationHost.vue'
 import AppVideoHall from './components/app_VideoHall.vue'
 import LockScreen from './components/LockScreen.vue'
 import AppWatermarkOverlay from './components/AppWatermarkOverlay.vue'
-import { globalSettings, appStats } from './store'
+import { globalSettings, appStats, flushAppStatsStorage } from './store'
 import { useChatState } from './composables/useChatState'
 import { useAppIcons } from './composables/useAppIcons'
 import { appRegistry, availableAppIds } from './appRegistry'
@@ -145,6 +145,8 @@ const phoneCallWidgetStyle = computed(() => ({
 let usageTimer: ReturnType<typeof setInterval>
 let viewportAnimationFrame = 0
 let keyboardBlurTimer: ReturnType<typeof setTimeout> | undefined
+let lastViewportHeight = 0
+let lastKeyboardOpen = false
 
 const isTextEntryTarget = (target: Element | null) => {
   if (!(target instanceof HTMLElement)) return false
@@ -156,10 +158,16 @@ const syncVisualViewport = () => {
   viewportAnimationFrame = requestAnimationFrame(() => {
     const viewportHeight = window.visualViewport?.height || window.innerHeight
     const keyboardOpen = isTextEntryTarget(document.activeElement)
-    document.documentElement.style.setProperty('--app-height', `${Math.round(viewportHeight)}px`)
-    document.documentElement.classList.toggle('keyboard-open', keyboardOpen)
+    const roundedHeight = Math.round(viewportHeight)
+    const heightChanged = roundedHeight !== lastViewportHeight
+    const keyboardChanged = keyboardOpen !== lastKeyboardOpen
+    if (!heightChanged && !keyboardChanged) return
+    lastViewportHeight = roundedHeight
+    lastKeyboardOpen = keyboardOpen
+    if (heightChanged) document.documentElement.style.setProperty('--app-height', `${roundedHeight}px`)
+    if (keyboardChanged) document.documentElement.classList.toggle('keyboard-open', keyboardOpen)
     window.dispatchEvent(new CustomEvent('app-viewport-change', {
-      detail: { height: viewportHeight, keyboardOpen }
+      detail: { height: roundedHeight, keyboardOpen }
     }))
   })
 }
@@ -175,6 +183,8 @@ const handleViewportFocusOut = () => {
   if (keyboardBlurTimer) clearTimeout(keyboardBlurTimer)
   keyboardBlurTimer = setTimeout(syncVisualViewport, 120)
 }
+
+const handleAppStatsPageHide = () => flushAppStatsStorage()
 
 onMounted(async () => {
   if (!isStandaloneApp() && localStorage.getItem(installPromptDismissedKey) !== 'true') {
@@ -193,6 +203,7 @@ onMounted(async () => {
   window.visualViewport?.addEventListener('scroll', syncVisualViewport)
   document.addEventListener('focusin', handleViewportFocusIn)
   document.addEventListener('focusout', handleViewportFocusOut)
+  window.addEventListener('pagehide', handleAppStatsPageHide)
   syncVisualViewport()
   await loadCustomContacts()
   await loadMyProfile()
@@ -221,10 +232,12 @@ onUnmounted(() => {
   window.visualViewport?.removeEventListener('scroll', syncVisualViewport)
   document.removeEventListener('focusin', handleViewportFocusIn)
   document.removeEventListener('focusout', handleViewportFocusOut)
+  window.removeEventListener('pagehide', handleAppStatsPageHide)
   if (viewportAnimationFrame) cancelAnimationFrame(viewportAnimationFrame)
   if (keyboardBlurTimer) clearTimeout(keyboardBlurTimer)
   if (developmentNoticeTimer) clearTimeout(developmentNoticeTimer)
   document.documentElement.classList.remove('keyboard-open')
+  flushAppStatsStorage()
   window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
   stopAutonomyRuntime()
 })

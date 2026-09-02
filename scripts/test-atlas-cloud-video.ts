@@ -20,7 +20,10 @@ assert.deepEqual(normalizeAtlasTask({id:'p1',status:'succeeded',outputs:['https:
 assert.equal(normalizeAtlasTask({prediction_id:'p2',status:'running',progress:32}).status,'processing')
 
 const hall=readFileSync(new URL('../src/components/app_VideoHall.vue',import.meta.url),'utf8')
-for(const marker of ["id: 'omni'","id: 'veo'","id: 'kling'","id: 'wan'","id: 'seedance'","id: 'h3'","id: 'agnes'","id: 'atlas'",'AtlasCloudVideoAccessView'])assert.ok(hall.includes(marker),`视频大厅入口回归或缺失：${marker}`)
+for(const id of ['omni','veo','kling','wan','seedance','h3','agnes','atlas']) {
+  for(const marker of [`${id}:`, `handleSelect('${id}')`]) assert.ok(hall.includes(marker),`视频大厅入口回归或缺失：${marker}`)
+}
+assert.ok(hall.includes('AtlasCloudVideoAccessView'),'视频大厅入口回归或缺失：AtlasCloudVideoAccessView')
 const view=readFileSync(new URL('../src/components/video/AtlasCloudVideoAccessView.vue',import.meta.url),'utf8')
 for(const marker of ['确认费用并生成','模型专属参数（JSON）','查询余额','上传本机素材','继续查询','远程视频保留至','@media(max-width:340px)'])assert.ok(view.includes(marker),`Atlas 用户操作链缺失：${marker}`)
 console.log('Atlas Cloud video integration tests passed')

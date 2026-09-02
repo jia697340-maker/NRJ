@@ -50,6 +50,18 @@ export const appStats = reactive({
   maxDailyMessages: savedAppStats.maxDailyMessages ?? 0
 })
 
-watch(appStats, (newVal) => {
-  localStorage.setItem(APP_STATS_STORAGE_KEY, JSON.stringify(newVal))
-}, { deep: true })
+const APP_STATS_SAVE_INTERVAL_MS = 30_000
+let appStatsSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+export const flushAppStatsStorage = () => {
+  if (appStatsSaveTimer !== null) clearTimeout(appStatsSaveTimer)
+  appStatsSaveTimer = null
+  localStorage.setItem(APP_STATS_STORAGE_KEY, JSON.stringify(appStats))
+}
+
+const scheduleAppStatsStorage = () => {
+  if (appStatsSaveTimer !== null) return
+  appStatsSaveTimer = setTimeout(flushAppStatsStorage, APP_STATS_SAVE_INTERVAL_MS)
+}
+
+watch(appStats, scheduleAppStatsStorage, { deep: true })

@@ -44,7 +44,7 @@ assert.deepEqual(normalizeAgnesRemoteTask({
 
 const hall = readFileSync(new URL('../src/components/app_VideoHall.vue', import.meta.url), 'utf8')
 const view = readFileSync(new URL('../src/components/video/AgnesVideoAccessView.vue', import.meta.url), 'utf8')
-for (const marker of ['AgnesVideoAccessView', "id: 'agnes'", "currentView === 'agnes'"]) assert.ok(hall.includes(marker), `视频大厅缺少 Agnes 入口：${marker}`)
+for (const marker of ['AgnesVideoAccessView', "agnes:", "handleSelect('agnes')", "currentView === 'agnes'"]) assert.ok(hall.includes(marker), `视频大厅缺少 Agnes 入口：${marker}`)
 for (const marker of ['网页直连', 'App 直连', '关键帧', '负向提示词', '继续查询', '复用参数', '删除', '@media(max-width:340px)']) assert.ok(view.includes(marker), `Agnes 页面缺少用户可触达能力：${marker}`)
 
 console.log('Agnes video request tests passed')
