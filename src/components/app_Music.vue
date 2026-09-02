@@ -16,6 +16,7 @@ import MusicCommentsModal from './music/modals/MusicCommentsModal.vue'
 import MusicPrivacyModal from './music/modals/MusicPrivacyModal.vue'
 import MusicPlaylistCollectionModal from './music/modals/MusicPlaylistCollectionModal.vue'
 import MusicPlaylistDetailModal from './music/modals/MusicPlaylistDetailModal.vue'
+import MusicAddToPlaylistsModal from './music/modals/MusicAddToPlaylistsModal.vue'
 import TogetherListenHub from './music/TogetherListenHub.vue'
 import { useMusicLibrary } from '../composables/useMusicLibrary'
 import { useMusicPlayer } from '../composables/useMusicPlayer'
@@ -47,7 +48,8 @@ const playlistFilterChecked = ref(0)
 const playlistFilterTotal = ref(0)
 const playlistFilterRemoved = ref(0)
 const playlistError = ref('')
-const { libraryMessage, homeSections, sourceConfigs, privacyPreferences, clearSearch, loadPlaylist, filterPlayablePlaylistTracks, setAnonymousPublicSources, clearOnlineAccountData, setMessage } = useMusicLibrary()
+const pendingAddTrack = ref<MusicTrack | null>(null)
+const { libraryMessage, homeSections, sourceConfigs, privacyPreferences, customPlaylists, playlistTracks, clearSearch, loadPlaylist, filterPlayablePlaylistTracks, addToPlaylists, reorderPlaylistTracks, setAnonymousPublicSources, clearOnlineAccountData, setMessage } = useMusicLibrary()
 const { currentTrack, playTracks, embedViewRequest } = useMusicPlayer()
 watch(embedViewRequest, () => { if (activeTab.value !== 'listen') isFullPlayerOpen.value = true })
 const handlePrivacyChoice = async (allowed: boolean) => {
@@ -79,6 +81,13 @@ const requestPublicPlaylist = (playlist: MusicPlaylist) => {
   privacyModalMode.value = 'public-consent'
 }
 const openPlaylist = async (playlist: MusicPlaylist) => {
+  const custom = customPlaylists.value.find(item => item.id === playlist.id)
+  if (custom) {
+    isCollectionOpen.value = false; selectedPlaylist.value = custom; selectedPlaylistTracks.value = [...(playlistTracks[custom.id] || [])]
+    isPlaylistFiltering.value = false; playlistFilterChecked.value = 0; playlistFilterTotal.value = 0; playlistFilterRemoved.value = 0
+    playlistError.value = ''; isPlaylistLoading.value = false; isPlaylistDetailOpen.value = true
+    return
+  }
   const source = sourceConfigs.value.find(item => item.id === playlist.sourceId)
   if (source?.kind === 'meting' && !source.enabled) {
     requestPublicPlaylist(playlist)
@@ -96,7 +105,15 @@ const openHistoryModal = (tab: 'records' | 'edit' = 'records') => {
   isHistoryModalOpen.value = true
 }
 
-const playSelected = (index = 0) => { if (selectedPlaylistTracks.value.length) void playTracks(selectedPlaylistTracks.value, index) }
+const selectedPlaylistIsCustom = computed(() => Boolean(selectedPlaylist.value && customPlaylists.value.some(item => item.id === selectedPlaylist.value?.id)))
+const playSelected = (index = 0) => { if (selectedPlaylistTracks.value.length) void playTracks(selectedPlaylistTracks.value, index, selectedPlaylistIsCustom.value ? selectedPlaylist.value?.id || null : null) }
+const moveSelectedTrack = (from: number, to: number) => {
+  if (!selectedPlaylist.value || !selectedPlaylistIsCustom.value) return
+  reorderPlaylistTracks(selectedPlaylist.value.id, from, to)
+  selectedPlaylistTracks.value = [...(playlistTracks[selectedPlaylist.value.id] || [])]
+}
+const openAddToPlaylists = (track: MusicTrack) => { pendingAddTrack.value = track }
+const addTrackToSelectedPlaylists = (playlistIds: string[], track: MusicTrack) => { addToPlaylists(playlistIds, track); pendingAddTrack.value = null }
 const filterSelectedPlaylist = async () => {
   if (isPlaylistFiltering.value || !selectedPlaylistTracks.value.length) return
   const playlistKey = selectedPlaylist.value ? `${selectedPlaylist.value.sourceId}:${selectedPlaylist.value.id}` : ''
@@ -139,6 +156,7 @@ const handleBack = () => {
           @openSources="isSourceModalOpen = true"
           @openData="isDataModalOpen = true"
           @openHistory="openHistoryModal"
+          @openPlaylist="openPlaylist"
         />
         <MusicHomeTab
           v-else-if="activeTab === 'home'"
@@ -147,6 +165,7 @@ const handleBack = () => {
           @openPlaylist="openPlaylist"
           @requestPublicPlaylist="requestPublicPlaylist"
           @openCollection="openCollection"
+          @addToPlaylist="openAddToPlaylists"
         />
         <div v-else class="listen-together-wrapper">
           <MusicPlayerView
@@ -155,6 +174,7 @@ const handleBack = () => {
             @openPlaybackSettings="isPlaybackSettingsOpen = true"
             @openComments="isCommentsOpen = true"
             @openTogetherListen="isTogetherListenOpen = true"
+            @addToPlaylist="openAddToPlaylists"
           />
         </div>
       </KeepAlive>
@@ -188,6 +208,7 @@ const handleBack = () => {
         @openPlaybackSettings="isPlaybackSettingsOpen = true"
         @openComments="isCommentsOpen = true"
         @openTogetherListen="isTogetherListenOpen = true"
+        @addToPlaylist="openAddToPlaylists"
       />
     </transition>
 
@@ -212,7 +233,8 @@ const handleBack = () => {
     />
     <MusicPrivacyModal :visible="privacyModalMode !== 'closed'" :mode="privacyModalMode === 'closed' ? 'management' : privacyModalMode" :anonymousAllowed="privacyPreferences.allowAnonymousPublicSources" @choose="handlePrivacyChoice" @close="closePrivacy" @clearAccounts="clearOnlineAccountData" />
     <MusicPlaylistCollectionModal :visible="isCollectionOpen" :title="collectionMode === 'charts' ? '排行榜' : '歌单广场'" :subtitle="collectionMode === 'charts' ? '按当前热门播放量排序' : '来自已启用音乐来源的推荐歌单'" :playlists="collectionPlaylists" @close="isCollectionOpen = false" @select="openPlaylist" />
-    <MusicPlaylistDetailModal :visible="isPlaylistDetailOpen" :playlist="selectedPlaylist" :tracks="selectedPlaylistTracks" :loading="isPlaylistLoading" :error="playlistError" :filtering="isPlaylistFiltering" :filterChecked="playlistFilterChecked" :filterTotal="playlistFilterTotal" :filterRemoved="playlistFilterRemoved" @close="isPlaylistDetailOpen = false" @filter="filterSelectedPlaylist" @playAll="playSelected(0)" @play="(_track, index) => playSelected(index)" />
+    <MusicPlaylistDetailModal :visible="isPlaylistDetailOpen" :playlist="selectedPlaylist" :tracks="selectedPlaylistTracks" :loading="isPlaylistLoading" :error="playlistError" :filtering="isPlaylistFiltering" :filterChecked="playlistFilterChecked" :filterTotal="playlistFilterTotal" :filterRemoved="playlistFilterRemoved" :editable="selectedPlaylistIsCustom" @close="isPlaylistDetailOpen = false" @filter="filterSelectedPlaylist" @playAll="playSelected(0)" @play="(_track, index) => playSelected(index)" @reorder="moveSelectedTrack" @addToPlaylist="openAddToPlaylists" />
+    <MusicAddToPlaylistsModal :visible="Boolean(pendingAddTrack)" :track="pendingAddTrack" :playlists="customPlaylists" :playlistTracks="playlistTracks" @close="pendingAddTrack = null" @add="addTrackToSelectedPlaylists" />
     <transition name="music-toast"><div v-if="libraryMessage" class="music-toast">{{ libraryMessage }}</div></transition>
   </div>
 </template>

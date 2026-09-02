@@ -8,7 +8,7 @@ import { probeMusicUrl, verifiedEmbedTrack } from '../services/musicPlaybackVali
 import { markMusicSourceFailure, markMusicSourceSuccess, orderMusicSourcesForCapability } from '../services/musicSourceFallback'
 import {
   initializeMusicRuntime, musicCurrentIndex, musicCurrentTime, musicHistory, musicLikedKeys,
-  musicPlayMode, musicPreferredQuality, musicQueue, musicSourceConfigs, musicVolume, persistMusicRuntime
+  musicPlayMode, musicPreferredQuality, musicQueue, musicQueueSourcePlaylistId, musicSourceConfigs, musicVolume, persistMusicRuntime
 } from '../services/musicRuntime'
 
 export type { MusicPlaylist, MusicTrack } from '../types/music'
@@ -46,6 +46,45 @@ let embedValidationTimer: number | null = null
 let activeCandidateId = ''
 let embedController: MusicEmbedController | null = null
 const rejectedCandidateIds = new Set<string>()
+let navigationHistory: number[] = []
+let navigationCursor = -1
+let shuffleOrder: number[] = []
+let shuffleCursor = -1
+
+const shuffledIndexes = (indexes: number[]) => {
+  const result = [...indexes]
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1))
+    ;[result[index], result[target]] = [result[target], result[index]]
+  }
+  return result
+}
+
+const resetNavigation = () => {
+  navigationHistory = musicCurrentIndex.value >= 0 ? [musicCurrentIndex.value] : []
+  navigationCursor = navigationHistory.length - 1
+  shuffleOrder = musicCurrentIndex.value >= 0
+    ? [musicCurrentIndex.value, ...shuffledIndexes(musicQueue.value.map((_, index) => index).filter(index => index !== musicCurrentIndex.value))]
+    : []
+  shuffleCursor = shuffleOrder.length ? 0 : -1
+}
+
+const rememberNavigation = (index: number) => {
+  navigationHistory = navigationHistory.slice(0, navigationCursor + 1)
+  navigationHistory.push(index)
+  navigationCursor = navigationHistory.length - 1
+}
+
+const nextShuffleIndex = () => {
+  if (shuffleCursor + 1 < shuffleOrder.length) return shuffleOrder[++shuffleCursor]
+  const indexes = shuffledIndexes(musicQueue.value.map((_, index) => index))
+  if (indexes.length > 1 && indexes[0] === musicCurrentIndex.value) {
+    ;[indexes[0], indexes[1]] = [indexes[1], indexes[0]]
+  }
+  shuffleOrder = indexes
+  shuffleCursor = 0
+  return shuffleOrder[0]
+}
 
 export interface MusicEmbedController {
   load(videoId: string, autoplay: boolean): Promise<void>
@@ -255,12 +294,20 @@ const nextTrack = async (fromEnded = false) => {
   if (fromEnded && musicPlayMode.value === 'single') {
     if (activePlaybackType.value === 'embed') { embedController?.seek(0); embedController?.play(); return }
     audio.currentTime = 0
+    await audio.play().catch(() => undefined)
+    return
   }
-  else if (musicPlayMode.value === 'random' && musicQueue.value.length > 1) {
-    let next = musicCurrentIndex.value
-    while (next === musicCurrentIndex.value) next = Math.floor(Math.random() * musicQueue.value.length)
-    musicCurrentIndex.value = next
-  } else musicCurrentIndex.value = (musicCurrentIndex.value + 1) % musicQueue.value.length
+  if ((musicPlayMode.value === 'shuffle' || musicPlayMode.value === 'random') && navigationCursor < navigationHistory.length - 1) {
+    musicCurrentIndex.value = navigationHistory[++navigationCursor]
+  } else if (musicPlayMode.value === 'shuffle') {
+    musicCurrentIndex.value = nextShuffleIndex()
+    rememberNavigation(musicCurrentIndex.value)
+  } else if (musicPlayMode.value === 'random') {
+    musicCurrentIndex.value = Math.floor(Math.random() * musicQueue.value.length)
+    rememberNavigation(musicCurrentIndex.value)
+  } else {
+    musicCurrentIndex.value = (musicCurrentIndex.value + 1) % musicQueue.value.length
+  }
   musicCurrentTime.value = 0
   await loadCurrentTrack(true)
 }
@@ -268,7 +315,10 @@ const nextTrack = async (fromEnded = false) => {
 const prevTrack = async () => {
   if (!musicQueue.value.length) return
   if ((activePlaybackType.value === 'embed' ? musicCurrentTime.value : audio.currentTime) > 3) { seek(0); return }
-  musicCurrentIndex.value = (musicCurrentIndex.value - 1 + musicQueue.value.length) % musicQueue.value.length
+  if (musicPlayMode.value === 'shuffle' || musicPlayMode.value === 'random') {
+    if (navigationCursor <= 0) { seek(0); return }
+    musicCurrentIndex.value = navigationHistory[--navigationCursor]
+  } else musicCurrentIndex.value = (musicCurrentIndex.value - 1 + musicQueue.value.length) % musicQueue.value.length
   musicCurrentTime.value = 0
   await loadCurrentTrack(true)
 }
@@ -324,6 +374,7 @@ if ('mediaSession' in navigator) {
 export function useMusicPlayer() {
   void initializeMusicRuntime().then(() => {
     audio.volume = musicVolume.value
+    if (!navigationHistory.length && musicCurrentIndex.value >= 0) resetNavigation()
     if (currentTrack.value && !audio.src) void loadCurrentTrack(false, musicCurrentTime.value)
   })
 
@@ -346,16 +397,20 @@ export function useMusicPlayer() {
     if (index < 0) { musicQueue.value = [...musicQueue.value, track]; index = musicQueue.value.length - 1 }
     else musicQueue.value[index] = track
     musicCurrentIndex.value = index
+    musicQueueSourcePlaylistId.value = null
     musicCurrentTime.value = 0
+    resetNavigation()
     await loadCurrentTrack(true)
   }
 
-  const playTracks = async (tracks: MusicTrack[], start = 0) => {
+  const playTracks = async (tracks: MusicTrack[], start = 0, sourcePlaylistId: string | null = null) => {
     if (!tracks.length) return
     rejectedCandidateIds.clear()
     musicQueue.value = [...tracks]
     musicCurrentIndex.value = Math.max(0, Math.min(start, tracks.length - 1))
+    musicQueueSourcePlaylistId.value = sourcePlaylistId
     musicCurrentTime.value = 0
+    resetNavigation()
     await loadCurrentTrack(true)
   }
 
@@ -363,14 +418,21 @@ export function useMusicPlayer() {
     if (index < 0 || index >= musicQueue.value.length) return
     const removingCurrent = index === musicCurrentIndex.value
     musicQueue.value.splice(index, 1)
+    musicQueueSourcePlaylistId.value = null
     if (!musicQueue.value.length) { audio.pause(); embedController?.pause(); audio.removeAttribute('src'); musicCurrentIndex.value = -1; resolvedUrl.value = ''; activeEmbedId.value = '' }
     else if (index < musicCurrentIndex.value) musicCurrentIndex.value -= 1
     else if (removingCurrent) { musicCurrentIndex.value %= musicQueue.value.length; void loadCurrentTrack(true) }
+    resetNavigation()
     persistMusicRuntime()
   }
 
-  const clearQueue = () => { audio.pause(); embedController?.pause(); audio.removeAttribute('src'); cleanupObjectUrl(); musicQueue.value = []; musicCurrentIndex.value = -1; musicCurrentTime.value = 0; resolvedUrl.value = ''; activeEmbedId.value = ''; activePlaybackType.value = 'full'; persistMusicRuntime() }
-  const toggleMode = () => { musicPlayMode.value = musicPlayMode.value === 'loop' ? 'single' : musicPlayMode.value === 'single' ? 'random' : 'loop'; persistMusicRuntime() }
+  const clearQueue = () => { audio.pause(); embedController?.pause(); audio.removeAttribute('src'); cleanupObjectUrl(); musicQueue.value = []; musicCurrentIndex.value = -1; musicQueueSourcePlaylistId.value = null; musicCurrentTime.value = 0; resolvedUrl.value = ''; activeEmbedId.value = ''; activePlaybackType.value = 'full'; resetNavigation(); persistMusicRuntime() }
+  const detachQueueSource = () => { musicQueueSourcePlaylistId.value = null; persistMusicRuntime() }
+  const toggleMode = () => {
+    musicPlayMode.value = musicPlayMode.value === 'loop' ? 'single' : musicPlayMode.value === 'single' ? 'shuffle' : musicPlayMode.value === 'shuffle' ? 'random' : 'loop'
+    resetNavigation()
+    persistMusicRuntime()
+  }
   const toggleLike = () => { if (!currentTrack.value) return; const key = musicTrackKey(currentTrack.value); musicLikedKeys.value = musicLikedKeys.value.includes(key) ? musicLikedKeys.value.filter(item => item !== key) : [...musicLikedKeys.value, key]; persistMusicRuntime() }
   const setVolume = (value: number) => { musicVolume.value = Math.max(0, Math.min(1, value)); audio.volume = musicVolume.value; embedController?.setVolume(musicVolume.value); persistMusicRuntime() }
   const setQuality = (value: typeof musicPreferredQuality.value) => { musicPreferredQuality.value = value; persistMusicRuntime() }
@@ -386,10 +448,10 @@ export function useMusicPlayer() {
   const formatTime = (seconds: number) => { const value = Number.isFinite(seconds) ? seconds : 0; return `${Math.floor(value / 60).toString().padStart(2, '0')}:${Math.floor(value % 60).toString().padStart(2, '0')}` }
 
   return {
-    playlist: musicQueue, currentTrack, currentTrackIndex: musicCurrentIndex, isPlaying, isBuffering,
+    playlist: musicQueue, queueSourcePlaylistId: musicQueueSourcePlaylistId, currentTrack, currentTrackIndex: musicCurrentIndex, isPlaying, isBuffering,
     playbackError, currentTime: musicCurrentTime, isLikedCurrent, playMode: musicPlayMode,
     isLyricMode, progressPercent, currentLyricIndex, volume: musicVolume, sleepEndsAt, activePlaybackType, activeEmbedId, activeEmbedProvider, embedViewRequest,
     preferredQuality: musicPreferredQuality, togglePlay, playTrack, playTracks, nextTrack: nextTrackAction,
-    prevTrack, seek, toggleMode, toggleLike, removeFromQueue, clearQueue, setVolume, setQuality, setSleepTimer, formatTime
+    prevTrack, seek, toggleMode, toggleLike, removeFromQueue, clearQueue, detachQueueSource, setVolume, setQuality, setSleepTimer, formatTime
   }
 }

@@ -464,6 +464,7 @@ const confirmImport = () => {
         v-model:visible="uploadModalVisible" 
         :current-avatar="editingItem?.avatar || ''"
         shape="avatar"
+        enable-crop
         @saved="handleAvatarSaved" 
       />
     </Teleport>

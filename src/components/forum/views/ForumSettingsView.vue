@@ -160,7 +160,7 @@ const toggleBridgeType=(subjectId:string,direction:'forumToChat'|'chatToForum',t
         <label class="setting-row"><span><b>自动配图</b><small>使用图像大厅中的同一引擎、模型与 API 配置</small></span><select v-model="snapshot.settings.autoImageProvider" class="row-select"><option value="off">关闭</option><option v-for="provider in autoImageProviders" :key="provider.id" :value="provider.id">{{autoImageProviderLabel(provider.id,provider.name)}}</option></select></label><p v-if="snapshot.settings.autoImageProvider==='aihorde'" class="plain-note">AI Horde 使用社区免费志愿算力，可能排队，且 Worker 理论上可以看到提示词和结果；请勿用于真人隐私或敏感内容。</p><div class="setting-row static"><span><b>语音</b><small>复用已配置的 Seed Audio TTS</small></span><i>复用</i></div><div class="setting-row static"><span><b>轻短视频</b><small>图片 + TTS + 字幕 + 前端动画实时播放</small></span><i>实时</i></div>
       </template>
     </div>
-    <AvatarUploadModal v-model:visible="avatarUploadVisible" :current-avatar="profileAvatar" shape="circle" title="更换论坛头像" @saved="value=>profileAvatar=value||''"/>
+    <AvatarUploadModal v-model:visible="avatarUploadVisible" :current-avatar="profileAvatar" shape="circle" title="更换论坛头像" enable-crop @saved="value=>profileAvatar=value||''"/>
   </div>
 </template>
 

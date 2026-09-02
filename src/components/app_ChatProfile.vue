@@ -897,6 +897,7 @@ const handleUnbindPersonaFromAccount = (personaId: string | number) => {
         v-model:visible="uploadModalVisible" 
         :current-avatar="newUserAvatar"
         shape="avatar"
+        enable-crop
         @saved="handleAvatarSaved" 
       />
       <PersonaImportModal

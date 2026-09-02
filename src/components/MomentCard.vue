@@ -72,6 +72,7 @@
       v-model:visible="showImageModal"
       :currentAvatar="currentImageUrl"
       :shape="currentImageType === 'avatar' ? 'avatar' : currentImageType === 'left' ? 'bg-left' : 'bg-right'"
+      :enable-crop="currentImageType === 'avatar'"
       @saved="saveImage"
     />
 

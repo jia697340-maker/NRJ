@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { reactive, ref } from 'vue'
-import type { MusicPlaylist, MusicQuality, MusicSourceConfig, MusicTrack } from '../types/music'
+import type { MusicPlaylist, MusicPlayMode, MusicQuality, MusicSourceConfig, MusicTrack } from '../types/music'
 import { defaultMusicSourceConfigs } from './musicProviders'
 import { loadMusicState, saveMusicState } from './musicStorage'
 
@@ -8,7 +8,8 @@ export const musicQueue = ref<MusicTrack[]>([])
 export const musicCurrentIndex = ref(-1)
 export const musicCurrentTime = ref(0)
 export const musicVolume = ref(0.85)
-export const musicPlayMode = ref<'loop' | 'single' | 'random'>('loop')
+export const musicPlayMode = ref<MusicPlayMode>('loop')
+export const musicQueueSourcePlaylistId = ref<string | null>(null)
 export const musicPreferredQuality = ref<MusicQuality>('exhigh')
 export const musicLikedKeys = ref<string[]>([])
 export const musicHistory = ref<MusicTrack[]>([])
@@ -39,6 +40,7 @@ export const persistMusicRuntime = () => {
       currentTime: musicCurrentTime.value,
       volume: musicVolume.value,
       playMode: musicPlayMode.value,
+      queueSourcePlaylistId: musicQueueSourcePlaylistId.value,
       preferredQuality: musicPreferredQuality.value,
       sourceConfigs: musicSourceConfigs.value,
       customTrackCount: musicCustomTrackCount.value,
@@ -71,7 +73,8 @@ export const initializeMusicRuntime = () => {
       musicCurrentIndex.value = saved.currentTrackKey ? Math.max(0, musicQueue.value.findIndex(item => item.id === saved.currentTrackKey)) : (musicQueue.value.length ? 0 : -1)
       musicCurrentTime.value = Number(saved.currentTime || 0)
       musicVolume.value = Number.isFinite(saved.volume) ? Number(saved.volume) : 0.85
-      musicPlayMode.value = saved.playMode || 'loop'
+      musicPlayMode.value = ['loop', 'single', 'shuffle', 'random'].includes(saved.playMode || '') ? saved.playMode as MusicPlayMode : 'loop'
+      musicQueueSourcePlaylistId.value = typeof saved.queueSourcePlaylistId === 'string' ? saved.queueSourcePlaylistId : null
       musicPreferredQuality.value = saved.preferredQuality || 'exhigh'
       musicCustomTrackCount.value = typeof saved.customTrackCount === 'number' ? saved.customTrackCount : null
       musicCustomTotalMinutes.value = typeof saved.customTotalMinutes === 'number' ? saved.customTotalMinutes : null

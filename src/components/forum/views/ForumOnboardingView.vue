@@ -34,7 +34,7 @@ const canSubmit = computed(() => name.value.trim().length > 0 && handle.value.tr
       </div>
       <button class="primary-submit" type="button" :disabled="!canSubmit" @click="emit('complete', { name, handle, bio, avatar, defaultSquare, generateStrangers })">进入论坛</button>
     </div>
-    <AvatarUploadModal v-model:visible="avatarUploadVisible" :current-avatar="avatar" shape="circle" title="设置论坛头像" @saved="value => avatar = value || ''" />
+    <AvatarUploadModal v-model:visible="avatarUploadVisible" :current-avatar="avatar" shape="circle" title="设置论坛头像" enable-crop @saved="value => avatar = value || ''" />
   </div>
 </template>
 

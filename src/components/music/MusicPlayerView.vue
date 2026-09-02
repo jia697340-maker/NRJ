@@ -32,8 +32,9 @@ const {
   formatTime
 } = useMusicPlayer()
 
-const emit = defineEmits(['collapse', 'openPlaylistDrawer', 'openPlaybackSettings', 'openComments', 'openTogetherListen'])
+const emit = defineEmits(['collapse', 'openPlaylistDrawer', 'openPlaybackSettings', 'openComments', 'openTogetherListen', 'addToPlaylist'])
 const { setMessage, loadComments } = useMusicLibrary()
+const playModeLabel = computed(() => ({ loop: '歌单循环', single: '单曲循环', shuffle: '歌单随机播放', random: '真随机播放' })[playMode.value])
 const { activeSession } = useTogetherListen()
 const listenClock = ref(Date.now())
 const listenBubble = ref('')
@@ -337,26 +338,29 @@ const shareCurrent = async () => {
       <!-- 主播放控制器 -->
       <div class="main-controls-bar">
       <!-- 播放模式 -->
-      <button class="ctrl-btn-sub" @click="toggleMode" :title="playMode">
+      <button class="ctrl-btn-sub" @click="toggleMode" :title="playModeLabel" :aria-label="playModeLabel">
         <svg v-if="playMode === 'loop'" viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
-          <polyline points="17 1 21 5 17 9"></polyline>
-          <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
-          <polyline points="7 23 3 19 7 15"></polyline>
-          <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+          <path d="M4 7h12a4 4 0 0 1 4 4v1"></path><polyline points="17 9 20 12 23 9"></polyline>
+          <path d="M20 17H8a4 4 0 0 1-4-4v-1"></path><polyline points="7 15 4 12 1 15"></polyline>
         </svg>
         <svg v-else-if="playMode === 'single'" viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
-          <polyline points="17 1 21 5 17 9"></polyline>
-          <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
-          <polyline points="7 23 3 19 7 15"></polyline>
-          <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+          <path d="M4 7h12a4 4 0 0 1 4 4v1"></path><polyline points="17 9 20 12 23 9"></polyline>
+          <path d="M20 17H8a4 4 0 0 1-4-4v-1"></path><polyline points="7 15 4 12 1 15"></polyline>
+          <path d="M11 10h1v5" stroke-width="1.8"></path>
         </svg>
-        <svg v-else viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
-          <polyline points="16 3 21 3 21 8"></polyline>
-          <line x1="4" y1="20" x2="21" y2="3"></line>
-          <polyline points="21 16 21 21 16 21"></polyline>
-          <line x1="15" y1="15" x2="21" y2="21"></line>
-          <line x1="4" y1="4" x2="9" y2="9"></line>
+        <svg v-else-if="playMode === 'shuffle'" viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
+          <path d="M3 6h2.5c5 0 6 12 11 12H21"></path><polyline points="18 15 21 18 18 21"></polyline>
+          <path d="M3 18h2.5c2.2 0 3.5-2.3 4.8-5"></path><path d="M13.7 8.5C14.6 7 15.5 6 17 6h4"></path><polyline points="18 3 21 6 18 9"></polyline>
         </svg>
+        <svg v-else viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="1.8" fill="none">
+          <rect x="4" y="4" width="16" height="16" rx="3"></rect>
+          <circle cx="9" cy="9" r="1" fill="currentColor" stroke="none"></circle><circle cx="15" cy="9" r="1" fill="currentColor" stroke="none"></circle>
+          <circle cx="9" cy="15" r="1" fill="currentColor" stroke="none"></circle><circle cx="15" cy="15" r="1" fill="currentColor" stroke="none"></circle>
+        </svg>
+      </button>
+
+      <button class="interact-btn" title="添加到歌单" aria-label="添加到歌单" :disabled="!currentTrack" @click="currentTrack && emit('addToPlaylist', currentTrack)">
+        <svg viewBox="0 0 24 24" width="21" height="21" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 6h10M4 12h7M4 18h7"/><line x1="17" y1="12" x2="17" y2="20"/><line x1="13" y1="16" x2="21" y2="16"/></svg>
       </button>
 
       <!-- 上一首 -->
@@ -869,6 +873,7 @@ const shareCurrent = async () => {
 .interact-btn.liked {
   color: #111111;
 }
+.interact-btn:disabled{opacity:.35;cursor:default}
 
 .is-dark .interact-btn.liked {
   color: #ffffff;

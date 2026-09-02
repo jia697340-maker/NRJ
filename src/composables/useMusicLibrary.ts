@@ -392,8 +392,15 @@ export function useMusicLibrary() {
     persistMusicRuntime()
   }
 
-  const createPlaylist = (name: string) => {
-    const playlist: MusicPlaylist = { id: `custom-${Date.now()}`, sourceId: 'local', name: name.trim() || '新建歌单', trackCount: 0, playCount: 0, trackIds: [], updatedAt: Date.now() }
+  const createPlaylist = (input: string | Pick<MusicPlaylist, 'name' | 'description' | 'isPrivate' | 'coverUrl' | 'coverStorage' | 'originalCoverUrl'>) => {
+    const data = typeof input === 'string' ? { name: input } : input
+    const now = Date.now()
+    const playlist: MusicPlaylist = {
+      id: `custom-${now}-${Math.random().toString(36).slice(2, 7)}`,
+      sourceId: 'local', name: data.name.trim() || '新建歌单', description: data.description?.trim(),
+      isPrivate: Boolean(data.isPrivate), coverUrl: data.coverUrl, coverStorage: data.coverStorage,
+      originalCoverUrl: data.originalCoverUrl, trackCount: 0, playCount: 0, trackIds: [], createdAt: now, updatedAt: now
+    }
     musicCustomPlaylists.value = [playlist, ...musicCustomPlaylists.value]
     musicPlaylistTracks[playlist.id] = []
     persistMusicRuntime()
@@ -406,6 +413,45 @@ export function useMusicLibrary() {
     const playlist = musicCustomPlaylists.value.find(item => item.id === playlistId)
     if (playlist) { playlist.trackCount = musicPlaylistTracks[playlistId].length; playlist.updatedAt = Date.now() }
     persistMusicRuntime()
+  }
+
+  const addToPlaylists = (playlistIds: string[], track: MusicTrack) => {
+    const validIds = new Set(musicCustomPlaylists.value.map(item => item.id))
+    playlistIds.filter(id => validIds.has(id)).forEach(id => addToPlaylist(id, track))
+    setMessage(playlistIds.length ? `已添加到 ${playlistIds.length} 个歌单` : '请选择歌单')
+  }
+
+  const updatePlaylist = (playlistId: string, patch: Partial<Pick<MusicPlaylist, 'name' | 'description' | 'isPrivate' | 'coverUrl' | 'coverStorage' | 'originalCoverUrl'>>) => {
+    const index = musicCustomPlaylists.value.findIndex(item => item.id === playlistId)
+    if (index < 0) return
+    const current = musicCustomPlaylists.value[index]
+    musicCustomPlaylists.value[index] = { ...current, ...patch, name: patch.name?.trim() || current.name, description: patch.description?.trim(), updatedAt: Date.now() }
+    persistMusicRuntime()
+  }
+
+  const reorderPlaylists = (orderedIds: string[]) => {
+    const order = new Map(orderedIds.map((id, index) => [id, index]))
+    musicCustomPlaylists.value = [...musicCustomPlaylists.value].sort((a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER))
+    persistMusicRuntime()
+  }
+
+  const reorderPlaylistTracks = (playlistId: string, from: number, to: number) => {
+    const tracks = [...(musicPlaylistTracks[playlistId] || [])]
+    if (from < 0 || from >= tracks.length || to < 0 || to >= tracks.length || from === to) return
+    const [track] = tracks.splice(from, 1)
+    tracks.splice(to, 0, track)
+    musicPlaylistTracks[playlistId] = tracks
+    const playlist = musicCustomPlaylists.value.find(item => item.id === playlistId)
+    if (playlist) playlist.updatedAt = Date.now()
+    persistMusicRuntime()
+  }
+
+  const deletePlaylists = (playlistIds: string[]) => {
+    const ids = new Set(playlistIds)
+    musicCustomPlaylists.value = musicCustomPlaylists.value.filter(item => !ids.has(item.id))
+    playlistIds.forEach(id => { delete musicPlaylistTracks[id] })
+    persistMusicRuntime()
+    setMessage(`已删除 ${playlistIds.length} 个歌单`)
   }
 
   const updateSourceConfig = (config: MusicSourceConfig) => {
@@ -540,7 +586,7 @@ export function useMusicLibrary() {
     customTrackCount: musicCustomTrackCount, customTotalMinutes: musicCustomTotalMinutes,
     customNickname: musicCustomNickname, customVipLabel: musicCustomVipLabel, customSignature: musicCustomSignature,
     searchAll, clearSearch, loadHome, refreshProfiles, loadPlaylist, filterPlayablePlaylistTracks, loadComments, importLocalFiles, toggleLikeTrack,
-    createPlaylist, addToPlaylist, updateSourceConfig, setAnonymousPublicSources,
+    createPlaylist, addToPlaylist, addToPlaylists, updatePlaylist, reorderPlaylists, reorderPlaylistTracks, deletePlaylists, updateSourceConfig, setAnonymousPublicSources,
     clearOnlineAccountData, importPlaylistLink, importPlaylistFile, exportLibrary,
     importLibraryBackup, deleteHistoryTracks, clearAllHistory, setCustomTrackCount,
     setCustomTotalMinutes, setCustomProfile, resetCustomProfile, setMessage

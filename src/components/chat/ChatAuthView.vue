@@ -375,6 +375,7 @@ const handleBack = () => {
         v-model:visible="avatarModalVisible" 
         :current-avatar="regForm.avatarUrl"
         shape="circle"
+        enable-crop
         @saved="handleAvatarSaved" 
       />
     </Teleport>

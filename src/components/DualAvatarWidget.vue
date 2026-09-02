@@ -29,6 +29,7 @@
       <AvatarUploadModal 
         v-model:visible="modalVisible" 
         :current-avatar="editingAvatar === 'left' ? leftAvatar : rightAvatar"
+        enable-crop
         @saved="handleAvatarSaved" 
       />
       

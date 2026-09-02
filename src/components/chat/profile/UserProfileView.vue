@@ -364,7 +364,7 @@ onUnmounted(() => { window.removeEventListener('clingy:moments-updated', load); 
       <Transition name="social-sheet"><div v-if="pendingPrivacyChange" class="character-sheet-overlay center" @click.self="pendingPrivacyChange=null"><section class="character-editor-modal privacy-change-confirm" role="dialog" aria-modal="true"><header><div><p>PRIVACY CHECK</p><h2>确认扩大可见范围</h2></div><button type="button" aria-label="关闭" @click="pendingPrivacyChange=null"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><p>{{ pendingPrivacyChange.summary }}</p><small>缩小范围会立即生效；你可以随时在隐私设置中改变确认方式。</small><footer><button type="button" @click="pendingPrivacyChange=null">取消</button><button class="primary" type="button" @click="confirmPrivacyChange">确认公开</button></footer></section></div></Transition>
     </Teleport>
     <AvatarUploadModal v-model:visible="showCoverUpload" :current-avatar="coverUrl" shape="wallpaper" title="设置用户主页背景" @saved="saveCover" />
-    <AvatarUploadModal v-model:visible="showAvatarUpload" :current-avatar="currentAccount?.avatarUrl" shape="avatar" title="更换账号头像" @saved="saveAvatar" />
+    <AvatarUploadModal v-model:visible="showAvatarUpload" :current-avatar="currentAccount?.avatarUrl" shape="avatar" title="更换账号头像" enable-crop @saved="saveAvatar" />
   </div>
 </template>
 

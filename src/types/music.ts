@@ -4,6 +4,7 @@ export type MusicSourceId = 'local' | 'aggregate' | 'netease' | 'qq' | 'kugou' |
 export type MusicQuality = 'standard' | 'higher' | 'exhigh' | 'lossless' | 'hires'
 export type MusicPlaybackType = 'full' | 'local' | 'embed'
 export type MusicValidationStatus = 'unknown' | 'checking' | 'verified' | 'trial' | 'unavailable'
+export type MusicPlayMode = 'loop' | 'single' | 'shuffle' | 'random'
 
 export interface MusicSourceStatus {
   id: string
@@ -93,6 +94,10 @@ export interface MusicPlaylist {
   description?: string
   ownerName?: string
   trackIds?: string[]
+  isPrivate?: boolean
+  coverStorage?: 'local' | 'url-direct' | 'url-cached'
+  originalCoverUrl?: string
+  createdAt?: number
   updatedAt?: number
 }
 
@@ -181,7 +186,8 @@ export interface MusicPersistedState {
   currentTrackKey: string | null
   currentTime: number
   volume: number
-  playMode: 'loop' | 'single' | 'random'
+  playMode: MusicPlayMode
+  queueSourcePlaylistId?: string | null
   preferredQuality: MusicQuality
   sourceConfigs: MusicSourceConfig[]
   customTrackCount?: number | null

@@ -101,6 +101,12 @@ const allSettingsData = computed(() => {
       valueText: watermarkConfig.enabled ? '已启用' : '未开启'
     },
     {
+      id: 'enableAvatarCrop',
+      type: 'toggle',
+      label: '上传头像时裁剪',
+      value: globalSettings.enableAvatarCrop
+    },
+    {
       id: 'enableSlider',
       type: 'toggle',
       label: '侧边栏可拖拽',
@@ -322,7 +328,7 @@ const handleInputModalSubmit = async () => {
 // 点击项目分发
 const handleItemClick = (item: any) => {
   if (item.type === 'toggle') {
-    if (['darkMode', 'nightShift', 'showStatusBar', 'showNotch', 'chargingBoltInside', 'enableSlider', 'showDockAppNames', 'enableLockScreen'].includes(item.id)) {
+    if (['darkMode', 'nightShift', 'showStatusBar', 'showNotch', 'chargingBoltInside', 'enableAvatarCrop', 'enableSlider', 'showDockAppNames', 'enableLockScreen'].includes(item.id)) {
       (globalSettings as any)[item.id] = !item.value
     }
   } else if (item.id === 'wallpaper') {

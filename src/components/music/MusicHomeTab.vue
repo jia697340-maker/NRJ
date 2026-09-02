@@ -5,7 +5,7 @@ import type { MusicPlaylist, MusicTrack } from '../../types/music'
 import { useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
 
-const emit = defineEmits<{ (e: 'close'): void; (e: 'openSources'): void; (e: 'openPlaylist', playlist: MusicPlaylist): void; (e: 'requestPublicPlaylist', playlist: MusicPlaylist): void; (e: 'openCollection', mode: 'playlists' | 'charts'): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'openSources'): void; (e: 'openPlaylist', playlist: MusicPlaylist): void; (e: 'requestPublicPlaylist', playlist: MusicPlaylist): void; (e: 'openCollection', mode: 'playlists' | 'charts'): void; (e: 'addToPlaylist', track: MusicTrack): void }>()
 const { playTrack, playTracks } = useMusicPlayer()
 const { searchResult, searchSourceStatuses, homeSections, history, sourceConfigs, isSearching, isLoadingHome, homeLoadError, searchAll, clearSearch, loadHome, toggleLikeTrack, setMessage } = useMusicLibrary()
 const searchQuery = ref('')
@@ -110,6 +110,7 @@ onMounted(() => { void loadHome() })
           <div class="song-cover-thumb" :style="track.coverUrl ? { backgroundImage: `url(${track.coverUrl})`, backgroundSize: 'cover' } : {}"><span v-if="!track.coverUrl">{{ String(track.sourceId).slice(0,1).toUpperCase() }}</span></div>
           <div class="song-meta-info"><div class="song-name">{{ track.title }} <i v-if="track.requiresVip">VIP</i></div><div class="song-sub">{{ track.artist }} · {{ track.reason || track.sourceId }}<span v-if="trackSourceCount(track) > 1"> · {{ trackSourceCount(track) }} 个候选源</span></div></div>
           <button class="song-play-btn" title="播放完整歌曲"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
+          <button class="song-play-btn" title="添加到歌单" aria-label="添加到歌单" @click.stop="emit('addToPlaylist', track)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
           <button class="song-play-btn" title="收藏" @click.stop="toggleLikeTrack(track)">♡</button>
         </div>
       </div>
@@ -168,6 +169,7 @@ onMounted(() => { void loadHome() })
             <div class="song-cover-thumb" :style="track.coverUrl ? { backgroundImage: `url(${track.coverUrl})`, backgroundSize: 'cover' } : {}"></div>
             <div class="song-meta-info"><div class="song-name">{{ track.title }}</div><div class="song-sub">{{ track.artist }} · {{ track.album }}</div></div>
             <button class="song-play-btn" title="播放"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
+            <button class="song-play-btn" title="添加到歌单" aria-label="添加到歌单" @click.stop="emit('addToPlaylist', track)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
             <button class="song-play-btn" title="收藏" @click.stop="toggleLikeTrack(track)">♡</button>
           </div>
         </div>

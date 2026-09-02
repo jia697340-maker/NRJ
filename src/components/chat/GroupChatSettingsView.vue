@@ -881,6 +881,7 @@ onMounted(async () => { if (!categories.includes(activeCategory.value)) activeCa
       v-model:visible="showGroupAvatarModal"
       :current-avatar="customGroupAvatar"
       shape="circle"
+      enable-crop
       title="更换群头像"
       @saved="handleGroupAvatarSaved"
     />

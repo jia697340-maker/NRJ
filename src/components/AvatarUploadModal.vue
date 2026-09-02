@@ -13,16 +13,41 @@
       <div class="modal-scroll-area">
         <h2 class="modal-title">{{ title || '更换头像' }}</h2>
         
-        <div class="avatar-preview">
-          <img v-if="previewUrl" :src="previewUrl" class="avatar-img" :class="shapeClass" :style="previewStyle" />
-          <div v-else class="avatar-placeholder" :class="shapeClass" :style="previewStyle">预览</div>
-        </div>
-        <div v-if="optimizeHint" class="optimize-hint">{{ optimizeHint }}</div>
-        
-        <div class="upload-options">
+        <template v-if="cropMode">
+          <div
+            class="crop-viewport"
+            :class="{ 'is-circle': shape === 'circle', 'is-rounded': shape === 'avatar' }"
+            @pointerdown="handleCropPointerDown"
+            @pointermove="handleCropPointerMove"
+            @pointerup="handleCropPointerUp"
+            @pointercancel="handleCropPointerUp"
+          >
+            <img :src="cropSource" :style="cropImageStyle" alt="待裁剪头像" draggable="false" />
+            <div class="crop-frame"></div>
+          </div>
+          <div class="crop-hint">拖动图片调整位置，双指或滑块缩放</div>
+          <label class="crop-zoom-row">
+            <span>缩小</span>
+            <input v-model.number="cropZoom" type="range" min="1" max="4" step="0.01" @input="clampCropOffset" />
+            <span>放大</span>
+          </label>
+          <div class="modal-actions crop-actions">
+            <button @click="cancelCrop" class="btn btn-secondary">取消裁剪</button>
+            <button @click="finishCrop" class="btn btn-primary">完成裁剪</button>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="avatar-preview">
+            <img v-if="previewUrl" :src="previewUrl" class="avatar-img" :class="shapeClass" :style="previewStyle" />
+            <div v-else class="avatar-placeholder" :class="shapeClass" :style="previewStyle">预览</div>
+          </div>
+          <div v-if="optimizeHint" class="optimize-hint">{{ optimizeHint }}</div>
+
+          <div class="upload-options">
           <div class="option-group">
             <label class="custom-file-upload">
-              <input type="file" accept="image/*" @change="handleFileChange" class="hidden-file-input" />
+              <input ref="fileInput" type="file" accept="image/*" @change="handleFileChange" class="hidden-file-input" />
               <span class="upload-btn-text">选择本地图片</span>
             </label>
           </div>
@@ -36,14 +61,15 @@
               <button @click="applyUrl" class="btn btn-small">应用</button>
             </div>
           </div>
-        </div>
-        
-        <slot name="extra"></slot>
+          </div>
 
-        <div class="modal-actions">
-          <button @click="resetAvatar" class="btn btn-secondary">恢复默认</button>
-          <button @click="saveAvatar" class="btn btn-primary" :class="{ 'is-disabled': isOptimizing }">{{ isOptimizing ? '优化中…' : '保存' }}</button>
-        </div>
+          <slot name="extra"></slot>
+
+          <div class="modal-actions">
+            <button @click="resetAvatar" class="btn btn-secondary">恢复默认</button>
+            <button @click="saveAvatar" class="btn btn-primary" :class="{ 'is-disabled': isOptimizing }">{{ isOptimizing ? '优化中…' : '保存' }}</button>
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -52,6 +78,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { globalSettings } from '../store/global'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -61,12 +88,14 @@ const props = withDefaults(defineProps<{
   previewFit?: 'cover' | 'contain'
   previewPosition?: string
   previewRadius?: number
+  enableCrop?: boolean
 }>(), {
   shape: 'circle',
   currentAvatar: null,
   previewFit: undefined,
   previewPosition: undefined,
-  previewRadius: undefined
+  previewRadius: undefined,
+  enableCrop: false
 })
 
 const previewStyle = computed(() => ({
@@ -88,11 +117,41 @@ const previewUrl = ref<string | null>(null)
 const inputUrl = ref('')
 const isOptimizing = ref(false)
 const optimizeHint = ref('')
+const fileInput = ref<HTMLInputElement | null>(null)
+const cropMode = ref(false)
+const cropSource = ref('')
+const cropNaturalWidth = ref(0)
+const cropNaturalHeight = ref(0)
+const cropZoom = ref(1)
+const cropOffsetX = ref(0)
+const cropOffsetY = ref(0)
+const cropImage = ref<HTMLImageElement | null>(null)
+const cropViewportSize = 220
+const activeCropPointers = new Map<number, { x: number; y: number }>()
+let lastPinchDistance = 0
+
+const cropEnabled = computed(() => (
+  props.enableCrop && globalSettings.enableAvatarCrop && (props.shape === 'avatar' || props.shape === 'circle')
+))
+
+const cropBaseScale = computed(() => Math.max(
+  cropViewportSize / Math.max(1, cropNaturalWidth.value),
+  cropViewportSize / Math.max(1, cropNaturalHeight.value)
+))
+const cropScale = computed(() => cropBaseScale.value * cropZoom.value)
+const cropImageStyle = computed(() => ({
+  width: `${cropNaturalWidth.value * cropScale.value}px`,
+  height: `${cropNaturalHeight.value * cropScale.value}px`,
+  left: `calc(50% + ${cropOffsetX.value}px)`,
+  top: `calc(50% + ${cropOffsetY.value}px)`
+}))
 
 watch(() => props.visible, (newVal) => {
   if (newVal) {
     previewUrl.value = props.currentAvatar
     inputUrl.value = ''
+    optimizeHint.value = ''
+    cancelCrop()
   }
 })
 
@@ -134,6 +193,102 @@ const optimizeImage = (source: string, file: File): Promise<string> => new Promi
   image.src = source
 })
 
+const clampCropOffset = () => {
+  const maxX = Math.max(0, (cropNaturalWidth.value * cropScale.value - cropViewportSize) / 2)
+  const maxY = Math.max(0, (cropNaturalHeight.value * cropScale.value - cropViewportSize) / 2)
+  cropOffsetX.value = Math.max(-maxX, Math.min(maxX, cropOffsetX.value))
+  cropOffsetY.value = Math.max(-maxY, Math.min(maxY, cropOffsetY.value))
+}
+
+const beginCrop = (source: string) => new Promise<boolean>((resolve) => {
+  const image = new Image()
+  if (/^https?:/i.test(source)) image.crossOrigin = 'anonymous'
+  image.onload = () => {
+    cropImage.value = image
+    cropSource.value = source
+    cropNaturalWidth.value = image.naturalWidth
+    cropNaturalHeight.value = image.naturalHeight
+    cropZoom.value = 1
+    cropOffsetX.value = 0
+    cropOffsetY.value = 0
+    cropMode.value = true
+    resolve(true)
+  }
+  image.onerror = () => resolve(false)
+  image.src = source
+})
+
+const cancelCrop = () => {
+  cropMode.value = false
+  cropSource.value = ''
+  cropImage.value = null
+  cropNaturalWidth.value = 0
+  cropNaturalHeight.value = 0
+  cropZoom.value = 1
+  cropOffsetX.value = 0
+  cropOffsetY.value = 0
+  activeCropPointers.clear()
+  lastPinchDistance = 0
+}
+
+const handleCropPointerDown = (event: PointerEvent) => {
+  const target = event.currentTarget as HTMLElement
+  target.setPointerCapture?.(event.pointerId)
+  activeCropPointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+  if (activeCropPointers.size === 2) {
+    const [first, second] = [...activeCropPointers.values()]
+    lastPinchDistance = Math.hypot(second.x - first.x, second.y - first.y)
+  }
+}
+
+const handleCropPointerMove = (event: PointerEvent) => {
+  const previous = activeCropPointers.get(event.pointerId)
+  if (!previous) return
+  activeCropPointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+
+  if (activeCropPointers.size === 1) {
+    cropOffsetX.value += event.clientX - previous.x
+    cropOffsetY.value += event.clientY - previous.y
+  } else if (activeCropPointers.size === 2) {
+    const [first, second] = [...activeCropPointers.values()]
+    const distance = Math.hypot(second.x - first.x, second.y - first.y)
+    if (lastPinchDistance > 0) {
+      cropZoom.value = Math.max(1, Math.min(4, cropZoom.value * distance / lastPinchDistance))
+    }
+    lastPinchDistance = distance
+  }
+  clampCropOffset()
+}
+
+const handleCropPointerUp = (event: PointerEvent) => {
+  activeCropPointers.delete(event.pointerId)
+  if (activeCropPointers.size < 2) lastPinchDistance = 0
+}
+
+const finishCrop = () => {
+  const image = cropImage.value
+  if (!image) return
+  const sourceSize = cropViewportSize / cropScale.value
+  const sourceX = cropNaturalWidth.value / 2 + (-cropViewportSize / 2 - cropOffsetX.value) / cropScale.value
+  const sourceY = cropNaturalHeight.value / 2 + (-cropViewportSize / 2 - cropOffsetY.value) / cropScale.value
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const context = canvas.getContext('2d')
+  if (!context) return
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  try {
+    context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, 512, 512)
+    previewUrl.value = canvas.toDataURL('image/webp', 0.88)
+    optimizeHint.value = '已裁剪为 512 × 512 头像'
+    cancelCrop()
+  } catch {
+    optimizeHint.value = '该网络图片不允许裁剪，请下载后从本地上传'
+    cancelCrop()
+  }
+}
+
 const handleFileChange = (e: Event) => {
   const target = e.target as HTMLInputElement
   const file = target.files?.[0]
@@ -141,6 +296,15 @@ const handleFileChange = (e: Event) => {
     const reader = new FileReader()
     reader.onload = async (event) => {
       const original = event.target?.result as string
+      if (cropEnabled.value) {
+        isOptimizing.value = true
+        optimizeHint.value = '正在读取图片…'
+        const loaded = await beginCrop(original)
+        optimizeHint.value = loaded ? '' : '无法读取该图片，请重新选择'
+        isOptimizing.value = false
+        if (fileInput.value) fileInput.value.value = ''
+        return
+      }
       isOptimizing.value = true
       optimizeHint.value = '正在优化图片…'
       const optimized = await optimizeImage(original, file)
@@ -151,14 +315,24 @@ const handleFileChange = (e: Event) => {
         ? `已由 ${formatCompactBytes(before)} 优化至 ${formatCompactBytes(after)}`
         : `图片大小 ${formatCompactBytes(after)}`
       isOptimizing.value = false
+      if (fileInput.value) fileInput.value.value = ''
     }
     reader.readAsDataURL(file)
   }
 }
 
-const applyUrl = () => {
+const applyUrl = async () => {
   if (inputUrl.value.trim()) {
-    previewUrl.value = inputUrl.value.trim()
+    const source = inputUrl.value.trim()
+    if (!cropEnabled.value) {
+      previewUrl.value = source
+      return
+    }
+    isOptimizing.value = true
+    optimizeHint.value = '正在读取网络图片…'
+    const loaded = await beginCrop(source)
+    optimizeHint.value = loaded ? '' : '该网络图片不允许裁剪，请下载后从本地上传'
+    isOptimizing.value = false
   }
 }
 
@@ -166,6 +340,7 @@ const resetAvatar = () => {
   previewUrl.value = null
   inputUrl.value = ''
   optimizeHint.value = ''
+  cancelCrop()
 }
 
 const saveAvatar = () => {
@@ -277,6 +452,99 @@ const saveAvatar = () => {
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
+}
+
+.crop-viewport {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  max-width: 100%;
+  align-self: center;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #161616;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.crop-viewport:active {
+  cursor: grabbing;
+}
+
+.crop-viewport.is-circle,
+.crop-viewport.is-circle .crop-frame {
+  border-radius: 50%;
+}
+
+.crop-viewport.is-rounded,
+.crop-viewport.is-rounded .crop-frame {
+  border-radius: 22%;
+}
+
+.crop-viewport img {
+  position: absolute;
+  max-width: none;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.crop-frame {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255,255,255,0.9);
+  box-sizing: border-box;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.18);
+  pointer-events: none;
+}
+
+.crop-frame::before,
+.crop-frame::after {
+  content: '';
+  position: absolute;
+  background: rgba(255,255,255,0.38);
+}
+
+.crop-frame::before {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+}
+
+.crop-frame::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+}
+
+.crop-hint {
+  margin-top: -8px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.crop-zoom-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.crop-zoom-row input {
+  width: 100%;
+  accent-color: var(--accent-color, #333);
+}
+
+.crop-actions {
+  margin-top: 0;
 }
 
 .btn.is-disabled {

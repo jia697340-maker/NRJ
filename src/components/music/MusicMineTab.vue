@@ -5,10 +5,12 @@ import localforage from 'localforage'
 import AvatarUploadModal from '../AvatarUploadModal.vue'
 import MusicProfileEditModal from './modals/MusicProfileEditModal.vue'
 import MusicClipboardImportModal from './modals/MusicClipboardImportModal.vue'
+import MusicPlaylistEditorModal from './modals/MusicPlaylistEditorModal.vue'
 import { horizontalCards, useMusicPlayer } from '../../composables/useMusicPlayer'
 import { useMusicLibrary } from '../../composables/useMusicLibrary'
+import type { MusicPlaylist } from '../../types/music'
 
-const { playTracks } = useMusicPlayer()
+const { playTracks, queueSourcePlaylistId, clearQueue, detachQueueSource } = useMusicPlayer()
 const {
   likedTracks,
   localTracks,
@@ -22,18 +24,29 @@ const {
   customNickname,
   customVipLabel,
   customSignature,
-  refreshProfiles
+  refreshProfiles,
+  createPlaylist,
+  updatePlaylist,
+  reorderPlaylists,
+  deletePlaylists,
+  setMessage
 } = useMusicLibrary()
 
 const activeSubTab = ref<'music' | 'podcast' | 'notes'>('music')
 
-const emit = defineEmits(['close', 'openDrawer', 'openSettings', 'openSources', 'openData', 'openHistory'])
+const emit = defineEmits(['close', 'openDrawer', 'openSettings', 'openSources', 'openData', 'openHistory', 'openPlaylist'])
 
 // 自定义音乐头像状态与持久化（localforage IndexedDB 存储）
 const customAvatar = ref<string | null>(null)
 const avatarModalVisible = ref(false)
 const profileEditModalVisible = ref(false)
 const clipboardModalVisible = ref(false)
+const playlistEditorVisible = ref(false)
+const editingPlaylist = ref<MusicPlaylist | null>(null)
+const playlistManageMode = ref(false)
+const selectedPlaylistIds = ref<string[]>([])
+const pendingDeleteIds = ref<string[]>([])
+const failedPlaylistCovers = ref(new Set<string>())
 
 const store = localforage.createInstance({
   name: 'nrt-app',
@@ -48,19 +61,55 @@ const hasCustomSignature = computed(() => !!(customSignature.value || primaryPro
 const displaySignature = computed(() => customSignature.value ?? primaryProfile.value?.signature ?? '点击添加个性签名...')
 const displayTrackCount = computed(() => customTrackCount.value !== null ? customTrackCount.value : history.value.length)
 const displayTotalMinutes = computed(() => customTotalMinutes.value !== null ? customTotalMinutes.value : Math.round(history.value.reduce((sum, item) => sum + (item.duration || 0) * (item.playCount || 1), 0) / 60))
-const libraryPlaylists = computed(() => [
+const systemPlaylists = computed(() => [
   { id: 'liked', sourceId: 'local', name: '我喜欢的音乐', trackCount: likedTracks.value.length, playCount: 0 },
   { id: 'local', sourceId: 'local', name: '本地音乐', trackCount: localTracks.value.length, playCount: 0 },
-  { id: 'history', sourceId: 'local', name: '最近播放', trackCount: history.value.length, playCount: 0 },
-  ...customPlaylists.value
+  { id: 'history', sourceId: 'local', name: '最近播放', trackCount: history.value.length, playCount: 0 }
 ])
 
 const handleOpenTrack = (playlistName: string) => {
-  const playlist = libraryPlaylists.value.find(item => item.name === playlistName)
+  const playlist = systemPlaylists.value.find(item => item.name === playlistName)
   if (!playlist) return
   const tracks = playlist.id === 'liked' ? likedTracks.value : playlist.id === 'local' ? localTracks.value : playlist.id === 'history' ? history.value : playlistTracks[playlist.id] || []
   if (tracks.length) void playTracks(tracks)
 }
+const openCustomPlaylist = (playlist: MusicPlaylist) => {
+  if (playlistManageMode.value) { togglePlaylistSelection(playlist.id); return }
+  emit('openPlaylist', playlist)
+}
+const openCreatePlaylist = () => { editingPlaylist.value = null; playlistEditorVisible.value = true }
+const openEditPlaylist = (playlist: MusicPlaylist) => { editingPlaylist.value = playlist; playlistEditorVisible.value = true }
+const savePlaylist = (value: Pick<MusicPlaylist, 'name' | 'description' | 'isPrivate' | 'coverUrl' | 'coverStorage' | 'originalCoverUrl'>) => {
+  if (editingPlaylist.value) { updatePlaylist(editingPlaylist.value.id, value); setMessage('歌单已更新') }
+  else { createPlaylist(value); setMessage('歌单已创建') }
+  playlistEditorVisible.value = false
+}
+const togglePlaylistSelection = (id: string) => { selectedPlaylistIds.value = selectedPlaylistIds.value.includes(id) ? selectedPlaylistIds.value.filter(item => item !== id) : [...selectedPlaylistIds.value, id] }
+const allPlaylistsSelected = computed(() => customPlaylists.value.length > 0 && customPlaylists.value.every(item => selectedPlaylistIds.value.includes(item.id)))
+const toggleSelectAll = () => { selectedPlaylistIds.value = allPlaylistsSelected.value ? [] : customPlaylists.value.map(item => item.id) }
+const toggleManageMode = () => { playlistManageMode.value = !playlistManageMode.value; selectedPlaylistIds.value = [] }
+const movePlaylist = (id: string, direction: -1 | 1) => {
+  const ids = customPlaylists.value.map(item => item.id)
+  const from = ids.indexOf(id); const to = from + direction
+  if (from < 0 || to < 0 || to >= ids.length) return
+  ;[ids[from], ids[to]] = [ids[to], ids[from]]
+  reorderPlaylists(ids)
+}
+const requestDeletePlaylists = (ids: string[]) => { if (ids.length) pendingDeleteIds.value = [...ids] }
+const confirmDeletePlaylists = (queueChoice: 'keep' | 'clear') => {
+  const deletesCurrentSource = Boolean(queueSourcePlaylistId.value && pendingDeleteIds.value.includes(queueSourcePlaylistId.value))
+  if (deletesCurrentSource) {
+    if (queueChoice === 'clear') clearQueue()
+    else detachQueueSource()
+  }
+  deletePlaylists(pendingDeleteIds.value)
+  pendingDeleteIds.value = []
+  selectedPlaylistIds.value = []
+  playlistManageMode.value = false
+}
+const deletingCurrentQueueSource = computed(() => Boolean(queueSourcePlaylistId.value && pendingDeleteIds.value.includes(queueSourcePlaylistId.value)))
+const playlistCoverVisible = (playlist: MusicPlaylist) => Boolean(playlist.coverUrl && !failedPlaylistCovers.value.has(playlist.id))
+const markPlaylistCoverFailed = (playlistId: string) => { failedPlaylistCovers.value = new Set([...failedPlaylistCovers.value, playlistId]) }
 const handleCard = (name: string) => {
   if (name === '本地音乐') { if (localTracks.value.length) void playTracks(localTracks.value); else emit('openData'); return }
   if (name === '音乐统计') { emit('openData'); return }
@@ -273,7 +322,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- 歌单工具栏：近期、创建 7、批量操作 -->
+    <!-- 曲库入口与独立的“我的歌单”区域 -->
     <div v-if="activeSubTab === 'music'" class="sub-content">
       <div class="playlist-tool-row">
         <div class="tool-left">
@@ -282,9 +331,9 @@ onMounted(async () => {
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
               <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
             </svg>
-            <span>近期</span>
+            <span>曲库</span>
           </div>
-          <div class="tool-create-title">创建 <span class="badge-sub">7</span></div>
+          <div class="tool-create-title">固定入口 <span class="badge-sub">{{ systemPlaylists.length }}</span></div>
         </div>
 
         <div class="tool-right">
@@ -313,11 +362,11 @@ onMounted(async () => {
       <!-- 蕾丝暗纹艺术字 -->
       <div class="art-bg-text">with your soft lips</div>
 
-      <!-- 歌单列表 -->
+      <!-- 原有喜欢、本地、最近播放入口保持独立可用 -->
       <div class="playlist-list-container">
         <div
           class="playlist-item-card"
-          v-for="pl in libraryPlaylists"
+          v-for="pl in systemPlaylists"
           :key="pl.id"
           @click="handleOpenTrack(pl.name)"
         >
@@ -342,6 +391,33 @@ onMounted(async () => {
           </button>
         </div>
       </div>
+
+      <section class="my-playlists-section">
+        <div class="my-playlists-header">
+          <div class="my-playlists-title"><strong>我的歌单</strong><span>{{ customPlaylists.length }}</span></div>
+          <div class="my-playlists-actions">
+            <button v-if="playlistManageMode" class="compact-action" @click="toggleSelectAll">{{ allPlaylistsSelected ? '取消全选' : '全选' }}</button>
+            <button class="compact-action" @click="toggleManageMode">{{ playlistManageMode ? '完成' : '管理' }}</button>
+            <button class="create-playlist-btn" aria-label="新建歌单" title="新建歌单" @click="openCreatePlaylist">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span>新建</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="playlistManageMode && selectedPlaylistIds.length" class="selection-summary"><span>已选择 {{ selectedPlaylistIds.length }} 个歌单</span><button @click="requestDeletePlaylists(selectedPlaylistIds)">删除</button></div>
+
+        <button v-if="!customPlaylists.length" class="playlist-empty" @click="openCreatePlaylist"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span><b>创建自己的歌单</b><small>整理喜欢的音乐，并设置封面与简介</small></span></button>
+
+        <div v-else class="playlist-list-container custom-playlist-list">
+          <div v-for="(pl, index) in customPlaylists" :key="pl.id" class="playlist-item-card custom-playlist-card" :class="{ selected: selectedPlaylistIds.includes(pl.id) }" @click="openCustomPlaylist(pl)">
+            <i v-if="playlistManageMode" class="playlist-check" :class="{ active: selectedPlaylistIds.includes(pl.id) }"><svg v-if="selectedPlaylistIds.includes(pl.id)" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="5 12 10 17 19 7"/></svg></i>
+            <div class="playlist-cover-box custom-cover"><img v-if="playlistCoverVisible(pl)" :src="pl.coverUrl" alt="" @error="markPlaylistCoverFailed(pl.id)" /><svg v-else viewBox="0 0 60 60" width="30" height="30" class="playlist-cross-icon" stroke-width="2" fill="none"><line x1="30" y1="12" x2="30" y2="48"/><line x1="16" y1="24" x2="44" y2="24"/></svg></div>
+            <div class="playlist-info"><div class="playlist-name-row"><div class="playlist-name">{{ pl.name }}</div><svg v-if="pl.isPrivate" class="private-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div><div class="playlist-meta">{{ pl.trackCount }}首<span v-if="pl.description"> · {{ pl.description }}</span></div></div>
+            <div v-if="playlistManageMode" class="order-actions" @click.stop><button :disabled="index === 0" aria-label="上移歌单" @click="movePlaylist(pl.id, -1)">↑</button><button :disabled="index === customPlaylists.length - 1" aria-label="下移歌单" @click="movePlaylist(pl.id, 1)">↓</button></div>
+            <button v-else class="item-more-btn" title="编辑歌单" aria-label="编辑歌单" @click.stop="openEditPlaylist(pl)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4z"/></svg></button>
+          </div>
+        </div>
+      </section>
     </div>
 
     <div v-else-if="activeSubTab === 'podcast'" class="sub-empty-card" @click="emit('openSources')"><strong>播客与电台来源</strong><span>通过来源管理连接播客目录或私人曲库。歌曲与播客会保持独立播放队列。</span><b>打开来源管理 ›</b></div>
@@ -357,6 +433,7 @@ onMounted(async () => {
       v-model:visible="avatarModalVisible"
       :current-avatar="customAvatar || primaryProfile?.avatarUrl"
       shape="circle"
+      enable-crop
       title="更换音乐头像"
       @saved="handleAvatarSaved"
     />
@@ -374,6 +451,18 @@ onMounted(async () => {
       @close="clipboardModalVisible = false"
       @imported="clipboardModalVisible = false"
     />
+
+    <MusicPlaylistEditorModal :visible="playlistEditorVisible" :playlist="editingPlaylist" @close="playlistEditorVisible = false" @save="savePlaylist" />
+
+    <div v-if="pendingDeleteIds.length" class="delete-mask" @click.self="pendingDeleteIds = []">
+      <section class="delete-dialog" role="alertdialog" aria-modal="true" aria-label="删除歌单">
+        <strong>删除 {{ pendingDeleteIds.length }} 个歌单？</strong>
+        <p>歌曲文件不会被删除，这些歌单中的歌曲关系将移除。</p>
+        <template v-if="deletingCurrentQueueSource"><small>其中一个歌单正在播放，请选择如何处理当前队列。</small><button class="danger-button" @click="confirmDeletePlaylists('keep')">删除歌单，保留播放队列</button><button class="danger-button" @click="confirmDeletePlaylists('clear')">删除歌单并清空队列</button></template>
+        <button v-else class="danger-button" @click="confirmDeletePlaylists('keep')">删除歌单</button>
+        <button class="cancel-delete" @click="pendingDeleteIds = []">取消</button>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -964,4 +1053,7 @@ onMounted(async () => {
   height: 110px;
 }
 .sub-empty-card{margin:18px 20px;padding:18px;border:1px solid var(--music-card-border);border-radius:16px;background:var(--music-secondary-bg);display:flex;flex-direction:column;gap:7px}.sub-empty-card strong{font-size:14px}.sub-empty-card span{color:var(--music-text-sub);font-size:11px;line-height:1.55}.sub-empty-card b{margin-top:3px;color:var(--music-text);font-size:10px}.notes-list{padding-top:14px}
+.my-playlists-section{margin-top:18px;padding-top:13px;border-top:1px solid var(--music-divider)}.my-playlists-header{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:10px;padding:0 16px 10px}.my-playlists-title{min-width:0;display:flex;align-items:baseline;gap:6px}.my-playlists-title strong{font-size:14px}.my-playlists-title span{color:var(--music-text-sub);font-size:10px}.my-playlists-actions{display:flex;flex:0 0 auto;align-items:center;gap:5px}.compact-action,.create-playlist-btn{height:30px;border:1px solid var(--music-card-border);border-radius:9px;background:var(--music-pill-bg);color:var(--music-text);font-size:9px}.compact-action{padding:0 9px}.create-playlist-btn{display:flex;align-items:center;gap:3px;padding:0 9px;font-weight:650}.selection-summary{display:flex;align-items:center;justify-content:space-between;margin:0 16px 8px;padding:7px 10px;border-radius:9px;background:var(--music-secondary-bg);color:var(--music-text-sub);font-size:9px}.selection-summary button{border:0;background:transparent;color:#dc2626;font-size:9px;font-weight:700}.playlist-empty{width:calc(100% - 32px);min-height:68px;margin:0 16px;display:flex;align-items:center;justify-content:center;gap:10px;border:1px dashed var(--music-card-border);border-radius:13px;background:var(--music-secondary-bg);color:var(--music-text-sub);text-align:left}.playlist-empty span,.playlist-empty b,.playlist-empty small{display:block}.playlist-empty b{color:var(--music-text);font-size:11px}.playlist-empty small{margin-top:3px;font-size:8px}.custom-playlist-list{gap:7px}.custom-playlist-card{min-width:0;border-radius:10px;padding:6px;transition:background .15s}.custom-playlist-card.selected{background:var(--music-secondary-bg)}.custom-cover{background-position:center;background-size:cover}.playlist-check{width:19px;height:19px;flex:0 0 auto;display:grid;place-items:center;box-sizing:border-box;border:1px solid var(--music-card-border);border-radius:6px;color:var(--music-bg)}.playlist-check.active{border-color:var(--music-text);background:var(--music-text)}.playlist-name-row{min-width:0;display:flex;align-items:center;gap:5px}.playlist-name-row .playlist-name{min-width:0;margin:0}.private-icon{flex:0 0 auto;color:var(--music-text-sub)}.playlist-meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.order-actions{display:flex;flex:0 0 auto;gap:4px}.order-actions button{width:28px;height:28px;border:1px solid var(--music-card-border);border-radius:8px;background:var(--music-pill-bg);color:var(--music-text);font-size:12px}.order-actions button:disabled{opacity:.25}.delete-mask{position:absolute;inset:0;z-index:94;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.44);backdrop-filter:blur(8px)}.delete-dialog{width:min(100%,340px);box-sizing:border-box;display:flex;flex-direction:column;gap:9px;padding:18px;border:1px solid var(--music-card-border);border-radius:17px;background:var(--music-card-bg);color:var(--music-text);box-shadow:0 16px 42px rgba(0,0,0,.2)}.delete-dialog strong{font-size:14px}.delete-dialog p,.delete-dialog small{margin:0;color:var(--music-text-sub);font-size:9px;line-height:1.55}.delete-dialog button{min-height:38px;border:0;border-radius:11px;font-size:10px;font-weight:700}.danger-button{background:#dc2626;color:#fff}.cancel-delete{background:var(--music-pill-bg);color:var(--music-text)}
+.custom-cover{overflow:hidden}.custom-cover img{width:100%;height:100%;display:block;object-fit:cover}
+@media(max-width:340px){.my-playlists-header{padding-left:12px;padding-right:12px}.compact-action,.create-playlist-btn{padding-left:7px;padding-right:7px}.create-playlist-btn span{display:none}.custom-playlist-list{padding-left:12px;padding-right:12px}.order-actions{gap:2px}.order-actions button{width:25px}.playlist-empty{width:calc(100% - 24px);margin-left:12px;margin-right:12px}}
 </style>

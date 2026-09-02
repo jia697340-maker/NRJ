@@ -253,6 +253,7 @@ const handleTextSaved = async (text: string) => {
     v-model:visible="avatarModalVisible"
     title="设置名片头像"
     shape="circle"
+    enable-crop
     :current-avatar="config.avatarImage"
     @saved="handleAvatarSaved"
   />

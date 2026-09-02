@@ -849,6 +849,7 @@ onUnmounted(() => {
           v-model:visible="avatarModalVisible" 
           :current-avatar="currentAvatarForModal"
           :shape="currentView === 'chatSettings' ? 'circle' : 'portrait'"
+          :enable-crop="currentView === 'chatSettings'"
           @saved="handleAvatarSaved" 
         />
       </Teleport>

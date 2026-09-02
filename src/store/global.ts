@@ -18,6 +18,7 @@ export const globalSettings = reactive({
   chargingBoltInside: savedSettings.chargingBoltInside ?? false,
   showDockAppNames: savedSettings.showDockAppNames ?? false,
   classicTheme: savedSettings.classicTheme ?? 'default',
+  enableAvatarCrop: savedSettings.enableAvatarCrop ?? false,
   enableSlider: savedSettings.enableSlider ?? false,
   sliderIcon: savedSettings.sliderIcon ?? '♥',
   enableLockScreen: savedSettings.enableLockScreen ?? false,
