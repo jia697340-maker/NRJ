@@ -198,12 +198,20 @@ onMounted(() => { void loadHome() })
       </div>
       </div>
     </template>
-    <div v-if="!hasSearched && !isLoadingHome && !homeSections.length && !searchResult.tracks.length" class="section-container empty-source-card">
-      <div class="section-title">首页推荐暂时没有载入</div>
-      <div class="empty-source-text">{{ homeLoadError || (hasConfiguredOnlineSource ? '音乐服务已配置，但暂时没有返回首页内容。' : '还没有连接可用的在线音乐服务。') }}</div>
-      <div class="empty-actions">
-        <button type="button" @click="() => loadHome()">重新载入</button>
-        <button type="button" @click="emit('openSources')">来源管理</button>
+    <div v-if="!hasSearched && !isLoadingHome && !homeSections.length && !searchResult.tracks.length" class="home-empty-center-container">
+      <div class="empty-state-symbol">
+        <svg viewBox="0 0 48 48" width="42" height="42" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="24" cy="24" r="18"/>
+          <circle cx="24" cy="24" r="6"/>
+          <path d="M24 6v6"/>
+          <path d="M42 24h-6"/>
+        </svg>
+      </div>
+      <div class="empty-state-title">首页推荐暂时没有载入</div>
+      <div class="empty-state-desc">{{ homeLoadError || (hasConfiguredOnlineSource ? '音乐服务已配置，但暂时没有返回首页内容。' : '还没有连接可用的在线音乐服务。') }}</div>
+      <div class="empty-state-actions">
+        <button type="button" class="btn-primary-pill" @click="() => loadHome()">重新载入</button>
+        <button type="button" class="btn-secondary-pill" @click="emit('openSources')">来源管理</button>
       </div>
     </div>
 
@@ -618,10 +626,90 @@ onMounted(() => { void loadHome() })
 .search-native-input::-webkit-search-cancel-button { display: none; }
 
 .song-name i { display:inline-flex;margin-left:4px;padding:1px 4px;border:1px solid var(--music-card-border);border-radius:4px;color:var(--music-text-sub);font-size:8px;font-style:normal;vertical-align:2px; }
-.empty-source-card { padding:18px;border:1px solid var(--music-card-border);border-radius:16px;background:var(--music-secondary-bg);cursor:pointer; }
+.empty-source-card { padding:18px;border:1px solid var(--music-card-border);border-radius:16px;background:var(--music-secondary-bg); }
 .empty-source-text { margin:8px 0 12px;color:var(--music-text-sub);font-size:12px;line-height:1.6; }
 .home-status-row { margin:0 16px 8px;padding:9px 11px;border-radius:10px;background:var(--music-pill-bg);color:var(--music-text-sub);font-size:11px;display:flex;align-items:center;justify-content:space-between;gap:12px; }
 .home-status-row button,.empty-actions button { border:0;border-radius:999px;padding:6px 11px;background:var(--music-text);color:var(--music-bg);font-size:11px;cursor:pointer; }
 .empty-actions { display:flex;gap:8px; }
 .empty-actions button + button { background:var(--music-pill-bg);color:var(--music-text);border:1px solid var(--music-card-border); }
+
+/* 居中空状态 */
+.home-empty-center-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px 32px;
+  margin: 12px 16px;
+  border-radius: 20px;
+  background: transparent;
+}
+
+.empty-state-symbol {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--music-pill-bg, #f0f2f5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--music-text-sub, #8e8e93);
+  margin-bottom: 18px;
+  border: 1px solid var(--music-card-border, rgba(0, 0, 0, 0.06));
+}
+
+.empty-state-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--music-text, #111111);
+  margin-bottom: 8px;
+}
+
+.empty-state-desc {
+  max-width: 280px;
+  font-size: 12px;
+  color: var(--music-text-sub, #8e8e93);
+  line-height: 1.6;
+  margin-bottom: 22px;
+}
+
+.empty-state-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-primary-pill,
+.btn-secondary-pill {
+  min-width: 96px;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s, opacity 0.15s;
+  border: none;
+}
+
+.btn-primary-pill {
+  background: var(--music-text, #111111);
+  color: var(--music-bg, #ffffff);
+}
+
+.btn-secondary-pill {
+  background: var(--music-pill-bg, #f0f2f5);
+  color: var(--music-text, #111111);
+  border: 1px solid var(--music-card-border, rgba(0, 0, 0, 0.08));
+}
+
+.btn-primary-pill:active,
+.btn-secondary-pill:active {
+  transform: scale(0.96);
+  opacity: 0.85;
+}
 </style>

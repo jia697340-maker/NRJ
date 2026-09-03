@@ -1,6 +1,6 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useChatAuth } from '../../composables/useChatAuth'
 import AvatarUploadModal from '../AvatarUploadModal.vue'
 
@@ -9,7 +9,7 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const { chatAccounts, login, register, deleteAccount } = useChatAuth()
+const { chatAccounts, currentAccount, login, register, deleteAccount } = useChatAuth()
 
 const isRegistering = ref(false)
 const registerStep = ref(1)
@@ -27,6 +27,9 @@ const regForm = ref({
 const copyLinkedProfile = ref(false)
 
 const avatarModalVisible = ref(false)
+const personaExpandModalVisible = ref(false)
+const personaCharCount = computed(() => regForm.value.persona ? regForm.value.persona.length : 0)
+
 const accountIdTaken = computed(() => chatAccounts.value.some(account => (
   account.accountId.toLowerCase() === regForm.value.accountId.trim().toLowerCase()
 )))
@@ -35,7 +38,7 @@ const accountIdTaken = computed(() => chatAccounts.value.some(account => (
 const deleteConfirmVisible = ref(false)
 const accountsToDelete = ref<string[]>([])
 
-// 批量管理状态
+// 管理模式状态
 const isManaging = ref(false)
 const selectedAccounts = ref<Set<string>>(new Set())
 
@@ -64,21 +67,6 @@ const toggleSelectAll = () => {
   } else {
     chatAccounts.value.forEach(acc => selectedAccounts.value.add(acc.id))
   }
-}
-
-// 主题切换 (pink | purple)
-const currentTheme = ref<'pink' | 'purple'>('pink')
-
-onMounted(() => {
-  const savedTheme = localStorage.getItem('clingy_auth_theme')
-  if (savedTheme === 'purple') {
-    currentTheme.value = 'purple'
-  }
-})
-
-const toggleTheme = () => {
-  currentTheme.value = currentTheme.value === 'pink' ? 'purple' : 'pink'
-  localStorage.setItem('clingy_auth_theme', currentTheme.value)
 }
 
 const clearInput = (field: 'name' | 'accountId' | 'persona') => {
@@ -159,7 +147,7 @@ const handleLogin = (id: string) => {
 }
 
 const confirmSingleDelete = (id: string, e: Event) => {
-  e.stopPropagation() // 防止触发登录点击
+  e.stopPropagation()
   accountsToDelete.value = [id]
   deleteConfirmVisible.value = true
 }
@@ -198,178 +186,481 @@ const handleBack = () => {
     emit('close')
   }
 }
+
+const formatIndex = (idx: number) => {
+  return String(idx + 1).padStart(2, '0')
+}
 </script>
 
 <template>
-  <div :class="['chat-auth-container', `theme-${currentTheme}`]">
-    <!-- 顶部导航栏 -->
-    <div class="auth-header">
-      <div class="back-btn" @click="handleBack">
-        <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-      </div>
-      <div class="header-actions">
-        <div v-if="!isRegistering && chatAccounts.length > 0" class="manage-btn" @click="toggleManage">
-          {{ isManaging ? '完成' : '管理' }}
-        </div>
-        <div class="theme-switch" @click="toggleTheme" title="切换主题">
-          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="color: var(--auth-primary)"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-        </div>
-      </div>
-    </div>
-
-    <div class="auth-content">
-      <!-- 大标题区域 -->
-      <div class="hero-section">
-        <h1 class="hero-title">{{ isRegistering ? (registerStep === 1 ? '创建新账号' : '完善人设') : '欢迎回来' }}</h1>
-        <p class="hero-subtitle">{{ isRegistering ? (registerStep === 1 ? '开启你的专属旅程' : '让角色更好地了解你') : '请选择一个账号继续' }}</p>
-      </div>
-
-      <!-- 登录列表 -->
-      <template v-if="!isRegistering">
-        <div class="account-list" :style="{ paddingBottom: isManaging ? '80px' : '0' }">
-          <div v-if="chatAccounts.length === 0" class="empty-state">
-            <div class="empty-icon">
-              <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-            </div>
-            <p>暂无账号，请先创建</p>
+  <div class="chat-auth-view">
+    <div class="auth-inner">
+      <!-- 顶部导航条 -->
+      <header class="auth-nav">
+        <div class="nav-left">
+          <button class="nav-back-btn" type="button" aria-label="返回" @click="handleBack">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M15 5l-7 7 7 7"/>
+            </svg>
+          </button>
+          <div class="nav-code">
+            <span>{{ isRegistering ? '02 / REGISTER' : '01 / ACCOUNT' }}</span>
+            <i></i>
           </div>
-          
-          <div 
-            v-for="acc in chatAccounts" 
-            :key="acc.id" 
-            class="account-card"
-            @click="handleLogin(acc.id)"
-          >
-            <!-- 多选框 -->
-            <div v-if="isManaging" class="checkbox" :class="{ checked: selectedAccounts.has(acc.id) }">
-              <svg v-if="selectedAccounts.has(acc.id)" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            </div>
+        </div>
 
-            <div class="avatar" :style="acc.avatarUrl ? { backgroundImage: `url(${acc.avatarUrl})` } : {}">
-              {{ acc.avatarUrl ? '' : acc.name.charAt(0) }}
+        <!-- 右侧管理/模式按钮 -->
+        <button 
+          v-if="!isRegistering && chatAccounts.length > 0" 
+          class="nav-manage-btn" 
+          type="button"
+          @click="toggleManage"
+        >
+          {{ isManaging ? 'DONE' : 'EDIT' }}
+        </button>
+        <div v-else class="nav-placeholder">
+          <span>VOL.01</span>
+        </div>
+      </header>
+
+      <!-- 大标题区 -->
+      <section class="hero-section" :class="{ 'in-register': isRegistering }">
+        <div class="hero-kicker">
+          {{ isRegistering ? `REGISTRATION · STEP 0${registerStep}` : 'IDENTITY ARCHIVE' }}
+        </div>
+        <div class="hero-title-row">
+          <h1 class="hero-title">
+            <span>{{ isRegistering ? (registerStep === 1 ? '创建' : '完善') : '欢迎' }}</span>
+            <span class="backword">{{ isRegistering ? (registerStep === 1 ? '身份' : '人设') : '回来' }}</span>
+          </h1>
+          <span class="hero-tag-badge">
+            {{ isRegistering ? (registerStep === 1 ? 'NEW PROFILE' : 'CHARACTER BIO') : 'WELCOME BACK' }}
+          </span>
+        </div>
+        <p class="hero-sub">
+          {{ isRegistering ? (registerStep === 1 ? '建立专属档案，开启私密互动。' : '让角色更好地感知与陪伴你。') : '请选择一个身份继续，或建立第一张账号卡。' }}
+        </p>
+      </section>
+
+      <!-- 首页：身份档案册列表 / 空状态 -->
+      <section v-if="!isRegistering" class="archive-section">
+        <div class="archive-bg"></div>
+
+        <div class="archive-card">
+          <!-- 卡片头部索引与印章 -->
+          <div class="archive-head">
+            <div class="archive-index">
+              <span class="num">{{ chatAccounts.length === 0 ? '00' : formatIndex(chatAccounts.length - 1) }}</span>
+              <span>{{ chatAccounts.length === 0 ? 'IDENTITY FILE' : `IDENTITY ARCHIVE (${chatAccounts.length})` }}</span>
             </div>
-            <div class="info">
-              <div class="name">{{ acc.name }}</div>
-              <div class="id">ID: {{ acc.accountId }}</div>
+            <div class="stamp" :class="{ empty: chatAccounts.length === 0, active: isManaging }">
+              {{ chatAccounts.length === 0 ? 'EMPTY' : (isManaging ? 'MANAGING' : 'VERIFIED') }}
             </div>
-            <!-- 单选删除按钮（管理模式下隐藏） -->
-            <div class="actions" v-if="!isManaging">
-              <div class="delete-btn" @click="(e) => confirmSingleDelete(acc.id, e)">
-                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+          </div>
+
+          <!-- 卡片核心区域：空状态 vs 账号列表 -->
+          <template v-if="chatAccounts.length === 0">
+            <div class="slot-empty">
+              <div class="avatar-box" @click="startRegister">
+                <div class="avatar-placeholder"></div>
+              </div>
+              <div class="skeleton">
+                <div class="sk w1"></div>
+                <div class="sk w2"></div>
+                <div class="sk w3"></div>
+                <div class="mini">PROFILE · WAITING TO BE FILLED</div>
               </div>
             </div>
+
+            <div class="empty-note">
+              <h2 class="empty-title">还没有建立身份</h2>
+              <p class="empty-desc">创建第一张账号卡后，会收纳在这里。之后可以直接从身份册中选择并进入聊天。</p>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="accounts-scroll-box" :class="{ 'managing-mode': isManaging }">
+              <div 
+                v-for="(acc, index) in chatAccounts" 
+                :key="acc.id" 
+                class="account-entry-item"
+                :class="{ 'is-selected': selectedAccounts.has(acc.id), 'is-current': currentAccount?.id === acc.id }"
+                @click="handleLogin(acc.id)"
+              >
+                <!-- 管理模式复选框 -->
+                <div v-if="isManaging" class="item-checkbox" :class="{ checked: selectedAccounts.has(acc.id) }">
+                  <svg v-if="selectedAccounts.has(acc.id)" viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </div>
+
+                <!-- 序号标记 -->
+                <div class="entry-index-tag">{{ formatIndex(index) }}</div>
+
+                <!-- 头像 -->
+                <div 
+                  class="entry-avatar"
+                  :style="acc.avatarUrl ? { backgroundImage: `url(${acc.avatarUrl})` } : {}"
+                >
+                  <span v-if="!acc.avatarUrl">{{ acc.name ? acc.name.charAt(0) : 'U' }}</span>
+                </div>
+
+                <!-- 账号档案信息 -->
+                <div class="entry-info">
+                  <div class="entry-name-row">
+                    <span class="entry-name">{{ acc.name }}</span>
+                    <span v-if="currentAccount?.id === acc.id" class="entry-current-badge">CURRENT</span>
+                  </div>
+                  <div class="entry-sub-row">
+                    <span class="entry-account-id">@{{ acc.accountId }}</span>
+                    <span v-if="acc.persona" class="entry-persona-brief">{{ acc.persona }}</span>
+                  </div>
+                </div>
+
+                <!-- 单项删除按钮 -->
+                <button 
+                  v-if="!isManaging" 
+                  type="button" 
+                  class="entry-single-delete" 
+                  title="删除身份"
+                  @click="(e) => confirmSingleDelete(acc.id, e)"
+                >
+                  <svg viewBox="0 0 24 24">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <!-- 右下角角标说明 (流式排版) -->
+          <div class="corner-note">
+            NRJ / CHAT PROFILE<br/>
+            VOL. 01
+          </div>
+
+          <!-- 底部建立新身份入口 -->
+          <div v-if="!isManaging" class="create-entry" @click="startRegister">
+            <div class="create-text-group">
+              <div class="create-main">
+                <span class="plus-icon">＋</span>
+                <span>建立新身份</span>
+              </div>
+              <small>CREATE NEW PROFILE</small>
+            </div>
+            <div class="arrow-circle">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </div>
           </div>
         </div>
-        
-        <div v-if="!isManaging" class="register-entry" @click="startRegister">
-          <span>注册新账号</span>
-          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-        </div>
-      </template>
 
-      <!-- 注册 - 第一步：基础信息 -->
-      <template v-else-if="registerStep === 1">
-        <div class="register-form">
-          <section v-if="chatAccounts.length" class="account-purpose-section">
-            <div class="purpose-heading"><strong>这个账号用于</strong><span>之后仍可在账号资料中查看</span></div>
-            <div class="purpose-options">
-              <button type="button" :class="{ active: regForm.purpose === 'alternate' }" @click="setAccountPurpose('alternate')"><strong>另一个账号</strong><span>大小号独立相处，可选择私密关联</span></button>
-              <button type="button" :class="{ active: regForm.purpose === 'persona' }" @click="setAccountPurpose('persona')"><strong>全新人设身份</strong><span>从陌生人开始，不关联旧身份</span></button>
+        <div class="footer-code">
+          <span>NRJ · PERSONAL IDENTITY</span>
+          <i></i>
+          <span>2026</span>
+        </div>
+      </section>
+
+      <!-- 注册流程：第1步 基础信息 -->
+      <section v-else-if="registerStep === 1" class="archive-section">
+        <div class="archive-bg"></div>
+
+        <div class="archive-card reg-card">
+          <!-- 卡片头部索引与印章 -->
+          <div class="archive-head">
+            <div class="archive-index">
+              <span class="num">01</span>
+              <span>STEP 01 / 02 · BASIC PROFILE</span>
             </div>
+            <div class="stamp">
+              INITIAL
+            </div>
+          </div>
+
+          <!-- 账号用途区分 (若已有账号) -->
+          <div v-if="chatAccounts.length" class="account-purpose-section">
+            <div class="purpose-heading">
+              <strong>账号定位</strong>
+              <span>支持随时切换身份</span>
+            </div>
+            <div class="purpose-options">
+              <button 
+                type="button" 
+                :class="{ active: regForm.purpose === 'alternate' }" 
+                @click="setAccountPurpose('alternate')"
+              >
+                <strong>另一个账号</strong>
+                <span>大小号独立相处，可选择私密关联</span>
+              </button>
+              <button 
+                type="button" 
+                :class="{ active: regForm.purpose === 'persona' }" 
+                @click="setAccountPurpose('persona')"
+              >
+                <strong>全新人设身份</strong>
+                <span>从陌生人开始，不关联旧身份</span>
+              </button>
+            </div>
+
             <template v-if="regForm.purpose === 'alternate'">
               <div class="linked-account-label">关联到哪个已有账号（可选）</div>
               <div class="linked-account-options">
-                <button v-for="account in chatAccounts" :key="account.id" type="button" :class="{ selected: regForm.linkedAccountIds.includes(account.id) }" @click="selectLinkedAccount(account.id)">
-                  <span class="linked-avatar" :style="account.avatarUrl ? { backgroundImage: `url(${account.avatarUrl})` } : {}">{{ account.avatarUrl ? '' : account.name.charAt(0) }}</span><span><strong>{{ account.name }}</strong><small>ID：{{ account.accountId }}</small></span>
+                <button 
+                  v-for="account in chatAccounts" 
+                  :key="account.id" 
+                  type="button" 
+                  :class="{ selected: regForm.linkedAccountIds.includes(account.id) }" 
+                  @click="selectLinkedAccount(account.id)"
+                >
+                  <span 
+                    class="linked-avatar" 
+                    :style="account.avatarUrl ? { backgroundImage: `url(${account.avatarUrl})` } : {}"
+                  >
+                    {{ account.avatarUrl ? '' : account.name.charAt(0) }}
+                  </span>
+                  <span>
+                    <strong>{{ account.name }}</strong>
+                    <small>ID: {{ account.accountId }}</small>
+                  </span>
                 </button>
               </div>
-              <button v-if="regForm.linkedAccountIds.length" type="button" class="copy-profile-row" :class="{ checked: copyLinkedProfile }" @click="toggleCopyLinkedProfile"><span class="copy-check"><svg v-if="copyLinkedProfile" viewBox="0 0 24 24"><path d="m5 12 4 4L19 7"/></svg></span><span><strong>复制基础资料</strong><small>复制网名、头像和人设，不复制联系人与关系</small></span></button>
+              <button 
+                v-if="regForm.linkedAccountIds.length" 
+                type="button" 
+                class="copy-profile-row" 
+                :class="{ checked: copyLinkedProfile }" 
+                @click="toggleCopyLinkedProfile"
+              >
+                <span class="copy-check">
+                  <svg v-if="copyLinkedProfile" viewBox="0 0 24 24"><path d="m5 12 4 4L19 7"/></svg>
+                </span>
+                <span><strong>复制基础资料</strong><small>复制网名、头像和人设，不复制联系人与聊天</small></span>
+              </button>
             </template>
-          </section>
-
-          <div class="avatar-upload" @click="avatarModalVisible = true">
-            <div class="avatar-preview" :style="regForm.avatarUrl ? { backgroundImage: `url(${regForm.avatarUrl})` } : {}">
-              <svg v-if="!regForm.avatarUrl" viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-            </div>
-            <div class="avatar-hint">点击设置头像</div>
           </div>
 
-          <!-- 微信风格输入框 -->
-          <div class="wechat-input-group">
-            <label>网名</label>
-            <div class="input-wrapper">
-              <input type="text" v-model="regForm.name" placeholder="例如：粘人精" />
-              <div class="clear-btn" v-if="regForm.name" @click="clearInput('name')">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+          <!-- 头像设置槽位 (档案证件框质感) -->
+          <div class="form-avatar-box" @click="avatarModalVisible = true">
+            <div class="form-avatar-circle" :style="regForm.avatarUrl ? { backgroundImage: `url(${regForm.avatarUrl})` } : {}">
+              <span v-if="!regForm.avatarUrl" class="avatar-add-icon">＋</span>
+            </div>
+            <div class="avatar-tip">
+              <span>{{ regForm.avatarUrl ? '点击更换身份头像' : '点击设置身份头像' }}</span>
+              <small>PROFILE AVATAR · PHOTO</small>
+            </div>
+            <div class="avatar-action-badge">
+              <span>{{ regForm.avatarUrl ? '已设置' : '上传' }}</span>
+            </div>
+          </div>
+
+          <!-- 输入框表单 -->
+          <div class="reg-form-fields">
+            <div class="form-field-group">
+              <label class="field-label">
+                <span>身份昵称 / NAME</span>
+              </label>
+              <div class="field-input-box">
+                <input type="text" v-model="regForm.name" placeholder="输入你想被称呼的昵称" />
+                <button v-if="regForm.name" type="button" class="field-clear-btn" @click="clearInput('name')">×</button>
               </div>
             </div>
-          </div>
 
-          <div class="wechat-input-group">
-            <label>聊天ID号</label>
-            <div class="input-wrapper">
-              <input type="text" v-model="regForm.accountId" placeholder="设置一个唯一的ID号" />
-              <div class="clear-btn" v-if="regForm.accountId" @click="clearInput('accountId')">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+            <div class="form-field-group">
+              <label class="field-label">
+                <span>聊天账号ID / ACCOUNT ID</span>
+              </label>
+              <div class="field-input-box" :class="{ error: accountIdTaken }">
+                <input type="text" v-model="regForm.accountId" placeholder="输入唯一的账号识别码" />
+                <button v-if="regForm.accountId" type="button" class="field-clear-btn" @click="clearInput('accountId')">×</button>
               </div>
+              <small v-if="accountIdTaken" class="input-err-hint">此账号 ID 已被占用，请更换</small>
             </div>
-            <small v-if="accountIdTaken" class="input-error">这个聊天 ID 已被使用</small>
           </div>
 
-          <button class="hero-btn" :disabled="!regForm.name || !regForm.accountId || accountIdTaken" @click="nextStep">下一步</button>
+          <!-- 底部提交按钮 -->
+          <button 
+            type="button" 
+            class="form-action-btn" 
+            :disabled="!regForm.name || !regForm.accountId || accountIdTaken" 
+            @click="nextStep"
+          >
+            <span>下一步 / STEP 02</span>
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+          </button>
         </div>
-      </template>
 
-      <!-- 注册 - 第二步：设置人设 -->
-      <template v-else-if="registerStep === 2">
-        <div class="register-form">
-          <div class="wechat-input-group textarea-group">
-            <label>用户人设 (选填)</label>
-            <div class="input-wrapper">
-              <textarea v-model="regForm.persona" placeholder="例如：我是一个大学生，性格开朗..." rows="4"></textarea>
-              <div class="clear-btn" v-if="regForm.persona" @click="clearInput('persona')" style="top: 8px; right: 0;">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-              </div>
+        <div class="footer-code">
+          <span>NRJ · NEW REGISTRATION</span>
+          <i></i>
+          <span>2026</span>
+        </div>
+      </section>
+
+      <!-- 注册流程：第2步 人设详情 -->
+      <section v-else-if="registerStep === 2" class="archive-section">
+        <div class="archive-bg"></div>
+
+        <div class="archive-card reg-card">
+          <!-- 卡片头部索引与印章 -->
+          <div class="archive-head">
+            <div class="archive-index">
+              <span class="num">02</span>
+              <span>STEP 02 / 02 · PERSONA & BIO</span>
+            </div>
+            <div class="stamp">
+              MEMO
             </div>
           </div>
 
-          <div class="hero-btn-group">
-            <button class="hero-btn ghost" @click="skipPersona">跳过</button>
-            <button class="hero-btn" @click="finishRegister">完成注册</button>
+          <div class="form-field-group">
+            <div class="field-label-row">
+              <label class="field-label">
+                <span>用户人设与背景 (选填)</span>
+              </label>
+              <div class="field-tools-badge">
+                <span v-if="personaCharCount > 0" class="char-counter">{{ personaCharCount }} 字</span>
+                <button 
+                  type="button" 
+                  class="field-expand-btn" 
+                  title="大屏放大编辑" 
+                  @click="personaExpandModalVisible = true"
+                >
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                  </svg>
+                  <span>放大编辑</span>
+                </button>
+              </div>
+            </div>
+            <div class="field-textarea-box">
+              <textarea 
+                v-model="regForm.persona" 
+                placeholder="例如：热爱设计的大学生，性格温柔、偶尔有些粘人……" 
+                rows="5"
+              ></textarea>
+              <div class="textarea-actions-corner">
+                <button v-if="regForm.persona" type="button" class="field-clear-btn" title="清空内容" @click="clearInput('persona')">×</button>
+              </div>
+            </div>
+            <small class="field-sub-hint">设定后，角色在与你互动时将更自然地理解你的背景与说话习惯。</small>
+          </div>
+
+          <div class="form-action-group">
+            <button type="button" class="form-action-btn secondary" @click="skipPersona">
+              跳过此步
+            </button>
+            <button type="button" class="form-action-btn" @click="finishRegister">
+              完成创建并进入
+            </button>
           </div>
         </div>
-      </template>
+
+        <div class="footer-code">
+          <span>NRJ · PERSONAL IDENTITY</span>
+          <i></i>
+          <span>2026</span>
+        </div>
+      </section>
     </div>
 
-    <!-- 底部管理操作栏 -->
+    <!-- 底部批量管理操作栏 -->
     <div v-if="!isRegistering && isManaging" class="manage-bottom-bar">
       <div class="select-all" @click="toggleSelectAll">
-        <div class="checkbox" :class="{ checked: isAllSelected }">
-          <svg v-if="isAllSelected" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <div class="item-checkbox" :class="{ checked: isAllSelected }">
+          <svg v-if="isAllSelected" viewBox="0 0 24 24">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
         </div>
-        <span>全选</span>
+        <span>全选 ({{ selectedAccounts.size }}/{{ chatAccounts.length }})</span>
       </div>
-      <button class="batch-delete-btn" :disabled="selectedAccounts.size === 0" @click="confirmBatchDelete">
-        注销选中账号 ({{ selectedAccounts.size }})
+      <button 
+        type="button" 
+        class="batch-delete-btn" 
+        :disabled="selectedAccounts.size === 0" 
+        @click="confirmBatchDelete"
+      >
+        注销选中身份
       </button>
     </div>
 
-    <!-- 自定义删除确认弹窗 -->
+    <!-- 自定义注销确认弹窗 -->
     <div class="custom-modal-overlay" v-if="deleteConfirmVisible" @click="cancelDelete">
       <div class="custom-modal" @click.stop>
-        <div class="modal-icon warning">
-          <svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        <div class="modal-badge">SECURITY NOTICE</div>
+        <div class="modal-title">注销身份档案</div>
+        <div class="modal-desc">
+          确认永久删除 {{ accountsToDelete.length > 1 ? `选中的 ${accountsToDelete.length} 个` : '该' }} 身份账号及所有对话记忆？此操作不可撤销。
         </div>
-        <div class="modal-title">注销账号</div>
-        <div class="modal-desc">此操作将永久删除 {{ accountsToDelete.length > 1 ? `选中的 ${accountsToDelete.length} 个` : '该' }} 账号及相关数据，且不可恢复。确定要继续吗？</div>
         <div class="modal-actions">
-          <button class="modal-btn cancel" @click="cancelDelete">取消</button>
-          <button class="modal-btn danger" @click="executeDelete">确定注销</button>
+          <button type="button" class="modal-btn cancel" @click="cancelDelete">取消</button>
+          <button type="button" class="modal-btn danger" @click="executeDelete">确认注销</button>
         </div>
       </div>
     </div>
 
-    <!-- 头像上传弹窗 -->
+    <!-- 人设大屏放大编辑弹窗 -->
+    <Teleport to="body">
+      <div v-if="personaExpandModalVisible" class="expand-editor-overlay" @click="personaExpandModalVisible = false">
+        <div class="expand-editor-card" @click.stop>
+          <div class="expand-card-bg"></div>
+
+          <!-- 弹窗头部 -->
+          <div class="expand-header">
+            <div class="expand-header-left">
+              <div class="expand-tag">PERSONA MEMO · EXPANDED</div>
+              <h2 class="expand-title">人设与背景大屏编辑</h2>
+            </div>
+            <button type="button" class="expand-close-btn" @click="personaExpandModalVisible = false">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- 提示文本 -->
+          <p class="expand-desc">
+            在这里输入详细的人设背景、说话口吻与偏好习惯，方便随时润色与长文排版。
+          </p>
+
+          <!-- 大屏多行编辑框 -->
+          <div class="expand-textarea-wrap">
+            <textarea 
+              v-model="regForm.persona" 
+              class="expand-textarea" 
+              placeholder="例如：热爱设计的大学生，性格温柔细腻，偶尔有些粘人……可以在这里书写更丰富、更立体的设定，让角色全方位了解你。"
+              rows="10"
+              autofocus
+            ></textarea>
+          </div>
+
+          <!-- 底部工具栏与操作 -->
+          <div class="expand-footer">
+            <div class="expand-footer-left">
+              <div class="expand-char-badge">
+                <span class="dot"></span>
+                <span>当前字数：<strong>{{ personaCharCount }}</strong> 字</span>
+              </div>
+              <button v-if="regForm.persona" type="button" class="expand-clear-text-btn" @click="clearInput('persona')">
+                清空重写
+              </button>
+            </div>
+            <button type="button" class="expand-confirm-btn" @click="personaExpandModalVisible = false">
+              <span>完成并保留</span>
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M20 6L9 17l-5-5"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 头像上传裁剪弹窗 -->
     <Teleport to="body">
       <AvatarUploadModal 
         v-model:visible="avatarModalVisible" 
@@ -383,504 +674,1579 @@ const handleBack = () => {
 </template>
 
 <style scoped>
-/* 主题变量定义 */
-.theme-pink {
-  --auth-primary: #FFB6C1; /* 浅粉色 */
-  --auth-primary-light: rgba(255, 182, 193, 0.15);
-  --auth-primary-hover: #FFA0B0;
-  --auth-bg: #FFFFFF;
-  --auth-bg-gradient: linear-gradient(180deg, #FFFFFF 0%, #FFF5F7 100%);
-  --auth-text-title: #333333;
-  --auth-text-sub: #999999;
-}
+/* 核心设计色彩与变量 */
+.chat-auth-view {
+  --bg: #fffafb;
+  --paper: #ffffff;
+  --ink: #2f3033;
+  --muted: #a9a4a7;
+  --line: #f1d9df;
+  --line-2: #f8e9ed;
+  --pink: #ff9fb3;
+  --pink-2: #ffc6d2;
+  --pink-3: #fff2f5;
 
-.theme-purple {
-  --auth-primary: #DDA0DD; /* 浅紫色 */
-  --auth-primary-light: rgba(221, 160, 221, 0.15);
-  --auth-primary-hover: #D08CD0;
-  --auth-bg: #FFFFFF;
-  --auth-bg-gradient: linear-gradient(180deg, #FFFFFF 0%, #F8F4FF 100%);
-  --auth-text-title: #333333;
-  --auth-text-sub: #999999;
-}
-
-.chat-auth-container {
   position: fixed;
-  top: 0;
-  left: 0;
+  inset: 0;
+  z-index: 9999;
   width: 100%;
   height: 100%;
-  background: var(--auth-bg-gradient);
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  color: var(--auth-text-title);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: linear-gradient(180deg, rgba(255,255,255,.76), rgba(255,248,250,.98)), var(--bg);
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
 
-.auth-header {
-  height: 56px;
+.auth-inner {
+  max-width: 440px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* 顶部导航条 */
+.auth-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  margin-bottom: 24px;
+  min-height: 40px;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-back-btn {
+  width: 58px;
+  height: 28px;
+  min-width: 58px;
+  min-height: 28px;
+  max-width: 58px;
+  max-height: 28px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.94);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  box-sizing: border-box;
+  transition: all .2s ease;
+}
+
+.nav-back-btn svg {
+  width: 15px;
+  height: 15px;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-back-btn:active {
+  background: var(--pink-3);
+  transform: scale(0.96);
+}
+
+.nav-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  color: #a3989c;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  user-select: none;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+.nav-code span {
+  display: inline-block;
+  line-height: 1;
 }
 
-.manage-btn {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--auth-text-sub);
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-.manage-btn:active {
-  opacity: 0.6;
+.nav-code i {
+  display: inline-block;
+  width: 28px;
+  height: 1px;
+  background: var(--pink-2);
 }
 
-.auth-header .back-btn,
-.auth-header .theme-switch {
-  width: 40px;
-  height: 40px;
-  display: flex;
+.nav-manage-btn {
+  height: 32px;
+  padding: 0 12px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  color: var(--pink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
   cursor: pointer;
-  color: var(--auth-text-title);
-  transition: background 0.3s;
-}
-.auth-header .back-btn:active,
-.auth-header .theme-switch:active {
-  background: rgba(0, 0, 0, 0.05);
+  transition: all .2s;
 }
 
-.auth-content {
-  flex: 1;
-  padding: 10px 32px 32px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
+.nav-manage-btn:active {
+  background: var(--pink-3);
+  border-color: var(--pink-2);
 }
 
+.nav-placeholder {
+  font-size: 10px;
+  color: #b6aeb1;
+  letter-spacing: .12em;
+  font-weight: 500;
+}
+
+/* 大标题区 */
 .hero-section {
-  margin-top: 10px;
-  margin-bottom: 40px;
+  position: relative;
+  margin-bottom: 20px;
+  padding-left: 2px;
+  transition: all .25s ease;
+}
+
+.hero-section.in-register {
+  margin-bottom: 14px;
+}
+
+.hero-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--pink);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.hero-kicker:before {
+  content: "";
+  width: 24px;
+  height: 1px;
+  background: var(--pink-2);
+}
+
+.hero-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .hero-title {
-  font-size: 28px;
-  font-weight: 600;
-  color: var(--auth-text-title);
-  margin: 0 0 8px 0;
-  letter-spacing: 0.5px;
-}
-
-.hero-subtitle {
-  font-size: 15px;
-  color: var(--auth-text-sub);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1.05;
   margin: 0;
+  font-size: 32px;
+  font-weight: 750;
+  letter-spacing: -.04em;
+  color: var(--ink);
 }
 
-.empty-state {
-  text-align: center;
-  color: var(--auth-text-sub);
-  padding: 60px 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-.empty-icon {
-  width: 80px;
-  height: 80px;
-  border-radius: 40px;
-  background: var(--auth-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.04);
-  color: var(--auth-primary);
+.hero-section.in-register .hero-title {
+  font-size: 30px;
 }
 
-.account-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-bottom: 32px;
-  transition: padding-bottom 0.3s;
+.hero-title .backword {
+  position: relative;
+  top: 3px;
 }
 
-.account-card {
-  display: flex;
-  align-items: center;
-  padding: 16px;
-  background: var(--auth-bg);
-  border-radius: 16px;
-  cursor: pointer;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
-  transition: transform 0.2s, box-shadow 0.2s;
-  border: 1px solid rgba(0, 0, 0, 0.02);
-}
-.account-card:active {
-  transform: scale(0.98);
-  background: #FAFAFA;
-}
-
-.checkbox {
-  width: 22px;
-  height: 22px;
-  border-radius: 11px;
-  border: 2px solid rgba(0, 0, 0, 0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 16px;
-  transition: all 0.2s;
-}
-.checkbox.checked {
-  background: var(--auth-primary);
-  border-color: var(--auth-primary);
-  color: white;
-}
-
-.account-card .avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background-color: var(--auth-primary);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
+.hero-tag-badge {
+  font-size: 9px;
   font-weight: 600;
-  background-size: cover;
-  background-position: center;
-  margin-right: 16px;
+  letter-spacing: .12em;
+  color: #c7bdc0;
+  text-transform: uppercase;
+  user-select: none;
 }
 
-.account-card .info {
-  flex: 1;
-}
-
-.account-card .name {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--auth-text-title);
-  margin-bottom: 4px;
-}
-
-.account-card .id {
+.hero-sub {
+  margin: 10px 0 0;
   font-size: 13px;
-  color: var(--auth-text-sub);
+  color: #9f989b;
+  letter-spacing: .02em;
+  line-height: 1.5;
 }
 
-.account-card .actions {
-  display: flex;
-  align-items: center;
+.hero-section.in-register .hero-sub {
+  margin-top: 6px;
+  font-size: 12.5px;
 }
 
-.delete-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ff4d4f;
-  transition: all 0.2s;
-}
-.delete-btn:active {
-  background: rgba(255, 77, 79, 0.1);
-}
-
-.register-entry {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 12px;
-  color: var(--auth-primary);
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  border-radius: 20px;
-  align-self: center;
-  transition: opacity 0.2s;
-}
-.register-entry:active {
-  opacity: 0.6;
-}
-
-/* 微信风格注册表单 */
-.register-form {
+/* 档案册主体卡片区 */
+.archive-section {
+  position: relative;
+  margin-top: 4px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
 }
 
-.avatar-upload {
+.archive-bg {
+  position: absolute;
+  inset: 12px 6px 12px 12px;
+  border: 1px solid var(--line-2);
+  transform: translate(6px, 6px);
+  background: rgba(255,255,255,.45);
+  pointer-events: none;
+}
+
+.archive-card {
+  position: relative;
+  background: rgba(255,255,255,.88);
+  border: 1px solid var(--line);
+  padding: 20px 18px 20px 22px;
+  clip-path: polygon(0 0, 88% 0, 94% 6%, 100% 6%, 100% 100%, 0 100%);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(60, 36, 44, 0.035);
+  box-sizing: border-box;
 }
 
-.avatar-preview {
-  width: 88px;
-  height: 88px;
+.archive-card.reg-card {
+  gap: 16px;
+  padding: 20px 20px 22px 24px;
+  background: rgba(255,255,255,.92);
+}
+
+/* 装订线与装订孔 */
+.archive-card:before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 16px;
+  bottom: 16px;
+  width: 1px;
+  background: var(--line);
+}
+
+.archive-card:after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 36px;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--pink-2);
   border-radius: 50%;
-  background: var(--auth-primary-light);
+  background: var(--paper);
+}
+
+.archive-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.archive-index {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #9e9397;
+  letter-spacing: .12em;
+}
+
+.archive-index .num {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: -.04em;
+  font-weight: 750;
+}
+
+.stamp {
+  border: 1px solid var(--pink-2);
+  color: var(--pink);
+  font-size: 9px;
+  padding: 3px 8px;
+  letter-spacing: .14em;
+  transform: rotate(2deg);
+  background: #fffafd;
+  font-weight: 600;
+  user-select: none;
+}
+
+.stamp.empty {
+  border-color: var(--pink-2);
+  color: var(--pink);
+}
+
+.stamp.active {
+  border-color: #ff4d4f;
+  color: #ff4d4f;
+  transform: none;
+}
+
+/* 空状态插槽 */
+.slot-empty {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 0;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+  margin-bottom: 16px;
+}
+
+.avatar-box {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--auth-primary);
-  background-size: cover;
-  background-position: center;
+  width: 72px;
+  height: 72px;
 }
 
-.avatar-hint {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--auth-text-sub);
+.avatar-placeholder {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 1px solid var(--pink-2);
+  position: relative;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, #ffffff, #fff5f8);
+  cursor: pointer;
+  transition: transform .2s ease;
 }
 
-.wechat-input-group {
+.avatar-placeholder:hover {
+  transform: scale(1.04);
+}
+
+.avatar-placeholder:before {
+  content: "+";
+  color: var(--pink);
+  font-weight: 300;
+  font-size: 24px;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.avatar-placeholder:after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 1px solid var(--line-2);
+  border-radius: 50%;
+}
+
+.skeleton {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
 }
 
-.wechat-input-group label {
-  font-size: 14px;
-  color: var(--auth-text-title);
+.sk {
+  height: 1px;
+  background: var(--line);
+}
+
+.sk.w1 { width: 64%; }
+.sk.w2 { width: 88%; }
+.sk.w3 { width: 48%; }
+
+.mini {
+  margin-top: 3px;
+  font-size: 9px;
+  color: #c2b8bb;
+  letter-spacing: .08em;
   font-weight: 500;
 }
 
-.input-wrapper {
+.empty-note {
+  padding: 6px 4px 18px 0;
+}
+
+.empty-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.empty-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #a29a9d;
+}
+
+/* 账号列表容器与卡片 */
+.accounts-scroll-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 16px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.account-entry-item {
   position: relative;
   display: flex;
   align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.94);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .2s;
 }
 
-.input-wrapper input,
-.input-wrapper textarea {
-  width: 100%;
-  padding: 12px 32px 12px 0;
-  background: transparent;
+.account-entry-item:hover {
+  border-color: var(--pink-2);
+  background: #ffffff;
+}
+
+.account-entry-item:active {
+  transform: scale(0.99);
+}
+
+.account-entry-item.is-selected {
+  border-color: var(--pink);
+  background: var(--pink-3);
+}
+
+.account-entry-item.is-current {
+  border-left: 3px solid var(--pink);
+}
+
+.entry-index-tag {
+  font-size: 9px;
+  color: var(--muted);
+  font-family: monospace;
+}
+
+.entry-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--pink-2);
+  background: linear-gradient(135deg, #fff2f5, #ffd9e2);
+  background-size: cover;
+  background-position: center;
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--pink);
+  flex-shrink: 0;
+}
+
+.entry-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.entry-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.entry-name {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-current-badge {
+  font-size: 8px;
+  padding: 1px 4px;
+  border: 1px solid var(--pink-2);
+  border-radius: 3px;
+  color: var(--pink);
+  background: #fff;
+  letter-spacing: .05em;
+}
+
+.entry-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #9f989b;
+}
+
+.entry-account-id {
+  font-family: monospace;
+  color: #8c8287;
+  font-size: 10px;
+}
+
+.entry-persona-brief {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.entry-single-delete {
+  width: 28px;
+  height: 28px;
   border: none;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: transparent;
+  color: #c7bdc0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all .2s;
+  flex-shrink: 0;
+}
+
+.entry-single-delete svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.entry-single-delete:hover {
+  color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.08);
+}
+
+/* 档案右下角注解 (流式对齐) */
+.corner-note {
+  text-align: right;
+  font-size: 9px;
+  line-height: 1.5;
+  color: #d2c5c9;
+  letter-spacing: .10em;
+  margin-top: auto;
+  margin-bottom: 12px;
+  padding-right: 2px;
+  user-select: none;
+}
+
+/* 底部建立新身份入口 (流式排列) */
+.create-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  border-top: 1px solid var(--pink-2);
+  padding: 12px 2px 0;
+  color: var(--pink);
+  cursor: pointer;
+  transition: opacity .2s;
+  user-select: none;
+}
+
+.create-entry:active {
+  opacity: 0.7;
+}
+
+.create-text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.create-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
+
+.plus-icon {
   font-size: 16px;
-  color: var(--auth-text-title);
-  font-family: inherit;
-  border-radius: 0;
-  transition: border-bottom-color 0.3s;
+  font-weight: 400;
 }
 
-.input-wrapper textarea {
-  resize: none;
-  padding-right: 0;
+.create-text-group small {
+  font-size: 9px;
+  color: #c4b8bc;
+  letter-spacing: .10em;
 }
 
-.input-wrapper input:focus,
-.input-wrapper textarea:focus {
+.arrow-circle {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  border: 1px solid var(--pink-2);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: #ffffff;
+  transition: transform .2s ease;
+}
+
+.arrow-circle svg {
+  width: 14px;
+  height: 14px;
+  stroke: var(--pink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.create-entry:hover .arrow-circle {
+  transform: translateX(2px);
+}
+
+/* 底部页脚 */
+.footer-code {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  padding: 0 4px;
+  color: #d0c6c9;
+  font-size: 9px;
+  letter-spacing: .11em;
+  user-select: none;
+}
+
+.footer-code i {
+  display: block;
+  width: 36px;
+  height: 1px;
+  background: var(--line-2);
+}
+
+/* 注册档案卡统一设计 */
+.register-archive-card {
+  position: relative;
+  background: rgba(255,255,255,.86);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 22px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-shadow: 0 10px 30px rgba(60, 36, 44, 0.035);
+}
+
+.reg-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 12px;
+}
+
+.reg-step-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pink);
+  letter-spacing: .12em;
+}
+
+.reg-step-title {
+  font-size: 10px;
+  color: #b8afb3;
+  letter-spacing: .12em;
+}
+
+.account-purpose-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: rgba(255,255,255,.6);
+}
+
+.purpose-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.purpose-heading strong {
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.purpose-heading span, .linked-account-label {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.purpose-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.purpose-options button {
+  display: flex;
+  min-height: 64px;
+  padding: 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: all .2s;
+}
+
+.purpose-options button.active {
+  border-color: var(--pink);
+  background: var(--pink-3);
+}
+
+.purpose-options strong {
+  font-size: 12px;
+}
+
+.purpose-options span {
+  font-size: 9px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.linked-account-options {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.linked-account-options > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.linked-account-options > button.selected {
+  border-color: var(--pink);
+  background: var(--pink-3);
+}
+
+.linked-avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--pink-3) center/cover;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pink);
+  flex-shrink: 0;
+}
+
+.linked-account-options strong {
+  font-size: 11px;
+  display: block;
+}
+
+.linked-account-options small {
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.copy-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.copy-check {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.copy-profile-row.checked .copy-check {
+  border-color: var(--pink);
+  background: var(--pink);
+  color: #fff;
+}
+
+.copy-check svg {
+  width: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.copy-profile-row strong {
+  font-size: 11px;
+  display: block;
+}
+
+.copy-profile-row small {
+  font-size: 9px;
+  color: var(--muted);
+}
+
+/* 注册头像槽位 */
+.form-avatar-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255,255,255,.8), rgba(255,248,250,.9));
+  cursor: pointer;
+  transition: all .2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.form-avatar-box:hover {
+  border-color: var(--pink);
+  background: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(255, 159, 179, 0.12);
+}
+
+.form-avatar-box:active {
+  transform: translateY(0);
+}
+
+.form-avatar-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--pink-2);
+  background: linear-gradient(180deg, #ffffff, #fff5f7);
+  background-size: cover;
+  background-position: center;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: border-color .2s ease;
+}
+
+.form-avatar-box:hover .form-avatar-circle {
+  border-color: var(--pink);
+}
+
+.avatar-add-icon {
+  font-size: 20px;
+  color: var(--pink);
+  font-weight: 300;
+}
+
+.avatar-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.avatar-tip span {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.avatar-tip small {
+  font-size: 9px;
+  color: #b3a6aa;
+  letter-spacing: .08em;
+}
+
+.avatar-action-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pink);
+  background: #fff;
+  border: 1px solid var(--pink-2);
+  padding: 3px 8px;
+  border-radius: 12px;
+  letter-spacing: .05em;
+}
+
+/* 输入表单组 */
+.reg-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #7d7579;
+  letter-spacing: .06em;
+}
+
+.field-tools-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.char-counter {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pink);
+  background: var(--pink-3);
+  padding: 1px 6px;
+  border-radius: 10px;
+  letter-spacing: .04em;
+}
+
+.field-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  color: #8c8287;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+
+.field-expand-btn svg {
+  width: 11px;
+  height: 11px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.field-expand-btn:hover {
+  background: var(--pink-3);
+  border-color: var(--pink-2);
+  color: var(--pink);
+  transform: translateY(-1px);
+}
+
+.field-input-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  transition: all .2s ease;
+}
+
+.field-input-box:focus-within {
+  border-color: var(--pink);
+  box-shadow: 0 0 0 3px rgba(255, 159, 179, 0.16);
+  background: #ffffff;
+}
+
+.field-input-box.error {
+  border-color: #ff4d4f;
+  box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.12);
+}
+
+.field-input-box input {
+  width: 100%;
+  height: 42px;
+  border: none;
+  background: transparent;
   outline: none;
-  border-bottom-color: var(--auth-primary);
+  font-size: 13.5px;
+  color: var(--ink);
+  font-family: inherit;
 }
 
-.input-wrapper input::placeholder,
-.input-wrapper textarea::placeholder {
-  color: #cccccc;
+.field-input-box input::placeholder {
+  color: #c9bfc3;
 }
 
-.clear-btn {
+.field-textarea-box {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: all .2s ease;
+}
+
+.field-textarea-box:focus-within {
+  border-color: var(--pink);
+  box-shadow: 0 0 0 3px rgba(255, 159, 179, 0.16);
+}
+
+.field-textarea-box textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: inherit;
+  resize: none;
+  line-height: 1.6;
+}
+
+.field-textarea-box textarea::placeholder {
+  color: #c9bfc3;
+}
+
+.field-clear-btn {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: #f1eaed;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #8c8287;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all .15s;
+}
+
+.field-clear-btn:hover {
+  background: var(--pink-2);
+  color: #fff;
+}
+
+.textarea-actions-corner {
   position: absolute;
-  right: 0;
-  width: 24px;
-  height: 24px;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.input-err-hint {
+  font-size: 10.5px;
+  color: #ff4d4f;
+  margin-top: 2px;
+}
+
+.field-sub-hint {
+  font-size: 10.5px;
+  color: #a89fa3;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+/* 按钮组 */
+.form-action-btn {
+  width: 100%;
+  height: 44px;
+  border-radius: 8px;
+  background: var(--pink);
+  color: #fff;
+  border: 1px solid var(--pink);
+  font-size: 13.5px;
+  font-weight: 650;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #bbbbbb;
-  cursor: pointer;
-}
-.clear-btn:active {
-  color: var(--auth-text-title);
+  gap: 8px;
+  transition: all .2s ease;
+  letter-spacing: .04em;
+  margin-top: 4px;
 }
 
-.hero-btn {
-  width: 100%;
-  height: 48px;
-  border-radius: 24px;
-  background: var(--auth-primary);
-  color: white;
-  font-size: 16px;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  margin-top: 24px;
-  transition: background 0.2s, opacity 0.2s;
+.form-action-btn svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform .2s ease;
 }
-.hero-btn:active {
-  background: var(--auth-primary-hover);
+
+.form-action-btn:hover:not(:disabled) {
+  background: #ff8ca3;
+  border-color: #ff8ca3;
+  box-shadow: 0 4px 12px rgba(255, 159, 179, 0.28);
 }
-.hero-btn:disabled {
-  background: var(--auth-primary-light);
-  color: rgba(255, 255, 255, 0.8);
+
+.form-action-btn:hover:not(:disabled) svg {
+  transform: translateX(2px);
+}
+
+.form-action-btn:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.form-action-btn:disabled {
+  background: #eddde1;
+  border-color: #eddde1;
+  color: #fff;
   cursor: not-allowed;
 }
-.hero-btn.ghost {
-  background: var(--auth-bg);
-  color: var(--auth-text-title);
-  border: 1px solid rgba(0,0,0,0.1);
+
+.form-action-btn.secondary {
+  background: #ffffff;
+  border-color: var(--line);
+  color: #8c8287;
 }
 
-.hero-btn-group {
+.form-action-btn.secondary:hover {
+  background: var(--pink-3);
+  border-color: var(--pink-2);
+  color: var(--pink);
+  box-shadow: none;
+}
+
+.form-action-group {
   display: flex;
-  gap: 16px;
-  margin-top: 16px;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* 复选框样式 */
+.item-checkbox {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--pink-2);
+  border-radius: 4px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: all .2s;
+}
+
+.item-checkbox.checked {
+  background: var(--pink);
+  border-color: var(--pink);
+}
+
+.item-checkbox svg {
+  width: 12px;
+  height: 12px;
+  stroke: #fff;
+  stroke-width: 3;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* 底部管理操作栏 */
 .manage-bottom-bar {
-  position: absolute;
+  position: fixed;
   bottom: 0;
   left: 0;
   width: 100%;
-  height: 70px;
-  background: var(--auth-bg);
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.04);
+  height: 64px;
+  background: rgba(255,255,255,.96);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
+  padding: 0 24px;
   box-sizing: border-box;
-  animation: slideUpBar 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 10;
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.03);
 }
 
 .select-all {
   display: flex;
   align-items: center;
+  gap: 8px;
   cursor: pointer;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--auth-text-title);
-  user-select: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 .batch-delete-btn {
-  height: 40px;
-  padding: 0 20px;
-  border-radius: 20px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 6px;
   background: #ff4d4f;
-  color: white;
-  font-size: 14px;
+  color: #fff;
+  font-size: 12px;
   font-weight: 600;
   border: none;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: opacity .2s;
 }
+
 .batch-delete-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
-/* 自定义弹窗 */
+/* 自定义确认弹窗 */
 .custom-modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
   z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: fadeIn 0.2s ease-out;
-}
-.custom-modal {
-  background: var(--auth-bg);
-  width: 300px;
-  border-radius: 16px;
   padding: 24px;
+}
+
+.custom-modal {
+  background: #ffffff;
+  width: min(100%, 320px);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  padding: 22px 20px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  animation: scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.12);
 }
-.modal-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 24px;
+
+.modal-badge {
+  font-size: 9px;
+  color: #ff4d4f;
+  letter-spacing: .12em;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.modal-desc {
+  font-size: 12px;
+  color: #8c8287;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.modal-btn {
+  flex: 1;
+  height: 38px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.modal-btn.cancel {
+  background: #f7f7f8;
+  color: #666;
+  border-color: #eee;
+}
+
+.modal-btn.danger {
+  background: #ff4d4f;
+  color: #fff;
+}
+
+/* 人设大屏全屏编辑器 Modal 样式 */
+.expand-editor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(47, 48, 51, 0.45);
+  backdrop-filter: blur(6px);
+  z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 16px;
+  padding: 18px;
+  box-sizing: border-box;
+  animation: fadeIn .2s ease;
 }
-.modal-icon.warning {
-  background: rgba(255, 77, 79, 0.1);
-  color: #ff4d4f;
-}
-.modal-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--auth-text-title);
-  margin-bottom: 8px;
-}
-.modal-desc {
-  font-size: 14px;
-  color: var(--auth-text-sub);
-  line-height: 1.5;
-  margin-bottom: 24px;
-}
-.modal-actions {
+
+.expand-editor-card {
+  position: relative;
+  width: min(100%, 520px);
+  max-height: 90vh;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 22px 20px;
   display: flex;
-  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 16px 40px rgba(60, 36, 44, 0.12);
+  box-sizing: border-box;
+}
+
+.expand-card-bg {
+  position: absolute;
+  inset: 8px;
+  border: 1px dashed var(--line-2);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.expand-header {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
 }
-.modal-btn {
-  flex: 1;
-  height: 40px;
-  border-radius: 20px;
-  font-size: 15px;
-  font-weight: 500;
-  border: none;
+
+.expand-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.expand-tag {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--pink);
+  letter-spacing: .12em;
+}
+
+.expand-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 750;
+  color: var(--ink);
+  letter-spacing: -.02em;
+}
+
+.expand-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  display: grid;
+  place-items: center;
+  color: #8c8287;
   cursor: pointer;
+  padding: 0;
+  transition: all .2s ease;
+  flex-shrink: 0;
 }
-.modal-btn.cancel {
-  background: #f5f5f5;
-  color: #666;
+
+.expand-close-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.modal-btn.danger {
-  background: #ff4d4f;
-  color: white;
+
+.expand-close-btn:hover {
+  background: var(--pink-3);
+  border-color: var(--pink-2);
+  color: var(--pink);
+}
+
+.expand-desc {
+  margin: 0;
+  font-size: 11.5px;
+  color: #9f989b;
+  line-height: 1.5;
+}
+
+.expand-textarea-wrap {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: inset 0 2px 6px rgba(60, 36, 44, 0.02);
+  transition: all .2s ease;
+}
+
+.expand-textarea-wrap:focus-within {
+  border-color: var(--pink);
+  box-shadow: 0 0 0 3px rgba(255, 159, 179, 0.16);
+}
+
+.expand-textarea {
+  width: 100%;
+  height: 220px;
+  max-height: 48vh;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13.5px;
+  color: var(--ink);
+  font-family: inherit;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+.expand-textarea::placeholder {
+  color: #c9bfc3;
+}
+
+.expand-footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.expand-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.expand-char-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #7d7579;
+  background: var(--pink-3);
+  padding: 4px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--line-2);
+}
+
+.expand-char-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pink);
+}
+
+.expand-char-badge strong {
+  color: var(--pink);
+  font-weight: 700;
+}
+
+.expand-clear-text-btn {
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  color: #a89fa3;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  transition: color .2s;
+}
+
+.expand-clear-text-btn:hover {
+  color: #ff4d4f;
+}
+
+.expand-confirm-btn {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: var(--pink);
+  color: #fff;
+  border: 1px solid var(--pink);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all .2s ease;
+  letter-spacing: .02em;
+}
+
+.expand-confirm-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.expand-confirm-btn:hover {
+  background: #ff8ca3;
+  border-color: #ff8ca3;
+  box-shadow: 0 4px 12px rgba(255, 159, 179, 0.28);
 }
 
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-@keyframes scaleUp {
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
-}
-@keyframes slideUpBar {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-.register-form{width:100%;min-width:0}.account-purpose-section{box-sizing:border-box;width:100%;min-width:0}.purpose-heading span{max-width:52%;min-width:0;text-align:right;white-space:normal}.purpose-options{grid-template-columns:repeat(2,minmax(0,1fr))}.purpose-options button{min-width:0}
-.account-purpose-section{display:flex;flex-direction:column;gap:10px;margin-bottom:22px;padding:14px;border:1px solid rgba(0,0,0,.05);border-radius:16px;background:rgba(255,255,255,.68)}.purpose-heading{display:flex;align-items:center;justify-content:space-between}.purpose-heading strong{font-size:13px;color:var(--auth-text-main)}.purpose-heading span,.linked-account-label{font-size:10px;color:var(--auth-text-sub)}.purpose-options{display:grid;grid-template-columns:1fr 1fr;gap:8px}.purpose-options button{display:flex;min-height:68px;padding:11px;border:1px solid transparent;border-radius:12px;background:rgba(245,245,247,.9);color:var(--auth-text-main);text-align:left;flex-direction:column;gap:5px}.purpose-options button.active{border-color:var(--auth-primary);background:rgba(255,255,255,.98);box-shadow:0 4px 12px rgba(0,0,0,.035)}.purpose-options strong{font-size:12px}.purpose-options span{font-size:9px;line-height:1.45;color:var(--auth-text-sub)}.linked-account-label{margin-top:2px}.linked-account-options{display:flex;gap:7px;overflow-x:auto;padding-bottom:2px}.linked-account-options>button{display:flex;align-items:center;gap:8px;min-width:145px;padding:8px;border:1px solid transparent;border-radius:11px;background:rgba(245,245,247,.9);color:var(--auth-text-main);text-align:left}.linked-account-options>button.selected{border-color:var(--auth-primary);background:#fff}.linked-avatar{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:var(--auth-bg-soft) center/cover;font-size:11px;font-weight:700}.linked-account-options button>span:last-child,.copy-profile-row>span:last-child{display:flex;min-width:0;flex-direction:column;gap:3px}.linked-account-options strong,.copy-profile-row strong{overflow:hidden;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.linked-account-options small,.copy-profile-row small{font-size:8px;color:var(--auth-text-sub)}.copy-profile-row{display:flex;align-items:center;gap:9px;width:100%;padding:9px;border:0;border-radius:11px;background:rgba(245,245,247,.9);color:var(--auth-text-main);text-align:left}.copy-check{display:grid;place-items:center;flex:0 0 20px;width:20px;height:20px;border:1px solid #ccd0d5;border-radius:6px;background:#fff}.copy-profile-row.checked .copy-check{border-color:var(--auth-primary);background:var(--auth-primary);color:#fff}.copy-check svg{width:14px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round}.input-error{display:block;margin-top:6px;color:#d75a60;font-size:10px}@media(max-width:430px){.purpose-options{grid-template-columns:1fr}.account-purpose-section{padding:12px}}
 </style>

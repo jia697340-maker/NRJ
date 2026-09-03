@@ -461,9 +461,8 @@ watch(() => props.selectedChat, calculateMomentTokens)
       </template>
     </div>
 
-    <div class="glass-panel asset-capability-panel" v-show="matchSearch('文件与视频能力', '角色文件能力', '角色视频能力', '已有文件', '已有视频', 'PPTX', 'Veo')">
+    <div class="glass-panel asset-capability-panel" v-show="matchSearch('文件能力', '角色文件能力', '已有文件', 'PPTX')">
       <input ref="fileInput" class="asset-hidden-input" type="file" multiple @change="addConfiguredAssets(($event.target as HTMLInputElement).files, 'file')">
-      <input ref="videoInput" class="asset-hidden-input" type="file" accept="video/mp4,video/webm,video/quicktime" multiple @change="addConfiguredAssets(($event.target as HTMLInputElement).files, 'video')">
       <div class="glass-list-item asset-heading-row">
         <div class="item-label">角色文件能力</div>
         <div class="item-value"><label class="switch" @click.stop><input type="checkbox" :checked="!!selectedChat.enableFileCapability" @change="toggleFileCapability"><span class="slider"></span></label></div>
@@ -486,8 +485,11 @@ watch(() => props.selectedChat, calculateMomentTokens)
           <div v-if="selectedChat.fileGenerationConfig?.enabled !== false" class="asset-config-grid"><label><span>文件上限 (MB)</span><input v-model.number="selectedChat.fileGenerationConfig.maxSizeMb" type="number" min="1" max="200" @change="normalizeAssetNumber('fileSize')"></label></div>
         </div>
       </template>
+      <div v-if="assetNotice" class="asset-notice">{{ assetNotice }}</div>
+    </div>
 
-      <div class="asset-divider"></div>
+    <div class="glass-panel asset-capability-panel" v-show="matchSearch('视频能力', '角色视频能力', '已有视频', 'Veo')">
+      <input ref="videoInput" class="asset-hidden-input" type="file" accept="video/mp4,video/webm,video/quicktime" multiple @change="addConfiguredAssets(($event.target as HTMLInputElement).files, 'video')">
       <div class="glass-list-item asset-heading-row">
         <div class="item-label">角色视频能力</div>
         <div class="item-value"><label class="switch" @click.stop><input type="checkbox" :checked="!!selectedChat.enableVideoMessageCapability" @change="toggleVideoMessageCapability"><span class="slider"></span></label></div>
@@ -516,7 +518,7 @@ watch(() => props.selectedChat, calculateMomentTokens)
             <div class="asset-option-row"><span>比例</span><div class="asset-option-values"><button v-for="value in selectedVideoProvider.ratios" :key="value" type="button" :class="{ active: selectedChat.videoGenerationConfig.aspectRatio === value }" @click="setVideoOption('aspectRatio', value)">{{ value === 'adaptive' ? '自适应' : value }}</button></div></div>
             <div class="asset-option-row"><span>清晰度</span><div class="asset-option-values"><button v-for="value in selectedVideoProvider.resolutions" :key="value" type="button" :class="{ active: selectedChat.videoGenerationConfig.resolution === value }" @click="setVideoOption('resolution', value)">{{ value }}</button></div></div>
             <label class="asset-duration-row"><span>时长</span><input v-model.number="selectedChat.videoGenerationConfig.durationSeconds" type="number" :min="selectedVideoProvider.durationMin" :max="selectedVideoProvider.durationMax" step="1" @change="normalizeVideoDuration"><small>秒（{{ selectedVideoProvider.durationMin }}–{{ selectedVideoProvider.durationMax }}）</small></label>
-            <div class="asset-help" :class="{ warning: !selectedVideoProviderReady }">复用{{ selectedVideoProvider.credentialHint }}中保存的凭据，角色配置不会复制 API Key。{{ selectedVideoProvider.supportsImage ? '支持文字生成和聊天图片生成。' : '当前仅支持文字生成。' }}{{ selectedVideoProviderReady ? '' : ' 当前尚未检测到可复用凭据。' }}</div>
+            <div class="asset-help" :class="{ warning: !selectedVideoProviderReady }">复用{{ selectedVideoProvider.credentialHint }}中保存的凭据，角色配置不会复制 API Key。{{ selectedVideoProviderReady ? '' : ' 当前尚未检测到可复用凭据。' }}</div>
           </template>
         </div>
       </template>

@@ -26,6 +26,10 @@ export const saveMusicHomeCache = async (sections: MusicHomeSection[]) => {
   await localforage.setItem(HOME_CACHE_KEY, serializable)
 }
 
+export const clearMusicHomeCache = async () => {
+  await localforage.removeItem(HOME_CACHE_KEY)
+}
+
 export const saveLocalMusicFile = async (key: string, file: Blob) => {
   await audioStore.setItem(key, file)
 }

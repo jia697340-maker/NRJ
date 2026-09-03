@@ -547,18 +547,38 @@ export const defaultMusicSourceConfigs = (): MusicSourceConfig[] => {
   const bundledAggregateApiBase = deployedAggregateApiBase
   return [
     { id: 'local', name: '本地音乐', enabled: true, kind: 'local', capabilities: ['播放', '歌词', '歌单', '离线'] },
-    { id: 'thatapi-netease', name: '网易云公开一号源', enabled: false, kind: 'netease', apiBase: 'https://netease.thatapi.cn', anonymousPublic: true, capabilities: ['推荐歌单', '歌单详情', '搜索', '评论', '播放'] },
-    { id: 'cyanyun-netease', name: '网易云公开二号源', enabled: false, kind: 'netease', apiBase: 'https://www.cyanyun.com/api', anonymousPublic: true, capabilities: ['推荐歌单', '歌单详情', '搜索', '播放'] },
-    { id: 'qijieya-meting', name: '网易云与QQ公共源', enabled: false, kind: 'meting', apiBase: 'https://api.qijieya.cn/meting/', anonymousPublic: true, capabilities: ['网易云', 'QQ音乐', '搜索', '歌单', '播放'] },
-    { id: 'vkeys-music', name: '落月播放补源', enabled: false, kind: 'generic', apiBase: 'https://api.vkeys.cn/v2/music', anonymousPublic: true, capabilities: ['网易云', 'QQ音乐', '播放补源', '多音质'] },
-    { id: 'injahow-meting', name: '公开歌单补源', enabled: false, kind: 'meting', apiBase: 'https://api.injahow.cn/meting/', anonymousPublic: true, capabilities: ['网易云', '歌单', '单曲', '播放补源'] },
-    { id: 'hf-netease', name: '网易云应急源', enabled: false, kind: 'netease', apiBase: 'https://moefurina-neteasecloudmusicapienhanced.hf.space', anonymousPublic: true, capabilities: ['推荐歌单', '评论', '播放', '应急备用'] },
-    { id: 'public-meting', name: '原公共音乐源', enabled: false, kind: 'meting', apiBase: 'https://meting.mikus.ink/api', anonymousPublic: true, capabilities: ['匿名搜索', '公开榜单', '无需部署', '第三方服务'] },
+    { id: 'thatapi-netease', name: '网易云公开一号源', enabled: true, kind: 'netease', apiBase: 'https://netease.thatapi.cn', anonymousPublic: true, capabilities: ['推荐歌单', '歌单详情', '搜索', '评论', '播放'] },
+    { id: 'cyanyun-netease', name: '网易云公开二号源', enabled: true, kind: 'netease', apiBase: 'https://www.cyanyun.com/api', anonymousPublic: true, capabilities: ['推荐歌单', '歌单详情', '搜索', '播放'] },
+    { id: 'qijieya-meting', name: '网易云与QQ公共源', enabled: true, kind: 'meting', apiBase: 'https://api.qijieya.cn/meting/', anonymousPublic: true, capabilities: ['网易云', 'QQ音乐', '搜索', '歌单', '播放'] },
+    { id: 'vkeys-music', name: '落月播放补源', enabled: true, kind: 'generic', apiBase: 'https://api.vkeys.cn/v2/music', anonymousPublic: true, capabilities: ['网易云', 'QQ音乐', '播放补源', '多音质'] },
+    { id: 'injahow-meting', name: '公开歌单补源', enabled: true, kind: 'meting', apiBase: 'https://api.injahow.cn/meting/', anonymousPublic: true, capabilities: ['网易云', '歌单', '单曲', '播放补源'] },
+    { id: 'hf-netease', name: '网易云应急源', enabled: true, kind: 'netease', apiBase: 'https://moefurina-neteasecloudmusicapienhanced.hf.space', anonymousPublic: true, capabilities: ['推荐歌单', '评论', '播放', '应急备用'] },
+    { id: 'public-meting', name: '原公共音乐源', enabled: true, kind: 'meting', apiBase: 'https://meting.mikus.ink/api', anonymousPublic: true, capabilities: ['匿名搜索', '公开榜单', '无需部署', '第三方服务'] },
     { id: 'aggregate', name: '可选账号服务', enabled: Boolean(bundledAggregateApiBase), kind: 'aggregate', apiBase: bundledAggregateApiBase, capabilities: ['可选配置', '扫码登录', '个人歌单', '账号隔离'] },
     { id: 'official-video', name: '官方视频（免部署）', enabled: true, kind: 'embed', capabilities: ['官方完整内容', '无需登录', '无需部署', '网页播放'] },
     { id: 'public-video', name: '国内公开视频（免部署）', enabled: true, kind: 'embed', capabilities: ['公开完整内容', '国内可用', '无需部署', '网页播放'] },
     { id: 'subsonic', name: '私人音乐库', enabled: false, kind: 'subsonic', apiBase: '', capabilities: ['Navidrome', 'OpenSubsonic', '歌单', '无损'] }
   ]
+}
+
+export const restoreMusicSourceConfigs = (defaults: MusicSourceConfig[], stored: MusicSourceConfig[]) => defaults.map(item => {
+  const storedItem = stored.find(savedItem => savedItem.id === item.id)
+  const merged = storedItem
+    ? { ...item, ...storedItem, enabled: storedItem.enabled === true }
+    : { ...item, enabled: item.kind === 'local' && item.enabled }
+  if (!merged.apiBase?.trim() && item.apiBase?.trim()) merged.apiBase = item.apiBase
+  return merged
+})
+
+export const isPublicMusicDiscoveryEnabled = (configs: MusicSourceConfig[], anonymousAllowed: boolean) => anonymousAllowed
+  && configs.some(item => item.id === 'public-meting' && item.enabled)
+
+export const filterMusicHomeSectionsByEnabledSources = (sections: MusicHomeSection[], configs: MusicSourceConfig[]) => {
+  const enabledSourceIds = new Set(configs.filter(item => item.enabled).map(item => item.id))
+  return sections.filter(section => {
+    const sourceIds = [...(section.tracks || []), ...(section.playlists || [])].map(item => item.sourceId)
+    return sourceIds.length > 0 && sourceIds.some(sourceId => enabledSourceIds.has(sourceId))
+  })
 }
 
 export const createMusicProviders = (configs: MusicSourceConfig[]) => configs.filter(item => item.enabled && item.id !== 'local' && (configNeedsNoAddress(item) || Boolean(item.apiBase?.trim()))).map(config => {

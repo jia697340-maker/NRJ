@@ -1,7 +1,7 @@
 /* WARNING: 本项目专属“粘人精”，严禁出现 Kiro、Krio、周棋洛等任何相关英文或拼音命名！ */
 import { reactive, ref } from 'vue'
 import type { MusicPlaylist, MusicPlayMode, MusicQuality, MusicSourceConfig, MusicTrack } from '../types/music'
-import { defaultMusicSourceConfigs } from './musicProviders'
+import { defaultMusicSourceConfigs, restoreMusicSourceConfigs } from './musicProviders'
 import { loadMusicState, saveMusicState } from './musicStorage'
 
 export const musicQueue = ref<MusicTrack[]>([])
@@ -83,15 +83,10 @@ export const initializeMusicRuntime = () => {
       musicCustomSignature.value = typeof saved.customSignature === 'string' ? saved.customSignature : null
       const defaults = defaultMusicSourceConfigs()
       const stored = Array.isArray(saved.sourceConfigs) ? saved.sourceConfigs : []
-      musicSourceConfigs.value = defaults.map(item => {
-        const storedItem = stored.find(savedItem => savedItem.id === item.id)
-        const legacyPublicEnabled = stored.find(savedItem => savedItem.id === 'public-meting')?.enabled === true
-        const merged = { ...item, ...(storedItem || {}), ...(!storedItem && item.anonymousPublic && legacyPublicEnabled ? { enabled: true } : {}) }
-        if (!merged.apiBase?.trim() && item.apiBase?.trim()) {
-          merged.apiBase = item.apiBase
-          merged.enabled = item.enabled
-        }
-        if (merged.kind === 'aggregate' && !item.apiBase?.trim() && (merged.apiBase === '/music-api' || merged.apiBase === `${window.location.origin}/music-api`)) {
+      // 已经存在音乐状态时，严格保留用户保存的开关；后来新增的在线来源默认关闭。
+      musicSourceConfigs.value = restoreMusicSourceConfigs(defaults, stored).map(merged => {
+        const defaultItem = defaults.find(item => item.id === merged.id)
+        if (merged.kind === 'aggregate' && !defaultItem?.apiBase?.trim() && (merged.apiBase === '/music-api' || merged.apiBase === `${window.location.origin}/music-api`)) {
           merged.apiBase = ''
           merged.enabled = false
         }

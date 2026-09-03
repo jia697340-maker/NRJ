@@ -8,7 +8,7 @@ import AppChatProfile from './app_ChatProfile.vue'
 import ChatListView from './chat/ChatListView.vue'
 import ChatRoomView from './chat/ChatRoomView.vue'
 import ChatSettingsView from './chat/ChatSettingsView.vue'
-import GroupChatCreateView from './chat/GroupChatCreateView.vue'
+import ChatGroupCreateModal from './chat/modals/ChatGroupCreateModal.vue'
 import GroupChatRoomView from './chat/GroupChatRoomView.vue'
 import GroupChatSettingsView from './chat/GroupChatSettingsView.vue'
 import ChatOfflineMeetView from './chat/ChatOfflineMeetView.vue'
@@ -60,7 +60,7 @@ const {
   loadMyProfile
 } = useChatState()
 
-type ViewType = 'list' | 'chat' | 'groupCreate' | 'groupSettings' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'groupRequests' | 'relationship' | 'autonomy' | 'characterProfile' | 'userProfile' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
+type ViewType = 'list' | 'chat' | 'groupSettings' | 'profile' | 'discover' | 'contacts' | 'friendRequests' | 'groupRequests' | 'relationship' | 'autonomy' | 'characterProfile' | 'userProfile' | 'createUserPersona' | 'personaLibrary' | 'chatSettings' | 'chatAppearance' | 'notificationSettings' | 'offlineMeet'
 type VoiceCallState = {
   active: boolean
   minimized: boolean
@@ -257,6 +257,9 @@ const newContactForm = ref({
   avatarKey: ''
 })
 const newContactAvatarUrl = ref<string | null>(null)
+
+// 群聊创建弹窗状态
+const groupCreateModalVisible = ref(false)
 
 // 头像与人设弹窗状态
 const avatarModalVisible = ref(false)
@@ -634,17 +637,9 @@ onUnmounted(() => {
       v-if="currentView === 'list'" 
       @close="emit('close')" 
       @open-create-contact="openCreateContact"
-      @open-create-group="currentView = 'groupCreate'"
+      @open-create-group="groupCreateModalVisible = true"
       @open-chat="openChat"
       @account-switched="handleAccountSwitched"
-    />
-
-    <GroupChatCreateView
-      v-if="currentView === 'groupCreate'"
-      :chats="mockChats"
-      :user-profile="effectiveMyProfile"
-      @back="currentView = 'list'"
-      @create="createGroup"
     />
 
     <!-- 2. 聊天视图 -->
@@ -842,6 +837,14 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 新建群聊弹窗 -->
+    <ChatGroupCreateModal
+      v-model:visible="groupCreateModalVisible"
+      :chats="mockChats"
+      :user-profile="effectiveMyProfile"
+      @created="createGroup"
+    />
 
     <!-- 头像上传弹窗 -->
       <Teleport to="body">

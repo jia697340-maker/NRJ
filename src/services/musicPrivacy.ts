@@ -2,21 +2,25 @@
 import localforage from 'localforage'
 import type { MusicBackendPrivacyCapabilities, MusicPrivacyPreferences } from '../types/music'
 
-const PRIVACY_KEY = 'clingy_music_privacy_v1'
-export const MUSIC_PRIVACY_VERSION = 1
+const PRIVACY_KEY = 'clingy_music_privacy_v2'
+export const MUSIC_PRIVACY_VERSION = 2
 
 export const defaultMusicPrivacyPreferences = (): MusicPrivacyPreferences => ({
   version: MUSIC_PRIVACY_VERSION,
-  noticeAcknowledged: false,
-  allowAnonymousPublicSources: false,
+  noticeAcknowledged: true,
+  allowAnonymousPublicSources: true,
   updatedAt: 0
 })
+
+export const normalizeMusicPrivacyPreferences = (saved: MusicPrivacyPreferences | null): MusicPrivacyPreferences => saved
+  ? { ...defaultMusicPrivacyPreferences(), ...saved, version: MUSIC_PRIVACY_VERSION }
+  : defaultMusicPrivacyPreferences()
 
 export const loadMusicPrivacyPreferences = async () => {
   try {
     const saved = await localforage.getItem<MusicPrivacyPreferences>(PRIVACY_KEY)
-    if (saved && saved.version !== MUSIC_PRIVACY_VERSION) return defaultMusicPrivacyPreferences()
-    return { ...defaultMusicPrivacyPreferences(), ...(saved || {}) }
+    // 旧代码曾把版本 1 写进 v2 存储键；迁移时保留用户已经做出的关闭选择。
+    return normalizeMusicPrivacyPreferences(saved)
   } catch { return defaultMusicPrivacyPreferences() }
 }
 
